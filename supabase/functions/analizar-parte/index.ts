@@ -84,18 +84,6 @@ Deno.serve(async (req) => {
     };
 
     const server: Record<string, number> = {};
-    let paletsFromGstock = 0;
-    let paletsFromPalets = 0;
-    const serverDebug: Array<{
-      file: string;
-      kind: string;
-      sheet?: string;
-      colHint?: string;
-      produccion?: number;
-      mujeres?: number;
-      podrido?: number;
-      palets?: number;
-    }> = [];
     const csvContexts: { name: string; kind: string; csv: string }[] = [];
 
     // Solo procesar archivos XLSX — ignorar imágenes completamente
@@ -123,71 +111,34 @@ Deno.serve(async (req) => {
       try {
         const repaired = repairXlsx(bytes);
         const wb = XLSX.read(repaired, { type: "array" });
-
-        // Importante: NO concatenar todas las hojas y sumar todo (causa duplicados).
-        // En su lugar, evaluar cada hoja y quedarnos con el mejor valor por fichero.
-        let bestPalets = 0;
-        let bestProd = 0;
-        let bestMujeres = 0;
-        let bestPodrido = 0;
-
+        const rowsAll: any[][] = [];
         for (const sn of wb.SheetNames) {
           const ws = wb.Sheets[sn];
-          const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, blankrows: false, defval: null });
-          if (!rows?.length) continue;
-
-          const dbg: any = { file: f.file_name ?? "", kind, sheet: sn };
-
-          if (kind === "gstock" || kind === "palets") {
-            const v = extractNetos(rows);
-            dbg.palets = v;
-            if (v > bestPalets) bestPalets = v;
-          } else if (kind === "tamanos") {
-            const { mujeres, podrido } = extractTamanos(rows);
-            dbg.mujeres = mujeres;
-            dbg.podrido = podrido;
-            if (mujeres > bestMujeres) bestMujeres = mujeres;
-            if (podrido > bestPodrido) bestPodrido = podrido;
-          } else if (kind === "produccion") {
-            const peso = findCol(rows, [
-              (s) => s === "peso(kg)" || s === "peso (kg)" || s === "peso kg",
-              (s) => s === "kg" || s === "kilos" || s === "kilogramos",
-              (s) => s === "netos" || s === "neto" || s === "kg netos" || s === "peso neto",
-              (s) => s.includes("peso") && s.includes("kg"),
-              (s) => s.includes("neto"),
-            ]) ??
-              findCol(rows, [(s) => s.includes("kg") || s.includes("neto") || s.includes("peso")]);
-            const v = extractProduccionTotal(rows);
-            dbg.produccion = v;
-            if (peso) dbg.colHint = colNameAt(rows, peso.headerIdx, peso.colIdx);
-            if (v > bestProd) bestProd = v;
-          }
-
-          serverDebug.push(dbg);
-
-          const csv = rows
-            .map((r) => r.map((c) => (c == null ? "" : String(c))).join(","))
-            .join("\n")
-            .slice(0, 6000);
-          csvContexts.push({ name: `${f.file_name ?? ""} · ${sn}`, kind, csv });
+          const r = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, blankrows: false, defval: null });
+          rowsAll.push(...r);
         }
 
-        // Consolidar el mejor valor encontrado por fichero
-        if (bestPalets > 0) {
-          if (kind === "gstock") paletsFromGstock = Math.max(paletsFromGstock, bestPalets);
-          else if (kind === "palets") paletsFromPalets = Math.max(paletsFromPalets, bestPalets);
+        if (kind === "gstock" || kind === "palets") {
+          const v = extractNetos(rowsAll);
+          if (v > 0 && (kind === "gstock" || !server.kg_palets_brutos)) server.kg_palets_brutos = v;
+        } else if (kind === "tamanos") {
+          const { mujeres, podrido } = extractTamanos(rowsAll);
+          if (mujeres > 0) server.kg_mujeres_calibrador = mujeres;
+          if (podrido > 0) server.kg_podrido_calibrador_auto = podrido;
+        } else if (kind === "produccion") {
+          const v = extractProduccionTotal(rowsAll);
+          if (v > 0) server.kg_produccion_calibrador = v;
         }
-        if (bestProd > 0) server.kg_produccion_calibrador = Math.max(server.kg_produccion_calibrador ?? 0, bestProd);
-        if (bestMujeres > 0) server.kg_mujeres_calibrador = Math.max(server.kg_mujeres_calibrador ?? 0, bestMujeres);
-        if (bestPodrido > 0) server.kg_podrido_calibrador_auto = Math.max(server.kg_podrido_calibrador_auto ?? 0, bestPodrido);
+
+        const csv = rowsAll
+          .map((r) => r.map((c) => (c == null ? "" : String(c))).join(","))
+          .join("\n")
+          .slice(0, 6000);
+        csvContexts.push({ name: f.file_name ?? "", kind, csv });
       } catch (e) {
         console.warn("xlsx parse fail", f.file_name, e);
       }
     }
-
-    // Consolidar palets: preferir GSTOCK.
-    if (paletsFromGstock > 0) server.kg_palets_brutos = paletsFromGstock;
-    else if (paletsFromPalets > 0) server.kg_palets_brutos = paletsFromPalets;
 
     // Construir prompt para IA (solo texto, sin imágenes)
     const hint = "Eres analista de una empresa citricola. Extrae datos del parte diario en kg.\n" +
@@ -211,8 +162,7 @@ Deno.serve(async (req) => {
     outer: for (const model of modelChain) {
       for (let attempt = 0; attempt < 3; attempt++) {
         const controller = new AbortController();
-        // Nvidia puede tardar; 12s suele cortar demasiado pronto en Edge.
-        const timeout = setTimeout(() => controller.abort(), 30000);
+        const timeout = setTimeout(() => controller.abort(), 12000);
         try {
           const aiResp = await fetch(
             "https://integrate.api.nvidia.com/v1/chat/completions",
@@ -252,7 +202,6 @@ Deno.serve(async (req) => {
           lastStatus = aiResp.status;
           lastBody = await aiResp.text();
           console.warn("Nvidia " + model + " intento " + (attempt + 1) + " -> " + aiResp.status);
-          if (lastBody) console.warn("Nvidia body (trunc):", lastBody.slice(0, 500));
 
           if (aiResp.status === 403) { aiWarning = "Nvidia rechazo la clave"; break outer; }
           if (!RETRYABLE.has(aiResp.status)) { aiWarning = "Nvidia devolvio " + aiResp.status; break; }
@@ -263,7 +212,6 @@ Deno.serve(async (req) => {
           const isAbort = e instanceof Error && e.name === "AbortError";
           lastStatus = 0;
           lastBody = isAbort ? "timeout" : (e instanceof Error ? e.message : "error");
-          console.warn("Nvidia fetch error:", lastBody);
           const delay = 500 * Math.pow(2, attempt) + Math.floor(Math.random() * 300);
           await new Promise((r) => setTimeout(r, delay));
         }
@@ -275,7 +223,7 @@ Deno.serve(async (req) => {
       else if (lastStatus === 503) aiWarning = "IA saturada, reintenta en unos minutos";
       else if (lastStatus === 0) aiWarning = "Timeout al consultar IA";
       else aiWarning = "Nvidia devolvio " + lastStatus;
-      console.error("Nvidia exhausted retries", lastStatus, (lastBody ?? "").slice(0, 500));
+      console.error("Nvidia exhausted retries", lastStatus, lastBody.slice(0, 500));
     }
 
     const mapping: Record<string, string> = {
@@ -292,7 +240,7 @@ Deno.serve(async (req) => {
       else if (isFinite(av) && av > 0) update[dbKey] = av;
     }
     aiData = aiData ?? {};
-    update.resumen_ia = { ...aiData, _server_side: server, _server_side_debug: serverDebug, _ai_warning: aiWarning };
+    update.resumen_ia = { ...aiData, _server_side: server, _ai_warning: aiWarning };
     update.estado = "Analizado";
 
     const { error: upErr } = await userClient
@@ -388,22 +336,8 @@ const norm = (s: any) =>
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
 
-// Detección robusta de filas TOTAL/SUBTOTAL para evitar duplicados.
-const isTotal = (row: any[]) => {
-  for (const c of row) {
-    const s = norm(String(c ?? ""));
-    if (!s) continue;
-    if (
-      s.includes("subtotal") ||
-      s.includes("sub total") ||
-      s.includes("total general") ||
-      s.includes("totales") ||
-      s.includes("total") ||
-      s === "tot."
-    ) return true;
-  }
-  return false;
-};
+const isTotal = (row: any[]) =>
+  row.some((c) => /\b(sub)?total(es)?\b/i.test(String(c ?? "")));
 
 function findCol(rows: any[][], predicates: ((s: string) => boolean)[]): { headerIdx: number; colIdx: number } | null {
   for (let i = 0; i < Math.min(rows.length, 50); i++) {
@@ -416,15 +350,9 @@ function findCol(rows: any[][], predicates: ((s: string) => boolean)[]): { heade
   return null;
 }
 
-function colNameAt(rows: any[][], headerIdx: number, colIdx: number): string {
-  const v = rows?.[headerIdx]?.[colIdx];
-  return String(v ?? "").trim();
-}
-
 function extractNetos(rows: any[][]): number {
   const hit = findCol(rows, [
     (s) => s === "netos" || s === "neto" || s === "kg netos" || s === "peso neto",
-    (s) => s.includes("neto"),
   ]);
   if (!hit) return 0;
   let sum = 0;
@@ -489,19 +417,9 @@ function extractTamanos(rows: any[][]): { mujeres: number; podrido: number } {
       if (v > 0) sectionValues.push(v);
     }
 
-    // Podrido puede aparecer fuera de la sección “mujeres”; intentar extraerlo de la fila.
-    if (rowVals.some((v: string) => v === "podrido")) {
-      const kg = pesoCol >= 0 ? toNum(r[pesoCol]) : 0;
-      if (kg > 0) podrido = Math.max(podrido, kg);
-      else {
-        // fallback: mayor número de la fila (suele estar en la última columna numérica)
-        let best = 0;
-        for (const cell of r) {
-          const n = toNum(cell);
-          if (n > best) best = n;
-        }
-        if (best > 0) podrido = Math.max(podrido, best);
-      }
+    if (rowVals.some((v: string) => v === "podrido") && pesoCol >= 0) {
+      const kg = toNum(r[pesoCol]);
+      if (kg > 0) podrido = kg;
     }
   }
 
@@ -511,39 +429,19 @@ function extractTamanos(rows: any[][]): { mujeres: number; podrido: number } {
 }
 
 function extractProduccionTotal(rows: any[][]): number {
-  // Caso 1: fila de resumen con "Peso (kg):" como etiqueta y valor al lado (formato Spectrim)
-  // Ej: fila 4 → [..., "Peso (kg):", ..., "110.924,49 (110.924,49)*", ...]
-  for (let i = 0; i < Math.min(rows.length, 15); i++) {
+  const peso = findCol(rows, [(s) => s === "peso(kg)" || s === "peso (kg)" || s === "peso kg"]);
+  if (!peso) return 0;
+  for (let i = peso.headerIdx + 1; i < rows.length; i++) {
     const r = rows[i] ?? [];
-    for (let j = 0; j < r.length; j++) {
-      const cell = norm(String(r[j] ?? ""));
-      if (cell === "peso (kg):" || cell === "peso(kg):") {
-        for (let k = j + 1; k < r.length; k++) {
-          if (r[k] != null && String(r[k]).trim() !== "") {
-            const v = toNum(r[k]);
-            if (v > 0) return v;
-          }
-        }
-      }
+    if (isTotal(r)) {
+      const v = toNum(r[peso.colIdx]);
+      if (v > 0) return v;
     }
   }
-
-  // Caso 2: tabla con cabecera "Peso (kg)" — coger el último valor de esa columna (fila total)
-  const peso = findCol(rows, [
-    (s) => s === "peso(kg)" || s === "peso (kg)" || s === "peso kg",
-    (s) => s === "kg" || s === "kilos" || s === "kilogramos",
-    (s) => s === "netos" || s === "neto" || s === "kg netos" || s === "peso neto",
-    (s) => s.includes("peso") && s.includes("kg"),
-    (s) => s.includes("neto"),
-  ]) ?? findCol(rows, [(s) => s.includes("kg") || s.includes("neto") || s.includes("peso")]);
-  if (!peso) return 0;
-
-  // Buscar desde abajo el último valor numérico > 0 (es el total/subtotal)
-  for (let i = rows.length - 1; i > peso.headerIdx; i--) {
-    const r = rows[i] ?? [];
-    const v = toNum(r[peso.colIdx]);
-    if (v > 0) return v;
+  let last = 0;
+  for (let i = peso.headerIdx + 1; i < rows.length; i++) {
+    const v = toNum(rows[i]?.[peso.colIdx]);
+    if (v > 0) last = v;
   }
-
-  return 0;
+  return last;
 }
