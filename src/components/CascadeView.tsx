@@ -19,8 +19,8 @@ export function CascadeView({ result }: { result: CascadeResult }) {
     { label: "PRODUCCIÓN REAL", op: "=", value: result.produccion_real, emphasis: "total" },
     { label: "Palets alta (bruto)", op: "−", value: result.palets_brutos },
     { label: "Inv. día anterior (en palets)", op: "−", value: result.inventario_anterior },
-    { label: "Inventario final (sin alta)", op: "−", value: result.inventario_final },
     { label: "Palets alta ajustados", op: "=", value: result.palets_ajustados, emphasis: "total" },
+    { label: "Inventario final (sin alta)", op: "−", value: result.inventario_final },
     { label: "DIFERENCIA BRUTA", op: "=", value: result.diferencia_bruta, emphasis: "total" },
     { label: "Podrido calibrador", op: "−", value: result.podrido_calibrador },
     { label: "Podrido manual (bolsa basura)", op: "−", value: result.podrido_manual },
@@ -63,7 +63,6 @@ export function CascadeView({ result }: { result: CascadeResult }) {
         </table>
       </div>
 
-      {/* DSJ highlight */}
       <div className={cn("rounded-lg px-4 py-4 flex items-center justify-between", semColor)}>
         <div>
           <p className="text-xs opacity-80 uppercase font-semibold">DJPMN — Diferencia justificada por podrido y merma natural</p>
