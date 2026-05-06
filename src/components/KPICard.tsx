@@ -1,6 +1,6 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { LucideIcon } from "lucide-react";
+import { LucideIcon, TrendingUp, TrendingDown } from "lucide-react";
 
 interface KPICardProps {
   label: string;
@@ -12,29 +12,31 @@ interface KPICardProps {
 }
 
 export function KPICard({ label, value, hint, icon: Icon, trend, className }: KPICardProps) {
+  const trendColor = {
+    up: "text-success",
+    down: "text-destructive",
+    neutral: "text-muted-foreground",
+  }[trend || "neutral"];
+
+  const TrendIcon = trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : null;
+
   return (
     <Card className={cn("shadow-[var(--shadow-card)]", className)}>
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-muted-foreground">{label}</p>
-            <p className="mt-1 text-2xl font-semibold tracking-tight truncate">{value}</p>
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</p>
+            <p className="mt-2 text-3xl font-bold tracking-tight">{value}</p>
             {hint && (
-              <p
-                className={cn(
-                  "mt-1 text-xs",
-                  trend === "up" && "text-success",
-                  trend === "down" && "text-destructive",
-                  (!trend || trend === "neutral") && "text-muted-foreground"
-                )}
-              >
-                {hint}
-              </p>
+              <div className={cn("mt-2 flex items-center gap-1 text-xs font-medium", trendColor)}>
+                {TrendIcon && <TrendIcon className="h-3.5 w-3.5" />}
+                <span>{hint}</span>
+              </div>
             )}
           </div>
           {Icon && (
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Icon className="h-5 w-5" />
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Icon className="h-6 w-6" />
             </div>
           )}
         </div>
