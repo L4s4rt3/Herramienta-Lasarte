@@ -2,8 +2,8 @@ import { CascadeResult } from "@/lib/cascade";
 import { formatKg, formatPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
-  BuildingFactory2, Package, TrendingDown,
-  ChartBar, Plus, Minus, Stack, Check, AlertTriangle, X,
+  Factory, Package, TrendingDown,
+  BarChart2, Plus, Minus, Layers, Check, AlertTriangle, X,
 } from "lucide-react";
 
 // ─── Sub-componentes ──────────────────────────────────────────────────────────
@@ -113,14 +113,14 @@ export function CascadeView({ result }: { result: CascadeResult }) {
     <div className="flex flex-col gap-1">
 
       {/* ── Producción real ──────────────────────────────────────── */}
-      <SectionLabel icon={BuildingFactory2} label="Producción real" />
+      <SectionLabel icon={Factory} label="Producción real" />
 
       <Row
         label="Calibrador"
         op="="
         value={result.produccion_calibrador}
         variant="base"
-        icon={ChartBar}
+        icon={BarChart2}
       />
       <Row
         label="Industria / Cítricos manual"
@@ -167,7 +167,7 @@ export function CascadeView({ result }: { result: CascadeResult }) {
         op="="
         value={result.palets_brutos}
         variant="base"
-        icon={Stack}
+        icon={Layers}
       />
       <Row
         label="Inv. día anterior (en palets)"
