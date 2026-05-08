@@ -115,9 +115,9 @@ export default function Dashboard() {
       {!loading && partes.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
           {[
-            { label: "Partes OK", n: totals.n_ok,       color: "border-l-success bg-success/5",     textColor: "text-success",     sub: "DJPMN < 1%" },
-            { label: "A revisar", n: totals.n_amarillo, color: "border-l-warning bg-warning/5",     textColor: "text-warning",     sub: "DJPMN 1–3%" },
-            { label: "Críticos",  n: totals.n_rojo,     color: "border-l-destructive bg-destructive/5", textColor: "text-destructive", sub: "DJPMN > 3%" },
+            { label: "Partes OK", n: totals.n_ok,       color: "border-l-success bg-success/5",     textColor: "text-success",     sub: "DJPMN ≤ 3%" },
+            { label: "A revisar", n: totals.n_amarillo, color: "border-l-warning bg-warning/5",     textColor: "text-warning",     sub: "DJPMN 3–5%" },
+            { label: "Críticos",  n: totals.n_rojo,     color: "border-l-destructive bg-destructive/5", textColor: "text-destructive", sub: "DJPMN > 5%" },
           ].map(({ label, n, color, textColor, sub }) => (
             <div key={label} className={cn("rounded-lg border-l-4 px-4 py-3", color)}>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
