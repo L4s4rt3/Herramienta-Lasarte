@@ -124,7 +124,7 @@ export function usePartesFiltered(filter: PartesFilter) {
     return partes.filter((p) => {
       if (filter.search && !p.date.includes(filter.search)) return false;
       if (filter.estado !== "todos" && p.estado !== filter.estado) return false;
-      if (filter.soloAlertas && Math.abs(p.cascade.dsj_pct) <= 3) return false;
+      if (filter.soloAlertas && Math.abs(p.cascade.dsj_pct) <= 5) return false;
       if (filter.desde && p.date < filter.desde) return false;
       if (filter.hasta && p.date > filter.hasta) return false;
       return true;
