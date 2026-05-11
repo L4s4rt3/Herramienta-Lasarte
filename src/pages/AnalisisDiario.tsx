@@ -1,19 +1,17 @@
 /**
  * AnalisisDiario.tsx — Página /analisis/diario
  *
- * Muestra datos agregados de las tablas de detalle (lotes_dia, palets_dia, producto_dia)
- * con 4 tabs: Proveedores | Lotes | Productos | Clientes
- *
- * Permite filtrar por rango de fechas (últimos 7/30/90 días o personalizado).
+ * Muestra datos detallados de las tablas lotes_dia, palets_dia, producto_dia
+ * con contexto temporal claro (fecha por fila, días activos, etc.)
  */
 import { useState, useMemo } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Users, Package, Boxes, UserCheck, TrendingUp } from "lucide-react";
+import { Loader2, Users, Package, Boxes, UserCheck, Calendar, AlertTriangle } from "lucide-react";
 import { useAnalisisDiario } from "@/hooks/useAnalisisDiario";
 import type {
   ProveedorResumen,
@@ -27,6 +25,18 @@ import type {
 function formatKg(v: number): string {
   if (v >= 1000) return (v / 1000).toFixed(1) + " t";
   return v.toFixed(0) + " kg";
+}
+
+function formatFecha(iso: string): string {
+  if (!iso || iso === "—") return "—";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}`;
+}
+
+function formatFechaLarga(iso: string): string {
+  if (!iso || iso === "—") return "—";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
 }
 
 function daysAgo(n: number): string {
@@ -60,6 +70,8 @@ export default function AnalisisDiario() {
 
   const { data, loading } = useAnalisisDiario(desde, hasta);
 
+  const hayDatos = data.totals.n_lotes > 0 || data.totals.n_palets > 0 || data.totals.kg_producto > 0;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -67,7 +79,7 @@ export default function AnalisisDiario() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Análisis Diario</h1>
           <p className="text-muted-foreground text-sm">
-            Desglose por proveedores, lotes, productos y clientes
+            Datos extraídos de los partes analizados ({formatFechaLarga(desde)} — {formatFechaLarga(hasta)})
           </p>
         </div>
 
@@ -80,7 +92,7 @@ export default function AnalisisDiario() {
               size="sm"
               onClick={() => setPeriodo(p)}
             >
-              {p === "7d" ? "7 días" : p === "30d" ? "30 días" : p === "90d" ? "90 días" : "Personalizado"}
+              {p === "7d" ? "7 días" : p === "30d" ? "30 días" : p === "90d" ? "90 días" : "Rango"}
             </Button>
           ))}
         </div>
@@ -105,16 +117,6 @@ export default function AnalisisDiario() {
         </div>
       )}
 
-      {/* KPI summary cards */}
-      {!loading && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <KpiMini icon={<Users className="size-4" />} label="Proveedores" value={data.totals.n_proveedores} />
-          <KpiMini icon={<Boxes className="size-4" />} label="Lotes" value={data.totals.n_lotes} sub={formatKg(data.totals.kg_lotes)} />
-          <KpiMini icon={<Package className="size-4" />} label="Palets" value={data.totals.n_palets} sub={formatKg(data.totals.kg_palets)} />
-          <KpiMini icon={<UserCheck className="size-4" />} label="Clientes" value={data.totals.n_clientes} />
-        </div>
-      )}
-
       {/* Loading */}
       {loading && (
         <div className="flex items-center justify-center py-16">
@@ -123,14 +125,48 @@ export default function AnalisisDiario() {
         </div>
       )}
 
+      {/* KPI summary cards */}
+      {!loading && hayDatos && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <KpiMini icon={<Calendar className="size-4" />} label="Días con datos" value={data.totals.n_dias} />
+          <KpiMini icon={<Users className="size-4" />} label="Proveedores" value={data.totals.n_proveedores} sub={formatKg(data.totals.kg_lotes)} />
+          <KpiMini icon={<Boxes className="size-4" />} label="Lotes" value={data.totals.n_lotes} />
+          <KpiMini icon={<Package className="size-4" />} label="Palets" value={data.totals.n_palets} sub={formatKg(data.totals.kg_palets)} />
+          <KpiMini icon={<UserCheck className="size-4" />} label="Clientes" value={data.totals.n_clientes} />
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!loading && !hayDatos && (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <AlertTriangle className="size-8 mx-auto text-amber-500 mb-3" />
+            <p className="font-medium">No hay datos de detalle para este periodo</p>
+            <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
+              Los datos aparecen cuando analizas un parte con archivos Excel.
+              El modelo IA extrae lotes, palets y productos automáticamente.
+              Prueba a analizar un parte reciente desde la lista de Partes.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Tabs */}
-      {!loading && (
+      {!loading && hayDatos && (
         <Tabs defaultValue="proveedores" className="w-full">
           <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="proveedores">Proveedores</TabsTrigger>
-            <TabsTrigger value="lotes">Lotes</TabsTrigger>
-            <TabsTrigger value="productos">Productos</TabsTrigger>
-            <TabsTrigger value="clientes">Clientes</TabsTrigger>
+            <TabsTrigger value="proveedores">
+              Proveedores {data.proveedores.length > 0 && <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5">{data.proveedores.length}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="lotes">
+              Lotes {data.lotes.length > 0 && <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5">{data.lotes.length}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="productos">
+              Productos {data.productos.length > 0 && <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5">{data.productos.length}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="clientes">
+              Clientes {data.clientes.length > 0 && <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5">{data.clientes.length}</Badge>}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="proveedores">
@@ -149,16 +185,6 @@ export default function AnalisisDiario() {
             <TabClientes data={data.clientes} />
           </TabsContent>
         </Tabs>
-      )}
-
-      {/* Empty state */}
-      {!loading && data.totals.n_lotes === 0 && data.totals.n_palets === 0 && (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            <p>No hay datos de detalle para el periodo seleccionado.</p>
-            <p className="text-sm mt-1">Analiza partes con archivos Excel para poblar estos datos.</p>
-          </CardContent>
-        </Card>
       )}
     </div>
   );
@@ -183,12 +209,13 @@ function KpiMini({ icon, label, value, sub }: { icon: React.ReactNode; label: st
 // ─── Tab: Proveedores ───────────────────────────────────────────────────────
 
 function TabProveedores({ data }: { data: ProveedorResumen[] }) {
-  if (data.length === 0) return <EmptyTab msg="Sin datos de proveedores" />;
+  if (data.length === 0) return <EmptyTab msg="Sin datos de proveedores — se extraen del informe de producción" />;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Proveedores ({data.length})</CardTitle>
+        <CardDescription>Agrupado desde lotes de producción. Fuente: informe_produccion.xlsx</CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
@@ -197,21 +224,27 @@ function TabProveedores({ data }: { data: ProveedorResumen[] }) {
               <TableHead>Productor</TableHead>
               <TableHead className="text-right">Kg total</TableHead>
               <TableHead className="text-right">Lotes</TableHead>
+              <TableHead className="text-right">Días</TableHead>
               <TableHead className="text-right">T/h avg</TableHead>
-              <TableHead className="text-right">Peso fruta (g)</TableHead>
+              <TableHead className="text-right">Peso fruta</TableHead>
+              <TableHead>Últimas fechas</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {data.map((p) => (
               <TableRow key={p.productor}>
                 <TableCell className="font-medium">{p.productor}</TableCell>
-                <TableCell className="text-right">{formatKg(p.kg_total)}</TableCell>
+                <TableCell className="text-right font-mono">{formatKg(p.kg_total)}</TableCell>
                 <TableCell className="text-right">{p.n_lotes}</TableCell>
+                <TableCell className="text-right">{p.n_dias}</TableCell>
                 <TableCell className="text-right">
-                  {p.tph_avg !== null ? p.tph_avg.toFixed(1) : "—"}
+                  {p.tph_avg !== null ? p.tph_avg.toFixed(1) + " T/h" : "—"}
                 </TableCell>
                 <TableCell className="text-right">
-                  {p.peso_fruta_avg_g !== null ? p.peso_fruta_avg_g.toFixed(0) : "—"}
+                  {p.peso_fruta_avg_g !== null ? p.peso_fruta_avg_g.toFixed(0) + " g" : "—"}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {p.fechas.slice(-3).map(formatFecha).join(", ")}
                 </TableCell>
               </TableRow>
             ))}
@@ -225,18 +258,20 @@ function TabProveedores({ data }: { data: ProveedorResumen[] }) {
 // ─── Tab: Lotes ─────────────────────────────────────────────────────────────
 
 function TabLotes({ data }: { data: LoteResumen[] }) {
-  if (data.length === 0) return <EmptyTab msg="Sin datos de lotes" />;
+  if (data.length === 0) return <EmptyTab msg="Sin datos de lotes — se extraen del informe de producción" />;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Lotes ({data.length})</CardTitle>
+        <CardDescription>Detalle por lote individual. Ordenados por fecha (más reciente primero)</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Fecha</TableHead>
                 <TableHead>Lote</TableHead>
                 <TableHead>Productor</TableHead>
                 <TableHead>Producto</TableHead>
@@ -244,26 +279,27 @@ function TabLotes({ data }: { data: LoteResumen[] }) {
                 <TableHead className="text-right">T/h</TableHead>
                 <TableHead className="text-right">Duración</TableHead>
                 <TableHead className="text-right">Peso fruta</TableHead>
-                <TableHead>Hora inicio</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.map((l, i) => (
-                <TableRow key={`${l.lote_codigo}-${i}`}>
+                <TableRow key={`${l.fecha}-${l.lote_codigo}-${i}`}>
+                  <TableCell>
+                    <Badge variant="outline" className="text-xs font-mono">{formatFecha(l.fecha)}</Badge>
+                  </TableCell>
                   <TableCell className="font-mono text-xs">{l.lote_codigo}</TableCell>
-                  <TableCell>{l.productor}</TableCell>
+                  <TableCell className="font-medium">{l.productor}</TableCell>
                   <TableCell>{l.producto}</TableCell>
-                  <TableCell className="text-right">{formatKg(l.kg_peso_total)}</TableCell>
+                  <TableCell className="text-right font-mono">{formatKg(l.kg_peso_total)}</TableCell>
                   <TableCell className="text-right">
                     {l.toneladas_hora !== null ? l.toneladas_hora.toFixed(1) : "—"}
                   </TableCell>
                   <TableCell className="text-right">
-                    {l.duracion_min !== null ? `${l.duracion_min} min` : "—"}
+                    {l.duracion_min !== null ? `${l.duracion_min}'` : "—"}
                   </TableCell>
                   <TableCell className="text-right">
-                    {l.peso_fruta_promedio_g !== null ? `${l.peso_fruta_promedio_g.toFixed(0)} g` : "—"}
+                    {l.peso_fruta_promedio_g !== null ? `${l.peso_fruta_promedio_g.toFixed(0)}g` : "—"}
                   </TableCell>
-                  <TableCell className="text-xs">{l.hora_inicio ?? "—"}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -277,12 +313,13 @@ function TabLotes({ data }: { data: LoteResumen[] }) {
 // ─── Tab: Productos ─────────────────────────────────────────────────────────
 
 function TabProductos({ data }: { data: ProductoResumen[] }) {
-  if (data.length === 0) return <EmptyTab msg="Sin datos de productos" />;
+  if (data.length === 0) return <EmptyTab msg="Sin datos de productos — se extraen del informe de producto/tamaños" />;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Productos ({data.length})</CardTitle>
+        <CardDescription>Agrupado por producto. Fuente: informe_producto.xlsx / informe_tamanos.xlsx</CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
@@ -291,6 +328,7 @@ function TabProductos({ data }: { data: ProductoResumen[] }) {
               <TableHead>Producto</TableHead>
               <TableHead className="text-right">Kg total</TableHead>
               <TableHead className="text-right">Líneas</TableHead>
+              <TableHead className="text-right">Días</TableHead>
               <TableHead>Destino</TableHead>
               <TableHead>Formatos</TableHead>
             </TableRow>
@@ -299,8 +337,9 @@ function TabProductos({ data }: { data: ProductoResumen[] }) {
             {data.map((p) => (
               <TableRow key={p.producto}>
                 <TableCell className="font-medium">{p.producto}</TableCell>
-                <TableCell className="text-right">{formatKg(p.kg_total)}</TableCell>
+                <TableCell className="text-right font-mono">{formatKg(p.kg_total)}</TableCell>
                 <TableCell className="text-right">{p.n_lineas}</TableCell>
+                <TableCell className="text-right">{p.n_dias}</TableCell>
                 <TableCell>
                   {p.grupo_destino ? (
                     <Badge variant="secondary" className="text-xs">{p.grupo_destino}</Badge>
@@ -321,12 +360,13 @@ function TabProductos({ data }: { data: ProductoResumen[] }) {
 // ─── Tab: Clientes ──────────────────────────────────────────────────────────
 
 function TabClientes({ data }: { data: ClienteResumen[] }) {
-  if (data.length === 0) return <EmptyTab msg="Sin datos de clientes" />;
+  if (data.length === 0) return <EmptyTab msg="Sin datos de clientes — se extraen del informe de palets/GStock" />;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Clientes ({data.length})</CardTitle>
+        <CardDescription>Agrupado por cliente. Fuente: palets.xlsx / GSTOCK.xlsx</CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
@@ -335,6 +375,7 @@ function TabClientes({ data }: { data: ClienteResumen[] }) {
               <TableHead>Cliente</TableHead>
               <TableHead className="text-right">Palets</TableHead>
               <TableHead className="text-right">Kg total</TableHead>
+              <TableHead className="text-right">Días</TableHead>
               <TableHead>Productos</TableHead>
               <TableHead>Destinos</TableHead>
             </TableRow>
@@ -344,9 +385,10 @@ function TabClientes({ data }: { data: ClienteResumen[] }) {
               <TableRow key={c.cliente}>
                 <TableCell className="font-medium">{c.cliente}</TableCell>
                 <TableCell className="text-right">{c.n_palets}</TableCell>
-                <TableCell className="text-right">{formatKg(c.kg_total)}</TableCell>
+                <TableCell className="text-right font-mono">{formatKg(c.kg_total)}</TableCell>
+                <TableCell className="text-right">{c.n_dias}</TableCell>
                 <TableCell className="text-xs">
-                  {c.productos.length > 0 ? c.productos.slice(0, 3).join(", ") + (c.productos.length > 3 ? "…" : "") : "—"}
+                  {c.productos.length > 0 ? c.productos.slice(0, 3).join(", ") + (c.productos.length > 3 ? ` (+${c.productos.length - 3})` : "") : "—"}
                 </TableCell>
                 <TableCell className="text-xs">
                   {c.destinos.length > 0 ? c.destinos.join(", ") : "—"}
@@ -365,7 +407,10 @@ function TabClientes({ data }: { data: ClienteResumen[] }) {
 function EmptyTab({ msg }: { msg: string }) {
   return (
     <Card>
-      <CardContent className="py-8 text-center text-muted-foreground">{msg}</CardContent>
+      <CardContent className="py-8 text-center text-muted-foreground">
+        <p>{msg}</p>
+        <p className="text-xs mt-1">Analiza partes con los Excel correspondientes para que aparezcan aquí.</p>
+      </CardContent>
     </Card>
   );
 }
