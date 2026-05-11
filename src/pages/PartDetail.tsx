@@ -10,10 +10,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/StatusBadge";
 import { CascadeView } from "@/components/CascadeView";
+import { AnalisisDashboard } from "@/components/AnalisisDashboard";
 import { computeCascade } from "@/lib/cascade";
 import { formatDate, formatKg } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
-import { ArrowLeft, Save, Lock, Unlock, Upload, Trash2, Sparkles, FileText, Table2, CheckCircle2 } from "lucide-react";
+import { useAnalisisInformes } from "@/hooks/useAnalisisInformes";
+import { ArrowLeft, Save, Lock, Unlock, Upload, Trash2, Sparkles, FileText, Table2, CheckCircle2, BarChart3, Loader2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExportPartesDialog } from "@/components/ExportPartesDialog";
 import {
@@ -100,6 +102,9 @@ export default function PartDetail() {
   const [uploadingCat, setUploadingCat] = useState<CategoryId | null>(null);
   const [parsing, setParsing] = useState(false);
   const [parsePreview, setParsePreview] = useState<ParsePreview | null>(null);
+
+  // ── Hook de análisis completo ─────────────────────────────────────────
+  const { estado: estadoAnalisis, analisis, progreso: progresoAnalisis, analizar, reset: resetAnalisis } = useAnalisisInformes();
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -403,7 +408,7 @@ export default function PartDetail() {
     load();
   }
 
-  // ── Análisis IA (edge function) ───────────────────────────────────────────
+  // ── Análisis IA (edge function — legacy) ─────────────────────────────────
   async function analyze() {
     if (!parte) return;
     setAnalyzing(true);
@@ -426,6 +431,46 @@ export default function PartDetail() {
       variant: data?.ai_warning ? "destructive" : undefined,
     });
     load();
+  }
+
+  // ── Análisis completo de informes Excel (nuevo dashboard) ─────────────────
+  async function handleAnalizarInformes() {
+    if (!parte || !user) return;
+
+    // Usar archivos ya cargados en memoria si los hay (desde handleParseInforme)
+    // Si no, descargar desde Supabase Storage todos los Excel del parte
+    const excelArchivos = archivos.filter((a) =>
+      a.mime_type?.includes("spreadsheet") ||
+      a.mime_type?.includes("excel") ||
+      a.file_name?.endsWith(".xlsx") ||
+      a.file_name?.endsWith(".xls")
+    );
+
+    if (excelArchivos.length === 0) {
+      toast({
+        title: "Sin archivos Excel",
+        description: "Sube los informes en el tab 'Importar' o 'Archivos' primero",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const files: File[] = [];
+    for (const a of excelArchivos) {
+      if (!a.file_path) continue;
+      const { data: blob, error } = await supabase.storage
+        .from("partes-archivos")
+        .download(a.file_path);
+      if (error || !blob) { console.error("Error descargando", a.file_name, error); continue; }
+      files.push(new File([blob], a.file_name ?? "informe.xlsx", { type: a.mime_type ?? "" }));
+    }
+
+    if (files.length === 0) {
+      toast({ title: "No se pudieron descargar los archivos", variant: "destructive" });
+      return;
+    }
+
+    await analizar(files, parte.id, user.id);
   }
 
   if (loading || !parte || !cascade) {
@@ -452,9 +497,19 @@ export default function PartDetail() {
         </div>
         <div className="flex flex-wrap gap-2">
           <ExportPartesDialog defaultFrom={parte.date} defaultTo={parte.date} />
-          <Button variant="secondary" onClick={analyze} disabled={analyzing || readOnly}>
+          <Button
+            variant="default"
+            onClick={handleAnalizarInformes}
+            disabled={estadoAnalisis === "parseando" || estadoAnalisis === "calculando" || estadoAnalisis === "guardando"}
+          >
+            {(estadoAnalisis === "parseando" || estadoAnalisis === "calculando" || estadoAnalisis === "guardando")
+              ? <><Loader2 className="h-4 w-4 animate-spin" />{progresoAnalisis || "Analizando…"}</>
+              : <><BarChart3 className="h-4 w-4" />Analizar informes</>
+            }
+          </Button>
+          <Button variant="ghost" size="sm" onClick={analyze} disabled={analyzing || readOnly} className="text-muted-foreground">
             <Sparkles className="h-4 w-4" />
-            {analyzing ? "Analizando…" : "Analizar archivos con IA"}
+            <span className="hidden sm:inline">IA legacy</span>
           </Button>
           <Button variant="outline" onClick={toggleEstado}>
             {parte.estado === "Borrador"
@@ -479,12 +534,73 @@ export default function PartDetail() {
       </Card>
 
       <Tabs defaultValue="archivos" className="w-full">
-        <TabsList className="grid w-full grid-cols-4 sm:w-auto sm:inline-flex">
+        <TabsList className="grid w-full grid-cols-5 sm:w-auto sm:inline-flex">
+          <TabsTrigger value="analisis">
+            <BarChart3 className="h-3.5 w-3.5 mr-1" />
+            Análisis
+            {analisis && <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-success inline-block" />}
+          </TabsTrigger>
           <TabsTrigger value="informes">Importar</TabsTrigger>
           <TabsTrigger value="archivos">Archivos</TabsTrigger>
           <TabsTrigger value="manual">Datos manuales</TabsTrigger>
           <TabsTrigger value="notas">Notas & IA</TabsTrigger>
         </TabsList>
+
+        {/* ── TAB: Análisis dashboard ──────────────────────────────────────── */}
+        <TabsContent value="analisis" className="mt-4">
+          {estadoAnalisis === "idle" && !analisis && (
+            <Card>
+              <CardContent className="py-16 text-center space-y-4">
+                <BarChart3 className="h-10 w-10 text-muted-foreground/30 mx-auto" />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Análisis completo de informes</p>
+                  <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                    Sube los informes Excel en el tab "Importar" y pulsa <strong>Analizar informes</strong>
+                    para obtener KPIs, alertas y gráficos del día.
+                  </p>
+                </div>
+                <Button onClick={handleAnalizarInformes} disabled={archivos.filter(a => a.file_name?.endsWith(".xlsx") || a.file_name?.endsWith(".xls")).length === 0}>
+                  <BarChart3 className="h-4 w-4" />
+                  Analizar ahora
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {(estadoAnalisis === "parseando" || estadoAnalisis === "calculando" || estadoAnalisis === "guardando") && (
+            <Card>
+              <CardContent className="py-12 text-center space-y-3">
+                <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+                <p className="text-sm font-medium">{progresoAnalisis || "Procesando…"}</p>
+                <p className="text-xs text-muted-foreground">Esto tarda unos segundos</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {estadoAnalisis === "error" && (
+            <Card>
+              <CardContent className="py-12 text-center space-y-3">
+                <p className="text-sm text-destructive font-medium">Error en el análisis</p>
+                <Button variant="outline" size="sm" onClick={resetAnalisis}>Reintentar</Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {estadoAnalisis === "listo" && analisis && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">
+                  Análisis de {archivos.filter(a => a.file_name?.endsWith(".xlsx")).length} archivos ·{" "}
+                  {new Date(analisis.fecha_analisis).toLocaleString("es-ES")}
+                </p>
+                <Button variant="ghost" size="sm" onClick={resetAnalisis} className="text-xs h-7">
+                  Limpiar
+                </Button>
+              </div>
+              <AnalisisDashboard analisis={analisis} />
+            </div>
+          )}
+        </TabsContent>
 
         {/* ── TAB: Importar informes (M1) ─────────────────────────────────── */}
         <TabsContent value="informes" className="mt-4">
