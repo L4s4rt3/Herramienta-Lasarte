@@ -3,11 +3,13 @@
  *
  * Producción real = Calibrador + Industria manual − Mujeres(L) − Reciclado Z1 − Reciclado Z2
  * Palets ajustados = Palets brutos − Inventario sin alta de D-1
- * (los palets sin alta de D-1 se dan de alta en D, por eso se restan a los brutos de D)
  * Diferencia bruta = Producción real − Palets ajustados − Inventario final sin alta (D)
  * Mermas totales = Podrido calibrador + Podrido manual (bolsa basura)
- * DSJ = Diferencia bruta − Mermas totales   (diferencia justificada por podrido y merma natural)
+ * DSJ = Diferencia bruta − Mermas totales
  * % DSJ = DSJ / Producción real
+ *
+ * M3 — Destino de fruta (opcional, desde Informe_producto + Informe_tamaños):
+ *   Rendimiento comercial = kg_exportacion / produccion_real
  */
 
 export interface CascadeInput {
@@ -20,10 +22,18 @@ export interface CascadeInput {
   kg_industria_manual: number;
   kg_reciclado_malla_z1: number;
   kg_reciclado_malla_z2: number;
-  kg_inventario_sin_alta: number;          // inventario final del día sin dar de alta
-  kg_podrido_bolsa_basura: number;         // podrido manual (bolsa basura)
+  kg_inventario_sin_alta: number;
+  kg_podrido_bolsa_basura: number;
   // Arrastre
   kg_inventario_anterior_sin_alta: number;
+
+  // M3 — Destino de fruta (opcionales, desde informes Excel)
+  kg_exportacion?: number;
+  kg_mercado?: number;
+  kg_industria_destino?: number;  // industria generada (distinto de industria_manual)
+
+  // M6 — Eficiencia de máquina (opcional, desde Informe_produccion)
+  tph_promedio?: number;
 }
 
 export interface CascadeResult {
@@ -48,10 +58,24 @@ export interface CascadeResult {
   dsj: number;
   dsj_pct: number;
   semaforo: "verde" | "amarillo" | "rojo";
+
+  // M3 — Destino de fruta
+  kg_exportacion: number;
+  kg_mercado: number;
+  kg_industria_destino: number;
+  /** Producción real − exportación − mercado − industria = pérdida real no justificada */
+  kg_perdida_real: number;
+  /** kg exportación / producción real · 100 */
+  rendimiento_comercial_pct: number;
+  /** true si tenemos datos de destino de los informes */
+  tiene_datos_destino: boolean;
+
+  // M6 — Eficiencia de máquina
+  tph_promedio: number | null;
 }
 
 export function computeCascade(input: CascadeInput): CascadeResult {
-  const n = (v: number) => Number(v) || 0;
+  const n = (v: number | undefined) => Number(v) || 0;
 
   const produccion_calibrador = n(input.kg_produccion_calibrador);
   const industria_manual = n(input.kg_industria_manual);
@@ -65,8 +89,6 @@ export function computeCascade(input: CascadeInput): CascadeResult {
   const palets_brutos = n(input.kg_palets_brutos);
   const inventario_anterior = n(input.kg_inventario_anterior_sin_alta);
   const inventario_final = n(input.kg_inventario_sin_alta);
-  // Metodología: ajustar palets por el inventario sin alta del día anterior.
-  // El inventario final del día (sin alta) se descuenta en la diferencia bruta.
   const palets_ajustados = palets_brutos - inventario_anterior;
 
   const diferencia_bruta = produccion_real - palets_ajustados - inventario_final;
@@ -81,6 +103,32 @@ export function computeCascade(input: CascadeInput): CascadeResult {
   const abs = Math.abs(dsj_pct);
   const semaforo: "verde" | "amarillo" | "rojo" =
     abs <= 3 ? "verde" : abs <= 5 ? "amarillo" : "rojo";
+
+  // M3 — Destino de fruta
+  const tiene_datos_destino =
+    (input.kg_exportacion ?? 0) > 0 ||
+    (input.kg_mercado ?? 0) > 0 ||
+    (input.kg_industria_destino ?? 0) > 0;
+
+  const kg_exportacion = n(input.kg_exportacion);
+  const kg_mercado = n(input.kg_mercado);
+  const kg_industria_destino = n(input.kg_industria_destino);
+
+  const kg_destino_conocido = kg_exportacion + kg_mercado + kg_industria_destino;
+  const kg_perdida_real = tiene_datos_destino
+    ? Math.max(0, produccion_real - kg_destino_conocido)
+    : 0;
+
+  const rendimiento_comercial_pct =
+    tiene_datos_destino && produccion_real > 0
+      ? (kg_exportacion / produccion_real) * 100
+      : 0;
+
+  // M6 — T/h
+  const tph_promedio =
+    input.tph_promedio !== undefined && input.tph_promedio !== null
+      ? input.tph_promedio
+      : null;
 
   return {
     produccion_calibrador,
@@ -100,5 +148,12 @@ export function computeCascade(input: CascadeInput): CascadeResult {
     dsj,
     dsj_pct,
     semaforo,
+    kg_exportacion,
+    kg_mercado,
+    kg_industria_destino,
+    kg_perdida_real,
+    rendimiento_comercial_pct,
+    tiene_datos_destino,
+    tph_promedio,
   };
 }

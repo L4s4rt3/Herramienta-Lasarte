@@ -9,6 +9,8 @@ import {
   Users,
   ChevronRight,
   TrendingDown,
+  Warehouse,
+  BarChart3,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
 import { useI18n } from "@/lib/i18n";
@@ -51,11 +53,14 @@ import { cn } from "@/lib/utils";
 
 // ─── Route metadata ────────────────────────────────────────────────────────────
 const ROUTE_META: Record<string, { label: string; parent?: string; parentLabel?: string }> = {
-  "/":                    { label: "Dashboard" },
-  "/partes":              { label: "Partes", parent: "/", parentLabel: "Dashboard" },
-  "/dsj":                 { label: "Calculadora DJPMN", parent: "/", parentLabel: "Dashboard" },
-  "/costes/consumos":     { label: "Consumos", parent: "/", parentLabel: "Dashboard" },
-  "/costes/asistencia":   { label: "Asistencia", parent: "/", parentLabel: "Dashboard" },
+  "/":                       { label: "Dashboard" },
+  "/partes":                 { label: "Partes", parent: "/", parentLabel: "Dashboard" },
+  "/dsj":                    { label: "Calculadora DJPMN", parent: "/", parentLabel: "Dashboard" },
+  "/costes/consumos":        { label: "Consumos", parent: "/", parentLabel: "Dashboard" },
+  "/costes/asistencia":      { label: "Asistencia", parent: "/", parentLabel: "Dashboard" },
+  "/stock":                  { label: "Stock en cámara", parent: "/", parentLabel: "Dashboard" },
+  "/productores":            { label: "Productores", parent: "/", parentLabel: "Dashboard" },
+  "/analisis/calibres":      { label: "Calibres", parent: "/", parentLabel: "Dashboard" },
 };
 
 // ─── Top bar ───────────────────────────────────────────────────────────────────
@@ -105,7 +110,6 @@ export default function AppLayout() {
   const costesRoutes = ["/costes/consumos", "/costes/asistencia"];
   const isCostesActive = costesRoutes.some((r) => location.pathname.startsWith(r));
   const [costesOpen, setCostesOpen] = useState(isCostesActive);
-
   // User initials for avatar
   const initials = user?.email
     ? user.email.slice(0, 2).toUpperCase()
@@ -180,6 +184,54 @@ export default function AppLayout() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
+            </SidebarMenu>
+          </SidebarGroup>
+
+          {/* ── Producción (collapsible group) ── */}
+          <SidebarGroup>
+            <SidebarGroupLabel>Producción</SidebarGroupLabel>
+            <SidebarMenu>
+              {/* Stock en cámara */}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname === "/stock"}
+                  tooltip="Stock en cámara"
+                >
+                  <NavLink to="/stock">
+                    <Warehouse />
+                    <span>Stock en cámara</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              {/* Productores */}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname === "/productores"}
+                  tooltip="Productores"
+                >
+                  <NavLink to="/productores">
+                    <Users />
+                    <span>Productores</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              {/* Análisis calibres */}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname === "/analisis/calibres"}
+                  tooltip="Calibres"
+                >
+                  <NavLink to="/analisis/calibres">
+                    <BarChart3 />
+                    <span>Calibres</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroup>
 

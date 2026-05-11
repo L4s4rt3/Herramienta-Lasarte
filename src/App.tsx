@@ -15,6 +15,9 @@ import DSJCalculator from "./pages/DSJCalculator";
 import ConsumoCostes from "./pages/ConsumoCostes";
 import Asistencia from "./pages/Asistencia";
 import NotFound from "./pages/NotFound";
+import StockCamara from "./pages/StockCamara";
+import Productores from "./pages/Productores";
+import CalibreAnalysis from "./pages/CalibreAnalysis";
 
 const queryClient = new QueryClient();
 
@@ -41,6 +44,9 @@ const App = () => (
                 <Route path="/dsj" element={<DSJCalculator />} />
                 <Route path="/costes/consumos" element={<ConsumoCostes />} />
                 <Route path="/costes/asistencia" element={<Asistencia />} />
+                <Route path="/stock" element={<StockCamara />} />
+                <Route path="/productores" element={<Productores />} />
+                <Route path="/analisis/calibres" element={<CalibreAnalysis />} />
               </Route>
               <Route path="/index" element={<Navigate to="/" replace />} />
               <Route path="*" element={<NotFound />} />

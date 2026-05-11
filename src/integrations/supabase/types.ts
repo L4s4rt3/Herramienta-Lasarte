@@ -130,9 +130,174 @@ export type Database = {
       lotes_dia: {
         Row: {
           created_at: string
+          duracion_min: number | null
           id: string
+          kg_peso_total: number
           lote_codigo: string | null
           notas: string | null
+          part_id: string
+          peso_fruta_promedio_g: number | null
+          productor: string | null
+          producto: string | null
+          source: Database["public"]["Enums"]["data_source"]
+          toneladas_hora: number | null
+          user_id: string
+          hora_inicio: string | null
+        }
+        Insert: {
+          created_at?: string
+          duracion_min?: number | null
+          id?: string
+          kg_peso_total?: number
+          lote_codigo?: string | null
+          notas?: string | null
+          part_id: string
+          peso_fruta_promedio_g?: number | null
+          productor?: string | null
+          producto?: string | null
+          source?: Database["public"]["Enums"]["data_source"]
+          toneladas_hora?: number | null
+          user_id: string
+          hora_inicio?: string | null
+        }
+        Update: {
+          created_at?: string
+          duracion_min?: number | null
+          id?: string
+          kg_peso_total?: number
+          lote_codigo?: string | null
+          notas?: string | null
+          part_id?: string
+          peso_fruta_promedio_g?: number | null
+          productor?: string | null
+          producto?: string | null
+          source?: Database["public"]["Enums"]["data_source"]
+          toneladas_hora?: number | null
+          user_id?: string
+          hora_inicio?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lotes_dia_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "partes_diarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      palets_dia: {
+        Row: {
+          cliente: string | null
+          created_at: string
+          destino: string | null
+          id: string
+          kg_neto: number
+          n_cajas: number | null
+          palet_id: string | null
+          part_id: string
+          producto: string | null
+          situacion: string | null
+          source: Database["public"]["Enums"]["data_source"]
+          user_id: string
+        }
+        Insert: {
+          cliente?: string | null
+          created_at?: string
+          destino?: string | null
+          id?: string
+          kg_neto?: number
+          n_cajas?: number | null
+          palet_id?: string | null
+          part_id: string
+          producto?: string | null
+          situacion?: string | null
+          source?: Database["public"]["Enums"]["data_source"]
+          user_id: string
+        }
+        Update: {
+          cliente?: string | null
+          created_at?: string
+          destino?: string | null
+          id?: string
+          kg_neto?: number
+          n_cajas?: number | null
+          palet_id?: string | null
+          part_id?: string
+          producto?: string | null
+          situacion?: string | null
+          source?: Database["public"]["Enums"]["data_source"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "palets_dia_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "partes_diarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calibres_dia: {
+        Row: {
+          calibre: string
+          clase: string | null
+          created_at: string
+          grupo_destino: string | null
+          id: string
+          kg: number
+          part_id: string
+          pct: number
+          piezas: number
+          source: Database["public"]["Enums"]["data_source"]
+          user_id: string
+        }
+        Insert: {
+          calibre: string
+          clase?: string | null
+          created_at?: string
+          grupo_destino?: string | null
+          id?: string
+          kg?: number
+          part_id: string
+          pct?: number
+          piezas?: number
+          source?: Database["public"]["Enums"]["data_source"]
+          user_id: string
+        }
+        Update: {
+          calibre?: string
+          clase?: string | null
+          created_at?: string
+          grupo_destino?: string | null
+          id?: string
+          kg?: number
+          part_id?: string
+          pct?: number
+          piezas?: number
+          source?: Database["public"]["Enums"]["data_source"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calibres_dia_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "partes_diarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      producto_dia: {
+        Row: {
+          created_at: string
+          formato_caja: string | null
+          grupo_destino: string | null
+          id: string
+          kg: number
+          linea: string | null
+          n_cajas: number | null
           part_id: string
           producto: string | null
           source: Database["public"]["Enums"]["data_source"]
@@ -140,9 +305,12 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          formato_caja?: string | null
+          grupo_destino?: string | null
           id?: string
-          lote_codigo?: string | null
-          notas?: string | null
+          kg?: number
+          linea?: string | null
+          n_cajas?: number | null
           part_id: string
           producto?: string | null
           source?: Database["public"]["Enums"]["data_source"]
@@ -150,9 +318,12 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          formato_caja?: string | null
+          grupo_destino?: string | null
           id?: string
-          lote_codigo?: string | null
-          notas?: string | null
+          kg?: number
+          linea?: string | null
+          n_cajas?: number | null
           part_id?: string
           producto?: string | null
           source?: Database["public"]["Enums"]["data_source"]
@@ -160,7 +331,7 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "lotes_dia_part_id_fkey"
+            foreignKeyName: "producto_dia_part_id_fkey"
             columns: ["part_id"]
             isOneToOne: false
             referencedRelation: "partes_diarios"

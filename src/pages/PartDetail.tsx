@@ -13,9 +13,18 @@ import { CascadeView } from "@/components/CascadeView";
 import { computeCascade } from "@/lib/cascade";
 import { formatDate, formatKg } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
-import { ArrowLeft, Save, Lock, Unlock, Upload, Trash2, Sparkles, FileText } from "lucide-react";
+import { ArrowLeft, Save, Lock, Unlock, Upload, Trash2, Sparkles, FileText, Table2, CheckCircle2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExportPartesDialog } from "@/components/ExportPartesDialog";
+import {
+  parseInforme,
+  detectarTipoInforme,
+  ParsedProduccion,
+  ParsedPalets,
+  ParsedProducto,
+  ParsedCalibres,
+} from "@/lib/parsers";
+import * as XLSX from "xlsx";
 
 interface Parte {
   id: string;
@@ -72,6 +81,13 @@ interface Archivo {
   uploaded_at: string;
 }
 
+// ─── Tipos para el parser de informes ────────────────────────────────────────
+interface ParsePreview {
+  tipo: string;
+  resumen: string;
+  campos: Record<string, number | string | null>;
+}
+
 export default function PartDetail() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
@@ -82,6 +98,8 @@ export default function PartDetail() {
   const [saving, setSaving] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [uploadingCat, setUploadingCat] = useState<CategoryId | null>(null);
+  const [parsing, setParsing] = useState(false);
+  const [parsePreview, setParsePreview] = useState<ParsePreview | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -196,6 +214,196 @@ export default function PartDetail() {
     load();
   }
 
+  // ── M1: Parser de informes Excel ─────────────────────────────────────────
+  async function handleParseInforme(fileList: FileList | File[]) {
+    if (!user || !parte) return;
+    const files = Array.from(fileList);
+    if (files.length === 0) return;
+    setParsing(true);
+    setParsePreview(null);
+
+    for (const file of files) {
+      const result = await parseInforme(file);
+      if (!result) {
+        toast({
+          title: "No se pudo detectar el tipo de informe",
+          description: `${file.name} — revisa que sea un informe del calibrador Spectrim`,
+          variant: "destructive",
+        });
+        continue;
+      }
+
+      if (result.tipo === "produccion") {
+        const r = result as ParsedProduccion;
+        // Actualizar parte con kg_produccion_calibrador y guardar lotes en Supabase
+        setParte((p) => p ? { ...p, kg_produccion_calibrador: r.kg_total } : p);
+
+        // Guardar lotes en lotes_dia (borrar los anteriores del parte primero)
+        await supabase.from("lotes_dia").delete().eq("part_id", parte.id);
+        if (r.lotes.length > 0) {
+          const inserts = r.lotes.map((l) => ({
+            part_id: parte.id,
+            user_id: user.id,
+            lote_codigo: l.lote_codigo,
+            productor: l.productor,
+            producto: l.producto,
+            kg_peso_total: l.kg_peso_total,
+            toneladas_hora: l.toneladas_hora,
+            duracion_min: l.duracion_min,
+            peso_fruta_promedio_g: l.peso_fruta_promedio_g,
+            hora_inicio: l.hora_inicio,
+            source: "manual" as const,
+          }));
+          const { error } = await supabase.from("lotes_dia").insert(inserts as any);
+          if (error) console.error("Error guardando lotes:", error);
+        }
+
+        // Guardar en partes_diarios
+        await supabase
+          .from("partes_diarios")
+          .update({ kg_produccion_calibrador: r.kg_total })
+          .eq("id", parte.id);
+
+        setParsePreview({
+          tipo: "Informe producción",
+          resumen: `${r.lotes.length} lotes · ${r.kg_total.toFixed(0)} kg totales`,
+          campos: {
+            "Producción calibrador (kg)": r.kg_total,
+            "T/h promedio": r.tph_promedio ? r.tph_promedio.toFixed(2) : "N/D",
+            "Nº lotes": r.lotes.length,
+            "Productores": [...new Set(r.lotes.map((l) => l.productor).filter(Boolean))].join(", ") || "N/D",
+          },
+        });
+
+        toast({
+          title: `Informe producción parseado`,
+          description: `${r.lotes.length} lotes · ${r.kg_total.toFixed(0)} kg → kg_produccion_calibrador actualizado`,
+        });
+      }
+
+      if (result.tipo === "palets") {
+        const r = result as ParsedPalets;
+        setParte((p) => p
+          ? {
+              ...p,
+              kg_palets_brutos: r.kg_total_bruto,
+              kg_inventario_sin_alta: r.kg_camara,
+            }
+          : p
+        );
+
+        // Guardar palets en palets_dia
+        await supabase.from("palets_dia" as any).delete().eq("part_id", parte.id);
+        if (r.palets.length > 0) {
+          const inserts = r.palets.map((p) => ({
+            part_id: parte.id,
+            user_id: user.id,
+            palet_id: p.palet_id,
+            producto: p.producto,
+            cliente: p.cliente,
+            destino: p.destino,
+            kg_neto: p.kg_neto,
+            situacion: p.situacion,
+            n_cajas: p.n_cajas,
+            source: "manual" as const,
+          }));
+          await supabase.from("palets_dia" as any).insert(inserts);
+        }
+
+        await supabase
+          .from("partes_diarios")
+          .update({
+            kg_palets_brutos: r.kg_total_bruto,
+            kg_inventario_sin_alta: r.kg_camara,
+          })
+          .eq("id", parte.id);
+
+        setParsePreview({
+          tipo: "Informe palets",
+          resumen: `${r.palets.length} palets · ${r.kg_total_bruto.toFixed(0)} kg brutos`,
+          campos: {
+            "Palets brutos (kg)": r.kg_total_bruto,
+            "En cámara / kg (Sit=S)": r.kg_camara,
+            "Facturado / kg (Sit=F)": r.kg_facturado,
+            "Ficticio / kg": r.kg_ficticio,
+            "Nº palets": r.palets.length,
+          },
+        });
+
+        toast({
+          title: "Informe palets parseado",
+          description: `${r.kg_total_bruto.toFixed(0)} kg brutos · ${r.kg_camara.toFixed(0)} kg en cámara`,
+        });
+      }
+
+      if (result.tipo === "producto") {
+        const r = result as ParsedProducto;
+        // Guardar producto_dia
+        await supabase.from("producto_dia" as any).delete().eq("part_id", parte.id);
+        if (r.lineas.length > 0) {
+          const inserts = r.lineas.map((l) => ({
+            part_id: parte.id,
+            user_id: user.id,
+            linea: l.linea,
+            producto: l.producto,
+            formato_caja: l.formato_caja,
+            kg: l.kg,
+            n_cajas: l.cajas,
+            grupo_destino: l.grupo_destino,
+            source: "manual" as const,
+          }));
+          await supabase.from("producto_dia" as any).insert(inserts);
+        }
+        setParsePreview({
+          tipo: "Informe producto",
+          resumen: `${r.lineas.length} líneas · ${r.kg_total.toFixed(0)} kg`,
+          campos: {
+            "Exportación (kg)": r.kg_exportacion,
+            "Mercado nacional (kg)": r.kg_mercado,
+            "Industria (kg)": r.kg_industria,
+            "Total (kg)": r.kg_total,
+          },
+        });
+        toast({ title: "Informe producto parseado", description: `${r.kg_total.toFixed(0)} kg · ${r.lineas.length} líneas` });
+      }
+
+      if (result.tipo === "calibres") {
+        const r = result as ParsedCalibres;
+        // Guardar calibres_dia
+        await supabase.from("calibres_dia" as any).delete().eq("part_id", parte.id);
+        if (r.calibres.length > 0) {
+          const inserts = r.calibres.map((c) => ({
+            part_id: parte.id,
+            user_id: user.id,
+            calibre: c.calibre,
+            piezas: c.piezas,
+            kg: c.kg,
+            pct: c.pct,
+            clase: c.clase,
+            grupo_destino: c.grupo_destino,
+            source: "manual" as const,
+          }));
+          await supabase.from("calibres_dia" as any).insert(inserts);
+        }
+        setParsePreview({
+          tipo: "Informe tamaños / calibres",
+          resumen: `${r.calibres.length} calibres · ${r.kg_total.toFixed(0)} kg`,
+          campos: {
+            "Exportación (kg)": r.kg_exportacion,
+            "Mercado nacional (kg)": r.kg_mercado,
+            "Industria (kg)": r.kg_industria,
+            "Total (kg)": r.kg_total,
+          },
+        });
+        toast({ title: "Informe calibres parseado", description: `${r.calibres.length} calibres detectados` });
+      }
+    }
+
+    setParsing(false);
+    load();
+  }
+
+  // ── Análisis IA (edge function) ───────────────────────────────────────────
   async function analyze() {
     if (!parte) return;
     setAnalyzing(true);
@@ -206,11 +414,8 @@ export default function PartDetail() {
     if (error) {
       const detail = typeof error.context === "string"
         ? (() => {
-            try {
-              return JSON.parse(error.context)?.error ?? error.message;
-            } catch {
-              return error.context;
-            }
+            try { return JSON.parse(error.context)?.error ?? error.message; }
+            catch { return error.context; }
           })()
         : error.message;
       return toast({ title: "Error analizando", description: detail, variant: "destructive" });
@@ -274,12 +479,87 @@ export default function PartDetail() {
       </Card>
 
       <Tabs defaultValue="archivos" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 sm:w-auto sm:inline-flex">
+        <TabsList className="grid w-full grid-cols-4 sm:w-auto sm:inline-flex">
+          <TabsTrigger value="informes">Importar</TabsTrigger>
           <TabsTrigger value="archivos">Archivos</TabsTrigger>
           <TabsTrigger value="manual">Datos manuales</TabsTrigger>
           <TabsTrigger value="notas">Notas & IA</TabsTrigger>
         </TabsList>
 
+        {/* ── TAB: Importar informes (M1) ─────────────────────────────────── */}
+        <TabsContent value="informes" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Table2 className="h-4 w-4" />
+                Importar informes del calibrador
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-md bg-muted/50 border px-4 py-3 text-sm space-y-1.5">
+                <p className="font-medium">Archivos soportados:</p>
+                <ul className="text-muted-foreground space-y-0.5 text-xs ml-2">
+                  <li>• <strong>Informe_produccion.xlsx</strong> → rellena kg calibrador, guarda lotes + T/h por productor</li>
+                  <li>• <strong>palets_*.xlsx</strong> → rellena kg palets brutos + stock en cámara (col. Sit)</li>
+                  <li>• <strong>Informe_producto.xlsx</strong> → destino de fruta (exportación/mercado/industria)</li>
+                  <li>• <strong>Informe_tamaños*.xlsx</strong> → curva de calibres y clase/calidad</li>
+                </ul>
+              </div>
+
+              <label className="flex">
+                <input
+                  type="file"
+                  multiple
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  disabled={readOnly || parsing}
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      handleParseInforme(e.target.files);
+                    }
+                    e.target.value = "";
+                  }}
+                />
+                <Button
+                  asChild
+                  variant="default"
+                  className="cursor-pointer"
+                  disabled={readOnly || parsing}
+                >
+                  <span>
+                    <Upload className="h-4 w-4" />
+                    {parsing ? "Parseando…" : "Seleccionar informes Excel"}
+                  </span>
+                </Button>
+              </label>
+
+              {parsePreview && (
+                <div className="rounded-lg border border-success/30 bg-success/5 px-4 py-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-success" />
+                    <span className="text-sm font-medium text-success">{parsePreview.tipo}</span>
+                    <span className="text-xs text-muted-foreground">— {parsePreview.resumen}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+                    {Object.entries(parsePreview.campos).map(([k, v]) => (
+                      <div key={k} className="flex justify-between text-xs border-b border-border/40 py-0.5">
+                        <span className="text-muted-foreground">{k}</span>
+                        <span className="tabular-nums font-medium">{String(v)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">Datos guardados. El operario puede revisar y ajustar en "Datos manuales".</p>
+                </div>
+              )}
+
+              <p className="text-xs text-muted-foreground">
+                Los campos rellenados automáticamente aparecen en "Datos manuales" para revisión. El operario confirma o corrige antes de guardar.
+              </p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── TAB: Archivos adjuntos ──────────────────────────────────────── */}
         <TabsContent value="archivos" className="mt-4">
           <Card>
             <CardHeader>

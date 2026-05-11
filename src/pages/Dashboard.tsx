@@ -12,8 +12,10 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate, formatKg, formatPct } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
-import { Truck, Package, TrendingDown, Recycle, FileText, Plus, AlertTriangle } from "lucide-react";
+import { Truck, Package, TrendingDown, Recycle, FileText, Plus, AlertTriangle, Globe, Gauge } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 // ─── Tooltip personalizado para el gráfico compuesto ─────────────────────────
 
@@ -57,6 +59,50 @@ export default function Dashboard() {
   const { t } = useI18n();
   const { partes, loading, totals, chartSeries } = usePartesDashboard(30);
 
+  // M6 — T/h promedio de los últimos 30 días (desde lotes_dia)
+  const { data: tphData } = useQuery({
+    queryKey: ["dashboard-tph"],
+    queryFn: async () => {
+      const since = new Date();
+      since.setDate(since.getDate() - 30);
+      const { data } = await (supabase as any)
+        .from("lotes_dia")
+        .select("toneladas_hora, duracion_min")
+        .gte("created_at", since.toISOString())
+        .not("toneladas_hora", "is", null);
+      const rows = (data ?? []).filter((r: any) => r.toneladas_hora > 0);
+      if (rows.length === 0) return null;
+      const totalMin = rows.reduce((s: number, r: any) => s + (r.duracion_min ?? 1), 0);
+      const tph =
+        totalMin > 0
+          ? rows.reduce((s: number, r: any) => s + r.toneladas_hora * (r.duracion_min ?? 1), 0) / totalMin
+          : rows.reduce((s: number, r: any) => s + r.toneladas_hora, 0) / rows.length;
+      return tph;
+    },
+  });
+
+  // M3 — Rendimiento comercial acumulado (desde calibres_dia / producto_dia)
+  const { data: rcData } = useQuery({
+    queryKey: ["dashboard-rendimiento-comercial"],
+    queryFn: async () => {
+      const since = new Date();
+      since.setDate(since.getDate() - 30);
+      const { data } = await (supabase as any)
+        .from("calibres_dia")
+        .select("kg, grupo_destino")
+        .gte("created_at", since.toISOString());
+      if (!data || data.length === 0) return null;
+      const kg_exp = (data as any[])
+        .filter((r) => {
+          const g = (r.grupo_destino ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+          return g.includes("export");
+        })
+        .reduce((s: number, r: any) => s + (r.kg ?? 0), 0);
+      const kg_total = (data as any[]).reduce((s: number, r: any) => s + (r.kg ?? 0), 0);
+      return kg_total > 0 ? (kg_exp / kg_total) * 100 : null;
+    },
+  });
+
   // Datos de los últimos 10 partes para la lista
   const recentPartes = useMemo(
     () => [...partes].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10),
@@ -78,9 +124,9 @@ export default function Dashboard() {
       </header>
 
       {/* KPIs */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {loading ? (
-          Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28" />)
+          Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-28" />)
         ) : (
           <>
             <KPICard
@@ -106,6 +152,20 @@ export default function Dashboard() {
               hint={`${totals.dsj_pct >= 0 ? "+" : ""}${totals.dsj_pct.toFixed(2)}%`}
               icon={TrendingDown}
               trend={Math.abs(totals.dsj_pct) <= 3 ? "neutral" : "down"}
+            />
+            <KPICard
+              label="Eficiencia máquina"
+              value={tphData ? `${tphData.toFixed(2)} T/h` : "Sin datos"}
+              hint="promedio 30 días"
+              icon={Gauge}
+              trend={tphData ? (tphData >= 16 ? "up" : tphData >= 12 ? "neutral" : "down") : "neutral"}
+            />
+            <KPICard
+              label="Rend. comercial"
+              value={rcData !== null && rcData !== undefined ? `${rcData.toFixed(1)}%` : "Sin datos"}
+              hint="exportación / producción"
+              icon={Globe}
+              trend={rcData ? (rcData >= 70 ? "up" : rcData >= 50 ? "neutral" : "down") : "neutral"}
             />
           </>
         )}

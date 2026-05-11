@@ -307,6 +307,7 @@ export default function PartesList() {
                     <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-left">% DJPMN</th>
                     <ColHead label="DJPMN (kg)"   sk="dsj_pct" right />
                     <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-right whitespace-nowrap">Mermas</th>
+                    <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-right whitespace-nowrap">T/h</th>
                     <th className="w-10" />
                   </tr>
                 </thead>
@@ -337,6 +338,9 @@ export default function PartesList() {
                           {formatKg(p.cascade.dsj)}
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{formatKg(p.cascade.mermas_totales)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-muted-foreground text-xs">
+                          {p.cascade.tph_promedio ? `${p.cascade.tph_promedio.toFixed(1)} T/h` : "—"}
+                        </td>
                         <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
@@ -380,6 +384,7 @@ export default function PartesList() {
                         {formatKg(totals.dsj)}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums text-muted-foreground font-semibold">{formatKg(totals.mermas_totales)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground text-xs">—</td>
                       <td />
                     </tr>
                   </tfoot>
