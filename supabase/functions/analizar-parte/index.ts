@@ -179,8 +179,8 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
     let succeeded = false;
 
     const providers = [
-      ...(DEEPSEEK_API_KEY ? [{ name: "DeepSeek", url: "https://api.deepseek.com/v1/chat/completions", key: DEEPSEEK_API_KEY, model: "deepseek-chat" }] : []),
-      ...(NVIDIA_API_KEY ? [{ name: "NVIDIA", url: "https://integrate.api.nvidia.com/v1/chat/completions", key: NVIDIA_API_KEY, model: "qwen/qwen3-next-80b-a3b-instruct" }] : []),
+      ...(DEEPSEEK_API_KEY ? [{ name: "DeepSeek", url: "https://api.deepseek.com/v1/chat/completions", key: DEEPSEEK_API_KEY, model: "deepseek-chat", jsonMode: true }] : []),
+      ...(NVIDIA_API_KEY ? [{ name: "NVIDIA", url: "https://integrate.api.nvidia.com/v1/chat/completions", key: NVIDIA_API_KEY, model: "qwen/qwen3-next-80b-a3b-instruct", jsonMode: false }] : []),
     ];
     const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 
@@ -190,22 +190,30 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
         const timeout = setTimeout(() => controller.abort(), 60000);
         try {
           console.log("[IA] " + provider.name + " modelo=" + provider.model + " intento=" + (attempt + 1));
+          const reqBody: any = {
+            model: provider.model,
+            messages: [{ role: "system", content: sysPrompt }, { role: "user", content: finalUserMsg }],
+            temperature: 0.1,
+          };
+          if (provider.jsonMode) reqBody.response_format = { type: "json_object" };
           const aiResp = await fetch(provider.url, {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": "Bearer " + provider.key },
             signal: controller.signal,
-            body: JSON.stringify({
-              model: provider.model,
-              messages: [{ role: "system", content: sysPrompt }, { role: "user", content: finalUserMsg }],
-              response_format: { type: "json_object" },
-              temperature: 0.1,
-            }),
+            body: JSON.stringify(reqBody),
           });
           clearTimeout(timeout);
           if (aiResp.ok) {
             const aiJson = await aiResp.json();
-            const text = aiJson?.choices?.[0]?.message?.content ?? "{}";
-            try { aiData = JSON.parse(text); succeeded = true; } catch { aiWarning = provider.name + ": JSON invalido"; aiData = {}; succeeded = true; }
+            let text = aiJson?.choices?.[0]?.message?.content ?? "{}";
+            // Strip markdown code fences if model wraps JSON in ```json ... ```
+            text = text.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+            try { aiData = JSON.parse(text); succeeded = true; } catch {
+              // Fallback: find JSON object in response text
+              const jsonMatch = text.match(/\{[\s\S]*\}/);
+              if (jsonMatch) { try { aiData = JSON.parse(jsonMatch[0]); succeeded = true; } catch { /* fall through */ } }
+              if (!succeeded) { aiWarning = provider.name + ": JSON invalido"; aiData = {}; succeeded = true; }
+            }
             console.log("[IA] " + provider.name + " OK");
             break outer;
           }
