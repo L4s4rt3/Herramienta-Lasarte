@@ -597,7 +597,7 @@ export default function PartDetail() {
                   Limpiar
                 </Button>
               </div>
-              <AnalisisDashboard analisis={analisis} fechaParte={parte.date} />
+              <AnalisisDashboard analisis={analisis} />
             </div>
           )}
         </TabsContent>

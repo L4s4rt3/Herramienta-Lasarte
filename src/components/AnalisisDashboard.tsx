@@ -9,20 +9,16 @@
  * CALIBRES:    Variedad · Clase · Grupo · Peso(kg) · Tamaños
  *              + agrupación Tipo (Export/Mujeres/No export/No comercial)
  * PALETS:      Producto · Fecha · Cliente · Kg Netos
- *
- * Incluye vista "Reporte Ejecutivo" con formato Markdown exportable.
  */
-import { useState } from "react";
 import { type AnalisisDia, type Alerta } from "@/lib/analisis";
 import { formatKg, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { ReporteOperativo } from "@/components/ReporteOperativo";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts";
-import { AlertTriangle, Info, XCircle, Globe, Gauge, Package, Warehouse, TrendingUp, Users, BarChart3, FileText } from "lucide-react";
+import { AlertTriangle, Info, XCircle, Globe, Gauge, Package, Warehouse, TrendingUp, Users, BarChart3 } from "lucide-react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -121,12 +117,9 @@ function ColDiag({ cols }: { cols?: string[] }) {
 
 
 // ─── Componente principal ─────────────────────────────────────────────────────
-interface Props { analisis: AnalisisDia; fechaParte?: string; }
+interface Props { analisis: AnalisisDia; }
 
-type Vista = "dashboard" | "reporte";
-
-export function AnalisisDashboard({ analisis, fechaParte }: Props) {
-  const [vista, setVista] = useState<Vista>("dashboard");
+export function AnalisisDashboard({ analisis }: Props) {
   const { kpis, alertas, calibres, clientes, top_productos, productores,
           serie_calibres, serie_destinos, serie_tph_por_lote } = analisis;
 
@@ -135,42 +128,6 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
 
   return (
     <div className="space-y-8">
-
-      {/* ── Selector de vista ─────────────────────────────────────────── */}
-      <div className="flex items-center gap-1 p-1 bg-muted rounded-lg w-fit">
-        <button
-          onClick={() => setVista("dashboard")}
-          className={cn(
-            "px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5",
-            vista === "dashboard"
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <BarChart3 className="h-3.5 w-3.5" />
-          Dashboard Visual
-        </button>
-        <button
-          onClick={() => setVista("reporte")}
-          className={cn(
-            "px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5",
-            vista === "reporte"
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <FileText className="h-3.5 w-3.5" />
-          Reporte Ejecutivo
-        </button>
-      </div>
-
-      {/* ── Vista Reporte Ejecutivo ───────────────────────────────────── */}
-      {vista === "reporte" && (
-        <ReporteOperativo analisis={analisis} fechaParte={fechaParte} />
-      )}
-
-      {/* ── Vista Dashboard ───────────────────────────────────────────── */}
-      {vista === "dashboard" && (<>
 
       {/* ── Alertas ───────────────────────────────────────────────────── */}
       {alertas.length > 0 && (
@@ -372,8 +329,6 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
       <p className="text-[10px] text-muted-foreground text-right">
         Análisis generado · {new Date(analisis.fecha_analisis).toLocaleString("es-ES")}
       </p>
-
-      </>)}
     </div>
   );
 }
