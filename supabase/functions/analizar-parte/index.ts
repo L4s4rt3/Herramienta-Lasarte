@@ -180,14 +180,14 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
 
     const providers = [
       ...(DEEPSEEK_API_KEY ? [{ name: "DeepSeek", url: "https://api.deepseek.com/v1/chat/completions", key: DEEPSEEK_API_KEY, model: "deepseek-chat" }] : []),
-      ...(NVIDIA_API_KEY ? [{ name: "NVIDIA", url: "https://integrate.api.nvidia.com/v1/chat/completions", key: NVIDIA_API_KEY, model: "deepseek-ai/deepseek-v4-flash" }] : []),
+      ...(NVIDIA_API_KEY ? [{ name: "NVIDIA", url: "https://integrate.api.nvidia.com/v1/chat/completions", key: NVIDIA_API_KEY, model: "qwen/qwen3-next-80b-a3b-instruct" }] : []),
     ];
     const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 
     outer: for (const provider of providers) {
       for (let attempt = 0; attempt < 3; attempt++) {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 90000);
+        const timeout = setTimeout(() => controller.abort(), 60000);
         try {
           console.log("[IA] " + provider.name + " modelo=" + provider.model + " intento=" + (attempt + 1));
           const aiResp = await fetch(provider.url, {
