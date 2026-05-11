@@ -3,7 +3,7 @@ import { formatKg, formatPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   Factory, Package, TrendingDown,
-  BarChart2, Plus, Minus, Layers, Check, AlertTriangle, X,
+  BarChart2, Minus, Layers, Check, AlertTriangle, X,
   Globe, ShoppingCart, Wrench, Flame, Gauge,
 } from "lucide-react";
 
@@ -147,7 +147,6 @@ export function CascadeView({ result }: { result: CascadeResult }) {
       <SectionLabel icon={Factory} label="Producción real" />
 
       <Row label="Calibrador" op="=" value={result.produccion_calibrador} variant="base" icon={BarChart2} />
-      <Row label="Industria / Cítricos manual" op="+" value={result.industria_manual} variant="sub" icon={Plus} />
       <Row label="Mujeres clase L" op="−" value={result.mujeres} variant="sub" icon={Minus} />
       <Row label="Reciclado malla Z1" op="−" value={result.reciclado_z1} variant="sub" icon={Minus} />
       <Row label="Reciclado malla Z2" op="−" value={result.reciclado_z2} variant="sub" icon={Minus} />
