@@ -61,7 +61,6 @@ const ROUTE_META: Record<string, { label: string; parent?: string; parentLabel?:
   "/stock":                  { label: "Stock en cámara", parent: "/", parentLabel: "Dashboard" },
   "/productores":            { label: "Productores", parent: "/", parentLabel: "Dashboard" },
   "/analisis/calibres":      { label: "Calibres", parent: "/", parentLabel: "Dashboard" },
-  "/analisis/informes":      { label: "Análisis Informes", parent: "/", parentLabel: "Dashboard" },
 };
 
 // ─── Top bar ───────────────────────────────────────────────────────────────────
@@ -216,20 +215,6 @@ export default function AppLayout() {
                   <NavLink to="/productores">
                     <Users />
                     <span>Productores</span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-
-              {/* Análisis informes */}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location.pathname === "/analisis/informes"}
-                  tooltip="Análisis Informes"
-                >
-                  <NavLink to="/analisis/informes">
-                    <FileText />
-                    <span>Análisis Informes</span>
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>

@@ -18,7 +18,6 @@ import NotFound from "./pages/NotFound";
 import StockCamara from "./pages/StockCamara";
 import Productores from "./pages/Productores";
 import CalibreAnalysis from "./pages/CalibreAnalysis";
-import AnalisisInformes from "./pages/AnalisisInformes";
 
 const queryClient = new QueryClient();
 
@@ -48,7 +47,6 @@ const App = () => (
                 <Route path="/stock" element={<StockCamara />} />
                 <Route path="/productores" element={<Productores />} />
                 <Route path="/analisis/calibres" element={<CalibreAnalysis />} />
-                <Route path="/analisis/informes" element={<AnalisisInformes />} />
               </Route>
               <Route path="/index" element={<Navigate to="/" replace />} />
               <Route path="*" element={<NotFound />} />

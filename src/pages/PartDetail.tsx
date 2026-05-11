@@ -497,20 +497,6 @@ export default function PartDetail() {
         </div>
         <div className="flex flex-wrap gap-2">
           <ExportPartesDialog defaultFrom={parte.date} defaultTo={parte.date} />
-          <Button
-            variant="default"
-            onClick={handleAnalizarInformes}
-            disabled={estadoAnalisis === "parseando" || estadoAnalisis === "calculando" || estadoAnalisis === "guardando"}
-          >
-            {(estadoAnalisis === "parseando" || estadoAnalisis === "calculando" || estadoAnalisis === "guardando")
-              ? <><Loader2 className="h-4 w-4 animate-spin" />{progresoAnalisis || "Analizando…"}</>
-              : <><BarChart3 className="h-4 w-4" />Analizar informes</>
-            }
-          </Button>
-          <Button variant="ghost" size="sm" onClick={analyze} disabled={analyzing || readOnly} className="text-muted-foreground">
-            <Sparkles className="h-4 w-4" />
-            <span className="hidden sm:inline">IA legacy</span>
-          </Button>
           <Button variant="outline" onClick={toggleEstado}>
             {parte.estado === "Borrador"
               ? <><Lock className="h-4 w-4" />Cerrar</>
@@ -533,81 +519,25 @@ export default function PartDetail() {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="archivos" className="w-full">
-        <TabsList className="grid w-full grid-cols-5 sm:w-auto sm:inline-flex">
-          <TabsTrigger value="analisis">
+      <Tabs defaultValue="informes" className="w-full">
+        <TabsList className="grid w-full grid-cols-4 sm:w-auto sm:inline-flex">
+          <TabsTrigger value="informes">
             <BarChart3 className="h-3.5 w-3.5 mr-1" />
-            Análisis
+            Informes & Análisis
             {analisis && <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-success inline-block" />}
           </TabsTrigger>
-          <TabsTrigger value="informes">Importar</TabsTrigger>
-          <TabsTrigger value="archivos">Archivos</TabsTrigger>
           <TabsTrigger value="manual">Datos manuales</TabsTrigger>
-          <TabsTrigger value="notas">Notas & IA</TabsTrigger>
+          <TabsTrigger value="archivos">Archivos</TabsTrigger>
+          <TabsTrigger value="notas">Notas</TabsTrigger>
         </TabsList>
 
-        {/* ── TAB: Análisis dashboard ──────────────────────────────────────── */}
-        <TabsContent value="analisis" className="mt-4">
-          {estadoAnalisis === "idle" && !analisis && (
-            <Card>
-              <CardContent className="py-16 text-center space-y-4">
-                <BarChart3 className="h-10 w-10 text-muted-foreground/30 mx-auto" />
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">Análisis completo de informes</p>
-                  <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                    Sube los informes Excel en el tab "Importar" y pulsa <strong>Analizar informes</strong>
-                    para obtener KPIs, alertas y gráficos del día.
-                  </p>
-                </div>
-                <Button onClick={handleAnalizarInformes} disabled={archivos.filter(a => a.file_name?.endsWith(".xlsx") || a.file_name?.endsWith(".xls")).length === 0}>
-                  <BarChart3 className="h-4 w-4" />
-                  Analizar ahora
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {(estadoAnalisis === "parseando" || estadoAnalisis === "calculando" || estadoAnalisis === "guardando") && (
-            <Card>
-              <CardContent className="py-12 text-center space-y-3">
-                <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
-                <p className="text-sm font-medium">{progresoAnalisis || "Procesando…"}</p>
-                <p className="text-xs text-muted-foreground">Esto tarda unos segundos</p>
-              </CardContent>
-            </Card>
-          )}
-
-          {estadoAnalisis === "error" && (
-            <Card>
-              <CardContent className="py-12 text-center space-y-3">
-                <p className="text-sm text-destructive font-medium">Error en el análisis</p>
-                <Button variant="outline" size="sm" onClick={resetAnalisis}>Reintentar</Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {estadoAnalisis === "listo" && analisis && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-muted-foreground">
-                  Análisis de {archivos.filter(a => a.file_name?.endsWith(".xlsx")).length} archivos ·{" "}
-                  {new Date(analisis.fecha_analisis).toLocaleString("es-ES")}
-                </p>
-                <Button variant="ghost" size="sm" onClick={resetAnalisis} className="text-xs h-7">
-                  Limpiar
-                </Button>
-              </div>
-              <AnalisisDashboard analisis={analisis} />
-            </div>
-          )}
-        </TabsContent>
-
-        {/* ── TAB: Importar informes (M1) ─────────────────────────────────── */}
-        <TabsContent value="informes" className="mt-4">
+        {/* ── TAB: Informes & Análisis (unificado) ─────────────────────────── */}
+        <TabsContent value="informes" className="mt-4 space-y-4">
+          {/* Upload zone */}
           <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Table2 className="h-4 w-4" />
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Upload className="h-4 w-4" />
                 Importar informes del calibrador
               </CardTitle>
             </CardHeader>
@@ -615,39 +545,57 @@ export default function PartDetail() {
               <div className="rounded-md bg-muted/50 border px-4 py-3 text-sm space-y-1.5">
                 <p className="font-medium">Archivos soportados:</p>
                 <ul className="text-muted-foreground space-y-0.5 text-xs ml-2">
-                  <li>• <strong>Informe_produccion.xlsx</strong> → rellena kg calibrador, guarda lotes + T/h por productor</li>
-                  <li>• <strong>palets_*.xlsx</strong> → rellena kg palets brutos + stock en cámara (col. Sit)</li>
-                  <li>• <strong>Informe_producto.xlsx</strong> → destino de fruta (exportación/mercado/industria)</li>
-                  <li>• <strong>Informe_tamaños*.xlsx</strong> → curva de calibres y clase/calidad</li>
+                  <li>• <strong>Informe_produccion.xlsx</strong> → lotes, T/h, productores</li>
+                  <li>• <strong>palets_*.xlsx</strong> → palets, stock en cámara</li>
+                  <li>• <strong>Informe_producto.xlsx</strong> → producto empacado</li>
+                  <li>• <strong>Informe_tamaños*.xlsx</strong> → calibres y calidad</li>
                 </ul>
               </div>
 
-              <label className="flex">
-                <input
-                  type="file"
-                  multiple
-                  accept=".xlsx,.xls,.csv"
-                  className="hidden"
-                  disabled={readOnly || parsing}
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files.length > 0) {
-                      handleParseInforme(e.target.files);
-                    }
-                    e.target.value = "";
-                  }}
-                />
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex">
+                  <input
+                    type="file"
+                    multiple
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    disabled={readOnly || parsing}
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        handleParseInforme(e.target.files);
+                      }
+                      e.target.value = "";
+                    }}
+                  />
+                  <Button
+                    asChild
+                    variant="outline"
+                    className="cursor-pointer"
+                    disabled={readOnly || parsing}
+                  >
+                    <span>
+                      <Upload className="h-4 w-4" />
+                      {parsing ? "Parseando…" : "Subir informes Excel"}
+                    </span>
+                  </Button>
+                </label>
+
                 <Button
-                  asChild
-                  variant="default"
-                  className="cursor-pointer"
-                  disabled={readOnly || parsing}
+                  onClick={handleAnalizarInformes}
+                  disabled={estadoAnalisis === "parseando" || estadoAnalisis === "calculando" || estadoAnalisis === "guardando" || archivos.filter(a => a.file_name?.endsWith(".xlsx") || a.file_name?.endsWith(".xls")).length === 0}
                 >
-                  <span>
-                    <Upload className="h-4 w-4" />
-                    {parsing ? "Parseando…" : "Seleccionar informes Excel"}
-                  </span>
+                  {(estadoAnalisis === "parseando" || estadoAnalisis === "calculando" || estadoAnalisis === "guardando")
+                    ? <><Loader2 className="h-4 w-4 animate-spin" />{progresoAnalisis || "Analizando…"}</>
+                    : <><BarChart3 className="h-4 w-4" />Analizar informes</>
+                  }
                 </Button>
-              </label>
+
+                {analisis && (
+                  <Button variant="ghost" size="sm" onClick={resetAnalisis} className="text-xs text-muted-foreground">
+                    Limpiar análisis
+                  </Button>
+                )}
+              </div>
 
               {parsePreview && (
                 <div className="rounded-lg border border-success/30 bg-success/5 px-4 py-3 space-y-2">
@@ -664,15 +612,42 @@ export default function PartDetail() {
                       </div>
                     ))}
                   </div>
-                  <p className="text-xs text-muted-foreground">Datos guardados. El operario puede revisar y ajustar en "Datos manuales".</p>
                 </div>
               )}
-
-              <p className="text-xs text-muted-foreground">
-                Los campos rellenados automáticamente aparecen en "Datos manuales" para revisión. El operario confirma o corrige antes de guardar.
-              </p>
             </CardContent>
           </Card>
+
+          {/* Analysis results */}
+          {(estadoAnalisis === "parseando" || estadoAnalisis === "calculando" || estadoAnalisis === "guardando") && (
+            <Card>
+              <CardContent className="py-12 text-center space-y-3">
+                <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+                <p className="text-sm font-medium">{progresoAnalisis || "Procesando…"}</p>
+                <p className="text-xs text-muted-foreground">Esto tarda unos segundos</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {estadoAnalisis === "error" && (
+            <Card>
+              <CardContent className="py-8 text-center space-y-3">
+                <p className="text-sm text-destructive font-medium">Error en el análisis</p>
+                <Button variant="outline" size="sm" onClick={resetAnalisis}>Reintentar</Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {estadoAnalisis === "listo" && analisis && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">
+                  Análisis de {archivos.filter(a => a.file_name?.endsWith(".xlsx")).length} archivos ·{" "}
+                  {new Date(analisis.fecha_analisis).toLocaleString("es-ES")}
+                </p>
+              </div>
+              <AnalisisDashboard analisis={analisis} />
+            </div>
+          )}
         </TabsContent>
 
         {/* ── TAB: Archivos adjuntos ──────────────────────────────────────── */}
@@ -739,8 +714,7 @@ export default function PartDetail() {
                 })}
               </div>
               <div className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                Sube los archivos y pulsa <strong>Analizar archivos con IA</strong> para extraer automáticamente
-                la producción del calibrador, palets brutos, mujeres y podrido del calibrador.
+                Sube fotos de lotes, archivos GSTOCK y otros documentos del día.
               </div>
             </CardContent>
           </Card>

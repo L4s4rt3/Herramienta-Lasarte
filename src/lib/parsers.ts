@@ -203,8 +203,38 @@ function sheetToRows(sheet: XLSX.WorkSheet): Record<string, any>[] {
 
 function num(v: any): number {
   if (v === null || v === undefined || v === "" || v === "-") return 0;
-  const s = String(v).replace(/\./g, "").replace(",", ".");
-  const parsed = parseFloat(s);
+  const s = String(v).trim();
+  // Detect format: if has both . and , determine which is decimal
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+  let cleaned: string;
+
+  if (hasComma && hasDot) {
+    // Both present: last one is the decimal separator
+    const lastComma = s.lastIndexOf(",");
+    const lastDot = s.lastIndexOf(".");
+    if (lastComma > lastDot) {
+      // Format: 1.234,56 (European: dot=thousands, comma=decimal)
+      cleaned = s.replace(/\./g, "").replace(",", ".");
+    } else {
+      // Format: 1,234.56 (English: comma=thousands, dot=decimal)
+      cleaned = s.replace(/,/g, "");
+    }
+  } else if (hasComma && !hasDot) {
+    // Only comma: could be decimal (3,5) or thousands (1,234)
+    // If exactly 3 digits after comma, treat as thousands; otherwise decimal
+    const afterComma = s.split(",")[1];
+    if (afterComma && afterComma.length === 3 && s.split(",").length === 2) {
+      cleaned = s.replace(",", ""); // thousands separator
+    } else {
+      cleaned = s.replace(",", "."); // decimal separator
+    }
+  } else {
+    // Only dots or no separators — treat as-is (dot is decimal)
+    cleaned = s;
+  }
+
+  const parsed = parseFloat(cleaned);
   return isNaN(parsed) ? 0 : parsed;
 }
 
@@ -270,7 +300,7 @@ export function detectarTipoInforme(
     .replace(/[\u0300-\u036f]/g, "");
 
   // Por nombre de archivo (más fiable)
-  if (name.includes("produccion") || name.includes("produccion") || name.includes("lote")) return "produccion";
+  if (name.includes("produccion") || name.includes("lote")) return "produccion";
   if (name.includes("palet")) return "palets";
   if (name.includes("producto") && !name.includes("tamano") && !name.includes("calibre") && !name.includes("clase")) return "producto";
   if (name.includes("tamano") || name.includes("calibre") || name.includes("clase") || name.includes("calidad") || name.includes("variedad")) return "calibres";
@@ -283,8 +313,8 @@ export function detectarTipoInforme(
   const keys = Object.keys(rows[0]).join(" ");
   debug("COLUMNAS_DETECTADAS", { fileName, keys, sheetNames: wb.SheetNames });
 
-  if (keys.includes("productor") || keys.includes("toneladas") || keys.includes("t_h") || keys.includes("id_lote") || keys.includes("lote")) return "produccion";
-  if (keys.includes("sit") || (keys.includes("neto") && keys.includes("cliente"))) return "palets";
+  if (keys.includes("productor") || keys.includes("toneladas") || keys.includes("t_h") || keys.includes("id_lote") || keys.includes("lote") || keys.includes("nombre_del_lote")) return "produccion";
+  if (keys.includes("sit") || keys.includes("palet_id") || keys.includes("palet") || (keys.includes("neto") && keys.includes("cliente")) || (keys.includes("peso") && keys.includes("destino"))) return "palets";
   if (keys.includes("variedad") || keys.includes("calibre") || keys.includes("tamano") || keys.includes("clase")) return "calibres";
   if (keys.includes("empaque") || keys.includes("empaques") || keys.includes("fruta")) return "producto";
 
@@ -313,27 +343,31 @@ export function parseInformeProduccion(wb: XLSX.WorkBook): ParsedProduccion {
     const kgRaw = col(row,
       "Peso (kg)", "Peso(kg)", "peso_kg", "Peso kg", "peso",
       "Peso total", "peso_total", "Total Kg", "total_kg",
-      "kg", "kilos", "Kilos"
+      "kg", "kilos", "Kilos", "Peso Kg"
     );
     const kg = num(kgRaw);
     if (kg <= 0) continue;
 
-    // ── ID del Lote ──
+    // ── ID del Lote (puede ser "Unnamed: 0" en Spectrim) ──
     const idLote = str(col(row,
+      "Unnamed: 0", "unnamed_0",
       "ID", "id", "ID Lote", "id_lote", "Id Lote",
       "Número de Lote", "numero_lote", "Nº Lote", "n_lote",
-      "Lote ID", "lote_id", "Cod Lote", "cod_lote"
+      "Lote ID", "lote_id", "Cod Lote", "cod_lote",
+      "Bins", "bins"
     ));
 
     // ── Nombre del Lote ──
     const nombreLote = str(col(row,
       "Lote", "lote", "Nombre Lote", "nombre_lote",
-      "Nombre del Lote", "Descripción Lote", "descripcion_lote",
+      "Nombre del Lote", "nombre_del_lote",
+      "Descripción Lote", "descripcion_lote",
       "Lote Descripcion", "lote_descripcion"
     )) ?? idLote; // si no hay nombre, usa el ID
 
     // ── Código del Productor ──
     const codProductor = str(col(row,
+      "Código del Productor", "codigo_del_productor",
       "Código Productor", "codigo_productor", "Cod Productor", "cod_productor",
       "Código Agricultor", "codigo_agricultor", "Cod. Agric", "cod_agric",
       "Cod Proveedor", "cod_proveedor", "ID Productor", "id_productor",
@@ -342,6 +376,7 @@ export function parseInformeProduccion(wb: XLSX.WorkBook): ParsedProduccion {
 
     // ── Nombre del Productor ──
     const nombreProductor = str(col(row,
+      "Nombre del Productor", "nombre_del_productor",
       "Productor", "productor",
       "Nombre Productor", "nombre_productor",
       "Agricultor", "agricultor",
@@ -384,6 +419,7 @@ export function parseInformeProduccion(wb: XLSX.WorkBook): ParsedProduccion {
     // ── Toneladas / Hora ──
     const tphRaw = col(row,
       "Toneladas / Hora", "toneladas_hora", "toneladas__hora",
+      "Toneladas", "toneladas",
       "T/h", "t_h", "Th", "th",
       "Ton/h", "ton_h",
       "Velocidad", "velocidad",
@@ -394,6 +430,7 @@ export function parseInformeProduccion(wb: XLSX.WorkBook): ParsedProduccion {
     // ── Peso de Fruta Promedio (g) ──
     const pesoPiezaRaw = col(row,
       "Peso de Fruta Promedio (g)", "peso_de_fruta_promedio_g",
+      "Peso de Fruta Promedio g", "peso_de_fruta_promedio_g",
       "Peso Fruta Promedio", "peso_fruta_promedio",
       "Peso Fruta", "peso_fruta",
       "Peso Pieza", "peso_pieza",
@@ -478,12 +515,15 @@ export function parsePalets(wb: XLSX.WorkBook): ParsedPalets {
       "Neto", "neto", "Netos", "netos",
       "Kg Neto", "kg_neto",
       "Peso Neto", "peso_neto",
-      "Kg", "kg", "Kilos", "kilos"
+      "Peso", "peso",
+      "Kg", "kg", "Kilos", "kilos",
+      "Peso kg", "peso_kg"
     );
     const kg = num(kgRaw);
     // Incluir filas con ID aunque kg=0 (palets ficticios)
     const hasPaletId = col(row,
       "Palet", "palet", "ID Palet", "id_palet",
+      "Palet ID", "palet_id",
       "Número Palet", "numero_palet", "N Palet", "n_palet"
     );
     if (kg <= 0 && !hasPaletId) continue;
@@ -513,7 +553,8 @@ export function parsePalets(wb: XLSX.WorkBook): ParsedPalets {
       "Nombre Cliente", "nombre_cliente",
       "Razón Social", "razon_social",
       "Destinatario", "destinatario",
-      "Customer", "customer"
+      "Customer", "customer",
+      "Productor", "productor"
     ));
 
     // ── Situación (S/F) — para stock ──
@@ -533,6 +574,7 @@ export function parsePalets(wb: XLSX.WorkBook): ParsedPalets {
     const paletId = str(col(row,
       "Palet", "palet",
       "ID Palet", "id_palet",
+      "Palet ID", "palet_id",
       "Num Palet", "num_palet",
       "Nº Palet", "n_palet",
       "Código Palet", "codigo_palet"
@@ -801,8 +843,8 @@ export function parseInformeCalibres(wb: XLSX.WorkBook): ParsedCalibres {
     // ── Piezas ──
     const piezasRaw = col(row,
       "Piezas", "piezas",
-      "Unidades", "unidades",
       "Cantidad", "cantidad",
+      "Unidades", "unidades",
       "Units", "units"
     );
 
