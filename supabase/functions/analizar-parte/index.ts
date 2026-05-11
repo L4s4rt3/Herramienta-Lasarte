@@ -119,7 +119,7 @@ Deno.serve(async (req) => {
     }
 
     // ── PROMPT OPTIMIZADO ─────────────────────────────────────────────────
-    const jsonTemplate = '{"kg_produccion_total":0,"kg_mujeres_l":0,"kg_podrido_calibrador":0,"kg_palets_alta":0,"industria_manual":0,"reciclado_z1":0,"reciclado_z2":0,"kg_palets_brutos":0,"inventario_dia_anterior":0,"inventario_final":0,"kg_podrido_manual":0,"produccion_real":0,"palets_ajustados":0,"dif_bruta":0,"mermas_totales":0,"djpmn":0,"pct_djpmn":0,"produccion":[],"gstock":[],"lotes":[],"analisis":"","fuentes":{}}';
+    const jsonTemplate = '{"kg_produccion_total":0,"kg_mujeres_l":0,"kg_podrido_calibrador":0,"kg_palets_alta":0,"industria_manual":0,"reciclado_z1":0,"reciclado_z2":0,"kg_palets_brutos":0,"inventario_dia_anterior":0,"inventario_final":0,"kg_podrido_manual":0,"produccion_real":0,"palets_ajustados":0,"dif_bruta":0,"mermas_totales":0,"djpmn":0,"pct_djpmn":0,"produccion":[],"gstock":[],"lotes_detalle":[],"palets_detalle":[],"producto_detalle":[],"calibres_detalle":[],"analisis":"","fuentes":{}}';
 
     const sysPrompt = `Analista planta citrica Lasarte SAT. Extrae datos de Excel adjuntos y devuelve JSON.
 
@@ -141,10 +141,27 @@ pct_djpmn = djpmn/produccion_real*100 (2 dec, 0 si prod=0)
 
 Responde SOLO con JSON valido usando esta estructura (rellena valores): ${jsonTemplate}
 
-Campos adicionales en el JSON:
+ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
+
 - produccion: array de {product, sizerange, kgproduced, destination}
 - gstock: array de {product, sizerange, kgexpected}
-- lotes: array de {lotecodigo, producto}
+
+- lotes_detalle: array de objetos por cada lote del informe produccion:
+  {lote_codigo, productor, producto, kg_peso_total, toneladas_hora, duracion_min, peso_fruta_promedio_g, hora_inicio}
+  Buscar columnas: ID/Lote, Nombre/Productor, Variedad/Producto, Peso(kg), T/h, Duracion(min), PesoFruta(g), HoraInicio/Tiempo.
+
+- palets_detalle: array de objetos por cada palet del informe palets/gstock:
+  {palet_id, producto, cliente, destino, kg_neto, situacion, n_cajas}
+  Buscar columnas: Palet/ID, Producto/Variedad, Cliente, Destino/Camara, Netos/Peso, Situacion, Cajas.
+
+- producto_detalle: array de objetos por cada linea del informe producto/tamanos:
+  {linea, producto, formato_caja, kg, n_cajas, grupo_destino}
+  Buscar columnas: Linea, Producto/Variedad, Formato/Caja, Peso(kg), Cajas, Destino/Grupo(Exportacion/Mercado/Industria).
+
+- calibres_detalle: array de objetos por cada calibre del informe tamanos:
+  {calibre, clase, kg, piezas, pct, grupo_destino}
+  Buscar columnas: Calibre/Tamano, Clase(Exportacion/Mercado/Industria), Peso(kg), Piezas/Unidades, %(porcentaje), Destino.
+
 - analisis: string con breve resumen
 - fuentes: objeto con origen de cada dato (nombre archivo o null)`;
 
@@ -236,11 +253,17 @@ Campos adicionales en el JSON:
     const { error: upErr } = await userClient.from("partes_diarios").update(update).eq("id", part_id);
     if (upErr) return json({ error: "No se pudo actualizar: " + upErr.message }, 500);
 
+    // ── Limpiar tablas de detalle previas (source=ia) ─────────────────────
     await userClient.from("production_runs").delete().eq("part_id", part_id);
     await userClient.from("gstock_entries").delete().eq("part_id", part_id);
     await userClient.from("lotes_dia").delete().eq("part_id", part_id).eq("source", "ia");
+    await userClient.from("palets_dia").delete().eq("part_id", part_id).eq("source", "ia");
+    await userClient.from("producto_dia").delete().eq("part_id", part_id).eq("source", "ia");
+    await userClient.from("calibres_dia").delete().eq("part_id", part_id).eq("source", "ia");
 
     const uid = userData.user.id;
+
+    // ── production_runs (legacy) ──────────────────────────────────────────
     if (Array.isArray(aiData.produccion)) {
       const rows = aiData.produccion.filter((r: any) => Number(r?.kgproduced) > 0).map((r: any) => ({
         part_id, user_id: uid, date: parte.date, source: "ia",
@@ -248,6 +271,8 @@ Campos adicionales en el JSON:
       }));
       if (rows.length) await userClient.from("production_runs").insert(rows);
     }
+
+    // ── gstock_entries (legacy) ───────────────────────────────────────────
     if (Array.isArray(aiData.gstock)) {
       const rows = aiData.gstock.filter((r: any) => Number(r?.kgexpected) > 0).map((r: any) => ({
         part_id, user_id: uid, date: parte.date, source: "ia",
@@ -255,12 +280,66 @@ Campos adicionales en el JSON:
       }));
       if (rows.length) await userClient.from("gstock_entries").insert(rows);
     }
-    if (Array.isArray(aiData.lotes)) {
-      const rows = aiData.lotes.map((r: any) => ({
+
+    // ── lotes_dia (detallado) ─────────────────────────────────────────────
+    const lotesArr = Array.isArray(aiData.lotes_detalle) ? aiData.lotes_detalle
+      : Array.isArray(aiData.lotes) ? aiData.lotes : [];
+    if (lotesArr.length > 0) {
+      const rows = lotesArr.map((r: any) => ({
         part_id, user_id: uid, source: "ia",
-        producto: r.producto ?? null, lote_codigo: r.lotecodigo ?? null, notas: r.notas ?? null,
+        lote_codigo:           r.lote_codigo ?? r.lotecodigo ?? null,
+        productor:             r.productor ?? null,
+        producto:              r.producto ?? null,
+        kg_peso_total:         Number(r.kg_peso_total) || 0,
+        toneladas_hora:        Number(r.toneladas_hora) || null,
+        duracion_min:          Number(r.duracion_min) || null,
+        peso_fruta_promedio_g: Number(r.peso_fruta_promedio_g) || null,
+        hora_inicio:           r.hora_inicio ?? null,
       }));
-      if (rows.length) await userClient.from("lotes_dia").insert(rows);
+      await userClient.from("lotes_dia").insert(rows);
+    }
+
+    // ── palets_dia (detallado) ────────────────────────────────────────────
+    if (Array.isArray(aiData.palets_detalle) && aiData.palets_detalle.length > 0) {
+      const rows = aiData.palets_detalle.map((r: any) => ({
+        part_id, user_id: uid, source: "ia",
+        palet_id:   r.palet_id ?? null,
+        producto:   r.producto ?? null,
+        cliente:    r.cliente ?? null,
+        destino:    r.destino ?? null,
+        kg_neto:    Number(r.kg_neto) || 0,
+        situacion:  r.situacion ?? null,
+        n_cajas:    Number(r.n_cajas) || null,
+      }));
+      await userClient.from("palets_dia").insert(rows);
+    }
+
+    // ── producto_dia (detallado) ──────────────────────────────────────────
+    if (Array.isArray(aiData.producto_detalle) && aiData.producto_detalle.length > 0) {
+      const rows = aiData.producto_detalle.map((r: any) => ({
+        part_id, user_id: uid, source: "ia",
+        linea:         r.linea ?? null,
+        producto:      r.producto ?? null,
+        formato_caja:  r.formato_caja ?? null,
+        kg:            Number(r.kg) || 0,
+        n_cajas:       Number(r.n_cajas) || null,
+        grupo_destino: r.grupo_destino ?? null,
+      }));
+      await userClient.from("producto_dia").insert(rows);
+    }
+
+    // ── calibres_dia (detallado) ──────────────────────────────────────────
+    if (Array.isArray(aiData.calibres_detalle) && aiData.calibres_detalle.length > 0) {
+      const rows = aiData.calibres_detalle.map((r: any) => ({
+        part_id, user_id: uid, source: "ia",
+        calibre:       r.calibre ?? "—",
+        clase:         r.clase ?? null,
+        kg:            Number(r.kg) || 0,
+        piezas:        Number(r.piezas) || 0,
+        pct:           Number(r.pct) || 0,
+        grupo_destino: r.grupo_destino ?? null,
+      }));
+      await userClient.from("calibres_dia").insert(rows);
     }
 
     return json({
