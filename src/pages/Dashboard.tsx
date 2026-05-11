@@ -124,9 +124,9 @@ export default function Dashboard() {
       </header>
 
       {/* KPIs */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {loading ? (
-          Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-28" />)
+          Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-28" />)
         ) : (
           <>
             <KPICard
@@ -142,16 +142,17 @@ export default function Dashboard() {
               trend="up"
             />
             <KPICard
-              label="Mermas totales"
-              value={formatKg(totals.mermas_totales)}
-              icon={Recycle}
-            />
-            <KPICard
-              label="DJPMN acumulado"
+              label="Dif. Sin Justificar"
               value={formatKg(totals.dsj)}
               hint={`${totals.dsj_pct >= 0 ? "+" : ""}${totals.dsj_pct.toFixed(2)}%`}
               icon={TrendingDown}
               trend={Math.abs(totals.dsj_pct) <= 3 ? "neutral" : "down"}
+            />
+            <KPICard
+              label="Dif. Justificada"
+              value={formatKg(totals.produccion_real - totals.palets_ajustados - totals.dsj)}
+              hint="prod real − palets − DSJ"
+              icon={Recycle}
             />
             <KPICard
               label="Eficiencia máquina"
@@ -159,13 +160,6 @@ export default function Dashboard() {
               hint="promedio 30 días"
               icon={Gauge}
               trend={tphData ? (tphData >= 16 ? "up" : tphData >= 12 ? "neutral" : "down") : "neutral"}
-            />
-            <KPICard
-              label="Rend. comercial"
-              value={rcData !== null && rcData !== undefined ? `${rcData.toFixed(1)}%` : "Sin datos"}
-              hint="exportación / producción"
-              icon={Globe}
-              trend={rcData ? (rcData >= 70 ? "up" : rcData >= 50 ? "neutral" : "down") : "neutral"}
             />
           </>
         )}
