@@ -84,7 +84,7 @@ export function computeCascade(input: CascadeInput): CascadeResult {
   const reciclado_z2 = n(input.kg_reciclado_malla_z2);
 
   const produccion_real =
-    produccion_calibrador + industria_manual - mujeres - reciclado_z1 - reciclado_z2;
+    produccion_calibrador - mujeres - reciclado_z1 - reciclado_z2;
 
   const palets_brutos = n(input.kg_palets_brutos);
   const inventario_anterior = n(input.kg_inventario_anterior_sin_alta);
