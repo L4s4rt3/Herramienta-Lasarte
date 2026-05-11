@@ -187,7 +187,7 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
     outer: for (const provider of providers) {
       for (let attempt = 0; attempt < 3; attempt++) {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000);
+        const timeout = setTimeout(() => controller.abort(), 90000);
         try {
           console.log("[IA] " + provider.name + " modelo=" + provider.model + " intento=" + (attempt + 1));
           const aiResp = await fetch(provider.url, {
