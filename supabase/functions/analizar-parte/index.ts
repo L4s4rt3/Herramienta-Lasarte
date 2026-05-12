@@ -368,12 +368,59 @@ function json(body: unknown, status = 200) {
 }
 
 function repairXlsx(bytes: Uint8Array): Uint8Array {
+  // 1. Strip any prefix before ZIP magic bytes (PK\x03\x04)
+  let start = 0;
   for (let i = 0; i < Math.min(bytes.length - 4, 65536); i++) {
     if (bytes[i] === 0x50 && bytes[i + 1] === 0x4b && bytes[i + 2] === 0x03 && bytes[i + 3] === 0x04) {
-      return i === 0 ? bytes : bytes.slice(i);
+      start = i;
+      break;
     }
   }
-  return bytes;
+  const buf = start === 0 ? new Uint8Array(bytes) : new Uint8Array(bytes.slice(start));
+
+  // 2. Fix unsupported compression methods in ZIP local file headers.
+  //    Some modern Excel files use compression method 9 (DEFLATE64) or have
+  //    corrupted headers that cause NaN. The xlsx library only supports
+  //    method 0 (STORE) and 8 (DEFLATE). Patch invalid methods to 8.
+  let offset = 0;
+  while (offset + 30 < buf.length) {
+    // Check for local file header signature PK\x03\x04
+    if (buf[offset] !== 0x50 || buf[offset + 1] !== 0x4b ||
+        buf[offset + 2] !== 0x03 || buf[offset + 3] !== 0x04) break;
+
+    const method = buf[offset + 8] | (buf[offset + 9] << 8);
+    if (method !== 0 && method !== 8) {
+      // Patch to DEFLATE (8)
+      buf[offset + 8] = 8;
+      buf[offset + 9] = 0;
+    }
+
+    const fnLen = buf[offset + 26] | (buf[offset + 27] << 8);
+    const exLen = buf[offset + 28] | (buf[offset + 29] << 8);
+    const cSize = buf[offset + 18] | (buf[offset + 19] << 8) |
+                  (buf[offset + 20] << 16) | (buf[offset + 21] << 24);
+
+    offset += 30 + fnLen + exLen + cSize;
+  }
+
+  // 3. Also patch Central Directory entries (PK\x01\x02)
+  while (offset + 46 < buf.length) {
+    if (buf[offset] !== 0x50 || buf[offset + 1] !== 0x4b ||
+        buf[offset + 2] !== 0x01 || buf[offset + 3] !== 0x02) break;
+
+    const method = buf[offset + 10] | (buf[offset + 11] << 8);
+    if (method !== 0 && method !== 8) {
+      buf[offset + 10] = 8;
+      buf[offset + 11] = 0;
+    }
+
+    const fnLen = buf[offset + 28] | (buf[offset + 29] << 8);
+    const exLen = buf[offset + 30] | (buf[offset + 31] << 8);
+    const cmLen = buf[offset + 32] | (buf[offset + 33] << 8);
+    offset += 46 + fnLen + exLen + cmLen;
+  }
+
+  return buf;
 }
 
 function toNum(v: any): number {
