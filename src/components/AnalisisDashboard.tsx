@@ -12,16 +12,23 @@
  *
  * Incluye vista "Reporte Ejecutivo" con formato Markdown exportable.
  */
-import { useState } from "react";
+import { Suspense, lazy, useState } from "react";
 import { type AnalisisDia, type Alerta } from "@/lib/analisis";
 import { formatKg, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ReporteOperativo } from "@/components/ReporteOperativo";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, PieChart, Pie, Cell,
-} from "recharts";
+const BarChart = lazy(() => import("recharts").then(m => ({ default: m.BarChart })));
+const Bar = lazy(() => import("recharts").then(m => ({ default: m.Bar })));
+const XAxis = lazy(() => import("recharts").then(m => ({ default: m.XAxis })));
+const YAxis = lazy(() => import("recharts").then(m => ({ default: m.YAxis })));
+const CartesianGrid = lazy(() => import("recharts").then(m => ({ default: m.CartesianGrid })));
+const Tooltip = lazy(() => import("recharts").then(m => ({ default: m.Tooltip })));
+const Legend = lazy(() => import("recharts").then(m => ({ default: m.Legend })));
+const ResponsiveContainer = lazy(() => import("recharts").then(m => ({ default: m.ResponsiveContainer })));
+const PieChart = lazy(() => import("recharts").then(m => ({ default: m.PieChart })));
+const Pie = lazy(() => import("recharts").then(m => ({ default: m.Pie })));
+const Cell = lazy(() => import("recharts").then(m => ({ default: m.Cell })));
 import { AlertTriangle, Info, XCircle, Globe, Gauge, Package, Warehouse, TrendingUp, Users, BarChart3, FileText } from "lucide-react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -170,7 +177,9 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
       )}
 
       {/* ── Vista Dashboard ───────────────────────────────────────────── */}
-      {vista === "dashboard" && (<>
+      {vista === "dashboard" && (
+        <Suspense fallback={<div className="flex items-center justify-center py-16"><p className="text-sm text-muted-foreground">Cargando gráficos…</p></div>}>
+        <>
 
       {/* ── Alertas ───────────────────────────────────────────────────── */}
       {alertas.length > 0 && (
@@ -234,7 +243,7 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
                 <ResponsiveContainer width="100%" height={180}>
                   <PieChart>
                     <Pie data={serie_destinos} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={78} paddingAngle={2}>
-                      {serie_destinos.map((d, i) => <Cell key={i} fill={d.color} />)}
+                      {serie_destinos.map((d) => <Cell key={d.name} fill={d.color} />)}
                     </Pie>
                     <Tooltip content={<PieTooltip />} />
                   </PieChart>
@@ -276,8 +285,8 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
                 <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "var(--radius)", fontSize: 11 }}
                   formatter={(v: number, _: string, props: any) => [`${v} T/h — ${props.payload.productor}`, "T/h"]} />
                 <Bar dataKey="tph" name="T/h" fill="hsl(var(--primary))" radius={[3,3,0,0]}>
-                  {serie_tph_por_lote.map((e, i) => (
-                    <Cell key={i} fill={e.tph >= 16 ? "#22c55e" : e.tph >= 12 ? "#f59e0b" : "#ef4444"} />
+                  {serie_tph_por_lote.map((e) => (
+                    <Cell key={e.lote} fill={e.tph >= 16 ? "#22c55e" : e.tph >= 12 ? "#f59e0b" : "#ef4444"} />
                   ))}
                 </Bar>
               </BarChart>
@@ -345,8 +354,8 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {productores.map((p, i) => (
-                    <TableRow key={i}>
+                  {productores.map((p) => (
+                    <TableRow key={p.productor}>
                       <TableCell className="text-xs font-medium">{p.productor}</TableCell>
                       <TableCell className="text-right tabular-nums text-xs">{formatKg(p.kg_total)}</TableCell>
                       <TableCell className="text-right tabular-nums text-xs text-muted-foreground">{p.n_lotes}</TableCell>
@@ -373,6 +382,7 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
         Análisis generado · {new Date(analisis.fecha_analisis).toLocaleString("es-ES")}
       </p>
 
+        </Suspense>
       </>)}
     </div>
   );
@@ -408,8 +418,8 @@ function RawProduccionTable({ lotes, columnas }: { lotes: LoteProduccion[]; colu
               </TableRow>
             </TableHeader>
             <TableBody>
-              {lotes.map((l, i) => (
-                <TableRow key={i}>
+              {lotes.map((l) => (
+                <TableRow key={l.id_lote}>
                   <TableCell className="text-xs font-mono">{na(l.id_lote)}</TableCell>
                   <TableCell className="text-xs">{na(l.nombre_lote)}</TableCell>
                   <TableCell className="text-xs font-mono">{na(l.codigo_productor)}</TableCell>
@@ -459,8 +469,8 @@ function RawProductoTable({ lineas, columnas }: { lineas: ProductoEmpacado[]; co
               </TableRow>
             </TableHeader>
             <TableBody>
-              {lineas.map((l, i) => (
-                <TableRow key={i}>
+              {lineas.map((l) => (
+                <TableRow key={`${l.producto}-${l.empaque}`}>
                   <TableCell className="text-xs font-medium max-w-[200px] truncate" title={l.producto ?? ""}>{na(l.producto)}</TableCell>
                   <TableCell className="text-xs">{na(l.empaque)}</TableCell>
                   <TableCell className="text-right tabular-nums text-xs">
@@ -499,8 +509,8 @@ function RawCalibresTable({ calibres, columnas }: { calibres: CalibreRow[]; colu
               </TableRow>
             </TableHeader>
             <TableBody>
-              {calibres.map((c, i) => (
-                <TableRow key={i}>
+              {calibres.map((c) => (
+                <TableRow key={`${c.variedad}-${c.clase}-${c.grupo}`}>
                   <TableCell className="text-xs font-medium">{na(c.variedad)}</TableCell>
                   <TableCell className="text-xs">{na(c.clase)}</TableCell>
                   <TableCell className="text-xs">
@@ -534,8 +544,8 @@ function TiposClasificacionTable({ tipos }: { tipos: TipoClasificacion[] }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {tipos.map((t, i) => (
-              <TableRow key={i}>
+            {tipos.map((t) => (
+              <TableRow key={t.tipo}>
                 <TableCell className="text-xs font-medium">
                   <GrupoBadge grupo={t.tipo} />
                 </TableCell>
@@ -572,8 +582,8 @@ function RawPaletsTable({ palets, columnas }: { palets: PaletRow[]; columnas?: s
               </TableRow>
             </TableHeader>
             <TableBody>
-              {palets.map((p, i) => (
-                <TableRow key={i}>
+              {palets.map((p) => (
+                <TableRow key={`${p.producto}-${p.fecha}-${p.cliente}`}>
                   <TableCell className="text-xs font-medium max-w-[200px] truncate" title={p.producto ?? ""}>{na(p.producto)}</TableCell>
                   <TableCell className="text-xs whitespace-nowrap">{na(p.fecha)}</TableCell>
                   <TableCell className="text-xs">{na(p.cliente)}</TableCell>
