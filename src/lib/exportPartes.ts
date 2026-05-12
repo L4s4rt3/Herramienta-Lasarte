@@ -58,8 +58,8 @@ export function exportPartesToExcel(partes: ParteRow[], from: string, to: string
   const nOk           = enriched.filter(({ c }) => Math.abs(c.dsj_pct) <= 3).length;
 
   const resumenAOA: (string | number)[][] = [
-    ["HERRAMIENTA LASARTE — INFORME DE PARTES DIARIOS"],
-    [`Período: ${formatDate(from)}  →  ${formatDate(to)}`],
+    ["HERRAMIENTA LASARTE - INFORME DE PARTES DIARIOS"],
+    [`Periodo: ${formatDate(from)}  -  ${formatDate(to)}`],
     [`Generado: ${new Date().toLocaleString("es-ES")}`],
     [],
     ["RESUMEN GLOBAL"],
@@ -73,9 +73,9 @@ export function exportPartesToExcel(partes: ParteRow[], from: string, to: string
     [],
     ["DISTRIBUCIÓN POR SEMÁFORO"],
     ["Semáforo", "Nº partes", "%"],
-    ["✓ Verde  (< 1%)", nOk,       +(partes.length ? nOk / partes.length * 100 : 0).toFixed(1)],
-    ["⚠ Amarillo (1–3%)", nAmarillo, +(partes.length ? nAmarillo / partes.length * 100 : 0).toFixed(1)],
-    ["✗ Rojo   (> 3%)", nAlerta,   +(partes.length ? nAlerta / partes.length * 100 : 0).toFixed(1)],
+    ["[OK] Verde  (< 1%)", nOk,       +(partes.length ? nOk / partes.length * 100 : 0).toFixed(1)],
+    ["[!] Amarillo (1-3%)", nAmarillo, +(partes.length ? nAmarillo / partes.length * 100 : 0).toFixed(1)],
+    ["[X] Rojo   (> 3%)", nAlerta,   +(partes.length ? nAlerta / partes.length * 100 : 0).toFixed(1)],
     [],
     ["DISTRIBUCIÓN POR ESTADO"],
     ["Estado", "Nº partes", "%"],
@@ -119,7 +119,7 @@ export function exportPartesToExcel(partes: ParteRow[], from: string, to: string
     +c.mermas_totales.toFixed(2),
     +c.dsj.toFixed(2),
     +c.dsj_pct.toFixed(3),
-    c.semaforo === "verde" ? "✓ OK" : c.semaforo === "amarillo" ? "⚠ Revisar" : "✗ Crítico",
+    c.semaforo === "verde" ? "[OK]" : c.semaforo === "amarillo" ? "[!] Revisar" : "[X] Critico",
     p.notas_generales ?? "",
     p.notas_inventario ?? "",
   ]);
@@ -161,24 +161,24 @@ export function exportPartesToExcel(partes: ParteRow[], from: string, to: string
     ["Concepto", "Op.", ...enriched.map(({ p }) => formatDate(p.date))],
     ["Estado", "",    ...enriched.map(({ p }) => p.estado)],
     [],
-    ["— PRODUCCIÓN —", "", ...enriched.map(() => "")],
+    ["-- PRODUCCION --", "", ...enriched.map(() => "")],
     ["Calibrador (kg)",          "=", ...enriched.map(({ c }) => +c.produccion_calibrador.toFixed(2))],
     ["+ Industria manual (kg)",  "+", ...enriched.map(({ c }) => +c.industria_manual.toFixed(2))],
-    ["− Mujeres L (kg)",         "−", ...enriched.map(({ c }) => +c.mujeres.toFixed(2))],
-    ["− Reciclado Z1 (kg)",      "−", ...enriched.map(({ c }) => +c.reciclado_z1.toFixed(2))],
-    ["− Reciclado Z2 (kg)",      "−", ...enriched.map(({ c }) => +c.reciclado_z2.toFixed(2))],
-    ["= PRODUCCIÓN REAL (kg)",   "=", ...enriched.map(({ c }) => +c.produccion_real.toFixed(2))],
+    ["- Mujeres L (kg)",         "-", ...enriched.map(({ c }) => +c.mujeres.toFixed(2))],
+    ["- Reciclado Z1 (kg)",      "-", ...enriched.map(({ c }) => +c.reciclado_z1.toFixed(2))],
+    ["- Reciclado Z2 (kg)",      "-", ...enriched.map(({ c }) => +c.reciclado_z2.toFixed(2))],
+    ["= PRODUCCION REAL (kg)",   "=", ...enriched.map(({ c }) => +c.produccion_real.toFixed(2))],
     [],
-    ["— PALETS —", "", ...enriched.map(() => "")],
+    ["-- PALETS --", "", ...enriched.map(() => "")],
     ["Palets brutos (kg)",       "",  ...enriched.map(({ c }) => +c.palets_brutos.toFixed(2))],
-    ["− Inv. día anterior (kg)", "−", ...enriched.map(({ c }) => +c.inventario_anterior.toFixed(2))],
-    ["− Inv. final sin alta (kg)","−", ...enriched.map(({ c }) => +c.inventario_final.toFixed(2))],
+    ["- Inv. dia anterior (kg)", "-", ...enriched.map(({ c }) => +c.inventario_anterior.toFixed(2))],
+    ["- Inv. final sin alta (kg)","-", ...enriched.map(({ c }) => +c.inventario_final.toFixed(2))],
     ["= PALETS AJUSTADOS (kg)",  "=", ...enriched.map(({ c }) => +c.palets_ajustados.toFixed(2))],
     [],
-    ["— DJPMN —", "", ...enriched.map(() => "")],
+    ["-- DJPMN --", "", ...enriched.map(() => "")],
     ["Diferencia bruta (kg)",    "=", ...enriched.map(({ c }) => +c.diferencia_bruta.toFixed(2))],
-    ["− Podrido calibrador (kg)","−", ...enriched.map(({ c }) => +c.podrido_calibrador.toFixed(2))],
-    ["− Podrido manual (kg)",    "−", ...enriched.map(({ c }) => +c.podrido_manual.toFixed(2))],
+    ["- Podrido calibrador (kg)","-", ...enriched.map(({ c }) => +c.podrido_calibrador.toFixed(2))],
+    ["- Podrido manual (kg)",    "-", ...enriched.map(({ c }) => +c.podrido_manual.toFixed(2))],
     ["= MERMAS TOTALES (kg)",    "=", ...enriched.map(({ c }) => +c.mermas_totales.toFixed(2))],
     ["DJPMN (kg)",               "=", ...enriched.map(({ c }) => +c.dsj.toFixed(2))],
     ["DJPMN (%)",                "",  ...enriched.map(({ c }) => +c.dsj_pct.toFixed(3))],
@@ -223,7 +223,7 @@ function semColor(s: "verde" | "amarillo" | "rojo"): [number, number, number] {
   return s === "verde" ? C_SEM_OK : s === "amarillo" ? C_SEM_WARN : C_SEM_ERROR;
 }
 function semLabel(s: "verde" | "amarillo" | "rojo"): string {
-  return s === "verde" ? "✓  OK  < 1%" : s === "amarillo" ? "⚠  Revisar  1–3%" : "✗  Crítico  > 3%";
+  return s === "verde" ? "[OK] < 1%" : s === "amarillo" ? "[!] Revisar 1-3%" : "[X] Critico > 3%";
 }
 
 export function exportPartesToPDF(partes: ParteRow[], from: string, to: string) {
@@ -249,7 +249,7 @@ export function exportPartesToPDF(partes: ParteRow[], from: string, to: string) 
     doc.text("HERRAMIENTA LASARTE", 8, 9);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.5);
-    doc.text(`${formatDate(from)} → ${formatDate(to)}`, 8, 13);
+    doc.text(`${formatDate(from)} - ${formatDate(to)}`, 8, 13);
     doc.text(`Generado: ${new Date().toLocaleString("es-ES")}`, 200, 9);
     doc.text(`Pág. ${pageIndex}`, 289, 13, { align: "right" });
     if (title) {
@@ -269,7 +269,7 @@ export function exportPartesToPDF(partes: ParteRow[], from: string, to: string) 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
   doc.setTextColor(...C_VERDE);
-  doc.text("Informe de Partes Diarios — DJPMN", 148.5, 26, { align: "center" });
+  doc.text("Informe de Partes Diarios - DJPMN", 148.5, 26, { align: "center" });
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
   doc.setTextColor(...C_GRIS);
@@ -353,9 +353,9 @@ export function exportPartesToPDF(partes: ParteRow[], from: string, to: string) 
       // Semáforo en color
       if (data.column.index === 10 && data.section === "body") {
         const v = String((data.row.raw as string[])[10] ?? "");
-        if (v.startsWith("✓")) data.cell.styles.textColor = C_SEM_OK;
-        else if (v.startsWith("⚠")) data.cell.styles.textColor = C_SEM_WARN;
-        else if (v.startsWith("✗")) data.cell.styles.textColor = C_SEM_ERROR;
+        if (v.startsWith("[OK]")) data.cell.styles.textColor = C_SEM_OK;
+        else if (v.startsWith("[!]")) data.cell.styles.textColor = C_SEM_WARN;
+        else if (v.startsWith("[X]")) data.cell.styles.textColor = C_SEM_ERROR;
       }
       // Fila total en negrita
       const isTotal = data.row.index === enriched.length && data.section === "body";
@@ -386,7 +386,7 @@ export function exportPartesToPDF(partes: ParteRow[], from: string, to: string) 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.setTextColor(...C_VERDE);
-    doc.text(`Parte diario — ${formatDate(p.date)}`, 14, 25);
+    doc.text(`Parte diario - ${formatDate(p.date)}`, 14, 25);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(...C_GRIS);
@@ -406,19 +406,19 @@ export function exportPartesToPDF(partes: ParteRow[], from: string, to: string) 
 
     // Cascada (tabla izquierda) + KPIs (derecha)
     const cascadeBody: (string | [string, object])[][] = [
-      ["Producción calibrador",        "=", formatKg(c.produccion_calibrador)],
-      ["+ Industria / Cítricos manual","+", formatKg(c.industria_manual)],
-      ["− Mujeres clase L",            "−", formatKg(c.mujeres)],
-      ["− Reciclado malla Z1",         "−", formatKg(c.reciclado_z1)],
-      ["− Reciclado malla Z2",         "−", formatKg(c.reciclado_z2)],
-      ["PRODUCCIÓN REAL",              "=", formatKg(c.produccion_real)],
+      ["Produccion calibrador",        "=", formatKg(c.produccion_calibrador)],
+      ["+ Industria / Citricos manual","+", formatKg(c.industria_manual)],
+      ["- Mujeres clase L",            "-", formatKg(c.mujeres)],
+      ["- Reciclado malla Z1",         "-", formatKg(c.reciclado_z1)],
+      ["- Reciclado malla Z2",         "-", formatKg(c.reciclado_z2)],
+      ["PRODUCCION REAL",              "=", formatKg(c.produccion_real)],
       ["Palets alta (bruto)",          "",  formatKg(c.palets_brutos)],
-      ["− Inv. día anterior (en palets)","−",formatKg(c.inventario_anterior)],
-      ["− Inventario final sin alta",  "−", formatKg(c.inventario_final)],
+      ["- Inv. dia anterior (en palets)","-",formatKg(c.inventario_anterior)],
+      ["- Inventario final sin alta",  "-", formatKg(c.inventario_final)],
       ["PALETS ALTA AJUSTADOS",        "=", formatKg(c.palets_ajustados)],
       ["DIFERENCIA BRUTA",             "=", formatKg(c.diferencia_bruta)],
-      ["− Podrido calibrador",         "−", formatKg(c.podrido_calibrador)],
-      ["− Podrido manual (bolsa basura)","−",formatKg(c.podrido_manual)],
+      ["- Podrido calibrador",         "-", formatKg(c.podrido_calibrador)],
+      ["- Podrido manual (bolsa basura)","-",formatKg(c.podrido_manual)],
       ["MERMAS TOTALES",               "=", formatKg(c.mermas_totales)],
       ["DJPMN",                        "=", `${formatKg(c.dsj)}  (${c.dsj_pct >= 0 ? "+" : ""}${c.dsj_pct.toFixed(2)}%)`],
     ];
