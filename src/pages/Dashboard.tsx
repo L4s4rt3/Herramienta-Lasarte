@@ -1,12 +1,18 @@
-import { useMemo, useState } from "react";
+import { Suspense, lazy, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { usePartesDashboard } from "@/hooks/usePartes";
 import { KPICard } from "@/components/KPICard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  ComposedChart, Line, Bar, CartesianGrid, XAxis, YAxis,
-  Tooltip, ReferenceLine, ResponsiveContainer, Legend,
-} from "recharts";
+const ComposedChart = lazy(() => import("recharts").then(m => ({ default: m.ComposedChart })));
+const Line = lazy(() => import("recharts").then(m => ({ default: m.Line })));
+const Bar = lazy(() => import("recharts").then(m => ({ default: m.Bar })));
+const CartesianGrid = lazy(() => import("recharts").then(m => ({ default: m.CartesianGrid })));
+const XAxis = lazy(() => import("recharts").then(m => ({ default: m.XAxis })));
+const YAxis = lazy(() => import("recharts").then(m => ({ default: m.YAxis })));
+const Tooltip = lazy(() => import("recharts").then(m => ({ default: m.Tooltip })));
+const ReferenceLine = lazy(() => import("recharts").then(m => ({ default: m.ReferenceLine })));
+const ResponsiveContainer = lazy(() => import("recharts").then(m => ({ default: m.ResponsiveContainer })));
+const Legend = lazy(() => import("recharts").then(m => ({ default: m.Legend })));
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -89,6 +95,7 @@ export default function Dashboard() {
   );
 
   return (
+    <Suspense fallback={<div className="max-w-7xl mx-auto space-y-8"><Skeleton className="h-96" /></div>}>
     <div className="max-w-7xl mx-auto space-y-8">
 
       {/* ─── Header con acción principal ─────────────────────────────────── */}
@@ -307,6 +314,7 @@ export default function Dashboard() {
         </CardContent>
       </Card>
     </div>
+    </Suspense>
   );
 }
 

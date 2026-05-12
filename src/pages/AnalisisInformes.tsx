@@ -214,7 +214,7 @@ export default function AnalisisInformes() {
               </div>
               <div className="flex flex-wrap gap-2">
                 {archivos.map((f, i) => (
-                  <Badge key={i} variant="secondary" className="gap-1.5 pr-1">
+                  <Badge key={f.name} variant="secondary" className="gap-1.5 pr-1">
                     <FileText className="h-3 w-3" />
                     <span className="max-w-[180px] truncate text-xs">{f.name}</span>
                     <button

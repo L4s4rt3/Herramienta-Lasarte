@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Suspense, lazy, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthProvider";
@@ -15,9 +15,16 @@ import { toast } from "@/hooks/use-toast";
 import { Plus, Trash2, FileSpreadsheet, FileText } from "lucide-react";
 import { today, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import {
-  BarChart, Bar, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
-} from "recharts";
+const BarChart = lazy(() => import("recharts").then(m => ({ default: m.BarChart })));
+const Bar = lazy(() => import("recharts").then(m => ({ default: m.Bar })));
+const LineChart = lazy(() => import("recharts").then(m => ({ default: m.LineChart })));
+const Line = lazy(() => import("recharts").then(m => ({ default: m.Line })));
+const CartesianGrid = lazy(() => import("recharts").then(m => ({ default: m.CartesianGrid })));
+const XAxis = lazy(() => import("recharts").then(m => ({ default: m.XAxis })));
+const YAxis = lazy(() => import("recharts").then(m => ({ default: m.YAxis })));
+const Tooltip = lazy(() => import("recharts").then(m => ({ default: m.Tooltip })));
+const Legend = lazy(() => import("recharts").then(m => ({ default: m.Legend })));
+const ResponsiveContainer = lazy(() => import("recharts").then(m => ({ default: m.ResponsiveContainer })));
 import { exportConsumoToExcel, exportConsumoToPDF, ConsumoRow } from "@/lib/exportConsumo";
 
 const ZONAS = ["Línea de tratamiento", "Mallas", "Graneles", "Mesas", "Industria", "Drencher"];
@@ -210,6 +217,7 @@ export default function ConsumoCostes() {
   );
 
   return (
+    <Suspense fallback={<div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6"><Skeleton className="h-96" /></div>}>
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
       <header className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -432,5 +440,6 @@ export default function ConsumoCostes() {
         </CardContent>
       </Card>
     </div>
+    </Suspense>
   );
 }

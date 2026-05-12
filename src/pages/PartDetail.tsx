@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthProvider";
@@ -75,14 +75,13 @@ export default function PartDetail() {
   const navigate = useNavigate();
   const [parte, setParte] = useState<Parte | null>(null);
   const [archivos, setArchivos] = useState<Archivo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const loadingRef = useRef(true);
   const [saving, setSaving] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [uploadingCat, setUploadingCat] = useState<CategoryId | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
-    setLoading(true);
     const [{ data: p, error }, { data: files }] = await Promise.all([
       supabase.from("partes_diarios").select("*").eq("id", id).maybeSingle(),
       supabase.from("partes_archivos").select("*").eq("part_id", id).order("uploaded_at", { ascending: false }),
@@ -94,7 +93,7 @@ export default function PartDetail() {
     }
     setParte(p as Parte);
     setArchivos((files ?? []) as Archivo[]);
-    setLoading(false);
+    loadingRef.current = false;
   }, [id, navigate]);
 
   useEffect(() => { load(); }, [load]);
@@ -212,7 +211,7 @@ export default function PartDetail() {
     load();
   }
 
-  if (loading || !parte || !cascade) {
+  if (!parte || !cascade) {
     return (
       <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-4">
         <Skeleton className="h-8 w-48" />

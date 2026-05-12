@@ -36,6 +36,22 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
     : <ChevronDown className="h-3 w-3 text-primary" />;
 }
 
+function ColHead({ label, sk, right, sortKey, sortDir, onToggle }: { label: string; sk: SortKey; right?: boolean; sortKey: SortKey; sortDir: SortDir; onToggle: (k: SortKey) => void }) {
+  return (
+    <th
+      className={cn(
+        "px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer select-none whitespace-nowrap hover:text-foreground transition-colors",
+        right && "text-right"
+      )}
+      onClick={() => onToggle(sk)}
+    >
+      <span className={cn("inline-flex items-center gap-1", right && "flex-row-reverse")}>
+        {label}<SortIcon active={sortKey === sk} dir={sortDir} />
+      </span>
+    </th>
+  );
+}
+
 function DSJBar({ pct }: { pct: number }) {
   const abs = Math.abs(pct);
   const color = abs <= 3 ? "bg-success" : abs <= 5 ? "bg-warning" : "bg-destructive";
@@ -110,22 +126,6 @@ export default function PartesList() {
     if (error) { toast({ title: "Error", description: error.message, variant: "destructive" }); return; }
     toast({ title: "Parte eliminado" });
     refetch();
-  }
-
-  function ColHead({ label, sk, right }: { label: string; sk: SortKey; right?: boolean }) {
-    return (
-      <th
-        className={cn(
-          "px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer select-none whitespace-nowrap hover:text-foreground transition-colors",
-          right && "text-right"
-        )}
-        onClick={() => toggleSort(sk)}
-      >
-        <span className={cn("inline-flex items-center gap-1", right && "flex-row-reverse")}>
-          {label}<SortIcon active={sortKey === sk} dir={sortDir} />
-        </span>
-      </th>
-    );
   }
 
   const dsjAbs = Math.abs(totals.dsj_pct);
@@ -247,12 +247,12 @@ export default function PartesList() {
               <table className="w-full text-sm">
                 <thead className="bg-muted/40 border-b">
                   <tr>
-                    <ColHead label="Fecha"         sk="date" />
-                    <ColHead label="Estado"        sk="estado" />
-                    <ColHead label="Prod. real"    sk="produccion" right />
-                    <ColHead label="Palets ajust." sk="palets" right />
+                    <ColHead label="Fecha"         sk="date"         sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                    <ColHead label="Estado"        sk="estado"       sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                    <ColHead label="Prod. real"    sk="produccion"   sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
+                    <ColHead label="Palets ajust." sk="palets"       sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
                     <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-left">% DJPMN</th>
-                    <ColHead label="DJPMN (kg)"   sk="dsj_pct" right />
+                    <ColHead label="DJPMN (kg)"   sk="dsj_pct"      sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
                     <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-right whitespace-nowrap">Mermas</th>
                     <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-right whitespace-nowrap">T/h</th>
                     <th className="w-10" />

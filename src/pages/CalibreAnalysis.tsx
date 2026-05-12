@@ -3,7 +3,7 @@
  * Visualiza la distribución de calibres por día y productor.
  * Datos desde calibres_dia (importados con el parser de informes).
  */
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,10 +13,15 @@ import { KPICard } from "@/components/KPICard";
 import { formatKg } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { BarChart3, AlertTriangle, Globe, ShoppingCart, Wrench } from "lucide-react";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  Legend, Cell,
-} from "recharts";
+const BarChart = lazy(() => import("recharts").then(m => ({ default: m.BarChart })));
+const Bar = lazy(() => import("recharts").then(m => ({ default: m.Bar })));
+const XAxis = lazy(() => import("recharts").then(m => ({ default: m.XAxis })));
+const YAxis = lazy(() => import("recharts").then(m => ({ default: m.YAxis })));
+const CartesianGrid = lazy(() => import("recharts").then(m => ({ default: m.CartesianGrid })));
+const Tooltip = lazy(() => import("recharts").then(m => ({ default: m.Tooltip })));
+const ResponsiveContainer = lazy(() => import("recharts").then(m => ({ default: m.ResponsiveContainer })));
+const Legend = lazy(() => import("recharts").then(m => ({ default: m.Legend })));
+const Cell = lazy(() => import("recharts").then(m => ({ default: m.Cell })));
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -147,6 +152,7 @@ export default function CalibreAnalysis() {
   const pctIndustria = kg_total > 0 ? (kg_industria / kg_total) * 100 : 0;
 
   return (
+    <Suspense fallback={<div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6"><Skeleton className="h-96" /></div>}>
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
       <header className="flex items-start justify-between flex-wrap gap-3">
         <div>
@@ -337,5 +343,6 @@ export default function CalibreAnalysis() {
         </Card>
       )}
     </div>
+    </Suspense>
   );
 }

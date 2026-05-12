@@ -3,7 +3,7 @@
  * Lee la tabla palets_dia (columna situacion) y muestra el stock S=cámara vs F=facturado.
  * También permite ver por producto, cliente y día.
  */
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,9 +16,14 @@ import { Warehouse, Package, TruckIcon, AlertTriangle, Search } from "lucide-rea
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-} from "recharts";
+const BarChart = lazy(() => import("recharts").then(m => ({ default: m.BarChart })));
+const Bar = lazy(() => import("recharts").then(m => ({ default: m.Bar })));
+const XAxis = lazy(() => import("recharts").then(m => ({ default: m.XAxis })));
+const YAxis = lazy(() => import("recharts").then(m => ({ default: m.YAxis })));
+const CartesianGrid = lazy(() => import("recharts").then(m => ({ default: m.CartesianGrid })));
+const Tooltip = lazy(() => import("recharts").then(m => ({ default: m.Tooltip })));
+const ResponsiveContainer = lazy(() => import("recharts").then(m => ({ default: m.ResponsiveContainer })));
+const Legend = lazy(() => import("recharts").then(m => ({ default: m.Legend })));
 import { toast } from "@/hooks/use-toast";
 
 interface PaletDia {
@@ -148,6 +153,7 @@ export default function StockCamara() {
   }, [filtered]);
 
   return (
+    <Suspense fallback={<div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6"><Skeleton className="h-96" /></div>}>
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
       <header className="flex items-start justify-between flex-wrap gap-3">
         <div>
@@ -366,5 +372,6 @@ export default function StockCamara() {
         </CardContent>
       </Card>
     </div>
+    </Suspense>
   );
 }

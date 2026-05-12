@@ -3,7 +3,7 @@
  * Tabla por productor × día con kg, T/h, peso fruta promedio, nº lotes.
  * Histórico y alertas de calibre derivante.
  */
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,10 +16,14 @@ import { Users, AlertTriangle, TrendingUp, TrendingDown, Gauge, Search } from "l
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend,
-} from "recharts";
+const LineChart = lazy(() => import("recharts").then(m => ({ default: m.LineChart })));
+const Line = lazy(() => import("recharts").then(m => ({ default: m.Line })));
+const XAxis = lazy(() => import("recharts").then(m => ({ default: m.XAxis })));
+const YAxis = lazy(() => import("recharts").then(m => ({ default: m.YAxis })));
+const CartesianGrid = lazy(() => import("recharts").then(m => ({ default: m.CartesianGrid })));
+const Tooltip = lazy(() => import("recharts").then(m => ({ default: m.Tooltip })));
+const ResponsiveContainer = lazy(() => import("recharts").then(m => ({ default: m.ResponsiveContainer })));
+const Legend = lazy(() => import("recharts").then(m => ({ default: m.Legend })));
 import { toast } from "@/hooks/use-toast";
 
 interface LoteDia {
@@ -166,6 +170,7 @@ export default function Productores() {
   const nProductores = byProductor.length;
 
   return (
+    <Suspense fallback={<div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6"><Skeleton className="h-96" /></div>}>
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
       <header className="flex items-start justify-between flex-wrap gap-3">
         <div>
@@ -395,5 +400,6 @@ export default function Productores() {
         </div>
       </div>
     </div>
+    </Suspense>
   );
 }
