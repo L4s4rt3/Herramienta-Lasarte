@@ -17,7 +17,7 @@ import { formatDate, formatKg, today } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
 import {
   Plus, Trash2, ChevronUp, ChevronDown, ChevronsUpDown,
-  Search, X, Calendar, BarChart3, AlertTriangle,
+  Search, X, Calendar, BarChart3, AlertTriangle, Factory,
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
