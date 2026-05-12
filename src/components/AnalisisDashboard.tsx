@@ -179,7 +179,6 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
       {/* ── Vista Dashboard ───────────────────────────────────────────── */}
       {vista === "dashboard" && (
         <Suspense fallback={<div className="flex items-center justify-center py-16"><p className="text-sm text-muted-foreground">Cargando gráficos…</p></div>}>
-        <>
 
       {/* ── Alertas ───────────────────────────────────────────────────── */}
       {alertas.length > 0 && (
@@ -383,7 +382,7 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
       </p>
 
         </Suspense>
-      </>)}
+      )}
     </div>
   );
 }
