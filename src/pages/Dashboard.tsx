@@ -156,8 +156,8 @@ export default function Dashboard() {
             />
             <KPICard
               label="Dif. Sin Justificar"
-              value={`${totals.dsj_pct >= 0 ? "+" : ""}${totals.dsj_pct.toFixed(2)}%`}
-              hint={formatKg(totals.dsj)}
+              value={formatKg(totals.dsj)}
+              hint={`${totals.dsj_pct >= 0 ? "+" : ""}${totals.dsj_pct.toFixed(2)}% sobre producción`}
               icon={TrendingDown}
               trend={Math.abs(totals.dsj_pct) <= 3 ? "up" : Math.abs(totals.dsj_pct) <= 5 ? "neutral" : "down"}
             />

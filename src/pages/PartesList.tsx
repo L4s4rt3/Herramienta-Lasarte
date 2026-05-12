@@ -17,8 +17,7 @@ import { formatDate, formatKg, today } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
 import {
   Plus, Trash2, ChevronUp, ChevronDown, ChevronsUpDown,
-  Factory, Package, TrendingDown, AlertTriangle,
-  Search, X, Calendar, BarChart3,
+  Search, X, Calendar, BarChart3, AlertTriangle,
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -141,69 +140,17 @@ export default function PartesList() {
           <h1 className="text-2xl md:text-3xl font-semibold">{t("partes")}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Reconciliación diaria de masa
-            {!loading && <> · <span className="font-medium text-foreground">{allPartes.length}</span> partes en total</>}
+            {!loading && <> · <span className="font-medium text-foreground">{allPartes.length}</span> partes</>}
+            {!loading && partes.length > 0 && (
+              <> · DJPMN global: <span className={cn(
+                "font-semibold",
+                dsjAbs <= 3 ? "text-emerald-600" : dsjAbs <= 5 ? "text-amber-600" : "text-red-600"
+              )}>{totals.dsj_pct >= 0 ? "+" : ""}{totals.dsj_pct.toFixed(2)}%</span></>
+            )}
           </p>
         </div>
         <ExportPartesDialog />
       </header>
-
-      {/* KPIs */}
-      {!loading && partes.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Card className="border-l-4 border-l-primary">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
-                <Factory className="h-3.5 w-3.5" />
-                <span className="text-[10px] font-semibold uppercase tracking-wider">Producción real</span>
-              </div>
-              <p className="text-xl font-bold tabular-nums">{formatKg(totals.produccion_real)}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{partes.length} parte{partes.length !== 1 ? "s" : ""}</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-l-info">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
-                <Package className="h-3.5 w-3.5" />
-                <span className="text-[10px] font-semibold uppercase tracking-wider">Palets ajustados</span>
-              </div>
-              <p className="text-xl font-bold tabular-nums">{formatKg(totals.palets_ajustados)}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">neto</p>
-            </CardContent>
-          </Card>
-
-          <Card className={cn("border-l-4", dsjAbs <= 3 ? "border-l-success" : dsjAbs <= 5 ? "border-l-warning" : "border-l-destructive")}>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
-                <TrendingDown className="h-3.5 w-3.5" />
-                <span className="text-[10px] font-semibold uppercase tracking-wider">DJPMN acumulado</span>
-              </div>
-              <p className="text-xl font-bold tabular-nums">{formatKg(totals.dsj)}</p>
-              <p className={cn(
-                "text-xs font-semibold mt-0.5 tabular-nums",
-                dsjAbs <= 3 ? "text-success" : dsjAbs <= 5 ? "text-warning" : "text-destructive"
-              )}>
-                {totals.dsj_pct >= 0 ? "+" : ""}{totals.dsj_pct.toFixed(2)}% global
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className={cn("border-l-4", totals.n_rojo === 0 ? "border-l-success" : "border-l-destructive")}>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                <span className="text-[10px] font-semibold uppercase tracking-wider">Semáforos</span>
-              </div>
-              <div className="flex gap-3 mt-1">
-                <span className="text-success font-bold tabular-nums text-lg">{totals.n_ok}</span>
-                <span className="text-warning font-bold tabular-nums text-lg">{totals.n_amarillo}</span>
-                <span className="text-destructive font-bold tabular-nums text-lg">{totals.n_rojo}</span>
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">verde · amari. · rojo</p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
 
       {/* Toolbar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center flex-wrap">
