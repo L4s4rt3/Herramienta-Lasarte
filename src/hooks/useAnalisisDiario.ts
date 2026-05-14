@@ -138,7 +138,6 @@ export function useAnalisisDiario(desde: string, hasta: string) {
         // Fallback: si no hay datos IA, usar datos server-side del parte
         if (!hasIaData) {
           const kgProd = Number((parte as any).kg_produccion_calibrador) || 0;
-          const kgProd = Number((parte as any).kg_produccion_calibrador) || 0;
           const kgPalets = Number((parte as any).kg_palets_brutos) || 0;
           if (kgProd > 0 || kgPalets > 0) {
             diasSet.add(parte.date);
