@@ -89,26 +89,37 @@ export default function PartDetail() {
         supabase.from("partes_archivos").select("*").eq("part_id", id).order("uploaded_at", { ascending: false }),
       ]);
       if (error) {
-        console.error("[LOAD] Error:", error);
+        console.error("[LOAD] Error cargando parte:", error);
         toast({ title: "Error", description: error.message, variant: "destructive" });
         return;
       }
       if (!p) {
+        console.error("[LOAD] Parte no encontrada");
         toast({ title: "Error", description: "Parte no encontrada", variant: "destructive" });
         navigate("/partes");
         return;
       }
-      console.log("[LOAD] Datos cargados:", p.id, {
+      
+      console.log("[LOAD] Datos actualizados:", {
+        id: p.id,
         kg_produccion_calibrador: p.kg_produccion_calibrador,
         kg_mujeres_calibrador: p.kg_mujeres_calibrador,
         kg_palets_brutos: p.kg_palets_brutos,
         kg_podrido_calibrador_auto: p.kg_podrido_calibrador_auto,
+        kg_industria_manual: p.kg_industria_manual,
+        kg_reciclado_malla_z1: p.kg_reciclado_malla_z1,
+        kg_reciclado_malla_z2: p.kg_reciclado_malla_z2,
+        kg_inventario_sin_alta: p.kg_inventario_sin_alta,
+        kg_podrido_bolsa_basura: p.kg_podrido_bolsa_basura,
       });
+      
+      // Forzar actualización creando una nueva referencia del objeto
       setParte(p as Parte);
       setArchivos((files ?? []) as Archivo[]);
       loadingRef.current = false;
     } catch (e) {
       console.error("[LOAD] Exception:", e);
+      toast({ title: "Error", description: String(e), variant: "destructive" });
     }
   }, [id, navigate]);
 
@@ -210,28 +221,44 @@ export default function PartDetail() {
     if (!parte) return;
     setAnalyzing(true);
     try {
+      console.log("[ANALYZE] Iniciando análisis para parte:", parte.id);
+      
       const { error } = await supabase.functions.invoke("analizar-parte", {
         body: { part_id: parte.id },
       });
+      
       if (error) {
         const detail = typeof error.context === "string"
           ? (() => { try { return JSON.parse(error.context)?.error ?? error.message; } catch { return error.context; } })()
           : error.message;
+        console.error("[ANALYZE] Error:", detail);
         setAnalyzing(false);
         return toast({ title: "Error analizando", description: detail, variant: "destructive" });
       }
+      
+      console.log("[ANALYZE] Función completó exitosamente, esperando replicación...");
     } catch (e) {
+      console.error("[ANALYZE] Exception:", e);
       setAnalyzing(false);
       return toast({ title: "Error", description: String(e), variant: "destructive" });
     }
     
-    // Esperar un poco para que la BD replique los datos
-    await new Promise(r => setTimeout(r, 500));
+    // Esperar a que la BD replique los datos (Supabase puede tomar 500-1000ms)
+    await new Promise(r => setTimeout(r, 1000));
     
+    console.log("[ANALYZE] Recargando datos desde BD...");
     setAnalyzing(false);
-    // Recargar datos en lugar de hacer reload de toda la página
+    
+    // Recargar datos forzando actualización de estado
     await load();
-    toast({ title: "Análisis completado", description: "Cascada actualizada con datos de IA" });
+    
+    // Pequeño delay extra para asegurar que el useMemo se ejecute
+    await new Promise(r => setTimeout(r, 100));
+    
+    toast({ 
+      title: "✅ Análisis completado", 
+      description: "Cascada actualizada con los datos de IA"
+    });
   }
 
   if (!parte || !cascade) {
