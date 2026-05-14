@@ -221,38 +221,34 @@ export default function PartDetail() {
     if (!parte) return;
     setAnalyzing(true);
     try {
-      console.log("[ANALYZE] Iniciando análisis para parte:", parte.id);
+      // Enviar valores actuales del formulario (incluyendo no guardados)
+      const currentValues = {
+        kg_industria_manual: Number(parte.kg_industria_manual) || 0,
+        kg_reciclado_malla_z1: Number(parte.kg_reciclado_malla_z1) || 0,
+        kg_reciclado_malla_z2: Number(parte.kg_reciclado_malla_z2) || 0,
+        kg_inventario_sin_alta: Number(parte.kg_inventario_sin_alta) || 0,
+        kg_podrido_bolsa_basura: Number(parte.kg_podrido_bolsa_basura) || 0,
+      };
       
       const { error } = await supabase.functions.invoke("analizar-parte", {
-        body: { part_id: parte.id },
+        body: { part_id: parte.id, current_values: currentValues },
       });
       
       if (error) {
         const detail = typeof error.context === "string"
           ? (() => { try { return JSON.parse(error.context)?.error ?? error.message; } catch { return error.context; } })()
           : error.message;
-        console.error("[ANALYZE] Error:", detail);
         setAnalyzing(false);
         return toast({ title: "Error analizando", description: detail, variant: "destructive" });
       }
-      
-      console.log("[ANALYZE] Función completó exitosamente, esperando replicación...");
     } catch (e) {
-      console.error("[ANALYZE] Exception:", e);
       setAnalyzing(false);
       return toast({ title: "Error", description: String(e), variant: "destructive" });
     }
     
-    // Esperar a que la BD replique los datos (Supabase puede tomar 500-1000ms)
     await new Promise(r => setTimeout(r, 1000));
-    
-    console.log("[ANALYZE] Recargando datos desde BD...");
     setAnalyzing(false);
-    
-    // Recargar datos forzando actualización de estado
     await load();
-    
-    // Pequeño delay extra para asegurar que el useMemo se ejecute
     await new Promise(r => setTimeout(r, 100));
     
     toast({ 

@@ -23,7 +23,7 @@ Deno.serve(async (req) => {
     console.log("[AUTH] Header present:", !!authHeader);
     if (!authHeader) return json({ error: "No autorizado" }, 401);
 
-    const { part_id } = await req.json();
+    const { part_id, current_values } = await req.json();
     if (!part_id || typeof part_id !== "string") {
       return json({ error: "part_id requerido" }, 400);
     }
@@ -292,7 +292,7 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
     for (const [specKey, dbKey] of Object.entries(mapping)) {
       const sv = Number(server[dbKey]) || 0;  // Valor de archivos
       const av = Number(aiData?.[specKey]) || 0;  // Valor de IA
-      const currentUserValue = Number(parte[dbKey as keyof typeof parte]) || 0;  // Valor actual del usuario
+      const currentUserValue = Number(current_values?.[dbKey]) || Number(parte[dbKey as keyof typeof parte]) || 0;  // Valor actual del usuario (del frontend o BD)
       const isManualField = manualFields.has(dbKey);
       
       let selectedValue = 0;
