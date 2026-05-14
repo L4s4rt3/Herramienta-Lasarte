@@ -327,7 +327,7 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
     update.resumen_ia = { ...aiData, _server_side: server, _ai_warning: aiWarning };
     update.estado = "Analizado";
 
-    const { error: upErr } = await userClient.from("partes_diarios").update(update).eq("id", part_id);
+    const { error: upErr } = await admin.from("partes_diarios").update(update).eq("id", part_id);
     console.log("[UPDATE] result:", upErr ? "ERROR: " + upErr.message : "OK");
     if (upErr) return json({ error: "No se pudo actualizar: " + upErr.message }, 500);
 
@@ -337,12 +337,12 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
 
     // ── Limpiar tablas de detalle previas (source=ia) ─────────────────────
     await Promise.all([
-      userClient.from("production_runs").delete().eq("part_id", part_id).eq("source", "ia"),
-      userClient.from("gstock_entries").delete().eq("part_id", part_id).eq("source", "ia"),
-      userClient.from("lotes_dia").delete().eq("part_id", part_id).eq("source", "ia"),
-      userClient.from("palets_dia").delete().eq("part_id", part_id).eq("source", "ia"),
-      userClient.from("producto_dia").delete().eq("part_id", part_id).eq("source", "ia"),
-      userClient.from("calibres_dia").delete().eq("part_id", part_id).eq("source", "ia"),
+      admin.from("production_runs").delete().eq("part_id", part_id).eq("source", "ia"),
+      admin.from("gstock_entries").delete().eq("part_id", part_id).eq("source", "ia"),
+      admin.from("lotes_dia").delete().eq("part_id", part_id).eq("source", "ia"),
+      admin.from("palets_dia").delete().eq("part_id", part_id).eq("source", "ia"),
+      admin.from("producto_dia").delete().eq("part_id", part_id).eq("source", "ia"),
+      admin.from("calibres_dia").delete().eq("part_id", part_id).eq("source", "ia"),
     ]);
 
     const uid = userData.user.id;
@@ -355,7 +355,7 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
           product: r.product ?? null, size_range: r.sizerange ?? null, kg_produced: Number(r.kgproduced) || 0,
         }] : []
       );
-      if (rows.length) await userClient.from("production_runs").insert(rows);
+      if (rows.length) await admin.from("production_runs").insert(rows);
     }
 
     // ── gstock_entries (legacy) ───────────────────────────────────────────
@@ -366,7 +366,7 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
           product: r.product ?? null, size_range: r.sizerange ?? null, kg_expected: Number(r.kgexpected) || 0,
         }] : []
       );
-      if (rows.length) await userClient.from("gstock_entries").insert(rows);
+      if (rows.length) await admin.from("gstock_entries").insert(rows);
     }
 
     // ── lotes_dia (detallado) ─────────────────────────────────────────────
@@ -384,7 +384,7 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
         peso_fruta_promedio_g: Number(r.peso_fruta_promedio_g) || null,
         hora_inicio:           r.hora_inicio ?? null,
       }));
-      await userClient.from("lotes_dia").insert(rows);
+      await admin.from("lotes_dia").insert(rows);
     }
 
     // ── palets_dia (detallado) ────────────────────────────────────────────
@@ -399,7 +399,7 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
         situacion:  r.situacion ?? null,
         n_cajas:    Number(r.n_cajas) || null,
       }));
-      await userClient.from("palets_dia").insert(rows);
+      await admin.from("palets_dia").insert(rows);
     }
 
     // ── producto_dia (detallado) ──────────────────────────────────────────
@@ -413,7 +413,7 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
         n_cajas:       Number(r.n_cajas) || null,
         grupo_destino: r.grupo_destino ?? null,
       }));
-      await userClient.from("producto_dia").insert(rows);
+      await admin.from("producto_dia").insert(rows);
     }
 
     // ── calibres_dia (detallado) ──────────────────────────────────────────
@@ -427,7 +427,7 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
         pct:           Number(r.pct) || 0,
         grupo_destino: r.grupo_destino ?? null,
       }));
-      await userClient.from("calibres_dia").insert(rows);
+      await admin.from("calibres_dia").insert(rows);
     }
 
     return json({
@@ -529,15 +529,37 @@ function findCol(rows: any[][], predicates: ((s: string) => boolean)[]): { heade
 }
 
 function extractNetos(rows: any[][]): number {
-  const hit = findCol(rows, [(s) => s === "netos" || s === "neto" || s === "kg netos" || s === "peso neto"]);
-  if (!hit) return 0;
+  // Búsqueda más flexible de columnas
+  const hit = findCol(rows, [
+    (s) => s === "netos" || s === "neto" || s === "kg netos" || s === "peso neto" ||
+           s === "kgnetos" || s === "kgneto" || s === "neto(kg)" || s === "netos(kg)" ||
+           s === "peso" && s.length === 4  // "peso" exacto
+  ]);
+  
+  if (!hit) {
+    console.warn("[EXTRACT] NO SE ENCONTRÓ COLUMNA 'NETOS'. Columnas disponibles en primeras 5 filas:");
+    for (let i = 0; i < Math.min(5, rows.length); i++) {
+      const r = rows[i] ?? [];
+      console.warn("[EXTRACT] Fila " + i + ":", r.slice(0, 10).map(c => String(c ?? "")).join(" | "));
+    }
+    return 0;
+  }
+  
+  console.log("[EXTRACT] Columna 'NETOS' encontrada en header row " + hit.headerIdx + ", col " + hit.colIdx);
+  
   let sum = 0;
+  let count = 0;
   for (let i = hit.headerIdx + 1; i < rows.length; i++) {
     const r = rows[i] ?? [];
     if (isTotal(r)) continue;
     const v = toNum(r[hit.colIdx]);
-    if (v > 0) sum += v;
+    if (v > 0) {
+      sum += v;
+      count++;
+    }
   }
+  
+  console.log("[EXTRACT] NETOS: suma=" + sum + " (de " + count + " filas)");
   return sum;
 }
 
