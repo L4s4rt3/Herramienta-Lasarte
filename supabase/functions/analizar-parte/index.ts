@@ -482,21 +482,20 @@ function repairXlsx(bytes: Uint8Array): Uint8Array {
     offset += 30 + fnLen + exLen + cSize;
   }
 
-  // 3. Also patch Central Directory entries (PK\x01\x02)
-  while (offset + 46 < buf.length) {
-    if (buf[offset] !== 0x50 || buf[offset + 1] !== 0x4b ||
-        buf[offset + 2] !== 0x01 || buf[offset + 3] !== 0x02) break;
-
-    const method = buf[offset + 10] | (buf[offset + 11] << 8);
-    if (method !== 0 && method !== 8) {
-      buf[offset + 10] = 8;
-      buf[offset + 11] = 0;
+  // 3. Also patch Central Directory entries (PK\x01\x02) - buscar desde el FINAL
+  let cdOffset = Math.max(0, buf.length - 65557); // End of Central Directory puede estar en últimos 64KB
+  while (cdOffset + 46 < buf.length) {
+    if (buf[cdOffset] === 0x50 && buf[cdOffset + 1] === 0x4b &&
+        buf[cdOffset + 2] === 0x01 && buf[cdOffset + 3] === 0x02) {
+      const method = buf[cdOffset + 10] | (buf[cdOffset + 11] << 8);
+      if (method !== 0 && method !== 8) {
+        buf[cdOffset + 10] = 8;
+        buf[cdOffset + 11] = 0;
+      }
+      cdOffset += 46;
+    } else {
+      cdOffset++;
     }
-
-    const fnLen = buf[offset + 28] | (buf[offset + 29] << 8);
-    const exLen = buf[offset + 30] | (buf[offset + 31] << 8);
-    const cmLen = buf[offset + 32] | (buf[offset + 33] << 8);
-    offset += 46 + fnLen + exLen + cmLen;
   }
 
   return buf;
