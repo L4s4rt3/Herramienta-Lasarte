@@ -92,7 +92,7 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       // ── 1. Obtener todos los partes en el rango ────────────────────────────
       const { data: partes, error: pErr } = await supabase
         .from("partes_diarios")
-        .select("id,date,user_id,resumen_ia")
+        .select("id,date,user_id,resumen_ia,kg_produccion_calibrador,kg_palets_brutos,kg_mujeres_calibrador,kg_podrido_calibrador_auto")
         .gte("date", desde)
         .lte("date", hasta)
         .order("date", { ascending: false });
@@ -132,9 +132,29 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       const diasSet = new Set<string>();
 
       for (const parte of partes ?? []) {
-        if (!parte.resumen_ia) continue;
-
         const ia = parte.resumen_ia as any;
+        
+        // Fallback: si no hay resumen_ia pero el parte tiene datos server-side
+        if (!parte.resumen_ia) {
+          const kgProd = Number((parte as any).kg_produccion_calibrador) || 0;
+          const kgPalets = Number((parte as any).kg_palets_brutos) || 0;
+          if (kgProd > 0 || kgPalets > 0) {
+            diasSet.add(parte.date);
+            if (kgProd > 0) {
+              lotesAll.push({
+                fecha: parte.date, lote_codigo: "—", productor: "Del campo",
+                producto: "Producción", kg_peso_total: kgProd,
+                toneladas_hora: null, duracion_min: null, peso_fruta_promedio_g: null,
+              });
+              const key = "Del campo";
+              if (!proveedoresMap.has(key)) proveedoresMap.set(key, { kg: 0, n_lotes: 0, fechas: new Set(), t_hs: [], pesos: [] });
+              const p = proveedoresMap.get(key)!;
+              p.kg += kgProd; p.n_lotes += 1; p.fechas.add(parte.date);
+            }
+          }
+          continue;
+        }
+
         diasSet.add(parte.date);
 
         // ── Lotes ──────────────────────────────────────────────────────────
