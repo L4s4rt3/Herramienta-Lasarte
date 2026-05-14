@@ -193,39 +193,23 @@ export default function PartDetail() {
   async function analyze() {
     if (!parte) return;
     setAnalyzing(true);
-    const { data, error } = await supabase.functions.invoke("analizar-parte", {
-      body: { part_id: parte.id },
-    });
-    setAnalyzing(false);
-    if (error) {
-      const detail = typeof error.context === "string"
-        ? (() => { try { return JSON.parse(error.context)?.error ?? error.message; } catch { return error.context; } })()
-        : error.message;
-      return toast({ title: "Error analizando", description: detail, variant: "destructive" });
-    }
-    // Actualizar parte directamente desde la respuesta IA
-    console.log("[ANALYZE] response data:", JSON.stringify(data));
-    if (data?.server_side) {
-      console.log("[ANALYZE] server_side:", JSON.stringify(data.server_side));
-      setParte((prev) => {
-        const next = prev ? {
-          ...prev,
-          kg_produccion_calibrador: Number(data.server_side.kg_produccion_calibrador) || prev.kg_produccion_calibrador,
-          kg_mujeres_calibrador:    Number(data.server_side.kg_mujeres_calibrador) || prev.kg_mujeres_calibrador,
-          kg_palets_brutos:         Number(data.server_side.kg_palets_brutos) || prev.kg_palets_brutos,
-          kg_podrido_calibrador_auto: Number(data.server_side.kg_podrido_calibrador_auto) || prev.kg_podrido_calibrador_auto,
-          estado: "Analizado",
-        } : prev;
-        console.log("[ANALYZE] new parte:", JSON.stringify(next));
-        return next;
+    try {
+      const { error } = await supabase.functions.invoke("analizar-parte", {
+        body: { part_id: parte.id },
       });
+      if (error) {
+        const detail = typeof error.context === "string"
+          ? (() => { try { return JSON.parse(error.context)?.error ?? error.message; } catch { return error.context; } })()
+          : error.message;
+        setAnalyzing(false);
+        return toast({ title: "Error analizando", description: detail, variant: "destructive" });
+      }
+    } catch (e) {
+      setAnalyzing(false);
+      return toast({ title: "Error", description: String(e), variant: "destructive" });
     }
-    toast({
-      title: data?.ai_warning ? "Análisis parcial" : "Análisis completado",
-      description: data?.message ?? "Datos extraídos y cascada actualizada",
-      variant: data?.ai_warning ? "destructive" : undefined,
-    });
-    load();
+    setAnalyzing(false);
+    window.location.reload();
   }
 
   if (!parte || !cascade) {
