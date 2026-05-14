@@ -15,10 +15,12 @@ interface ArchivoRow {
 }
 
 Deno.serve(async (req) => {
+  console.log("[START] Function invoked, checking...");
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
     const authHeader = req.headers.get("Authorization");
+    console.log("[AUTH] Header present:", !!authHeader);
     if (!authHeader) return json({ error: "No autorizado" }, 401);
 
     const { part_id } = await req.json();
@@ -42,20 +44,17 @@ Deno.serve(async (req) => {
     });
     const { data: userData, error: userErr } = await userClient.auth.getUser();
     if (userErr || !userData.user) return json({ error: "No autenticado" }, 401);
-    const uid = userData.user.id;
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
 
-    // ── 1. Obtener el parte actual ────────────────────────────────────────────
     const { data: parte, error: pErr } = await userClient
       .from("partes_diarios").select("*").eq("id", part_id).maybeSingle();
     if (pErr || !parte) return json({ error: "Parte no encontrado" }, 404);
 
-    // ── 2. Auto-fill inventario anterior ─────────────────────────────────────
     if (!Number(parte.kg_inventario_anterior_sin_alta)) {
       const { data: prev } = await userClient
         .from("partes_diarios")
         .select("kg_inventario_sin_alta, date")
-        .eq("user_id", uid)
+        .eq("user_id", parte.user_id)
         .lt("date", parte.date)
         .order("date", { ascending: false })
         .limit(1).maybeSingle();
@@ -67,7 +66,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── 3. Obtener archivos ──────────────────────────────────────────────────
     const { data: archivos, error: aErr } = await userClient
       .from("partes_archivos").select("id,file_name,file_path,file_type,mime_type").eq("part_id", part_id);
     if (aErr) return json({ error: aErr.message }, 500);
@@ -84,7 +82,6 @@ Deno.serve(async (req) => {
       return "otro";
     };
 
-    // ── 4. Extracción servidor (sin sobreescribir manuales) ───────────────────
     const server: Record<string, number> = {};
     const csvContexts: { name: string; kind: string; csv: string }[] = [];
 
@@ -155,25 +152,30 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
 
 - lotes_detalle: array de objetos por cada lote del informe produccion:
   {lote_codigo, productor, producto, kg_peso_total, toneladas_hora, duracion_min, peso_fruta_promedio_g, hora_inicio}
+  Buscar columnas: ID/Lote, Nombre/Productor, Variedad/Producto, Peso(kg), T/h, Duracion(min), PesoFruta(g), HoraInicio/Tiempo.
 
 - palets_detalle: array de objetos por cada palet del informe palets/gstock:
   {palet_id, producto, cliente, destino, kg_neto, situacion, n_cajas}
+  Buscar columnas: Palet/ID, Producto/Variedad, Cliente, Destino/Camara, Netos/Peso, Situacion, Cajas.
 
 - producto_detalle: array de objetos por cada linea del informe producto/tamanos:
   {linea, producto, formato_caja, kg, n_cajas, grupo_destino}
+  Buscar columnas: Linea, Producto/Variedad, Formato/Caja, Peso(kg), Cajas, Destino/Grupo(Exportacion/Mercado/Industria).
 
 - calibres_detalle: array de objetos por cada calibre del informe tamanos:
   {calibre, clase, kg, piezas, pct, grupo_destino}
+  Buscar columnas: Calibre/Tamano, Clase(Exportacion/Mercado/Industria), Peso(kg), Piezas/Unidades, %(porcentaje), Destino.
 
 - analisis: string con breve resumen
 - fuentes: objeto con origen de cada dato (nombre archivo o null)`;
 
+    // ── Mensaje de usuario ────────────────────────────────────────────────
     const dateStr = parte.date ?? "desconocida";
     let userMsg = `Parte ${dateStr}. Archivos:\n${csvContexts.map(c => "- " + c.name).join("\n")}\n`;
     for (const c of csvContexts) userMsg += "\n--- [" + c.kind + "] " + c.name + " ---\n" + c.csv;
     const finalUserMsg = userMsg.slice(0, 8000);
 
-    // ── Llamada IA con fallback DeepSeek -> NVIDIA ────────────────────────────
+    // ── Llamada IA con fallback DeepSeek -> NVIDIA ────────────────────────
     let aiData: any = {};
     let aiWarning: string | null = null;
     let lastStatus = 0;
@@ -181,144 +183,240 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
     let succeeded = false;
 
     const providers = [
-      { name: "DeepSeek", key: DEEPSEEK_API_KEY, url: "https://api.deepseek.com/chat/completions", model: "deepseek-chat" },
-      { name: "NVIDIA", key: NVIDIA_API_KEY, url: "https://integrate.api.nvidia.com/v1/chat/completions", model: "meta/llama-3.1-70b-instruct" },
-      { name: "Groq", key: GROQ_API_KEY, url: "https://api.groq.com/openai/v1/chat/completions", model: "mixtral-8x7b-32768" },
-      { name: "OpenCode", key: OPENCODE_API_KEY, url: "https://api.opencode.cloud/v1/chat/completions", model: "gpt-4-turbo" },
-    ].filter((p) => p.key);
+      ...(NVIDIA_API_KEY ? [{ name: "NVIDIA", url: "https://integrate.api.nvidia.com/v1/chat/completions", key: NVIDIA_API_KEY, model: "meta/llama-3.3-70b-instruct", jsonMode: true }] : []),
+      ...(OPENCODE_API_KEY ? [{ name: "OpenCode", url: "https://opencode.ai/zen/v1/chat/completions", key: OPENCODE_API_KEY, model: "ring-2.6-1t-free", jsonMode: true }] : []),
+      ...(GROQ_API_KEY ? [{ name: "Groq", url: "https://api.groq.com/openai/v1/chat/completions", key: GROQ_API_KEY, model: "llama-3.3-70b-versatile", jsonMode: false }] : []),
+      ...(DEEPSEEK_API_KEY ? [{ name: "DeepSeek", url: "https://api.deepseek.com/v1/chat/completions", key: DEEPSEEK_API_KEY, model: "deepseek-chat", jsonMode: true }] : []),
+    ];
+    const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 
-    for (const provider of providers) {
-      try {
-        const resp = await fetch(provider.url, {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${provider.key}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
+    outer: for (const provider of providers) {
+      const timeoutMs = 25000;
+      const maxAttempts = 2;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          console.log("[IA] " + provider.name + " modelo=" + provider.model + " intento=" + (attempt + 1));
+          const reqBody: any = {
             model: provider.model,
             messages: [{ role: "system", content: sysPrompt }, { role: "user", content: finalUserMsg }],
-            temperature: 0.3,
-            max_tokens: 3000,
-          }),
-        });
-        lastStatus = resp.status;
-        lastBody = await resp.text();
-
-        if (resp.ok) {
-          const json_resp = JSON.parse(lastBody);
-          const content = json_resp.choices?.[0]?.message?.content || "";
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            aiData = JSON.parse(jsonMatch[0]);
-            succeeded = true;
-            break;
+            temperature: 0.1,
+            max_tokens: 4096,
+          };
+          if (provider.jsonMode) reqBody.response_format = { type: "json_object" };
+          const aiResp = await fetch(provider.url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + provider.key },
+            signal: controller.signal,
+            body: JSON.stringify(reqBody),
+          });
+          clearTimeout(timeout);
+            if (aiResp.ok) {
+            const aiJson = await aiResp.json();
+            let text = aiJson?.choices?.[0]?.message?.content ?? "{}";
+            console.log("[IA] raw response (first 300 chars):", text.slice(0, 300));
+            text = text.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+            try {
+              aiData = JSON.parse(text);
+              succeeded = true;
+              console.log("[IA] JSON parseado correctamente");
+            } catch {
+              // Si falla, buscar un objeto JSON dentro del texto
+              const m = text.match(/\{[\s\S]*\}/);
+              if (m) {
+                try {
+                  aiData = JSON.parse(m[0]);
+                  succeeded = true;
+                  console.log("[IA] JSON encontrado dentro de texto (markdown removido)");
+                } catch (innerErr) {
+                  console.warn("[IA] Error parseando JSON extraído:", innerErr);
+                  aiWarning = provider.name + ": JSON en posición incorrecta";
+                  aiData = {};
+                  succeeded = true;
+                }
+              } else {
+                console.warn("[IA] No se encontró JSON válido en respuesta. Texto (primeros 200):", text.slice(0, 200));
+                aiWarning = provider.name + ": JSON invalido (len=" + text.length + ")";
+                aiData = {};
+                succeeded = true;
+              }
+            }
+            aiWarning = null; // limpiar warning de proveedores anteriores
+            console.log("[IA] " + provider.name + " OK, keys:", Object.keys(aiData).join(","));
+            break outer;
           }
-        } else if (resp.status !== 429 && resp.status !== 503) {
-          aiWarning = `${provider.name}: ${lastStatus}`;
+          lastStatus = aiResp.status;
+          lastBody = await aiResp.text();
+          console.warn("[IA] " + provider.name + " intento " + (attempt + 1) + " -> " + aiResp.status + " body(100):", lastBody.slice(0, 100));
+          if (aiResp.status === 401 || aiResp.status === 403) { aiWarning = provider.name + " auth failed (" + aiResp.status + ")"; break; }
+          if (aiResp.status === 429) { aiWarning = provider.name + " rate limited (" + aiResp.status + ")"; break; }
+          if (!RETRYABLE.has(aiResp.status)) { aiWarning = provider.name + " " + aiResp.status; break; }
+          await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt) + Math.floor(Math.random() * 300)));
+        } catch (e) {
+          clearTimeout(timeout);
+          lastBody = e instanceof Error ? e.message : "error";
+          const isTimeout = e instanceof Error && e.name === "AbortError";
+          console.warn("[IA] " + provider.name + " intento " + (attempt + 1) + " error: " + lastBody + (isTimeout ? " (TIMEOUT)" : ""));
+          if (isTimeout) { aiWarning = provider.name + " timeout"; break; }
+          await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt)));
         }
-      } catch (e) {
-        console.warn(`${provider.name} failed:`, e);
       }
+      console.warn("[IA] " + provider.name + " agotado, siguiente proveedor...");
+    }
+    if (!succeeded && !aiWarning) {
+      aiWarning = lastStatus === 429 ? "Rate limit" : lastStatus === 0 ? "Timeout" : "Error " + lastStatus;
     }
 
-    if (!succeeded) {
-      return json({ error: `IA no respondió: ${lastStatus} ${lastBody.slice(0, 200)}` }, 500);
-    }
-
-    // ── 5. MERGE: Datos del servidor + IA (sin sobreescribir manuales) ────────
-    //    Mantener datos manuales que el usuario ya ingresó
-    const updates: Record<string, number> = {};
-
-    // Campos automáticos (solo si IA o servidor tienen datos)
-    if (server.kg_produccion_calibrador) updates.kg_produccion_calibrador = server.kg_produccion_calibrador;
-    else if (aiData.kg_produccion_total) updates.kg_produccion_calibrador = Number(aiData.kg_produccion_total) || 0;
-
-    if (server.kg_palets_brutos) updates.kg_palets_brutos = server.kg_palets_brutos;
-    else if (aiData.kg_palets_brutos) updates.kg_palets_brutos = Number(aiData.kg_palets_brutos) || 0;
-
-    if (server.kg_mujeres_calibrador) updates.kg_mujeres_calibrador = server.kg_mujeres_calibrador;
-    else if (aiData.kg_mujeres_l) updates.kg_mujeres_calibrador = Number(aiData.kg_mujeres_l) || 0;
-
-    if (server.kg_podrido_calibrador_auto) updates.kg_podrido_calibrador_auto = server.kg_podrido_calibrador_auto;
-    else if (aiData.kg_podrido_calibrador) updates.kg_podrido_calibrador_auto = Number(aiData.kg_podrido_calibrador) || 0;
-
-    // Campos manuales: solo actualizar si el usuario NO los ingresó (son 0)
-    if (!parte.kg_industria_manual) {
-      if (aiData.industria_manual) updates.kg_industria_manual = Number(aiData.industria_manual) || 0;
-    }
-    if (!parte.kg_reciclado_malla_z1) {
-      if (aiData.reciclado_z1) updates.kg_reciclado_malla_z1 = Number(aiData.reciclado_z1) || 0;
-    }
-    if (!parte.kg_reciclado_malla_z2) {
-      if (aiData.reciclado_z2) updates.kg_reciclado_malla_z2 = Number(aiData.reciclado_z2) || 0;
-    }
-    if (!parte.kg_inventario_sin_alta) {
-      if (aiData.inventario_final) updates.kg_inventario_sin_alta = Number(aiData.inventario_final) || 0;
-    }
-    if (!parte.kg_podrido_bolsa_basura) {
-      if (aiData.kg_podrido_manual) updates.kg_podrido_bolsa_basura = Number(aiData.kg_podrido_manual) || 0;
-    }
-
-    // Guardar resumen IA
-    updates.resumen_ia = aiData;
-
-    // ── 6. Actualizar parte en BD ────────────────────────────────────────────
-    if (Object.keys(updates).length > 0) {
-      const { error: upErr } = await userClient.from("partes_diarios")
-        .update(updates)
-        .eq("id", part_id);
-      if (upErr) {
-        console.error("Update parte error:", upErr);
-        return json({ error: "Error actualizando parte: " + upErr.message }, 500);
+    // ── Mapeo IA -> DB ────────────────────────────────────────────────────
+    // NOTA: Los campos manuales (ingresados por usuario) NUNCA deben ser sobrescritos por IA
+    const manualFields = new Set(["kg_industria_manual", "kg_reciclado_malla_z1", "kg_reciclado_malla_z2", "kg_inventario_sin_alta", "kg_podrido_bolsa_basura"]);
+    
+    const mapping: Record<string, string> = {
+      kg_produccion_total: "kg_produccion_calibrador",
+      kg_mujeres_l: "kg_mujeres_calibrador",
+      kg_podrido_calibrador: "kg_podrido_calibrador_auto",
+      kg_palets_alta: "kg_palets_brutos",
+      industria_manual: "kg_industria_manual",
+      reciclado_z1: "kg_reciclado_malla_z1",
+      reciclado_z2: "kg_reciclado_malla_z2",
+      inventario_final: "kg_inventario_sin_alta",
+      kg_podrido_manual: "kg_podrido_bolsa_basura",
+    };
+    
+    console.log("[MAP] server values:", JSON.stringify(server));
+    console.log("[MAP] aiData keys:", Object.keys(aiData));
+    console.log("[MAP] aiData complete:", JSON.stringify(aiData).slice(0, 500));
+    
+    const update: Record<string, any> = {};
+    for (const [specKey, dbKey] of Object.entries(mapping)) {
+      const sv = Number(server[dbKey]) || 0;  // Valor de archivos
+      const av = Number(aiData?.[specKey]) || 0;  // Valor de IA
+      const currentUserValue = Number(parte[dbKey as keyof typeof parte]) || 0;  // Valor actual del usuario
+      const isManualField = manualFields.has(dbKey);
+      
+      let selectedValue = 0;
+      let reason = "sin valor";
+      
+      // PROTEGER CAMPOS MANUALES: si el usuario ya ingresó valor, NO sobrescribir
+      if (isManualField && currentUserValue > 0) {
+        selectedValue = currentUserValue;
+        reason = "PROTEGIDO (manual)";
+      } else if (sv > 0) {
+        // PRIORIDAD 1: Valor de archivos extraído
+        selectedValue = sv;
+        reason = "de ARCHIVOS";
+      } else if (av > 0) {
+        // PRIORIDAD 2: Valor de IA
+        selectedValue = av;
+        reason = "de IA";
+      } else if (currentUserValue > 0) {
+        // PRIORIDAD 3: Mantener valor anterior si existe
+        selectedValue = currentUserValue;
+        reason = "anterior";
       }
+      
+      // CRÍTICO: SIEMPRE actualizar todos los campos (incluso si son 0) para forzar que Supabase
+      // registre el cambio en updated_at y updated_at sea consistente con los datos nuevos
+      update[dbKey] = selectedValue;
+      
+      console.log("[MAP] " + specKey + " -> " + dbKey + ": sv=" + sv + ", av=" + av + ", user=" + currentUserValue + " => " + selectedValue + " (" + reason + ")");
+    }
+    console.log("[UPDATE] Update object (COMPLETO):", JSON.stringify(update));
+    console.log("[UPDATE] fields que se actualizarán:", Object.keys(update).join(","));
+    update.resumen_ia = { ...aiData, _server_side: server, _ai_warning: aiWarning };
+    update.estado = "Analizado";
+
+    const { error: upErr } = await userClient.from("partes_diarios").update(update).eq("id", part_id);
+    console.log("[UPDATE] result:", upErr ? "ERROR: " + upErr.message : "OK");
+    if (upErr) return json({ error: "No se pudo actualizar: " + upErr.message }, 500);
+
+    // ── Verificación: leer lo que se guardó ────────────────────────────────────
+    const { data: verificacion } = await userClient.from("partes_diarios").select("kg_produccion_calibrador, kg_mujeres_calibrador, kg_palets_brutos, kg_podrido_calibrador_auto").eq("id", part_id).maybeSingle();
+    console.log("[VERIFY] Datos guardados en BD:", JSON.stringify(verificacion));
+
+    // ── Limpiar tablas de detalle previas (source=ia) ─────────────────────
+    await Promise.all([
+      userClient.from("production_runs").delete().eq("part_id", part_id).eq("source", "ia"),
+      userClient.from("gstock_entries").delete().eq("part_id", part_id).eq("source", "ia"),
+      userClient.from("lotes_dia").delete().eq("part_id", part_id).eq("source", "ia"),
+      userClient.from("palets_dia").delete().eq("part_id", part_id).eq("source", "ia"),
+      userClient.from("producto_dia").delete().eq("part_id", part_id).eq("source", "ia"),
+      userClient.from("calibres_dia").delete().eq("part_id", part_id).eq("source", "ia"),
+    ]);
+
+    const uid = userData.user.id;
+
+    // ── production_runs (legacy) ──────────────────────────────────────────
+    if (Array.isArray(aiData.produccion)) {
+      const rows = aiData.produccion.flatMap((r: any) =>
+        Number(r?.kgproduced) > 0 ? [{
+          part_id, user_id: uid, date: parte.date, source: "ia",
+          product: r.product ?? null, size_range: r.sizerange ?? null, kg_produced: Number(r.kgproduced) || 0,
+        }] : []
+      );
+      if (rows.length) await userClient.from("production_runs").insert(rows);
     }
 
-    // ── 7. Insertar detalle en tablas relacionadas ────────────────────────────
-    // (lotes_dia, palets_dia, producto_dia, calibres_dia)
+    // ── gstock_entries (legacy) ───────────────────────────────────────────
+    if (Array.isArray(aiData.gstock)) {
+      const rows = aiData.gstock.flatMap((r: any) =>
+        Number(r?.kgexpected) > 0 ? [{
+          part_id, user_id: uid, date: parte.date, source: "ia",
+          product: r.product ?? null, size_range: r.sizerange ?? null, kg_expected: Number(r.kgexpected) || 0,
+        }] : []
+      );
+      if (rows.length) await userClient.from("gstock_entries").insert(rows);
+    }
 
-    if (Array.isArray(aiData.lotes_detalle) && aiData.lotes_detalle.length > 0) {
-      const rows = aiData.lotes_detalle.map((r: any) => ({
+    // ── lotes_dia (detallado) ─────────────────────────────────────────────
+    const lotesArr = Array.isArray(aiData.lotes_detalle) ? aiData.lotes_detalle
+      : Array.isArray(aiData.lotes) ? aiData.lotes : [];
+    if (lotesArr.length > 0) {
+      const rows = lotesArr.map((r: any) => ({
         part_id, user_id: uid, source: "ia",
-        lote_codigo:       r.lote_codigo ?? "—",
-        productor:         r.productor ?? "—",
-        producto:          r.producto ?? "—",
-        kg_peso_total:     Number(r.kg_peso_total) || 0,
-        toneladas_hora:    Number(r.toneladas_hora) || null,
-        duracion_min:      Number(r.duracion_min) || null,
+        lote_codigo:           r.lote_codigo ?? r.lotecodigo ?? null,
+        productor:             r.productor ?? null,
+        producto:              r.producto ?? null,
+        kg_peso_total:         Number(r.kg_peso_total) || 0,
+        toneladas_hora:        Number(r.toneladas_hora) || null,
+        duracion_min:          Number(r.duracion_min) || null,
         peso_fruta_promedio_g: Number(r.peso_fruta_promedio_g) || null,
-        hora_inicio:       r.hora_inicio ?? null,
+        hora_inicio:           r.hora_inicio ?? null,
       }));
-      const { error: insErr } = await userClient.from("lotes_dia").insert(rows);
-      if (insErr) console.warn("lotes_dia insert error:", insErr);
+      await userClient.from("lotes_dia").insert(rows);
     }
 
+    // ── palets_dia (detallado) ────────────────────────────────────────────
     if (Array.isArray(aiData.palets_detalle) && aiData.palets_detalle.length > 0) {
       const rows = aiData.palets_detalle.map((r: any) => ({
         part_id, user_id: uid, source: "ia",
-        palet_id:   r.palet_id ?? "—",
-        producto:   r.producto ?? "—",
+        palet_id:   r.palet_id ?? null,
+        producto:   r.producto ?? null,
         cliente:    r.cliente ?? null,
         destino:    r.destino ?? null,
         kg_neto:    Number(r.kg_neto) || 0,
         situacion:  r.situacion ?? null,
         n_cajas:    Number(r.n_cajas) || null,
       }));
-      const { error: insErr } = await userClient.from("palets_dia").insert(rows);
-      if (insErr) console.warn("palets_dia insert error:", insErr);
+      await userClient.from("palets_dia").insert(rows);
     }
 
+    // ── producto_dia (detallado) ──────────────────────────────────────────
     if (Array.isArray(aiData.producto_detalle) && aiData.producto_detalle.length > 0) {
       const rows = aiData.producto_detalle.map((r: any) => ({
         part_id, user_id: uid, source: "ia",
-        linea:         r.linea ?? "—",
-        producto:      r.producto ?? "—",
+        linea:         r.linea ?? null,
+        producto:      r.producto ?? null,
         formato_caja:  r.formato_caja ?? null,
         kg:            Number(r.kg) || 0,
         n_cajas:       Number(r.n_cajas) || null,
         grupo_destino: r.grupo_destino ?? null,
       }));
-      const { error: insErr } = await userClient.from("producto_dia").insert(rows);
-      if (insErr) console.warn("producto_dia insert error:", insErr);
+      await userClient.from("producto_dia").insert(rows);
     }
 
+    // ── calibres_dia (detallado) ──────────────────────────────────────────
     if (Array.isArray(aiData.calibres_detalle) && aiData.calibres_detalle.length > 0) {
       const rows = aiData.calibres_detalle.map((r: any) => ({
         part_id, user_id: uid, source: "ia",
@@ -329,24 +427,16 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
         pct:           Number(r.pct) || 0,
         grupo_destino: r.grupo_destino ?? null,
       }));
-      const { error: insErr } = await userClient.from("calibres_dia").insert(rows);
-      if (insErr) console.warn("calibres_dia insert error:", insErr);
+      await userClient.from("calibres_dia").insert(rows);
     }
 
     return json({
-      message: aiWarning ? "OK (IA con aviso: " + aiWarning + ")" : "OK: Parte actualizado",
-      parte_actualizado: true,
-      datos_guardados: Object.keys(updates).length,
-      detalles_insertados: {
-        lotes: aiData.lotes_detalle?.length ?? 0,
-        palets: aiData.palets_detalle?.length ?? 0,
-        productos: aiData.producto_detalle?.length ?? 0,
-        calibres: aiData.calibres_detalle?.length ?? 0,
-      },
+      message: aiWarning ? "Server-side OK; IA: " + aiWarning : "OK: " + files.length + " archivo(s)",
+      server_side: server, ai: aiData, ai_warning: aiWarning,
     });
   } catch (e) {
     console.error("analizar-parte", e);
-    return json({ error: e instanceof Error ? e.message : "Error desconocido" }, 500);
+    return json({ error: e instanceof Error ? e.message : "Error" }, 500);
   }
 });
 
@@ -357,6 +447,7 @@ function json(body: unknown, status = 200) {
 }
 
 function repairXlsx(bytes: Uint8Array): Uint8Array {
+  // 1. Strip any prefix before ZIP magic bytes (PK\x03\x04)
   let start = 0;
   for (let i = 0; i < Math.min(bytes.length - 4, 65536); i++) {
     if (bytes[i] === 0x50 && bytes[i + 1] === 0x4b && bytes[i + 2] === 0x03 && bytes[i + 3] === 0x04) {
@@ -365,31 +456,49 @@ function repairXlsx(bytes: Uint8Array): Uint8Array {
     }
   }
   const buf = start === 0 ? new Uint8Array(bytes) : new Uint8Array(bytes.slice(start));
+
+  // 2. Fix unsupported compression methods in ZIP local file headers.
+  //    Some modern Excel files use compression method 9 (DEFLATE64) or have
+  //    corrupted headers that cause NaN. The xlsx library only supports
+  //    method 0 (STORE) and 8 (DEFLATE). Patch invalid methods to 8.
   let offset = 0;
   while (offset + 30 < buf.length) {
-    if (buf[offset] !== 0x50 || buf[offset + 1] !== 0x4b || buf[offset + 2] !== 0x03 || buf[offset + 3] !== 0x04) break;
+    // Check for local file header signature PK\x03\x04
+    if (buf[offset] !== 0x50 || buf[offset + 1] !== 0x4b ||
+        buf[offset + 2] !== 0x03 || buf[offset + 3] !== 0x04) break;
+
     const method = buf[offset + 8] | (buf[offset + 9] << 8);
     if (method !== 0 && method !== 8) {
+      // Patch to DEFLATE (8)
       buf[offset + 8] = 8;
       buf[offset + 9] = 0;
     }
+
     const fnLen = buf[offset + 26] | (buf[offset + 27] << 8);
     const exLen = buf[offset + 28] | (buf[offset + 29] << 8);
-    const cSize = buf[offset + 18] | (buf[offset + 19] << 8) | (buf[offset + 20] << 16) | (buf[offset + 21] << 24);
+    const cSize = buf[offset + 18] | (buf[offset + 19] << 8) |
+                  (buf[offset + 20] << 16) | (buf[offset + 21] << 24);
+
     offset += 30 + fnLen + exLen + cSize;
   }
+
+  // 3. Also patch Central Directory entries (PK\x01\x02)
   while (offset + 46 < buf.length) {
-    if (buf[offset] !== 0x50 || buf[offset + 1] !== 0x4b || buf[offset + 2] !== 0x01 || buf[offset + 3] !== 0x02) break;
+    if (buf[offset] !== 0x50 || buf[offset + 1] !== 0x4b ||
+        buf[offset + 2] !== 0x01 || buf[offset + 3] !== 0x02) break;
+
     const method = buf[offset + 10] | (buf[offset + 11] << 8);
     if (method !== 0 && method !== 8) {
       buf[offset + 10] = 8;
       buf[offset + 11] = 0;
     }
+
     const fnLen = buf[offset + 28] | (buf[offset + 29] << 8);
     const exLen = buf[offset + 30] | (buf[offset + 31] << 8);
     const cmLen = buf[offset + 32] | (buf[offset + 33] << 8);
     offset += 46 + fnLen + exLen + cmLen;
   }
+
   return buf;
 }
 
@@ -453,6 +562,7 @@ function extractTamanos(rows: any[][]): { mujeres: number; podrido: number } {
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i] ?? [];
     const rv = r.map((c: any) => norm(c));
+
     if (rv.some((v: string) => v === "mujeres")) {
       if (inMuj) flush();
       inMuj = true; pesoCol = -1; vals = [];
