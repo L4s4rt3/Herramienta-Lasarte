@@ -447,6 +447,10 @@ function json(body: unknown, status = 200) {
 }
 
 function repairXlsx(bytes: Uint8Array): Uint8Array {
+  // v3: byte-by-byte ZIP header scanning - fixes DEFLATE64 (method 9) files
+  // Some Excel files use compression method 9 which xlsx library doesn't support.
+  // We patch method 9 to method 8 (DEFLATE) in both local headers and central directory.
+  const MAGIC_PK03 = 0x50; const MAGIC_PK04 = 0x4b;
   // 1. Strip any prefix before ZIP magic bytes (PK\x03\x04)
   let start = 0;
   for (let i = 0; i < Math.min(bytes.length - 4, 65536); i++) {
@@ -457,44 +461,33 @@ function repairXlsx(bytes: Uint8Array): Uint8Array {
   }
   const buf = start === 0 ? new Uint8Array(bytes) : new Uint8Array(bytes.slice(start));
 
-  // 2. Fix unsupported compression methods in ZIP local file headers.
-  //    Some modern Excel files use compression method 9 (DEFLATE64) or have
-  //    corrupted headers that cause NaN. The xlsx library only supports
-  //    method 0 (STORE) and 8 (DEFLATE). Patch invalid methods to 8.
-  let offset = 0;
-  while (offset + 30 < buf.length) {
-    // Check for local file header signature PK\x03\x04
-    if (buf[offset] !== 0x50 || buf[offset + 1] !== 0x4b ||
-        buf[offset + 2] !== 0x03 || buf[offset + 3] !== 0x04) break;
-
-    const method = buf[offset + 8] | (buf[offset + 9] << 8);
-    if (method !== 0 && method !== 8) {
-      // Patch to DEFLATE (8)
-      buf[offset + 8] = 8;
-      buf[offset + 9] = 0;
+  // 2. Patch ALL local file headers: scan byte-by-byte for PK\x03\x04
+  for (let i = 0; i < buf.length - 30; i++) {
+    if (buf[i] === 0x50 && buf[i + 1] === 0x4b && buf[i + 2] === 0x03 && buf[i + 3] === 0x04) {
+      const method = buf[i + 8] | (buf[i + 9] << 8);
+      if (method !== 0 && method !== 8) {
+        buf[i + 8] = 8;
+        buf[i + 9] = 0;
+      }
+      // Skip past this header + filename + extra fields (don't trust cSize)
+      const fnLen = buf[i + 26] | (buf[i + 27] << 8);
+      const exLen = buf[i + 28] | (buf[i + 29] << 8);
+      i += 30 + fnLen + exLen - 1; // -1 porque el for hace i++
     }
-
-    const fnLen = buf[offset + 26] | (buf[offset + 27] << 8);
-    const exLen = buf[offset + 28] | (buf[offset + 29] << 8);
-    const cSize = buf[offset + 18] | (buf[offset + 19] << 8) |
-                  (buf[offset + 20] << 16) | (buf[offset + 21] << 24);
-
-    offset += 30 + fnLen + exLen + cSize;
   }
 
-  // 3. Also patch Central Directory entries (PK\x01\x02) - buscar desde el FINAL
-  let cdOffset = Math.max(0, buf.length - 65557); // End of Central Directory puede estar en últimos 64KB
-  while (cdOffset + 46 < buf.length) {
-    if (buf[cdOffset] === 0x50 && buf[cdOffset + 1] === 0x4b &&
-        buf[cdOffset + 2] === 0x01 && buf[cdOffset + 3] === 0x02) {
-      const method = buf[cdOffset + 10] | (buf[cdOffset + 11] << 8);
+  // 3. Patch Central Directory entries (PK\x01\x02): scan byte-by-byte
+  for (let i = 0; i < buf.length - 46; i++) {
+    if (buf[i] === 0x50 && buf[i + 1] === 0x4b && buf[i + 2] === 0x01 && buf[i + 3] === 0x02) {
+      const method = buf[i + 10] | (buf[i + 11] << 8);
       if (method !== 0 && method !== 8) {
-        buf[cdOffset + 10] = 8;
-        buf[cdOffset + 11] = 0;
+        buf[i + 10] = 8;
+        buf[i + 11] = 0;
       }
-      cdOffset += 46;
-    } else {
-      cdOffset++;
+      const fnLen = buf[i + 28] | (buf[i + 29] << 8);
+      const exLen = buf[i + 30] | (buf[i + 31] << 8);
+      const cmLen = buf[i + 32] | (buf[i + 33] << 8);
+      i += 46 + fnLen + exLen + cmLen - 1;
     }
   }
 
