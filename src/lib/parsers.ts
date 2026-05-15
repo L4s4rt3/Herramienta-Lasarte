@@ -165,7 +165,7 @@ function parseWorkbook(file: File): Promise<XLSX.WorkBook> {
       try {
         let raw = new Uint8Array(e.target!.result as ArrayBuffer);
         raw = repairXlsx(raw);
-        const wb = XLSX.read(raw, { type: "array", cellDates: true });
+        const wb = XLSX.read(raw, { type: "array" });
         if (!wb.SheetNames || wb.SheetNames.length === 0) {
           throw new Error("Workbook vacio o sin hojas");
         }
@@ -174,10 +174,9 @@ function parseWorkbook(file: File): Promise<XLSX.WorkBook> {
         console.warn("[PARSER] Error con reparacion, probando sin reparar:", err.message);
         try {
           const raw2 = new Uint8Array(e.target!.result as ArrayBuffer);
-          const wb2 = XLSX.read(raw2, { type: "array", cellDates: true });
+          const wb2 = XLSX.read(raw2, { type: "array" });
           if (wb2.SheetNames && wb2.SheetNames.length > 0) { resolve(wb2); return; }
-        } catch (_) { /* ignorar, siguiente intento */ }
-        // Ultimo intento: pasar el File directamente
+        } catch (_) { /* ignorar */ }
         try {
           const wb3 = XLSX.read(file, { type: "file" });
           if (wb3.SheetNames && wb3.SheetNames.length > 0) { resolve(wb3); return; }
