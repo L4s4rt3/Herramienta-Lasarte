@@ -101,6 +101,7 @@ Deno.serve(async (req) => {
       if (dlErr || !blob) continue;
       const bytes = new Uint8Array(await blob.arrayBuffer());
       const kind = classify(f);
+      console.log("[CLASSIFY] file=" + (f.file_name ?? "") + " type=" + (f.file_type ?? "") + " kind=" + kind);
 
       try {
         const repaired = repairXlsx(bytes);
@@ -254,15 +255,23 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
         // Fusionar IA + server-side: server-side tiene prioridad en arrays detallados
         const merged = { ...result.data };
         if (agent.kind === "produccion") {
-          if (serverLotes.length > 0) merged.lotes_detalle = serverLotes;
+          console.log("[SUBAGENT] produccion: serverLotes=" + serverLotes.length + " AI lotes=" + (result.data.lotes_detalle?.length ?? 0));
+          if (serverLotes.length > 0) {
+            merged.lotes_detalle = serverLotes;
+            console.log("[SUBAGENT] produccion: usando serverLotes (prio 1)");
+          }
           if (server.kg_produccion_calibrador) merged.kg_produccion_total = server.kg_produccion_calibrador;
         } else if (agent.kind === "palets") {
-          if (serverPalets.length > 0) merged.palets_detalle = serverPalets;
+          console.log("[SUBAGENT] palets: serverPalets=" + serverPalets.length + " AI palets=" + (result.data.palets_detalle?.length ?? 0));
+          if (serverPalets.length > 0) {
+            merged.palets_detalle = serverPalets;
+            console.log("[SUBAGENT] palets: usando serverPalets (prio 1)");
+          }
           if (server.kg_palets_brutos) merged.kg_palets_alta = server.kg_palets_brutos;
         }
         Object.assign(aiData, merged);
         subagentSuccessCount++;
-        console.log("[SUBAGENT] " + agent.kind + " OK, keys:", Object.keys(merged).join(","));
+        console.log("[SUBAGENT] " + agent.kind + " OK, keys:", Object.keys(merged).join(",") + " lotes_sample=" + JSON.stringify(merged.lotes_detalle?.slice(0, 2)));
       } else {
         // Fallback server-side para este subagente
         const fb = agent.fallback();
@@ -346,7 +355,8 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
     for (const arr of ["produccion","gstock","lotes_detalle","palets_detalle","producto_detalle","calibres_detalle"]) {
       if (!Array.isArray(update.resumen_ia[arr])) update.resumen_ia[arr] = [];
     }
-    console.log("[IA] resumen_ia keys:", Object.keys(update.resumen_ia).join(","), " serverLotes=" + serverLotes.length + " serverPalets=" + serverPalets.length);
+    console.log("[IA] resumen_ia keys:", Object.keys(update.resumen_ia).join(",") + " serverLotes=" + serverLotes.length + " serverPalets=" + serverPalets.length);
+    console.log("[IA] lotes_detalle sample:", JSON.stringify(update.resumen_ia.lotes_detalle?.slice(0, 3)));
     update.estado = "Analizado";
 
     const { error: upErr } = await admin.from("partes_diarios").update(update).eq("id", part_id);
