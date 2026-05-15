@@ -167,7 +167,10 @@ function parseWorkbook(file: File): Promise<XLSX.WorkBook> {
         data = repairXlsx(data);
         const wb = XLSX.read(data, { type: "array", cellDates: true });
         resolve(wb);
-      } catch (err) { reject(err); }
+      } catch (err) {
+        console.error("[PARSER] Error parseando", file.name, err);
+        reject(err);
+      }
     };
     reader.onerror = reject;
     reader.readAsArrayBuffer(file);
@@ -999,7 +1002,8 @@ export async function parseInforme(file: File): Promise<ParsedInforme | null> {
         return null;
     }
   } catch (err) {
-    console.error("[PARSER] Error procesando", file.name, err);
-    return null;
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[PARSER] Error procesando", file.name, msg);
+    throw new Error(`Error al leer ${file.name}: ${msg}`);
   }
 }
