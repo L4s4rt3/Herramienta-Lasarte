@@ -187,12 +187,14 @@ function parseWorkbook(file: File): Promise<XLSX.WorkBook> {
 }
 
 async function parseWorkbookRemoto(raw: Uint8Array, fileName: string): Promise<XLSX.WorkBook> {
-  const supabaseUrl = (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_SUPABASE_URL) || "";
+  const env = (typeof import.meta !== "undefined" ? (import.meta as any).env : typeof process !== "undefined" ? process.env : {}) || {};
+  const supabaseUrl = env.VITE_SUPABASE_URL || "";
+  const anonKey = env.VITE_SUPABASE_ANON_KEY || "";
   if (!supabaseUrl) throw new Error("VITE_SUPABASE_URL no configurada");
   const b64 = bytesToBase64(raw);
   const resp = await fetch(`${supabaseUrl}/functions/v1/parse-excel`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "apikey": anonKey },
     body: JSON.stringify({ data_base64: b64 }),
   });
   if (!resp.ok) {
