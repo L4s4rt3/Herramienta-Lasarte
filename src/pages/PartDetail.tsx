@@ -232,7 +232,7 @@ export default function PartDetail() {
         kg_podrido_bolsa_basura: Number(parte.kg_podrido_bolsa_basura) || 0,
       };
       
-      const { error } = await supabase.functions.invoke("analizar-parte", {
+      const { data: edgeResp, error } = await supabase.functions.invoke("analizar-parte", {
         body: { part_id: parte.id, current_values: currentValues },
       });
       
@@ -242,6 +242,17 @@ export default function PartDetail() {
           : error.message;
         setAnalyzing(false);
         return toast({ title: "Error analizando", description: detail, variant: "destructive" });
+      }
+      
+      // Diagnóstico: mostrar qué datos se extrajeron
+      if (edgeResp) {
+        const p = (edgeResp as any).detalles_insertados;
+        const srv = (edgeResp as any).server_side;
+        console.log("[ANALYZE] Respuesta edge function:", JSON.stringify(edgeResp).slice(0, 500));
+        toast({
+          title: "IA completada",
+          description: `Lotes: ${p?.lotes ?? 0}, Palets: ${p?.palets ?? 0}, Server kg_palets: ${srv?.kg_palets_brutos ?? 0}`,
+        });
       }
     } catch (e) {
       setAnalyzing(false);
