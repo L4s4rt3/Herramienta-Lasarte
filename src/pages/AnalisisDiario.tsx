@@ -13,12 +13,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Loader2, Users, Package, Boxes, UserCheck, Calendar,
+  Loader2, Package, Boxes, UserCheck, Calendar,
   AlertTriangle, Search, RefreshCw, FileText,
 } from "lucide-react";
 import { useAnalisisDiario } from "@/hooks/useAnalisisDiario";
 import type {
-  ProveedorResumen,
   LoteResumen,
   ProductoResumen,
   ClienteResumen,
@@ -79,11 +78,6 @@ export default function AnalisisDiario() {
 
   // Filtro de búsqueda global (aplica a todas las tabs)
   const searchLower = search.toLowerCase().trim();
-
-  const filteredProveedores = useMemo(() => {
-    if (!searchLower) return data.proveedores;
-    return data.proveedores.filter((p) => p.productor.toLowerCase().includes(searchLower));
-  }, [data.proveedores, searchLower]);
 
   const filteredLotes = useMemo(() => {
     if (!searchLower) return data.lotes;
@@ -182,10 +176,9 @@ export default function AnalisisDiario() {
 
       {/* KPI summary */}
       {!loading && hayDatos && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <KpiMini icon={<Calendar className="size-4" />} label="Días" value={data.totals.n_dias} />
-          <KpiMini icon={<Users className="size-4" />} label="Proveedores" value={data.totals.n_proveedores} sub={formatKg(data.totals.kg_lotes)} />
-          <KpiMini icon={<Boxes className="size-4" />} label="Lotes" value={data.totals.n_lotes} />
+          <KpiMini icon={<Boxes className="size-4" />} label="Lotes" value={data.totals.n_lotes} sub={formatKg(data.totals.kg_lotes)} />
           <KpiMini icon={<Package className="size-4" />} label="Palets" value={data.totals.n_palets} sub={formatKg(data.totals.kg_palets)} />
           <KpiMini icon={<UserCheck className="size-4" />} label="Clientes" value={data.totals.n_clientes} />
         </div>
@@ -220,11 +213,8 @@ export default function AnalisisDiario() {
 
       {/* Tabs */}
       {!loading && hayDatos && (
-        <Tabs defaultValue="proveedores" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="proveedores">
-              Proveedores <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5">{filteredProveedores.length}</Badge>
-            </TabsTrigger>
+        <Tabs defaultValue="lotes" className="w-full">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="lotes">
               Lotes <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5">{filteredLotes.length}</Badge>
             </TabsTrigger>
@@ -236,7 +226,6 @@ export default function AnalisisDiario() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="proveedores"><TabProveedores data={filteredProveedores} /></TabsContent>
           <TabsContent value="lotes"><TabLotes data={filteredLotes} /></TabsContent>
           <TabsContent value="productos"><TabProductos data={filteredProductos} /></TabsContent>
           <TabsContent value="clientes"><TabClientes data={filteredClientes} /></TabsContent>
@@ -257,48 +246,6 @@ function KpiMini({ icon, label, value, sub }: { icon: React.ReactNode; label: st
           <p className="text-xl font-bold tabular-nums">{value}</p>
           <p className="text-[11px] text-muted-foreground">{label}{sub ? ` · ${sub}` : ""}</p>
         </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ─── Tab: Proveedores ───────────────────────────────────────────────────────
-
-function TabProveedores({ data }: { data: ProveedorResumen[] }) {
-  if (data.length === 0) return <EmptyTab msg="Sin resultados" />;
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base">Proveedores ({data.length})</CardTitle>
-        <CardDescription>Fuente: informe de producción · Agrupado por nombre de productor</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Productor</TableHead>
-              <TableHead className="text-right">Kg total</TableHead>
-              <TableHead className="text-right">Lotes</TableHead>
-              <TableHead className="text-right">Días</TableHead>
-              <TableHead className="text-right">T/h avg</TableHead>
-              <TableHead className="text-right">Peso fruta</TableHead>
-              <TableHead>Últimas fechas</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.map((p) => (
-              <TableRow key={p.productor}>
-                <TableCell className="font-medium">{p.productor}</TableCell>
-                <TableCell className="text-right font-mono">{formatKg(p.kg_total)}</TableCell>
-                <TableCell className="text-right">{p.n_lotes}</TableCell>
-                <TableCell className="text-right">{p.n_dias}</TableCell>
-                <TableCell className="text-right">{p.tph_avg !== null ? p.tph_avg.toFixed(1) + " T/h" : "—"}</TableCell>
-                <TableCell className="text-right">{p.peso_fruta_avg_g !== null ? p.peso_fruta_avg_g.toFixed(0) + " g" : "—"}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">{p.fechas.slice(-3).map(formatFecha).join(", ")}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
       </CardContent>
     </Card>
   );
