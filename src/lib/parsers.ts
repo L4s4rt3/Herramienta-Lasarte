@@ -712,7 +712,7 @@ export function parsePalets(wb: XLSX.WorkBook): ParsedPalets {
       cliente,
       kg_neto: kg,
       es_egipto: !!producto && /EGIPTO/i.test(producto),
-      es_campo: !!producto && /CAMPO|DEL CAMPO|CAMPI/i.test(producto),
+      es_campo: !!producto && /CAMPO|DEL CAMPO|DE CAMPO|CAMPI/i.test(producto),
       // Legacy
       palet_id:   paletId,
       destino:    destino,

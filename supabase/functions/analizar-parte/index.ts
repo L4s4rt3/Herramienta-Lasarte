@@ -773,7 +773,7 @@ function extractPaletsDetalle(rows: any[][]): any[] {
       situacion: null,
       n_cajas: null,
       es_egipto: !!prodName && /EGIPTO/i.test(prodName),
-      es_campo: !!prodName && /CAMPO|DEL CAMPO|CAMPI/i.test(prodName),
+      es_campo: !!prodName && /CAMPO|DEL CAMPO|DE CAMPO|CAMPI/i.test(prodName),
     });
   }
   return palets;
