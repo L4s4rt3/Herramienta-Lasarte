@@ -163,16 +163,29 @@ function parseWorkbook(file: File): Promise<XLSX.WorkBook> {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        let data = new Uint8Array(e.target!.result as ArrayBuffer);
-        data = repairXlsx(data);
-        const wb = XLSX.read(data, { type: "array", cellDates: true });
+        let raw = new Uint8Array(e.target!.result as ArrayBuffer);
+        raw = repairXlsx(raw);
+        const wb = XLSX.read(raw, { type: "array", cellDates: true });
+        if (!wb.SheetNames || wb.SheetNames.length === 0) {
+          throw new Error("Workbook vacio o sin hojas");
+        }
         resolve(wb);
       } catch (err) {
-        console.error("[PARSER] Error parseando", file.name, err);
-        reject(err);
+        console.warn("[PARSER] Error con reparacion, probando sin reparar:", err.message);
+        try {
+          const raw2 = new Uint8Array(e.target!.result as ArrayBuffer);
+          const wb2 = XLSX.read(raw2, { type: "array", cellDates: true });
+          if (wb2.SheetNames && wb2.SheetNames.length > 0) { resolve(wb2); return; }
+        } catch (_) { /* ignorar, siguiente intento */ }
+        // Ultimo intento: pasar el File directamente
+        try {
+          const wb3 = XLSX.read(file, { type: "file" });
+          if (wb3.SheetNames && wb3.SheetNames.length > 0) { resolve(wb3); return; }
+        } catch (_) { /* ignorar */ }
+        reject(new Error("No se pudo leer el archivo Excel: " + (err instanceof Error ? err.message : String(err))));
       }
     };
-    reader.onerror = reject;
+    reader.onerror = () => reject(new Error("Error al leer el archivo"));
     reader.readAsArrayBuffer(file);
   });
 }
