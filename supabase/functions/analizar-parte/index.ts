@@ -77,10 +77,13 @@ Deno.serve(async (req) => {
       const name = (f.file_name ?? "").toLowerCase();
       const ft = (f.file_type ?? "").toLowerCase();
       if (ft === "gstock" || /g[\s_-]?stock/i.test(name)) return "gstock";
-      if (/producci[oó]n/i.test(name) && !/producto/i.test(name)) return "produccion";
+      if (ft === "produccion" || (/producci[oó]n/i.test(name) && !/producto/i.test(name))) return "produccion";
       if (/tama[ñn]o|clase|calidad|producto|empaque|envase|packing|formato/i.test(name)) return "tamanos";
       if (/palet/i.test(name)) return "palets";
-      return "tamanos"; // por defecto intentar extraer producto/calibres
+      // Por defecto: si el usuario lo etiqueto como GSTOCK/Produccion, respetar la etiqueta
+      if (ft === "gstock") return "gstock";
+      if (ft === "produccion") return "produccion";
+      return "tamanos";
     };
 
     const server: Record<string, number> = {};
