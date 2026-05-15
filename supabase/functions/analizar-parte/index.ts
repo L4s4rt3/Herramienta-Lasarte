@@ -484,6 +484,7 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
       detalles_insertados: {
         lotes: serverLotes.length,
         palets: Array.isArray(aiData.palets_detalle) ? aiData.palets_detalle.length : serverPalets.length,
+        campo: (serverPalets as any[]).filter((p: any) => p.es_campo).length,
       },
       server_side: server, ai: aiData, ai_warning: aiWarning,
     });
