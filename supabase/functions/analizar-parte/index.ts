@@ -188,7 +188,7 @@ REGLAS: Solo datos explicitos. Priorizar fila TOTAL o ultimo valor. Cantidades e
 Campos:
 - kg_produccion_total: "Peso kg" fila TOTAL o ultimo valor.
 - lotes_detalle: array de {lote_codigo, productor, producto, kg_peso_total, toneladas_hora, duracion_min, peso_fruta_promedio_g, hora_inicio}
-  Col: ID/Lote, Productor, Variedad, Peso(kg), T/h, Duracion(min), PesoFruta(g), HoraInicio.
+  Col: ID/Lote, Nombre Productor (NO el codigo), Variedad(Producto), Peso(kg), T/h, Duracion(min), PesoFruta(g), HoraInicio.
 - produccion: array de {product, sizerange, kgproduced, destination}
 
 JSON: ${'{"kg_produccion_total":0,"lotes_detalle":[],"produccion":[]}'}`,
@@ -643,11 +643,11 @@ function extractLotesDetalle(rows: any[][]): any[] {
     const r = rows[i] ?? [];
     for (let j = 0; j < r.length; j++) {
       const c = norm(r[j]);
-      if (c === "peso(kg)" || c === "peso (kg)" || c === "peso kg" || c === "peso") pesoCol = j;
-      if (c === "nombre" || c === "productor") prodCol = j;
-      if (c === "id" || c === "lote" || c === "código" || c === "codigo" || c === "lote_codigo") loteCol = j;
-      if (c === "t/h" || c === "th" || c === "toneladas_hora") tphCol = j;
-      if (c === "variedad" || c === "producto") variedadCol = j;
+      if (/^peso(k?g)?(\s*\(kg\))?$/.test(c) || c === "peso") pesoCol = j;
+      if (/^(nombre|productor)/.test(c)) prodCol = j;
+      if (/^(id|lote|código|codigo)/.test(c) && !/productor/i.test(r[j] ?? "")) loteCol = j;
+      if (/^t\/?h$|^toneladas/.test(c)) tphCol = j;
+      if (/^(variedad|producto)/.test(c) && !/productor/i.test(r[j] ?? "")) variedadCol = j;
     }
   }
   if (pesoCol < 0) return [];
