@@ -167,7 +167,11 @@ function parseWorkbook(file: File): Promise<XLSX.WorkBook> {
         // 1. Intentar local con reparacion ZIP
         const repaired = repairXlsx(raw);
         const wb = XLSX.read(repaired, { type: "array" });
-        if (wb.SheetNames && wb.SheetNames.length > 0) { resolve(wb); return; }
+        const totalRows = (wb.SheetNames || []).reduce((s, sn) => {
+          const rows = XLSX.utils.sheet_to_json<any[]>(wb.Sheets[sn], { header: 1 });
+          return s + rows.length;
+        }, 0);
+        if (totalRows > 2) { resolve(wb); return; }
       } catch (_) { /* fallback a servidor */ }
       // 2. Fallback a edge function (maneja DEFLATE64 real)
       try {
