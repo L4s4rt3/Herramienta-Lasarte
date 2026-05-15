@@ -471,6 +471,12 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
 
     return json({
       message: aiWarning ? "Server-side OK; IA: " + aiWarning : "OK: " + files.length + " archivo(s)",
+      parte_actualizado: true,
+      datos_guardados: Object.keys(update).length,
+      detalles_insertados: {
+        lotes: serverLotes.length,
+        palets: Array.isArray(aiData.palets_detalle) ? aiData.palets_detalle.length : serverPalets.length,
+      },
       server_side: server, ai: aiData, ai_warning: aiWarning,
     });
   } catch (e) {
