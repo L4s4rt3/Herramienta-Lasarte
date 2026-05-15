@@ -719,7 +719,7 @@ function extractPaletsDetalle(rows: any[][]): any[] {
       if (c === "netos" || c === "neto" || c === "kg netos" || c === "peso neto" || c === "kgnetos" || c === "peso") netoCol = j;
       if (c === "cliente") clienteCol = j;
       if (c === "palet" || c === "id" || c === "palet_id") paletCol = j;
-      if (c === "producto" || c === "variedad") productoCol = j;
+      if (c === "producto" || c === "variedad" || c === "denominacion_producto" || c === "denominacion" || c === "denominación") productoCol = j;
     }
   }
   if (netoCol < 0) return [];

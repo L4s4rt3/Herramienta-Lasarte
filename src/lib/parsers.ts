@@ -536,6 +536,8 @@ export function parsePalets(wb: XLSX.WorkBook): ParsedPalets {
       "Descripción", "descripcion",
       "Artículo", "articulo",
       "Descripción Producto", "descripcion_producto",
+      "Denominación Producto", "denominacion_producto",
+      "Denominacion Producto",
       "Nombre Producto", "nombre_producto"
     ));
 
