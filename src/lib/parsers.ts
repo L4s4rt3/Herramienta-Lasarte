@@ -211,7 +211,7 @@ async function parseWorkbookRemoto(dataBase64: string, fileName: string): Promis
   if (!supabaseUrl) throw new Error("VITE_SUPABASE_URL no configurada");
   const resp = await fetch(`${supabaseUrl}/functions/v1/parse-excel`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "apikey": anonKey },
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + anonKey },
     body: JSON.stringify({ data_base64: dataBase64 }),
   });
   if (!resp.ok) {
