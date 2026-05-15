@@ -29,6 +29,7 @@ interface Parte {
   kg_produccion_calibrador: number;
   kg_mujeres_calibrador: number;
   kg_palets_brutos: number;
+  kg_palets_egipto: number;
   kg_podrido_calibrador_auto: number;
   kg_inventario_anterior_sin_alta: number;
   notas_generales: string | null;
@@ -127,10 +128,11 @@ export default function PartDetail() {
 
   const cascade = useMemo(() => {
     if (!parte) return null;
+    const paletsCascada = Number(parte.kg_palets_brutos) - Number(parte.kg_palets_egipto);
     return computeCascade({
       kg_produccion_calibrador: Number(parte.kg_produccion_calibrador),
       kg_mujeres_calibrador: Number(parte.kg_mujeres_calibrador),
-      kg_palets_brutos: Number(parte.kg_palets_brutos),
+      kg_palets_brutos: paletsCascada,
       kg_podrido_calibrador: Number(parte.kg_podrido_calibrador_auto),
       kg_industria_manual: Number(parte.kg_industria_manual),
       kg_reciclado_malla_z1: Number(parte.kg_reciclado_malla_z1),

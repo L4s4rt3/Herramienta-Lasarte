@@ -94,6 +94,7 @@ export interface PaletRow {
   fecha: string | null;              // Fecha
   cliente: string | null;            // Cliente
   kg_neto: number;                   // Kg netos
+  es_egipto: boolean;                // Palet de Egipto (excluir de cascada)
 
   // Legacy
   palet_id: string | null;
@@ -122,6 +123,7 @@ export interface ParsedPalets {
   kg_facturado: number;
   kg_ficticio: number;
   kg_total_bruto: number;
+  kg_palets_egipto: number;
   _columnas_detectadas?: string[];
 }
 
@@ -601,6 +603,7 @@ export function parsePalets(wb: XLSX.WorkBook): ParsedPalets {
       fecha,
       cliente,
       kg_neto: kg,
+      es_egipto: !!producto && /EGIPTO/i.test(producto),
       // Legacy
       palet_id:   paletId,
       destino:    destino,
@@ -612,6 +615,7 @@ export function parsePalets(wb: XLSX.WorkBook): ParsedPalets {
   const kg_camara    = palets.filter(p => p.situacion === "S").reduce((s, p) => s + p.kg_neto, 0);
   const kg_facturado = palets.filter(p => p.situacion === "F").reduce((s, p) => s + p.kg_neto, 0);
   const kg_ficticio  = palets.filter(p => p.situacion === null).reduce((s, p) => s + p.kg_neto, 0);
+  const kg_palets_egipto = palets.filter(p => p.es_egipto).reduce((s, p) => s + p.kg_neto, 0);
 
   return {
     tipo: "palets",
@@ -620,6 +624,7 @@ export function parsePalets(wb: XLSX.WorkBook): ParsedPalets {
     kg_facturado,
     kg_ficticio,
     kg_total_bruto: kg_camara + kg_facturado,
+    kg_palets_egipto,
     _columnas_detectadas: rows.length > 0
       ? Object.keys(rows[0]).filter(k => !k.startsWith("_raw"))
       : [],

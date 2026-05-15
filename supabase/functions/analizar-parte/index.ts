@@ -332,6 +332,12 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
     }
     console.log("[UPDATE] Update object (COMPLETO):", JSON.stringify(update));
     console.log("[UPDATE] fields que se actualizarán:", Object.keys(update).join(","));
+
+    // Calcular kg_palets_egipto desde los palets extraídos del Excel
+    const kgEgipto = (serverPalets as any[])
+      .filter((p: any) => p.es_egipto)
+      .reduce((s: number, p: any) => s + (Number(p.kg_neto) || 0), 0);
+    if (kgEgipto > 0) update.kg_palets_egipto = kgEgipto;
     
     // Construir resumen_ia: priorizar datos IA, si no hay usar server-side detallado
     const hasAiContent = Object.keys(aiData).length > 1; // más de 1 key = datos reales
@@ -434,6 +440,7 @@ ARRAYS DETALLADOS (extraer TODAS las filas, no solo totales):
         kg_neto:    Number(r.kg_neto) || 0,
         situacion:  r.situacion ?? null,
         n_cajas:    Number(r.n_cajas) || null,
+        egipto:     r.es_egipto === true,
       }));
       await admin.from("palets_dia").insert(rows);
     }
@@ -724,14 +731,16 @@ function extractPaletsDetalle(rows: any[][]): any[] {
     const kg = toNum(r[netoCol]);
     if (kg <= 0) continue;
     
+    const prodName = productoCol >= 0 ? String(r[productoCol] ?? "").trim() : null;
     palets.push({
       palet_id: paletCol >= 0 ? String(r[paletCol] ?? "").trim() : null,
-      producto: productoCol >= 0 ? String(r[productoCol] ?? "").trim() : null,
+      producto: prodName,
       cliente: clienteCol >= 0 ? String(r[clienteCol] ?? "").trim() : null,
       destino: null,
       kg_neto: kg,
       situacion: null,
       n_cajas: null,
+      es_egipto: !!prodName && /EGIPTO/i.test(prodName),
     });
   }
   return palets;

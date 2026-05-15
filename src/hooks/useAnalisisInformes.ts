@@ -205,9 +205,20 @@ async function guardarEnSupabase(
           kg_neto: p.kg_neto,
           situacion: p.situacion,
           n_cajas: p.n_cajas,
+          egipto: p.es_egipto,
           source: "manual",
         }))
       )
+    );
+    // guardar el total de kg de palets egipcios para la cascada
+    const kgEgipto = paletsInforme.palets
+      .filter(p => p.es_egipto)
+      .reduce((s, p) => s + p.kg_neto, 0);
+    ops.push(
+      (supabase as any)
+        .from("partes_diarios")
+        .update({ kg_palets_egipto: kgEgipto })
+        .eq("id", partId)
     );
   }
 

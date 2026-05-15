@@ -191,6 +191,7 @@ export type Database = {
           cliente: string | null
           created_at: string
           destino: string | null
+          egipto: boolean
           id: string
           kg_neto: number
           n_cajas: number | null
@@ -205,6 +206,7 @@ export type Database = {
           cliente?: string | null
           created_at?: string
           destino?: string | null
+          egipto?: boolean
           id?: string
           kg_neto?: number
           n_cajas?: number | null
@@ -219,6 +221,7 @@ export type Database = {
           cliente?: string | null
           created_at?: string
           destino?: string | null
+          egipto?: boolean
           id?: string
           kg_neto?: number
           n_cajas?: number | null
@@ -394,6 +397,7 @@ export type Database = {
           kg_inventario_sin_alta: number
           kg_mujeres_calibrador: number
           kg_palets_brutos: number
+          kg_palets_egipto: number
           kg_podrido_bolsa_basura: number
           kg_podrido_calibrador_auto: number
           kg_produccion_calibrador: number
@@ -415,6 +419,7 @@ export type Database = {
           kg_inventario_sin_alta?: number
           kg_mujeres_calibrador?: number
           kg_palets_brutos?: number
+          kg_palets_egipto?: number
           kg_podrido_bolsa_basura?: number
           kg_podrido_calibrador_auto?: number
           kg_produccion_calibrador?: number
@@ -436,6 +441,7 @@ export type Database = {
           kg_inventario_sin_alta?: number
           kg_mujeres_calibrador?: number
           kg_palets_brutos?: number
+          kg_palets_egipto?: number
           kg_podrido_bolsa_basura?: number
           kg_podrido_calibrador_auto?: number
           kg_produccion_calibrador?: number

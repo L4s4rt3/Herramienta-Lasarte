@@ -20,6 +20,7 @@ export interface ParteRaw {
   kg_produccion_calibrador: number | null;
   kg_mujeres_calibrador: number | null;
   kg_palets_brutos: number | null;
+  kg_palets_egipto: number | null;
   kg_podrido_calibrador_auto: number | null;
   kg_industria_manual: number | null;
   kg_reciclado_malla_z1: number | null;
@@ -64,7 +65,7 @@ function buildCascade(p: ParteRaw): Parte {
   const cascade = computeCascade({
     kg_produccion_calibrador: Number(p.kg_produccion_calibrador) || 0,
     kg_mujeres_calibrador: Number(p.kg_mujeres_calibrador) || 0,
-    kg_palets_brutos: Number(p.kg_palets_brutos) || 0,
+    kg_palets_brutos: (Number(p.kg_palets_brutos) || 0) - (Number(p.kg_palets_egipto) || 0),
     kg_podrido_calibrador: Number(p.kg_podrido_calibrador_auto) || 0,
     kg_industria_manual: Number(p.kg_industria_manual) || 0,
     kg_reciclado_malla_z1: Number(p.kg_reciclado_malla_z1) || 0,
