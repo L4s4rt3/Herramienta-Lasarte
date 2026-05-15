@@ -1,7 +1,7 @@
 /**
  * Modelo DSJ — Cascada de producción citrícola Lasarte SAT.
  *
- * Producción real = Calibrador + Industria manual − Mujeres(L) − Reciclado Z1 − Reciclado Z2
+ * Producción real = Calibrador − Mujeres(L) − Reciclado Z1 − Reciclado Z2
  * Palets ajustados = Palets brutos − Inventario sin alta de D-1
  * Diferencia bruta = Producción real − Palets ajustados − Inventario final sin alta (D)
  * Mermas totales = Podrido calibrador + Podrido manual (bolsa basura)

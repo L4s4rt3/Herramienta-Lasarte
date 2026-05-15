@@ -40,13 +40,12 @@ export function getWeekRange(weekOffset = 0): { from: string; to: string; label:
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cálculo de producción real (espeja la lógica de cascade.ts)
-// producción real = calibrador + industria − mujeres − reciclado_z1 − reciclado_z2
+// producción real = calibrador − mujeres − reciclado_z1 − reciclado_z2
 // ─────────────────────────────────────────────────────────────────────────────
 
 function calcProduccionReal(row: Record<string, any>): number {
   return (
-    (Number(row.kg_produccion_calibrador) || 0) +
-    (Number(row.kg_industria_manual)       || 0) -
+    (Number(row.kg_produccion_calibrador) || 0) -
     (Number(row.kg_mujeres_calibrador)     || 0) -
     (Number(row.kg_reciclado_malla_z1)     || 0) -
     (Number(row.kg_reciclado_malla_z2)     || 0)

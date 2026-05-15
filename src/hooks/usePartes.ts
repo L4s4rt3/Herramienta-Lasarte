@@ -90,6 +90,7 @@ export function usePartes() {
 
     if (error) {
       toast({ title: "Error cargando partes", description: error.message, variant: "destructive" });
+      setLoading(false);
       return;
     }
     setPartes(((data ?? []) as ParteRaw[]).map(buildCascade));
