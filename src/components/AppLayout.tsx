@@ -37,6 +37,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { cn } from "@/lib/utils";
 
 // ─── Route metadata ────────────────────────────────────────────────────────────
 const ROUTE_META: Record<string, { label: string; parent?: string; parentLabel?: string }> = {
