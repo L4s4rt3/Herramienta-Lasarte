@@ -7,19 +7,12 @@ import {
   Calculator,
   Droplet,
   Users,
-  ChevronRight,
-  TrendingDown,
   BarChart3,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import {
   Sidebar,
   SidebarContent,
@@ -31,9 +24,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
   SidebarProvider,
   SidebarRail,
   SidebarTrigger,
@@ -47,8 +37,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { useState } from "react";
-import { cn } from "@/lib/utils";
 
 // ─── Route metadata ────────────────────────────────────────────────────────────
 const ROUTE_META: Record<string, { label: string; parent?: string; parentLabel?: string }> = {
@@ -107,10 +95,6 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Track open state of "Costes" collapsible group
-  const costesRoutes = ["/costes/consumos", "/costes/asistencia"];
-  const isCostesActive = costesRoutes.some((r) => location.pathname.startsWith(r));
-  const [costesOpen, setCostesOpen] = useState(isCostesActive);
   // User initials for avatar
   const initials = user?.email
     ? user.email.slice(0, 2).toUpperCase()
@@ -208,56 +192,34 @@ export default function AppLayout() {
             </SidebarMenu>
           </SidebarGroup>
 
-          {/* ── Costes (collapsible group) ── */}
+          {/* ── Consumos y asistencia ── */}
           <SidebarGroup>
-            <SidebarGroupLabel>Costes</SidebarGroupLabel>
+            <SidebarGroupLabel>Operaciones</SidebarGroupLabel>
             <SidebarMenu>
-              <Collapsible
-                open={costesOpen}
-                onOpenChange={setCostesOpen}
-                className="group/collapsible"
-              >
-                <SidebarMenuItem>
-                  <CollapsibleTrigger asChild>
-                    <SidebarMenuButton
-                      tooltip="Costes"
-                      isActive={isCostesActive}
-                      className={cn(isCostesActive && !costesOpen && "bg-sidebar-accent text-sidebar-accent-foreground font-medium")}
-                    >
-                      <TrendingDown />
-                      <span>Costes</span>
-                      <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                    </SidebarMenuButton>
-                  </CollapsibleTrigger>
-
-                  <CollapsibleContent>
-                    <SidebarMenuSub>
-                      <SidebarMenuSubItem>
-                        <SidebarMenuSubButton
-                          asChild
-                          isActive={location.pathname === "/costes/consumos"}
-                        >
-                          <NavLink to="/costes/consumos">
-                            <Droplet className="size-3.5" />
-                            <span>Consumos</span>
-                          </NavLink>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                      <SidebarMenuSubItem>
-                        <SidebarMenuSubButton
-                          asChild
-                          isActive={location.pathname === "/costes/asistencia"}
-                        >
-                          <NavLink to="/costes/asistencia">
-                            <Users className="size-3.5" />
-                            <span>Asistencia</span>
-                          </NavLink>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                    </SidebarMenuSub>
-                  </CollapsibleContent>
-                </SidebarMenuItem>
-              </Collapsible>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname === "/costes/consumos"}
+                  tooltip="Consumos"
+                >
+                  <NavLink to="/costes/consumos">
+                    <Droplet />
+                    <span>Consumos</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname === "/costes/asistencia"}
+                  tooltip="Asistencia"
+                >
+                  <NavLink to="/costes/asistencia">
+                    <Users />
+                    <span>Asistencia</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroup>
 
