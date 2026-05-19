@@ -553,6 +553,114 @@ export type Database = {
         }
         Relationships: []
       }
+      consumo_maquinas: {
+        Row: {
+          created_at: string
+          id: string
+          kwh: number
+          maquina_id: string
+          sesion_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kwh?: number
+          maquina_id: string
+          sesion_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kwh?: number
+          maquina_id?: string
+          sesion_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consumo_maquinas_maquina_id_fkey"
+            columns: ["maquina_id"]
+            isOneToOne: false
+            referencedRelation: "maquinas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consumo_maquinas_sesion_id_fkey"
+            columns: ["sesion_id"]
+            isOneToOne: false
+            referencedRelation: "sesiones_consumo"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maquinas: {
+        Row: {
+          created_at: string
+          id: string
+          nombre: string
+          user_id: string
+          zona: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          nombre: string
+          user_id: string
+          zona: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          nombre?: string
+          user_id?: string
+          zona?: string
+        }
+        Relationships: []
+      }
+      sesiones_consumo: {
+        Row: {
+          agua_drencher_l: number
+          agua_linea_l: number
+          created_at: string
+          electricidad_total_kwh: number
+          fecha_fin: string
+          fecha_inicio: string
+          gasoil_l: number
+          id: string
+          kg_procesados: number
+          notas: string | null
+          quimicos_drencher_l: number
+          user_id: string
+        }
+        Insert: {
+          agua_drencher_l?: number
+          agua_linea_l?: number
+          created_at?: string
+          electricidad_total_kwh?: number
+          fecha_fin: string
+          fecha_inicio: string
+          gasoil_l?: number
+          id?: string
+          kg_procesados?: number
+          notas?: string | null
+          quimicos_drencher_l?: number
+          user_id: string
+        }
+        Update: {
+          agua_drencher_l?: number
+          agua_linea_l?: number
+          created_at?: string
+          electricidad_total_kwh?: number
+          fecha_fin?: string
+          fecha_inicio?: string
+          gasoil_l?: number
+          id?: string
+          kg_procesados?: number
+          notas?: string | null
+          quimicos_drencher_l?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
