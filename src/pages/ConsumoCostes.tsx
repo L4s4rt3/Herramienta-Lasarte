@@ -69,6 +69,33 @@ export default function ConsumoCostes() {
     },
   });
 
+  // ─── Calcular kg desde partes ──────────────────────────────────────────────
+  const [calculandoKg, setCalculandoKg] = useState(false);
+
+  const calcularKgDesdePartes = async () => {
+    setCalculandoKg(true);
+    try {
+      const { data, error } = await supabase
+        .from("partes_diarios")
+        .select("kg_produccion_calibrador, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
+        .gte("date", fInicio)
+        .lte("date", fFin);
+      if (error) throw error;
+      const total = (data ?? []).reduce((s, r) =>
+        s + (r.kg_produccion_calibrador || 0)
+          - (r.kg_mujeres_calibrador || 0)
+          - (r.kg_reciclado_malla_z1 || 0)
+          - (r.kg_reciclado_malla_z2 || 0)
+      , 0);
+      setFKg(String(total));
+      toast({ title: "Kg calculados", description: `${total.toFixed(0)} kg en ${data?.length ?? 0} partes` });
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    } finally {
+      setCalculandoKg(false);
+    }
+  };
+
   // ─── Formulario sesión ────────────────────────────────────────────────────
   const [fInicio, setFInicio] = useState(today());
   const [fFin, setFFin] = useState(today());
@@ -287,7 +314,12 @@ export default function ConsumoCostes() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Kg procesados *</Label>
-                  <Input type="number" step="0.1" min="0" value={fKg} onChange={(e) => setFKg(e.target.value)} placeholder="0" />
+                  <div className="flex gap-2">
+                    <Input type="number" step="0.1" min="0" value={fKg} onChange={(e) => setFKg(e.target.value)} placeholder="0" className="flex-1" />
+                    <Button type="button" variant="outline" size="sm" onClick={calcularKgDesdePartes} disabled={calculandoKg} className="shrink-0">
+                      {calculandoKg ? "..." : "Desde partes"}
+                    </Button>
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   <Label className="flex items-center gap-1"><Droplet className="h-3.5 w-3.5 text-blue-500" /> Agua línea (L)</Label>
