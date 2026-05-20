@@ -125,8 +125,7 @@ export async function getProduccionHoy(): Promise<ProduccionResumen> {
 }
 
 /**
- * Ausentes hoy según asistencia_diaria.
- * Si hay varias zonas, acumula todos los registros del día.
+ * Ausentes hoy según asistencia_detalle + trabajadores.
  */
 export async function getAusentesHoy(): Promise<{
   ausentes: number;
@@ -135,21 +134,27 @@ export async function getAusentesHoy(): Promise<{
 }> {
   const today = new Date().toISOString().slice(0, 10);
 
-  const { data, error } = await supabase
-    .from("asistencia_diaria")
-    .select("plantilla_total, presentes, ausentes")
-    .eq("date", today);
+  const [trabajadores, asistencias] = await Promise.all([
+    supabase
+      .from("trabajadores")
+      .select("id")
+      .eq("activo", true),
+    supabase
+      .from("asistencia_detalle")
+      .select("trabajador_id, presente")
+      .eq("date", today),
+  ]);
 
-  if (error) {
-    console.error("Error fetching asistencia_diaria:", error);
-    throw error;
-  }
+  if (trabajadores.error) throw trabajadores.error;
+  if (asistencias.error) throw asistencias.error;
 
-  const rows = data ?? [];
+  const totalActivos = (trabajadores.data ?? []).length;
+  const presentes = (asistencias.data ?? []).filter((r) => r.presente).length;
+
   return {
-    ausentes:  rows.reduce((s, r: any) => s + (r.ausentes        ?? 0), 0),
-    presentes: rows.reduce((s, r: any) => s + (r.presentes       ?? 0), 0),
-    plantilla: rows.reduce((s, r: any) => s + (r.plantilla_total ?? 0), 0),
+    plantilla: totalActivos,
+    presentes,
+    ausentes: totalActivos - presentes,
   };
 }
 

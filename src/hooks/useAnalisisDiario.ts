@@ -172,10 +172,9 @@ export function useAnalisisDiario(desde: string, hasta: string) {
           }
         }
 
-        // ── Palets (excluyendo campo) ─────────────────────────────────────
+        // ── Palets ────────────────────────────────────────────────────────
         if (Array.isArray(ia.palets_detalle)) {
           for (const palet of ia.palets_detalle) {
-            if (palet.es_campo) continue;
             const cliente = palet.cliente ?? "Sin cliente";
             if (!clientesMap.has(cliente)) {
               clientesMap.set(cliente, { n_palets: 0, kg: 0, fechas: new Set(), productos: new Set(), destinos: new Set() });

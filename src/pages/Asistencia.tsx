@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthProvider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,154 +7,491 @@ import { Input } from "@/components/ui/input";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Trash2 } from "lucide-react";
+import {
+  Plus, Trash2, Upload, ChevronLeft, ChevronRight, UserCheck, UserX,
+} from "lucide-react";
 import { today } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import * as XLSX from "xlsx";
+import type { TrabajadorRow } from "@/lib/types";
 
 const ZONAS = ["Línea de tratamiento", "Mallas", "Graneles", "Mesas", "Industria", "Drencher"];
 
-interface Row {
-  id: string;
-  date: string;
-  zona_id: string | null;
-  plantilla_total: number;
-  presentes: number;
-  ausentes: number;
-}
-
 export default function Asistencia() {
   const { user } = useAuth();
-  const [rows, setRows] = useState<Row[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [trabajadores, setTrabajadores] = useState<TrabajadorRow[]>([]);
+  const [selectedDate, setSelectedDate] = useState(today());
+  const [asistencia, setAsistencia] = useState<Record<string, boolean>>({});
+  const [loadingTrabajadores, setLoadingTrabajadores] = useState(true);
+  const [loadingAsistencia, setLoadingAsistencia] = useState(false);
+  const [newWorkerName, setNewWorkerName] = useState("");
+  const [newWorkerZona, setNewWorkerZona] = useState("");
+  const [importing, setImporting] = useState(false);
 
-  async function load() {
-    setLoading(true);
-    const since = new Date();
-    since.setDate(since.getDate() - 30);
+  // ─── Load trabajadores ──────────────────────────────────────────────────
+
+  async function loadTrabajadores() {
+    setLoadingTrabajadores(true);
     const { data, error } = await supabase
-      .from("asistencia_diaria")
-      .select("id,date,zona_id,plantilla_total,presentes,ausentes")
-      .gte("date", since.toISOString().slice(0, 10))
-      .order("date", { ascending: false });
-    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-    setRows((data ?? []) as Row[]);
-    setLoading(false);
+      .from("trabajadores")
+      .select("*")
+      .order("nombre", { ascending: true });
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } else {
+      setTrabajadores(data ?? []);
+    }
+    setLoadingTrabajadores(false);
   }
 
-  useEffect(() => { load(); }, []);
+  // ─── Load asistencia for date ──────────────────────────────────────────
 
-  async function addRow() {
-    if (!user) return;
-    const { error } = await supabase.from("asistencia_diaria").insert({
+  async function loadAsistencia(date: string) {
+    setLoadingAsistencia(true);
+    const { data, error } = await supabase
+      .from("asistencia_detalle")
+      .select("trabajador_id, presente")
+      .eq("date", date);
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } else {
+      const map: Record<string, boolean> = {};
+      for (const r of data ?? []) {
+        map[r.trabajador_id] = r.presente;
+      }
+      setAsistencia(map);
+    }
+    setLoadingAsistencia(false);
+  }
+
+  useEffect(() => { loadTrabajadores(); }, []);
+  useEffect(() => { loadAsistencia(selectedDate); }, [selectedDate]);
+
+  // ─── Worker CRUD ───────────────────────────────────────────────────────
+
+  async function addTrabajador() {
+    if (!user || !newWorkerName.trim()) return;
+    const { error } = await supabase.from("trabajadores").insert({
       user_id: user.id,
-      date: today(),
-      zona_id: ZONAS[0],
-      plantilla_total: 0,
-      presentes: 0,
-      ausentes: 0,
+      nombre: newWorkerName.trim(),
+      zona: newWorkerZona || null,
     });
-    if (error) return toast({ title: "Error", description: error.message, variant: "destructive" });
-    load();
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      return;
+    }
+    setNewWorkerName("");
+    setNewWorkerZona("");
+    loadTrabajadores();
   }
 
-  async function patch(id: string, patch: Partial<Row>) {
-    setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-    const { error } = await supabase.from("asistencia_diaria").update(patch).eq("id", id);
-    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+  async function toggleTrabajadorActivo(t: TrabajadorRow) {
+    const { error } = await supabase
+      .from("trabajadores")
+      .update({ activo: !t.activo })
+      .eq("id", t.id);
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      return;
+    }
+    setTrabajadores((prev) =>
+      prev.map((x) => (x.id === t.id ? { ...x, activo: !x.activo } : x))
+    );
   }
 
-  async function del(id: string) {
-    setRows((r) => r.filter((x) => x.id !== id));
-    const { error } = await supabase.from("asistencia_diaria").delete().eq("id", id);
-    if (error) { toast({ title: "Error", description: error.message, variant: "destructive" }); load(); }
+  async function deleteTrabajador(id: string) {
+    const { error } = await supabase.from("trabajadores").delete().eq("id", id);
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      return;
+    }
+    setTrabajadores((prev) => prev.filter((x) => x.id !== id));
   }
+
+  // ─── Asistencia CRUD ──────────────────────────────────────────────────
+
+  async function toggleAsistencia(trabajadorId: string, presente: boolean) {
+    if (!user) return;
+
+    setAsistencia((prev) => ({ ...prev, [trabajadorId]: presente }));
+
+    const { error } = await supabase
+      .from("asistencia_detalle")
+      .upsert(
+        {
+          user_id: user.id,
+          date: selectedDate,
+          trabajador_id: trabajadorId,
+          presente,
+        },
+        { onConflict: "date, trabajador_id" }
+      );
+
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      loadAsistencia(selectedDate);
+    }
+  }
+
+  async function marcarTodosPresentes() {
+    if (!user) return;
+    const activos = trabajadores.filter((t) => t.activo);
+    const records = activos.map((t) => ({
+      user_id: user.id,
+      date: selectedDate,
+      trabajador_id: t.id,
+      presente: true,
+    }));
+    const { error } = await supabase
+      .from("asistencia_detalle")
+      .upsert(records, { onConflict: "date, trabajador_id" });
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      return;
+    }
+    const map: Record<string, boolean> = {};
+    for (const t of activos) map[t.id] = true;
+    setAsistencia(map);
+    toast({ title: "Todos marcados como presentes" });
+  }
+
+  // ─── XLSX Import ──────────────────────────────────────────────────────
+
+  const handleImportXLSX = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+      const nombresImport: string[] = [];
+      for (const row of rows) {
+        const cell = row[0];
+        if (typeof cell === "string" && cell.trim()) {
+          nombresImport.push(cell.trim());
+        }
+      }
+
+      if (nombresImport.length === 0) {
+        toast({ title: "El archivo no contiene nombres", variant: "destructive" });
+        setImporting(false);
+        e.target.value = "";
+        return;
+      }
+
+      const activos = trabajadores.filter((t) => t.activo);
+      if (!user) return;
+
+      const records = activos.map((t) => ({
+        user_id: user.id,
+        date: selectedDate,
+        trabajador_id: t.id,
+        presente: nombresImport.some(
+          (n) => n.toLowerCase() === t.nombre.toLowerCase()
+        ),
+      }));
+
+      const { error } = await supabase
+        .from("asistencia_detalle")
+        .upsert(records, { onConflict: "date, trabajador_id" });
+
+      if (error) throw error;
+
+      await loadAsistencia(selectedDate);
+
+      const presentes = records.filter((r) => r.presente).length;
+      toast({
+        title: `Importado — ${presentes} presentes de ${records.length} trabajadores`,
+      });
+    } catch (err: any) {
+      toast({ title: "Error al importar", description: err.message, variant: "destructive" });
+    }
+
+    setImporting(false);
+    e.target.value = "";
+  }, [trabajadores, selectedDate, user]);
+
+  // ─── Date navigation ──────────────────────────────────────────────────
+
+  function shiftDate(delta: number) {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + delta);
+    setSelectedDate(d.toISOString().slice(0, 10));
+  }
+
+  // ─── Computed ─────────────────────────────────────────────────────────
+
+  const activos = trabajadores.filter((t) => t.activo);
+  const totalActivos = activos.length;
+  const presentesCount = activos.filter((t) => asistencia[t.id] === true).length;
+  const ausentesCount = activos.filter(
+    (t) => asistencia[t.id] === false
+  ).length;
+  const sinRegistro = activos.filter((t) => asistencia[t.id] === undefined).length;
+
+  const fechaDisplay = new Date(selectedDate + "T12:00:00").toLocaleDateString(
+    "es-ES",
+    { weekday: "long", day: "numeric", month: "long", year: "numeric" }
+  );
+
+  // ─── Render ───────────────────────────────────────────────────────────
 
   return (
     <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6">
-      <header className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl md:text-3xl">Asistencia</h1>
-          <p className="text-sm text-muted-foreground">Plantilla y presentes por zona — últimos 30 días</p>
-        </div>
-        <Button onClick={addRow}><Plus className="h-4 w-4" /> Añadir fila</Button>
+      <header>
+        <h1 className="text-2xl md:text-3xl">Asistencia</h1>
+        <p className="text-sm text-muted-foreground">
+          Gestión de trabajadores y control de asistencia diaria
+        </p>
       </header>
 
+      {/* ── Workers Reference List ─────────────────────────────────── */}
       <Card>
-        <CardHeader><CardTitle className="text-lg">Registros</CardTitle></CardHeader>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="p-6 space-y-3">
-              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10" />)}
+        <CardHeader>
+          <CardTitle className="text-lg">Lista de trabajadores</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="flex-1 min-w-[200px]">
+              <label className="text-xs text-muted-foreground mb-1 block">Nombre</label>
+              <Input
+                placeholder="Nuevo trabajador"
+                value={newWorkerName}
+                onChange={(e) => setNewWorkerName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addTrabajador()}
+              />
             </div>
-          ) : rows.length === 0 ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">
-              Sin registros. Pulsa "Añadir fila".
+            <div className="w-44">
+              <label className="text-xs text-muted-foreground mb-1 block">Zona</label>
+              <select
+                value={newWorkerZona}
+                onChange={(e) => setNewWorkerZona(e.target.value)}
+                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+              >
+                <option value="">Sin zona</option>
+                {ZONAS.map((z) => <option key={z} value={z}>{z}</option>)}
+              </select>
+            </div>
+            <Button onClick={addTrabajador} disabled={!newWorkerName.trim()}>
+              <Plus className="h-4 w-4" /> Añadir
+            </Button>
+          </div>
+
+          {loadingTrabajadores ? (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8" />)}
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Zona</TableHead>
-                  <TableHead className="text-right">Plantilla</TableHead>
-                  <TableHead className="text-right">Presentes</TableHead>
-                  <TableHead className="text-right">Ausentes</TableHead>
-                  <TableHead className="text-right">% Asist.</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((r) => {
-                  const pct = r.plantilla_total > 0 ? (r.presentes / r.plantilla_total) * 100 : 0;
-                  return (
-                    <TableRow key={r.id}>
-                      <TableCell>
-                        <Input
-                          type="date"
-                          value={r.date}
-                          onChange={(e) => patch(r.id, { date: e.target.value })}
-                          className="w-36 h-8"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <select
-                          value={r.zona_id ?? ""}
-                          onChange={(e) => patch(r.id, { zona_id: e.target.value })}
-                          className="h-8 rounded-md border bg-background px-2 text-sm"
-                        >
-                          {ZONAS.map((z) => <option key={z} value={z}>{z}</option>)}
-                        </select>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Input type="number" min="0" className="h-8 w-20 ml-auto tabular-nums text-right"
-                          value={r.plantilla_total}
-                          onChange={(e) => patch(r.id, { plantilla_total: Number(e.target.value) || 0 })} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Input type="number" min="0" className="h-8 w-20 ml-auto tabular-nums text-right"
-                          value={r.presentes}
-                          onChange={(e) => patch(r.id, { presentes: Number(e.target.value) || 0 })} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Input type="number" min="0" className="h-8 w-20 ml-auto tabular-nums text-right"
-                          value={r.ausentes}
-                          onChange={(e) => patch(r.id, { ausentes: Number(e.target.value) || 0 })} />
-                      </TableCell>
-                      <TableCell className={cn("text-right tabular-nums", pct < 90 && "text-destructive font-medium")}>
-                        {pct.toFixed(1)}%
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={() => del(r.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+            <div className="border rounded-md">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nombre</TableHead>
+                    <TableHead>Zona</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead className="w-20"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {trabajadores.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
+                        Añade trabajadores para comenzar
                       </TableCell>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                  ) : (
+                    trabajadores.map((t) => (
+                      <TableRow key={t.id} className={cn(!t.activo && "opacity-50")}>
+                        <TableCell className="font-medium">{t.nombre}</TableCell>
+                        <TableCell className="text-muted-foreground">{t.zona ?? "—"}</TableCell>
+                        <TableCell>
+                          <Badge variant={t.activo ? "default" : "secondary"}>
+                            {t.activo ? "Activo" : "Inactivo"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => toggleTrabajadorActivo(t)}
+                              title={t.activo ? "Desactivar" : "Activar"}
+                            >
+                              {t.activo ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive"
+                              onClick={() => deleteTrabajador(t.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Daily Attendance ────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg">Asistencia del día</CardTitle>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => shiftDate(-1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="w-40 h-8 text-center"
+            />
+            <Button variant="outline" size="sm" onClick={() => shiftDate(1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm font-medium capitalize">{fechaDisplay}</p>
+            <div className="flex items-center gap-1 text-sm text-muted-foreground">
+              {totalActivos > 0 && (
+                <>
+                  <span className="inline-flex items-center gap-1 text-green-600">
+                    <UserCheck className="h-3.5 w-3.5" />{presentesCount}
+                  </span>
+                  <span className="mx-1">·</span>
+                  <span className="inline-flex items-center gap-1 text-destructive">
+                    <UserX className="h-3.5 w-3.5" />{ausentesCount}
+                  </span>
+                  {sinRegistro > 0 && (
+                    <>
+                      <span className="mx-1">·</span>
+                      <span className="text-muted-foreground">? {sinRegistro} sin registro</span>
+                    </>
+                  )}
+                  <span className="mx-1">·</span>
+                  <span>{totalActivos} total</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!user}
+              onClick={marcarTodosPresentes}
+            >
+              <UserCheck className="h-4 w-4" /> Marcar todos presentes
+            </Button>
+            <label className="relative">
+              <Button variant="outline" size="sm" disabled={importing} asChild>
+                <span className="cursor-pointer">
+                  <Upload className="h-4 w-4" />
+                  {importing ? "Importando…" : "Importar XLSX"}
+                </span>
+              </Button>
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                className="absolute inset-0 opacity-0 cursor-pointer"
+                onChange={handleImportXLSX}
+                disabled={importing}
+              />
+            </label>
+          </div>
+
+          <Separator />
+
+          {loadingAsistencia ? (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8" />)}
+            </div>
+          ) : activos.length === 0 ? (
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              Añade trabajadores activos en la lista de referencia para registrar asistencia.
+            </div>
+          ) : (
+            <div className="border rounded-md">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Trabajador</TableHead>
+                    <TableHead>Zona</TableHead>
+                    <TableHead>Asistencia</TableHead>
+                    <TableHead className="w-24 text-right">Acción</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {activos.map((t) => {
+                    const presente = asistencia[t.id];
+                    return (
+                      <TableRow key={t.id}>
+                        <TableCell className="font-medium">{t.nombre}</TableCell>
+                        <TableCell className="text-muted-foreground">{t.zona ?? "—"}</TableCell>
+                        <TableCell>
+                          {presente === true && (
+                            <Badge variant="default" className="bg-green-600">Presente</Badge>
+                          )}
+                          {presente === false && (
+                            <Badge variant="destructive">Ausente</Badge>
+                          )}
+                          {presente === undefined && (
+                            <Badge variant="secondary">Sin registrar</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={cn(
+                                "h-8 w-8",
+                                presente === true && "bg-green-100 text-green-700"
+                              )}
+                              onClick={() => toggleAsistencia(t.id, true)}
+                              disabled={presente === true}
+                            >
+                              <UserCheck className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={cn(
+                                "h-8 w-8",
+                                presente === false && "bg-red-100 text-red-700"
+                              )}
+                              onClick={() => toggleAsistencia(t.id, false)}
+                              disabled={presente === false}
+                            >
+                              <UserX className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

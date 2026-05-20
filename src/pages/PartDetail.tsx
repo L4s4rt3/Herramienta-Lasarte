@@ -129,7 +129,7 @@ export default function PartDetail() {
 
   const cascade = useMemo(() => {
     if (!parte) return null;
-    const paletsCascada = Number(parte.kg_palets_brutos) - Number(parte.kg_palets_egipto) - Number(parte.kg_palets_campo);
+    const paletsCascada = Number(parte.kg_palets_brutos) - Number(parte.kg_palets_egipto);
     return computeCascade({
       kg_produccion_calibrador: Number(parte.kg_produccion_calibrador),
       kg_mujeres_calibrador: Number(parte.kg_mujeres_calibrador),

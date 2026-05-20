@@ -46,7 +46,7 @@ export function CascadeDisplay({ parte_id, class_name }: Props) {
       }
 
       // Calcular cascada
-      const paletsCascada = (parte.kg_palets_brutos || 0) - (parte.kg_palets_egipto || 0) - (parte.kg_palets_campo || 0);
+      const paletsCascada = (parte.kg_palets_brutos || 0) - (parte.kg_palets_egipto || 0);
       const result = computeCascade({
         kg_produccion_calibrador: parte.kg_produccion_calibrador || 0,
         kg_mujeres_calibrador: parte.kg_mujeres_calibrador || 0,

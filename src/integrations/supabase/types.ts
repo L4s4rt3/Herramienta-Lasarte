@@ -14,6 +14,68 @@ export type Database = {
   }
   public: {
     Tables: {
+      trabajadores: {
+        Row: {
+          activo: boolean
+          created_at: string
+          id: string
+          nombre: string
+          user_id: string
+          zona: string | null
+        }
+        Insert: {
+          activo?: boolean
+          created_at?: string
+          id?: string
+          nombre: string
+          user_id: string
+          zona?: string | null
+        }
+        Update: {
+          activo?: boolean
+          created_at?: string
+          id?: string
+          nombre?: string
+          user_id?: string
+          zona?: string | null
+        }
+        Relationships: []
+      }
+      asistencia_detalle: {
+        Row: {
+          created_at: string
+          date: string
+          id: string
+          presente: boolean
+          trabajador_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          id?: string
+          presente?: boolean
+          trabajador_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          id?: string
+          presente?: boolean
+          trabajador_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "asistencia_detalle_trabajador_id_fkey"
+            columns: ["trabajador_id"]
+            isOneToOne: false
+            referencedRelation: "trabajadores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       asistencia_diaria: {
         Row: {
           ausentes: number

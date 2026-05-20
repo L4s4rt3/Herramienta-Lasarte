@@ -55,6 +55,24 @@ export interface ParteRow {
   updated_at: string;
 }
 
+export interface TrabajadorRow {
+  id: string;
+  user_id: string;
+  nombre: string;
+  zona: string | null;
+  activo: boolean;
+  created_at: string;
+}
+
+export interface AsistenciaDetalleRow {
+  id: string;
+  user_id: string;
+  date: string;
+  trabajador_id: string;
+  presente: boolean;
+  created_at: string;
+}
+
 export interface AsistenciaDiariaRow {
   id: string;
   user_id: string;
