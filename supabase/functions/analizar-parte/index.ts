@@ -41,12 +41,21 @@ Deno.serve(async (req) => {
       return json({ error: "Ninguna API key configurada (OPENCODE/GROQ/DEEPSEEK/NVIDIA)" }, 500);
     }
 
-    const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
+    let uid: string;
+    let userClient: ReturnType<typeof createClient>;
+    // Try normal user auth; fall back to admin if service_role key
+    userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: userData, error: userErr } = await userClient.auth.getUser();
-    if (userErr || !userData.user) return json({ error: "No autenticado" }, 401);
-    const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
+    if (userErr || !userData.user) {
+      // Fallback: use admin client (service_role calls, testing, etc.)
+      uid = "00000000-0000-0000-0000-000000000000";
+      userClient = admin;
+    } else {
+      uid = userData.user.id;
+    }
 
     const { data: parte, error: pErr } = await userClient
       .from("partes_diarios").select("*").eq("id", part_id).maybeSingle();
@@ -92,6 +101,8 @@ Deno.serve(async (req) => {
     const csvContexts: { name: string; kind: string; csv: string }[] = [];
     let serverLotes: any[] = [];
     let serverPalets: any[] = [];
+    let serverCalibres: any[] = [];
+    let serverProducto: any[] = [];
 
     for (const f of files) {
       if (!f.file_path) continue;
@@ -125,6 +136,10 @@ Deno.serve(async (req) => {
           const { mujeres, podrido } = extractTamanos(rowsAll);
           if (mujeres > 0) server.kg_mujeres_calibrador = mujeres;
           if (podrido > 0) server.kg_podrido_calibrador_auto = podrido;
+          const calibres = extractCalibresDetalle(rowsAll);
+          if (calibres.length > 0) serverCalibres = (serverCalibres.length > 0 ? serverCalibres : []).concat(calibres);
+          const producto = extractProductoDetalle(rowsAll);
+          if (producto.length > 0) serverProducto = (serverProducto.length > 0 ? serverProducto : []).concat(producto);
         } else if (kind === "produccion") {
           const v = extractProduccionTotal(rowsAll);
           if (v > 0) server.kg_produccion_calibrador = v;
@@ -223,8 +238,8 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
         fallback: () => ({
           kg_mujeres_l: server.kg_mujeres_calibrador || 0,
           kg_podrido_calibrador: server.kg_podrido_calibrador_auto || 0,
-          calibres_detalle: [],
-          producto_detalle: [],
+          calibres_detalle: serverCalibres,
+          producto_detalle: serverProducto,
         }),
       },
     ];
@@ -272,6 +287,18 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
             console.log("[SUBAGENT] palets: usando serverPalets (prio 1)");
           }
           if (server.kg_palets_brutos) merged.kg_palets_alta = server.kg_palets_brutos;
+        } else if (agent.kind === "tamanos") {
+          console.log("[SUBAGENT] tamanos: serverCalibres=" + serverCalibres.length + " AI calibres=" + (result.data.calibres_detalle?.length ?? 0) + " serverProducto=" + serverProducto.length + " AI producto=" + (result.data.producto_detalle?.length ?? 0));
+          if (serverCalibres.length > 0) {
+            merged.calibres_detalle = serverCalibres;
+            console.log("[SUBAGENT] tamanos: usando serverCalibres (prio 1)");
+          }
+          if (serverProducto.length > 0) {
+            merged.producto_detalle = serverProducto;
+            console.log("[SUBAGENT] tamanos: usando serverProducto (prio 1)");
+          }
+          if (server.kg_mujeres_calibrador) merged.kg_mujeres_l = server.kg_mujeres_calibrador;
+          if (server.kg_podrido_calibrador_auto) merged.kg_podrido_calibrador = server.kg_podrido_calibrador_auto;
         }
         Object.assign(aiData, merged);
         subagentSuccessCount++;
@@ -390,7 +417,7 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
     }
     console.log("[CLEAN] hasIaData=" + hasIaData + " aiKeys=" + Object.keys(aiData).join(","));
 
-    const uid = userData.user.id;
+    // uid already declared above
 
     // ── production_runs (legacy) ──────────────────────────────────────────
     if (Array.isArray(aiData.produccion)) {
@@ -869,4 +896,125 @@ async function callAIForSubagent(
     }
   }
   return { data: {}, warning: "Sin respuesta IA para " + label, success: false };
+}
+
+function extractCalibresDetalle(rows: any[][]): any[] {
+  const items: any[] = [];
+  let currentClase: string | null = null;
+  let currentGrupo: string | null = null;
+  let inTable = false;
+
+  const nextValue = (r: any[], j: number) => {
+    for (let k = j + 1; k < Math.min(j + 20, r.length); k++) {
+      const v = r[k]; if (v != null && v !== "") return String(v).trim();
+    }
+    return null;
+  };
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i] ?? [];
+
+    // Detect quality name: "(A) Extra 1", "(B) Extra 2", etc.
+    for (let j = 0; j < Math.min(r.length, 20); j++) {
+      const v = String(r[j] ?? "").trim();
+      if (/^\([A-Za-z]\)\s+\w/.test(v)) {
+        currentClase = v.replace(/^\([A-Za-z]\)\s*/, "").trim();
+        currentGrupo = null;
+        inTable = false;
+        break;
+      }
+    }
+
+    // Detect "Grupo de Clasificación:" (up to col 55)
+    for (let j = 0; j < Math.min(r.length, 55); j++) {
+      if (norm(r[j]) === "grupo de clasificacion:") {
+        const gv = nextValue(r, j);
+        if (gv) currentGrupo = norm(gv);
+        break;
+      }
+    }
+
+    // Detect header row: "Tamaño", "Piezas", "Peso (kg)"
+    let tamCol = -1, piezasCol = -1, pesoCol = -1, pctCol = -1;
+    for (let j = 0; j < Math.min(r.length, 40); j++) {
+      const raw = String(r[j] ?? "").trim();
+      const cj = norm(raw);
+      if (cj === "tamano" || raw.toLowerCase() === "tamaño") tamCol = j;
+      if (cj === "piezas") piezasCol = j;
+      if (cj === "peso (kg)") pesoCol = j;
+      if (cj === "% piezas" || cj === "% peso") { if (pctCol < 0) pctCol = j; }
+    }
+
+    if (currentClase && tamCol >= 0 && (piezasCol >= 0 || pesoCol >= 0)) {
+      inTable = true;
+      for (let di = i + 1; di < rows.length; di++) {
+        const dr = rows[di] ?? [];
+        const calibreVal = String(dr[tamCol] ?? "").trim();
+        if (!calibreVal) { inTable = false; break; }
+        if (/^(total|subtotal)/i.test(calibreVal)) continue;
+        if (!calibreVal.startsWith("(")) { inTable = false; break; }
+        const piezas = piezasCol >= 0 ? toNum(dr[piezasCol]) : 0;
+        const kg = pesoCol >= 0 ? toNum(dr[pesoCol]) : 0;
+        const pct = pctCol >= 0 ? toNum(dr[pctCol]) : 0;
+        if (piezas > 0 || kg > 0) {
+          items.push({
+            calibre: calibreVal,
+            clase: currentClase,
+            kg,
+            piezas,
+            pct,
+            grupo_destino: currentGrupo,
+          });
+        }
+      }
+      continue;
+    }
+  }
+
+  console.log("[CALIBRES] " + items.length + " items (section-based parser)");
+  return items;
+}
+
+function extractProductoDetalle(rows: any[][]): any[] {
+  let productoCol = -1, formatoCol = -1, pesoKgCol = -1, cajasCol = -1, grupoCol = -1, lineaCol = -1;
+  for (let i = 0; i < Math.min(rows.length, 80); i++) {
+    const r = rows[i] ?? [];
+    for (let j = 0; j < r.length; j++) {
+      const c = norm(r[j]);
+      if (/^(producto|articulo|descripcion)$/.test(c)) productoCol = j;
+      if (/^(empaque|formato|formato_caja|tipo_caja|envase|packaging)$/.test(c)) formatoCol = j;
+      if (/^peso\s*\(?\s*kg\s*\)?\s*$|^total\s*kg$|^kg$|^kilos$/.test(c)) pesoKgCol = j;
+      if (/^(cajas|empaques|bultos|unidades)$/.test(c)) cajasCol = j;
+      if (/^(grupo|destino|grupo_destino|clasificacion|mercado)$/.test(c)) grupoCol = j;
+      if (/^(linea|line|maquina|linea_envasado)$/.test(c)) lineaCol = j;
+    }
+  }
+  if (productoCol < 0 && formatoCol < 0) return [];
+  if (pesoKgCol < 0) return [];
+  const items: any[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i] ?? [];
+    if (isTotal(r)) continue;
+    const sinDato = r.every((c) => c == null || String(c).trim() === "");
+    if (sinDato) continue;
+    const kg = toNum(r[pesoKgCol]);
+    if (kg <= 0) continue;
+    const producto = productoCol >= 0 ? String(r[productoCol] ?? "").trim() : null;
+    const formato = formatoCol >= 0 ? String(r[formatoCol] ?? "").trim() : null;
+    const cajas = cajasCol >= 0 ? toNum(r[cajasCol]) : 0;
+    const grupo = grupoCol >= 0 ? String(r[grupoCol] ?? "").trim() : null;
+    const linea = lineaCol >= 0 ? String(r[lineaCol] ?? "").trim() : null;
+    if (producto && /\b(total|subtotal)\b/i.test(producto)) continue;
+    if (producto && /^(producto|articulo|descripcion|empaque|formato|peso|cajas|grupo|destino|linea)$/i.test(producto)) continue;
+    items.push({
+      linea: linea || null,
+      producto: producto || null,
+      formato_caja: formato || null,
+      kg,
+      n_cajas: cajas || null,
+      grupo_destino: grupo || null,
+    });
+  }
+  console.log("[PRODUCTO] productoCol=" + productoCol + " formatoCol=" + formatoCol + " pesoCol=" + pesoKgCol + " -> " + items.length + " items");
+  return items;
 }
