@@ -99,7 +99,8 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       const { data: calibres, error: cErr } = await supabase
         .from("calibres_dia")
         .select("clase, grupo_destino, kg, part_id")
-        .in("part_id", partIds);
+        .in("part_id", partIds)
+        .limit(100000);
 
       if (cErr) {
         console.error("Error fetching calibres_dia:", cErr);
