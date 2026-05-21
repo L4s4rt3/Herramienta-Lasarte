@@ -32,10 +32,10 @@ export interface GrupoClasificacionResumen {
 function detectarTipoClasificacion(valor: string | null): string {
   if (!valor) return "Otro";
   const v = valor.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  if (v.includes("exportac") || v.includes("export") || v.includes("ext")) return "Exportación";
-  if (v.includes("mujer")) return "Mujeres";
-  if (v.includes("no_exportac") || v.includes("no exportac") || v.includes("no export")) return "No exportación";
+  if (v.includes("no_export") || v.includes("no export") || v.includes("no_exportac") || v.includes("no exportac")) return "No exportación";
   if (v.includes("no_comerc") || v.includes("no comerc") || v.includes("industria") || v.includes("ind")) return "No comercial";
+  if (v.includes("export") || v.includes("ext")) return "Exportación";
+  if (v.includes("mujer")) return "Mujeres";
   if (v.includes("mercado") || v.includes("nac") || v.includes("interior") || v.includes("int")) return "Mercado";
   return valor;
 }
