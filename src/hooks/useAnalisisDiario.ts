@@ -64,9 +64,10 @@ export function useAnalisisDiario(desde: string, hasta: string) {
   async function fetchData() {
     setLoading(true);
     try {
+      // ── 1. Partes en el rango ──────────────────────────────────────────────
       const { data: partes, error: pErr } = await supabase
         .from("partes_diarios")
-        .select("id,date,user_id,resumen_ia")
+        .select("id, date")
         .gte("date", desde)
         .lte("date", hasta)
         .order("date", { ascending: false });
@@ -77,8 +78,34 @@ export function useAnalisisDiario(desde: string, hasta: string) {
         return;
       }
 
-      const diasSet = new Set<string>();
-      const lotesAll: (LoteResumen & { fecha: string })[] = [];
+      const partIds = (partes ?? []).map((p) => p.id);
+      const diasSet = new Set((partes ?? []).map((p) => p.date));
+
+      if (partIds.length === 0) {
+        setData({
+          totals: { n_dias: 0, n_lotes: 0, kg_lotes: 0, kg_calibres: 0 },
+          lotes: [],
+          clases: [],
+          grupos: [],
+        });
+        setLoading(false);
+        return;
+      }
+
+      // Mapa part_id -> date
+      const parteDateMap = new Map((partes ?? []).map((p) => [p.id, p.date]));
+
+      // ── 2. Calibres desde calibres_dia ─────────────────────────────────────
+      const { data: calibres, error: cErr } = await supabase
+        .from("calibres_dia")
+        .select("clase, grupo_destino, kg, part_id")
+        .in("part_id", partIds);
+
+      if (cErr) {
+        console.error("Error fetching calibres_dia:", cErr);
+        setLoading(false);
+        return;
+      }
 
       const clasesMap = new Map<string, {
         kg: number;
@@ -93,57 +120,28 @@ export function useAnalisisDiario(desde: string, hasta: string) {
         fechas: Set<string>;
       }>();
 
-      for (const parte of partes ?? []) {
-        const ia = parte.resumen_ia as any;
-        const hasCalibres = Array.isArray(ia?.calibres_detalle) && ia.calibres_detalle.length > 0;
-        const hasLotes = Array.isArray(ia?.lotes_detalle) && ia.lotes_detalle.length > 0;
-        const hasIaData = ia && (hasCalibres || hasLotes);
+      for (const c of calibres ?? []) {
+        const kg = Number(c.kg) || 0;
+        const clase = c.clase ?? "Sin clase";
+        const grupo = detectarTipoClasificacion(c.grupo_destino);
+        const fecha = parteDateMap.get(c.part_id) ?? "";
 
-        if (!hasIaData) continue;
-
-        diasSet.add(parte.date);
-
-        // ── Lotes ──────────────────────────────────────────────────────────
-        if (Array.isArray(ia.lotes_detalle)) {
-          for (const lote of ia.lotes_detalle) {
-            lotesAll.push({
-              fecha: parte.date,
-              lote_codigo: lote.lote_codigo ?? "—",
-              productor: lote.productor ?? "—",
-              producto: lote.producto ?? "—",
-              kg_peso_total: Number(lote.kg_peso_total) || 0,
-              toneladas_hora: lote.toneladas_hora ? Number(lote.toneladas_hora) : null,
-              duracion_min: lote.duracion_min ? Number(lote.duracion_min) : null,
-              peso_fruta_promedio_g: lote.peso_fruta_promedio_g ? Number(lote.peso_fruta_promedio_g) : null,
-            });
-          }
+        if (!clasesMap.has(clase)) {
+          clasesMap.set(clase, { kg: 0, n_registros: 0, fechas: new Set(), grupos: new Map() });
         }
+        const cl = clasesMap.get(clase)!;
+        cl.kg += kg;
+        cl.n_registros += 1;
+        if (fecha) cl.fechas.add(fecha);
+        cl.grupos.set(grupo, (cl.grupos.get(grupo) ?? 0) + kg);
 
-        // ── Calibres ──────────────────────────────────────────────────────
-        if (Array.isArray(ia.calibres_detalle)) {
-          for (const c of ia.calibres_detalle) {
-            const kg = Number(c.kg) || 0;
-            const clase = c.clase ?? "Sin clase";
-            const grupo = detectarTipoClasificacion(c.grupo_destino);
-
-            if (!clasesMap.has(clase)) {
-              clasesMap.set(clase, { kg: 0, n_registros: 0, fechas: new Set(), grupos: new Map() });
-            }
-            const cl = clasesMap.get(clase)!;
-            cl.kg += kg;
-            cl.n_registros += 1;
-            cl.fechas.add(parte.date);
-            cl.grupos.set(grupo, (cl.grupos.get(grupo) ?? 0) + kg);
-
-            if (!gruposMap.has(grupo)) {
-              gruposMap.set(grupo, { kg: 0, n_registros: 0, fechas: new Set() });
-            }
-            const gr = gruposMap.get(grupo)!;
-            gr.kg += kg;
-            gr.n_registros += 1;
-            gr.fechas.add(parte.date);
-          }
+        if (!gruposMap.has(grupo)) {
+          gruposMap.set(grupo, { kg: 0, n_registros: 0, fechas: new Set() });
         }
+        const gr = gruposMap.get(grupo)!;
+        gr.kg += kg;
+        gr.n_registros += 1;
+        if (fecha) gr.fechas.add(fecha);
       }
 
       const kgCalibres = Array.from(clasesMap.values()).reduce((s, c) => s + c.kg, 0);
@@ -167,6 +165,29 @@ export function useAnalisisDiario(desde: string, hasta: string) {
         }))
         .sort((a, b) => b.kg_total - a.kg_total);
 
+      // ── 3. Lotes desde lotes_dia ───────────────────────────────────────────
+      const { data: lotesRaw, error: lErr } = await supabase
+        .from("lotes_dia")
+        .select("lote_codigo, productor, producto, kg_peso_total, toneladas_hora, duracion_min, peso_fruta_promedio_g, part_id")
+        .in("part_id", partIds);
+
+      if (lErr) {
+        console.error("Error fetching lotes_dia:", lErr);
+        setLoading(false);
+        return;
+      }
+
+      const lotesAll: LoteResumen[] = (lotesRaw ?? []).map((l) => ({
+        fecha: parteDateMap.get(l.part_id) ?? "—",
+        lote_codigo: l.lote_codigo ?? "—",
+        productor: l.productor ?? "—",
+        producto: l.producto ?? "—",
+        kg_peso_total: Number(l.kg_peso_total) || 0,
+        toneladas_hora: l.toneladas_hora ? Number(l.toneladas_hora) : null,
+        duracion_min: l.duracion_min ? Number(l.duracion_min) : null,
+        peso_fruta_promedio_g: l.peso_fruta_promedio_g ? Number(l.peso_fruta_promedio_g) : null,
+      }));
+
       const kg_lotes = lotesAll.reduce((s, l) => s + l.kg_peso_total, 0);
 
       setData({
@@ -176,7 +197,7 @@ export function useAnalisisDiario(desde: string, hasta: string) {
           kg_lotes,
           kg_calibres: kgCalibres,
         },
-        lotes: lotesAll.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()),
+        lotes: lotesAll.sort((a, b) => b.fecha.localeCompare(a.fecha)),
         clases,
         grupos,
       });
