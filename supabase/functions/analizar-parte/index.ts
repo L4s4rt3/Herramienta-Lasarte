@@ -61,6 +61,11 @@ Deno.serve(async (req) => {
       .from("partes_diarios").select("*").eq("id", part_id).maybeSingle();
     if (pErr || !parte) return json({ error: "Parte no encontrado" }, 404);
 
+    // Use the parte's actual user_id instead of dummy fallback (FK to auth.users)
+    if (uid === "00000000-0000-0000-0000-000000000000" && parte.user_id) {
+      uid = parte.user_id;
+    }
+
     if (!Number(parte.kg_inventario_anterior_sin_alta)) {
       const { data: prev } = await userClient
         .from("partes_diarios")
@@ -762,11 +767,13 @@ function extractLotesDetalle(rows: any[][]): any[] {
     const lote = loteCol >= 0 ? String(r[loteCol] ?? "").trim() : "";
     const variedad = variedadCol >= 0 ? String(r[variedadCol] ?? "").trim() : "";
     
-    // Usar nombre si no es numerico; si no, codigo como fallback
     const productor = nombreProd || codigoProd || "";
     const fallbackLote = lote || (r[0] != null ? String(r[0]).trim() : "");
     const fallbackProductor = productor || (r[1] != null ? String(r[1]).trim() : "");
     const fallbackVariedad = variedad || (r[2] != null ? String(r[2]).trim() : "");
+    
+    // Skip rows where productor looks like a bare number (total row misparse)
+    if (/^\d{1,3}$/.test(fallbackProductor) && /^\d{1,3}$/.test(fallbackVariedad) && /^\d{1,3}$/.test(fallbackLote)) continue;
     
     lotes.push({
       lote_codigo: fallbackLote || null,
