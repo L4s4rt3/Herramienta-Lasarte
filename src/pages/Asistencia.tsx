@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthProvider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,6 +31,8 @@ export default function Asistencia() {
   const [newWorkerName, setNewWorkerName] = useState("");
   const [newWorkerZona, setNewWorkerZona] = useState("");
   const [importing, setImporting] = useState(false);
+  const [parteDelDia, setParteDelDia] = useState<any>(null);
+  const [loadingParte, setLoadingParte] = useState(false);
 
   // ─── Load trabajadores ──────────────────────────────────────────────────
 
@@ -68,8 +70,25 @@ export default function Asistencia() {
     setLoadingAsistencia(false);
   }
 
+  // ─── Load parte del día ──────────────────────────────────────────────────
+
+  async function loadParteDelDia(date: string) {
+    setLoadingParte(true);
+    setParteDelDia(null);
+    const { data, error } = await supabase
+      .from("partes_diarios")
+      .select("resumen_ia, kg_produccion_calibrador")
+      .eq("date", date)
+      .maybeSingle();
+    if (!error && data) {
+      setParteDelDia(data);
+    }
+    setLoadingParte(false);
+  }
+
   useEffect(() => { loadTrabajadores(); }, []);
   useEffect(() => { loadAsistencia(selectedDate); }, [selectedDate]);
+  useEffect(() => { loadParteDelDia(selectedDate); }, [selectedDate]);
 
   // ─── Worker CRUD ───────────────────────────────────────────────────────
 
@@ -236,6 +255,58 @@ export default function Asistencia() {
     (t) => asistencia[t.id] === false
   ).length;
   const sinRegistro = activos.filter((t) => asistencia[t.id] === undefined).length;
+
+  // ─── Rendimiento por grupo (producto_detalle) ────────────────────────────
+
+  function classificarProducto(producto: string): "Envasadoras" | "Mallas" | "Graneleras" | null {
+    const upper = producto.toUpperCase();
+    const isMdna = upper.includes("MDNA") || upper.includes("MERCADONA");
+    const isGranel = upper.includes("GRANEL");
+    const isExcluded =
+      upper.includes("INDUSTRIA GENERADA") ||
+      upper.includes("PODRIDO") ||
+      upper.includes("MUESTRA");
+    if (isExcluded) return null;
+    if (!isMdna) return "Envasadoras";
+    if (isGranel) return "Graneleras";
+    return "Mallas";
+  }
+
+  interface GrupoRendimiento {
+    kg: number;
+    personas: number;
+  }
+
+  const rendimientoGrupos = useMemo<Record<string, GrupoRendimiento>>(() => {
+    const grupos: Record<string, GrupoRendimiento> = {
+      Envasadoras: { kg: 0, personas: 0 },
+      Mallas: { kg: 0, personas: 0 },
+      Graneleras: { kg: 0, personas: 0 },
+    };
+
+    // Sumar kg desde producto_detalle
+    const detalle = (parteDelDia as any)?.resumen_ia?.producto_detalle;
+    if (Array.isArray(detalle)) {
+      for (const item of detalle) {
+        const grupo = classificarProducto(item.producto ?? "");
+        if (grupo) {
+          grupos[grupo].kg += Number(item.kg ?? 0);
+        }
+      }
+    }
+
+    // Contar personas presentes por grupo
+    for (const t of activos) {
+      if (asistencia[t.id] === true && t.zona && grupos[t.zona]) {
+        grupos[t.zona].personas++;
+      }
+    }
+
+    return grupos;
+  }, [parteDelDia, trabajadores, asistencia]);
+
+  const totalKg = rendimientoGrupos.Envasadoras.kg + rendimientoGrupos.Mallas.kg + rendimientoGrupos.Graneleras.kg;
+  const totalPersonas = rendimientoGrupos.Envasadoras.personas + rendimientoGrupos.Mallas.personas + rendimientoGrupos.Graneleras.personas;
 
   // ─── Grouping helper ─────────────────────────────────────────────────
 
@@ -448,6 +519,70 @@ export default function Asistencia() {
           </div>
 
           <Separator />
+
+          {/* ── Rendimiento por grupo ──────────────────────────────────── */}
+          {loadingParte ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-6 w-full" />)}
+            </div>
+          ) : parteDelDia ? (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold">Rendimiento por grupo</CardTitle>
+              </CardHeader>
+              <CardContent className="pb-3">
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span>Envasadoras:</span>
+                    <span className="font-mono tabular-nums">
+                      {new Intl.NumberFormat("es-ES").format(Math.round(rendimientoGrupos.Envasadoras.kg))} kg &middot;{" "}
+                      {rendimientoGrupos.Envasadoras.personas} pers &middot;{" "}
+                      {new Intl.NumberFormat("es-ES").format(
+                        Math.round(rendimientoGrupos.Envasadoras.personas > 0
+                          ? rendimientoGrupos.Envasadoras.kg / rendimientoGrupos.Envasadoras.personas
+                          : 0)
+                      )} kg/pers
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Mallas:</span>
+                    <span className="font-mono tabular-nums">
+                      {new Intl.NumberFormat("es-ES").format(Math.round(rendimientoGrupos.Mallas.kg))} kg &middot;{" "}
+                      {rendimientoGrupos.Mallas.personas} pers &middot;{" "}
+                      {new Intl.NumberFormat("es-ES").format(
+                        Math.round(rendimientoGrupos.Mallas.personas > 0
+                          ? rendimientoGrupos.Mallas.kg / rendimientoGrupos.Mallas.personas
+                          : 0)
+                      )} kg/pers
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Graneleras:</span>
+                    <span className="font-mono tabular-nums">
+                      {new Intl.NumberFormat("es-ES").format(Math.round(rendimientoGrupos.Graneleras.kg))} kg &middot;{" "}
+                      {rendimientoGrupos.Graneleras.personas} pers &middot;{" "}
+                      {new Intl.NumberFormat("es-ES").format(
+                        Math.round(rendimientoGrupos.Graneleras.personas > 0
+                          ? rendimientoGrupos.Graneleras.kg / rendimientoGrupos.Graneleras.personas
+                          : 0)
+                      )} kg/pers
+                    </span>
+                  </div>
+                  <Separator className="my-1" />
+                  <div className="flex justify-between font-semibold">
+                    <span>Total directo:</span>
+                    <span className="font-mono tabular-nums">
+                      {new Intl.NumberFormat("es-ES").format(Math.round(totalKg))} kg &middot;{" "}
+                      {totalPersonas} pers &middot;{" "}
+                      {new Intl.NumberFormat("es-ES").format(
+                        Math.round(totalPersonas > 0 ? totalKg / totalPersonas : 0)
+                      )} kg/pers
+                    </span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
 
           {loadingAsistencia ? (
             <div className="space-y-2">
