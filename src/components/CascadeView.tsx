@@ -27,6 +27,7 @@ function Row({
   variant = "sub",
   icon: Icon,
   colorClass,
+  format = "kg",
 }: {
   label: string;
   op: "=" | "+" | "−" | "";
@@ -34,6 +35,7 @@ function Row({
   variant?: "base" | "sub" | "total";
   icon?: React.ElementType;
   colorClass?: string;
+  format?: "kg" | "pct";
 }) {
   const isNegative = op === "−" && value !== 0;
 
@@ -58,7 +60,7 @@ function Row({
         variant === "total" && "font-semibold text-[13.5px]",
         colorClass,
       )}>
-        {formatKg(value)}
+        {format === "pct" ? formatPct(value) : formatKg(value)}
       </span>
     </div>
   );
@@ -170,9 +172,10 @@ export function CascadeView({ result }: { result: CascadeResult }) {
       <Row label="Palets alta ajustados" op="−" value={result.palets_ajustados} variant="sub" icon={Minus} />
       <Row label="Inventario final sin alta" op="−" value={result.inventario_final} variant="sub" icon={Minus} />
       <Row label="Diferencia bruta" op="=" value={result.diferencia_bruta} variant="total" />
-      <Row label="Podrido calibrador" op="−" value={result.podrido_calibrador} variant="sub" icon={Minus} />
+      <Row label="Podrido calibrador (ya descontado)" op="=" value={result.podrido_calibrador} variant="sub" />
       <Row label="Podrido manual (bolsa basura)" op="−" value={result.podrido_manual} variant="sub" icon={Minus} />
       <Row label="Mermas totales" op="=" value={result.mermas_totales} variant="total" />
+      <Row label="% Mermas / prod." op="=" value={result.produccion_real > 0 ? (result.mermas_totales / result.produccion_real) * 100 : 0} format="pct" variant="sub" />
 
       {/* ── Resultado DJPMN ──────────────────────────────────────── */}
       <div className={cn("rounded-xl px-4 py-4 mt-2 flex items-center justify-between gap-4", semStyles.box)}>

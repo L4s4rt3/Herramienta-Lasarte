@@ -54,6 +54,7 @@ export interface CascadeResult {
   podrido_calibrador: number;
   podrido_manual: number;
   mermas_totales: number;
+  mermas_pct: number;
 
   dsj: number;
   dsj_pct: number;
@@ -96,8 +97,10 @@ export function computeCascade(input: CascadeInput): CascadeResult {
   const podrido_calibrador = n(input.kg_podrido_calibrador);
   const podrido_manual = n(input.kg_podrido_bolsa_basura);
   const mermas_totales = podrido_calibrador + podrido_manual;
+  const mermas_pct = produccion_real > 0 ? (mermas_totales / produccion_real) * 100 : 0;
 
-  const dsj = diferencia_bruta - mermas_totales;
+  // Podrido calibrador ya lo descuenta el calibrador, no se resta otra vez
+  const dsj = diferencia_bruta - podrido_manual;
   const dsj_pct = produccion_real > 0 ? (dsj / produccion_real) * 100 : 0;
 
   const abs = Math.abs(dsj_pct);
@@ -145,6 +148,7 @@ export function computeCascade(input: CascadeInput): CascadeResult {
     podrido_calibrador,
     podrido_manual,
     mermas_totales,
+    mermas_pct,
     dsj,
     dsj_pct,
     semaforo,
