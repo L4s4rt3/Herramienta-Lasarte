@@ -10,6 +10,7 @@ import {
   BarChart3,
   Sun,
   Moon,
+  CalendarDays,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
 import { useTheme } from "@/contexts/ThemeProvider";
@@ -83,6 +84,20 @@ export default function AppLayout() {
                   <NavLink to="/" end>
                     <LayoutDashboard />
                     <span>{t("dashboard")}</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              {/* Calendario */}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname === "/calendario"}
+                  tooltip="Calendario"
+                >
+                  <NavLink to="/calendario">
+                    <CalendarDays />
+                    <span>Calendario</span>
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>

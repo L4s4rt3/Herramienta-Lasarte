@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { usePartesDashboard } from "@/hooks/usePartes";
+import { usePartesDashboard, usePartes } from "@/hooks/usePartes";
 import { KPICard } from "@/components/KPICard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -10,16 +10,22 @@ import {
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatDate, formatKg } from "@/lib/format";
+import { formatDate, formatKg, formatPct } from "@/lib/format";
 
 import {
   Truck, Package, TrendingDown, Plus, FileText, BarChart3,
   AlertTriangle, Gauge, CheckCircle2, AlertCircle, XCircle,
+  CalendarSync, ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { SemaforoCard } from "@/components/SemaforoCard";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 // ─── Tooltip personalizado ───────────────────────────────────────────────────
 
@@ -61,6 +67,66 @@ function ChartTooltip({ active, payload, label }: any) {
 
 export default function Dashboard() {
   const { partes, loading, totals, chartSeries } = usePartesDashboard(30);
+  const { partes: allPartes } = usePartes();
+
+  const [showYoY, setShowYoY] = useState(false);
+
+  // Year-over-Year comparison
+  const yoyData = useMemo(() => {
+    if (!showYoY) return null;
+
+    const today = new Date();
+    const periodEnd = new Date(today);
+    const periodStart = new Date(today);
+    periodStart.setDate(periodStart.getDate() - 30);
+
+    // Same period last year
+    const prevStart = new Date(periodStart);
+    prevStart.setFullYear(prevStart.getFullYear() - 1);
+    const prevEnd = new Date(periodEnd);
+    prevEnd.setFullYear(prevEnd.getFullYear() - 1);
+
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    const startStr = fmt(periodStart);
+    const endStr = fmt(periodEnd);
+    const prevStartStr = fmt(prevStart);
+    const prevEndStr = fmt(prevEnd);
+
+    const current = allPartes.filter(
+      (p) => p.date >= startStr && p.date <= endStr
+    );
+    const previous = allPartes.filter(
+      (p) => p.date >= prevStartStr && p.date <= prevEndStr
+    );
+
+    const calcTotals = (list: typeof allPartes) => {
+      const prod = list.reduce((s, p) => s + p.cascade.produccion_real, 0);
+      const dsj = list.reduce((s, p) => s + p.cascade.dsj, 0);
+      const palets = list.reduce((s, p) => s + p.cascade.palets_ajustados, 0);
+      return {
+        produccion_real: prod,
+        dsj_pct: prod > 0 ? (dsj / prod) * 100 : 0,
+        palets_ajustados: palets,
+        count: list.length,
+      };
+    };
+
+    const curT = calcTotals(current);
+    const prevT = calcTotals(previous);
+
+    const pctChange = (cur: number, prev: number) =>
+      prev !== 0 ? ((cur - prev) / Math.abs(prev)) * 100 : 0;
+
+    return {
+      current: curT,
+      previous: prevT,
+      change: {
+        produccion_real: pctChange(curT.produccion_real, prevT.produccion_real),
+        dsj_pct: curT.dsj_pct - prevT.dsj_pct,
+        palets_ajustados: pctChange(curT.palets_ajustados, prevT.palets_ajustados),
+      },
+    };
+  }, [showYoY, allPartes]);
 
   // T/h promedio últimos 30 días
   const { data: tphData } = useQuery({
@@ -99,12 +165,23 @@ export default function Dashboard() {
             Resumen operativo · últimos 30 días · {partes.length} partes
           </p>
         </div>
-        <Button size="lg" asChild className="shadow-md">
-          <Link to="/partes">
-            <Plus className="h-4 w-4 mr-1" />
-            Nuevo Parte
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={showYoY ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowYoY(!showYoY)}
+            className="shadow-sm"
+          >
+            <CalendarSync className={cn("h-4 w-4 mr-1.5", showYoY && "animate-pulse")} />
+            vs año anterior
+          </Button>
+          <Button size="lg" asChild className="shadow-md">
+            <Link to="/partes">
+              <Plus className="h-4 w-4 mr-1" />
+              Nuevo Parte
+            </Link>
+          </Button>
+        </div>
       </header>
 
       {/* ─── Semáforo de estado (lo más importante, primero) ──────────────── */}
@@ -171,6 +248,125 @@ export default function Dashboard() {
           </>
         )}
       </section>
+
+      {/* ─── Year-over-Year comparison ──────────────────────────────────── */}
+      {showYoY && yoyData && (
+        <Collapsible defaultOpen className="space-y-4">
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" className="flex items-center gap-2 text-sm font-medium w-full justify-start px-1">
+              {yoyData.current.count > 0 || yoyData.previous.count > 0 ? (
+                <>
+                  <CalendarSync className="h-4 w-4 text-primary" />
+                  Comparativa respecto al mismo período del año anterior
+                  <ChevronDown className="h-4 w-4 ml-auto" />
+                </>
+              ) : (
+                <>
+                  <CalendarSync className="h-4 w-4 text-muted-foreground" />
+                  Sin datos históricos para comparar
+                </>
+              )}
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {/* Producción real */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Producción real</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">Este período</span>
+                      <span className="font-semibold">{formatKg(yoyData.current.produccion_real)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">Año anterior</span>
+                      <span className="font-semibold">{formatKg(yoyData.previous.produccion_real)}</span>
+                    </div>
+                    <div className="flex justify-between items-center border-t pt-2">
+                      <span className="text-xs text-muted-foreground">Variación</span>
+                      <span className={cn(
+                        "font-bold text-sm",
+                        yoyData.change.produccion_real > 0 ? "text-emerald-600" : yoyData.change.produccion_real < 0 ? "text-red-600" : "text-muted-foreground"
+                      )}>
+                        {yoyData.change.produccion_real > 0 ? "+" : ""}{formatPct(yoyData.change.produccion_real, 1)}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* DJPMN % */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">DJPMN %</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">Este período</span>
+                      <span className={cn(
+                        "font-semibold",
+                        Math.abs(yoyData.current.dsj_pct) <= 3 ? "text-emerald-600" : Math.abs(yoyData.current.dsj_pct) <= 5 ? "text-amber-600" : "text-red-600"
+                      )}>
+                        {yoyData.current.dsj_pct >= 0 ? "+" : ""}{yoyData.current.dsj_pct.toFixed(2)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">Año anterior</span>
+                      <span className={cn(
+                        "font-semibold",
+                        Math.abs(yoyData.previous.dsj_pct) <= 3 ? "text-emerald-600" : Math.abs(yoyData.previous.dsj_pct) <= 5 ? "text-amber-600" : "text-red-600"
+                      )}>
+                        {yoyData.previous.dsj_pct >= 0 ? "+" : ""}{yoyData.previous.dsj_pct.toFixed(2)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center border-t pt-2">
+                      <span className="text-xs text-muted-foreground">Diferencia</span>
+                      <span className={cn(
+                        "font-bold text-sm",
+                        Math.abs(yoyData.change.dsj_pct) <= 3 ? "text-emerald-600" : Math.abs(yoyData.change.dsj_pct) <= 5 ? "text-amber-600" : "text-red-600"
+                      )}>
+                        {yoyData.change.dsj_pct >= 0 ? "+" : ""}{yoyData.change.dsj_pct.toFixed(2)} pp
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Palets ajustados */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Palets ajustados</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">Este período</span>
+                      <span className="font-semibold">{formatKg(yoyData.current.palets_ajustados)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">Año anterior</span>
+                      <span className="font-semibold">{formatKg(yoyData.previous.palets_ajustados)}</span>
+                    </div>
+                    <div className="flex justify-between items-center border-t pt-2">
+                      <span className="text-xs text-muted-foreground">Variación</span>
+                      <span className={cn(
+                        "font-bold text-sm",
+                        yoyData.change.palets_ajustados > 0 ? "text-emerald-600" : yoyData.change.palets_ajustados < 0 ? "text-red-600" : "text-muted-foreground"
+                      )}>
+                        {yoyData.change.palets_ajustados > 0 ? "+" : ""}{formatPct(yoyData.change.palets_ajustados, 1)}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
 
       {/* ─── Gráfico (más espacio, lectura clara) ─────────────────────────── */}
       <Card>

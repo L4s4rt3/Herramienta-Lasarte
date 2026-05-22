@@ -24,6 +24,7 @@ const Productores = lazy(() => import("./pages/Productores"));
 const CalibreAnalysis = lazy(() => import("./pages/CalibreAnalysis"));
 const AnalisisInformes = lazy(() => import("./pages/AnalisisInformes"));
 const AnalisisDiario = lazy(() => import("./pages/AnalisisDiario"));
+const Calendario = lazy(() => import("./pages/Calendario"));
 
 const queryClient = new QueryClient();
 
@@ -64,6 +65,7 @@ const App = () => (
                     <Route path="/analisis/calibres" element={<CalibreAnalysis />} />
                     <Route path="/analisis/informes" element={<AnalisisInformes />} />
                     <Route path="/analisis/diario" element={<AnalisisDiario />} />
+                    <Route path="/calendario" element={<Calendario />} />
                   </Route>
                   <Route path="/index" element={<Navigate to="/" replace />} />
                   <Route path="*" element={<NotFound />} />

@@ -22,6 +22,7 @@ const ROUTE_META: Record<string, { label: string; parent?: string; parentLabel?:
   "/analisis/calibres":      { label: "Calibres", parent: "/", parentLabel: "Dashboard" },
   "/analisis/informes":      { label: "Análisis Informes", parent: "/", parentLabel: "Dashboard" },
   "/analisis/diario":        { label: "Análisis Diario", parent: "/", parentLabel: "Dashboard" },
+  "/calendario":             { label: "Calendario", parent: "/", parentLabel: "Dashboard" },
 };
 
 // ─── Top bar ───────────────────────────────────────────────────────────────────
