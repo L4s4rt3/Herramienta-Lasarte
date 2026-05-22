@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import type { TrabajadorRow } from "@/lib/types";
 
-const ZONAS = ["Línea de tratamiento", "Mallas", "Graneles", "Mesas", "Industria", "Drencher"];
+const GRUPOS = ["Encargadas", "Produccion", "Aereo", "Tria podrido", "Punta", "Volcador", "Mecanica", "Envasadoras", "Mallas", "Carretilla", "Graneleras", "Mozos", "Carga y descarga"];
 
 export default function Asistencia() {
   const { user } = useAuth();
@@ -237,6 +237,27 @@ export default function Asistencia() {
   ).length;
   const sinRegistro = activos.filter((t) => asistencia[t.id] === undefined).length;
 
+  // ─── Grouping helper ─────────────────────────────────────────────────
+
+  function groupByZona(workers: TrabajadorRow[]) {
+    const groups: Record<string, TrabajadorRow[]> = {};
+    const noGroup: TrabajadorRow[] = [];
+    for (const w of workers) {
+      if (w.zona && GRUPOS.includes(w.zona)) {
+        if (!groups[w.zona]) groups[w.zona] = [];
+        groups[w.zona].push(w);
+      } else {
+        noGroup.push(w);
+      }
+    }
+    const ordered: { grupo: string; workers: TrabajadorRow[] }[] = [];
+    for (const g of GRUPOS) {
+      if (groups[g]) ordered.push({ grupo: g, workers: groups[g] });
+    }
+    if (noGroup.length > 0) ordered.push({ grupo: "Sin grupo", workers: noGroup });
+    return ordered;
+  }
+
   const fechaDisplay = new Date(selectedDate + "T12:00:00").toLocaleDateString(
     "es-ES",
     { weekday: "long", day: "numeric", month: "long", year: "numeric" }
@@ -270,14 +291,14 @@ export default function Asistencia() {
               />
             </div>
             <div className="w-44">
-              <label className="text-xs text-muted-foreground mb-1 block">Zona</label>
+              <label className="text-xs text-muted-foreground mb-1 block">Grupo</label>
               <select
                 value={newWorkerZona}
                 onChange={(e) => setNewWorkerZona(e.target.value)}
                 className="h-10 w-full rounded-md border bg-background px-3 text-sm"
               >
-                <option value="">Sin zona</option>
-                {ZONAS.map((z) => <option key={z} value={z}>{z}</option>)}
+                <option value="">Sin grupo</option>
+                {GRUPOS.map((z) => <option key={z} value={z}>{z}</option>)}
               </select>
             </div>
             <Button onClick={addTrabajador} disabled={!newWorkerName.trim()}>
@@ -295,7 +316,7 @@ export default function Asistencia() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Nombre</TableHead>
-                    <TableHead>Zona</TableHead>
+                    <TableHead>Grupo</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead className="w-20"></TableHead>
                   </TableRow>
@@ -308,38 +329,45 @@ export default function Asistencia() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    trabajadores.map((t) => (
-                      <TableRow key={t.id} className={cn(!t.activo && "opacity-50")}>
-                        <TableCell className="font-medium">{t.nombre}</TableCell>
-                        <TableCell className="text-muted-foreground">{t.zona ?? "—"}</TableCell>
-                        <TableCell>
-                          <Badge variant={t.activo ? "default" : "secondary"}>
-                            {t.activo ? "Activo" : "Inactivo"}
-                          </Badge>
+                    groupByZona(trabajadores).flatMap(({ grupo, workers }) => [
+                      <TableRow key={`h-${grupo}`} className="bg-muted/50">
+                        <TableCell colSpan={4} className="font-semibold text-sm py-2">
+                          {grupo} <span className="text-muted-foreground font-normal">({workers.length})</span>
                         </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => toggleTrabajadorActivo(t)}
-                              title={t.activo ? "Desactivar" : "Activar"}
-                            >
-                              {t.activo ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive"
-                              onClick={() => deleteTrabajador(t.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                      </TableRow>,
+                      ...workers.map((t) => (
+                        <TableRow key={t.id} className={cn(!t.activo && "opacity-50")}>
+                          <TableCell className="font-medium">{t.nombre}</TableCell>
+                          <TableCell className="text-muted-foreground">{t.zona ?? "—"}</TableCell>
+                          <TableCell>
+                            <Badge variant={t.activo ? "default" : "secondary"}>
+                              {t.activo ? "Activo" : "Inactivo"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => toggleTrabajadorActivo(t)}
+                                title={t.activo ? "Desactivar" : "Activar"}
+                              >
+                                {t.activo ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive"
+                                onClick={() => deleteTrabajador(t.id)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )),
+                    ])
                   )}
                 </TableBody>
               </Table>
@@ -435,59 +463,69 @@ export default function Asistencia() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Trabajador</TableHead>
-                    <TableHead>Zona</TableHead>
+                    <TableHead>Grupo</TableHead>
                     <TableHead>Asistencia</TableHead>
                     <TableHead className="w-24 text-right">Acción</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {activos.map((t) => {
-                    const presente = asistencia[t.id];
-                    return (
-                      <TableRow key={t.id}>
-                        <TableCell className="font-medium">{t.nombre}</TableCell>
-                        <TableCell className="text-muted-foreground">{t.zona ?? "—"}</TableCell>
-                        <TableCell>
-                          {presente === true && (
-                            <Badge variant="default" className="bg-green-600">Presente</Badge>
-                          )}
-                          {presente === false && (
-                            <Badge variant="destructive">Ausente</Badge>
-                          )}
-                          {presente === undefined && (
-                            <Badge variant="secondary">Sin registrar</Badge>
-                          )}
+                  {groupByZona(activos).flatMap(({ grupo, workers }) => {
+                    const presentes = workers.filter((w) => asistencia[w.id] === true).length;
+                    return [
+                      <TableRow key={`h-${grupo}`} className="bg-muted/50">
+                        <TableCell colSpan={4} className="font-semibold text-sm py-2">
+                          {grupo} <span className="text-muted-foreground font-normal">({presentes}/{workers.length})</span>
                         </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className={cn(
-                                "h-8 w-8",
-                                presente === true && "bg-green-100 text-green-700"
+                      </TableRow>,
+                      ...workers.map((t) => {
+                        const presente = asistencia[t.id];
+                        return (
+                          <TableRow key={t.id}>
+                            <TableCell className="font-medium">{t.nombre}</TableCell>
+                            <TableCell className="text-muted-foreground">{t.zona ?? "—"}</TableCell>
+                            <TableCell>
+                              {presente === true && (
+                                <Badge variant="default" className="bg-green-600">Presente</Badge>
                               )}
-                              onClick={() => toggleAsistencia(t.id, true)}
-                              disabled={presente === true}
-                            >
-                              <UserCheck className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className={cn(
-                                "h-8 w-8",
-                                presente === false && "bg-red-100 text-red-700"
+                              {presente === false && (
+                                <Badge variant="destructive">Ausente</Badge>
                               )}
-                              onClick={() => toggleAsistencia(t.id, false)}
-                              disabled={presente === false}
-                            >
-                              <UserX className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
+                              {presente === undefined && (
+                                <Badge variant="secondary">Sin registrar</Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className={cn(
+                                    "h-8 w-8",
+                                    presente === true && "bg-green-100 text-green-700"
+                                  )}
+                                  onClick={() => toggleAsistencia(t.id, true)}
+                                  disabled={presente === true}
+                                >
+                                  <UserCheck className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className={cn(
+                                    "h-8 w-8",
+                                    presente === false && "bg-red-100 text-red-700"
+                                  )}
+                                  onClick={() => toggleAsistencia(t.id, false)}
+                                  disabled={presente === false}
+                                >
+                                  <UserX className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      }),
+                    ];
                   })}
                 </TableBody>
               </Table>
