@@ -213,8 +213,17 @@ export default function Asistencia() {
         user_id: user.id,
         date: selectedDate,
         trabajador_id: t.id,
-        presente: nombresImport.some(
-          (n) => n.toLowerCase() === t.nombre.toLowerCase()
+        presente: nombresImport.some((n) =>
+          n.toLowerCase()
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+            .replace(/,/g, "")
+            .replace(/\s+/g, " ")
+            .trim() ===
+          t.nombre.toLowerCase()
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+            .replace(/,/g, "")
+            .replace(/\s+/g, " ")
+            .trim()
         ),
       }));
 
