@@ -102,9 +102,10 @@ export function usePartes() {
   useEffect(() => {
     fetchPartes();
 
-    // Realtime: actualiza la lista ante cualquier cambio en partes_diarios
+    // Realtime: nombre único para evitar conflictos con múltiples hooks
+    const channelName = `partes_diarios_changes_${crypto.randomUUID()}`;
     const channel = supabase
-      .channel("partes_diarios_changes")
+      .channel(channelName)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "partes_diarios" },
