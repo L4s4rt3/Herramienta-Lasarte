@@ -7,10 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Loader2, Calendar, AlertTriangle, Search, RefreshCw, FileText,
+  Loader2, Calendar, AlertTriangle, Search, RefreshCw, FileText, BarChart3, FilterX,
 } from "lucide-react";
 import { useAnalisisDiario } from "@/hooks/useAnalisisDiario";
 import type { LoteResumen, ClaseResumen, GrupoClasificacionResumen } from "@/hooks/useAnalisisDiario";
+import { today } from "@/lib/format";
 
 function formatKg(v: number): string {
   if (v >= 1000) return (v / 1000).toFixed(1) + " t";
@@ -35,14 +36,12 @@ function daysAgo(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
-
 type Periodo = "7d" | "30d" | "90d" | "custom";
 
 export default function AnalisisDiario() {
   const [periodo, setPeriodo] = useState<Periodo>("30d");
   const [customDesde, setCustomDesde] = useState(daysAgo(30));
-  const [customHasta, setCustomHasta] = useState(todayStr());
+  const [customHasta, setCustomHasta] = useState(today());
   const [search, setSearch] = useState("");
 
   const desde = useMemo(() => {
@@ -54,7 +53,7 @@ export default function AnalisisDiario() {
 
   const hasta = useMemo(() => {
     if (periodo === "custom") return customHasta;
-    return todayStr();
+    return today();
   }, [periodo, customHasta]);
 
   const { data, loading, refetch } = useAnalisisDiario(desde, hasta);
@@ -163,9 +162,9 @@ export default function AnalisisDiario() {
       )}
 
       {!loading && !hayDatos && (
-        <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
-          <CardContent className="py-10 text-center">
-            <AlertTriangle className="size-10 mx-auto text-amber-500 mb-4" />
+        <Card className="border-muted-foreground/20 bg-muted/30">
+          <CardContent className="py-12 text-center">
+            <BarChart3 className="size-12 mx-auto text-muted-foreground/30 mb-4" />
             <p className="font-semibold text-lg">No hay datos de detalle para este periodo</p>
             <p className="text-sm text-muted-foreground mt-2 max-w-lg mx-auto">
               Para ver datos aquí necesitas subir el informe de tamaños/calibres al parte y pulsar "Analizar".
@@ -380,8 +379,9 @@ function TabLotes({ data }: { data: LoteResumen[] }) {
 function EmptyTab({ msg }: { msg: string }) {
   return (
     <Card>
-      <CardContent className="py-8 text-center text-muted-foreground">
-        <p>{msg}</p>
+      <CardContent className="py-10 text-center">
+        <FilterX className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+        <p className="text-sm text-muted-foreground">{msg}</p>
       </CardContent>
     </Card>
   );

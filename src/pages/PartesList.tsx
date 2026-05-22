@@ -17,7 +17,7 @@ import { formatDate, formatKg, today } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
 import {
   Plus, Trash2, ChevronUp, ChevronDown, ChevronsUpDown,
-  Search, X, Calendar, BarChart3, AlertTriangle,
+  Search, X, Calendar, BarChart3, AlertTriangle, Factory,
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -231,14 +231,19 @@ export default function PartesList() {
             </div>
           ) : partes.length === 0 ? (
             <div className="py-16 text-center">
-              <Factory className="h-10 w-10 text-muted-foreground/20 mx-auto mb-3" />
+              <Factory className="h-12 w-12 text-muted-foreground/20 mx-auto mb-4" />
               <p className="text-sm text-muted-foreground">
                 {hasFilter ? "Sin partes con los filtros actuales." : "Aún no hay partes. Crea el primero arriba."}
               </p>
-              {hasFilter && (
+              {hasFilter ? (
                 <Button variant="link" size="sm" className="mt-2 text-xs"
                   onClick={() => setFilter({ search: "", estado: "todos", soloAlertas: false })}>
                   Limpiar filtros
+                </Button>
+              ) : (
+                <Button size="sm" className="mt-4" onClick={() => document.getElementById("newdate")?.focus()}>
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  Crear primer parte
                 </Button>
               )}
             </div>

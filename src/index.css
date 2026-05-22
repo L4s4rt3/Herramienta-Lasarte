@@ -107,3 +107,14 @@
   body { @apply bg-background text-foreground; font-feature-settings: "cv11", "ss01"; }
   h1, h2, h3, h4 { @apply font-semibold tracking-tight; }
 }
+
+@layer utilities {
+  .animate-fadeIn {
+    animation: fadeIn 0.3s ease-out;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

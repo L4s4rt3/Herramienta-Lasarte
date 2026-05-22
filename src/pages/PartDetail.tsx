@@ -4,18 +4,18 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/StatusBadge";
 import { CascadeView } from "@/components/CascadeView";
 import { computeCascade } from "@/lib/cascade";
-import { formatDate, formatKg } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
-import { ArrowLeft, Save, Lock, Unlock, Upload, Trash2, Sparkles, FileText, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, Lock, Unlock, Sparkles, Loader2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExportPartesDialog } from "@/components/ExportPartesDialog";
+import PartDetailArchivos from "@/components/PartDetailArchivos";
+import PartDetailManual from "@/components/PartDetailManual";
+import PartDetailNotas from "@/components/PartDetailNotas";
 
 interface Parte {
   id: string;
@@ -53,14 +53,6 @@ const CATEGORIES = [
 ] as const;
 type CategoryId = typeof CATEGORIES[number]["id"];
 
-const LEGACY_CAT: Record<string, CategoryId> = {
-  gstocks: "GSTOCK",
-  produccion: "Produccion",
-  foto_lotes: "FotoLotes",
-};
-const normalizeCat = (t: string | null): CategoryId | null =>
-  t ? (LEGACY_CAT[t] ?? (CATEGORIES.find((c) => c.id === t)?.id ?? null)) : null;
-
 interface Archivo {
   id: string;
   file_name: string | null;
@@ -82,7 +74,7 @@ export default function PartDetail() {
   const [analyzing, setAnalyzing] = useState(false);
   const [uploadingCat, setUploadingCat] = useState<CategoryId | null>(null);
 
-  const load = useCallback(async () => {
+    const load = useCallback(async () => {
     if (!id) return;
     try {
       // Forzar refresco sin cache de Supabase
@@ -91,36 +83,20 @@ export default function PartDetail() {
         supabase.from("partes_archivos").select("*").eq("part_id", id).order("uploaded_at", { ascending: false }),
       ]);
       if (error) {
-        console.error("[LOAD] Error cargando parte:", error);
         toast({ title: "Error", description: error.message, variant: "destructive" });
         return;
       }
       if (!p) {
-        console.error("[LOAD] Parte no encontrada");
         toast({ title: "Error", description: "Parte no encontrada", variant: "destructive" });
         navigate("/partes");
         return;
       }
-      
-      console.log("[LOAD] Datos actualizados:", {
-        id: p.id,
-        kg_produccion_calibrador: p.kg_produccion_calibrador,
-        kg_mujeres_calibrador: p.kg_mujeres_calibrador,
-        kg_palets_brutos: p.kg_palets_brutos,
-        kg_podrido_calibrador_auto: p.kg_podrido_calibrador_auto,
-        kg_industria_manual: p.kg_industria_manual,
-        kg_reciclado_malla_z1: p.kg_reciclado_malla_z1,
-        kg_reciclado_malla_z2: p.kg_reciclado_malla_z2,
-        kg_inventario_sin_alta: p.kg_inventario_sin_alta,
-        kg_podrido_bolsa_basura: p.kg_podrido_bolsa_basura,
-      });
-      
+
       // Forzar actualización creando una nueva referencia del objeto
       setParte(p as Parte);
       setArchivos((files ?? []) as Archivo[]);
       loadingRef.current = false;
     } catch (e) {
-      console.error("[LOAD] Exception:", e);
       toast({ title: "Error", description: String(e), variant: "destructive" });
     }
   }, [id, navigate]);
@@ -199,7 +175,7 @@ export default function PartDetail() {
       if (upErr) { fail++; console.error(upErr); continue; }
       const { error: dbErr } = await supabase.from("partes_archivos").insert({
         part_id: parte.id, user_id: user.id, file_name: file.name, file_path: path,
-        file_type: cat as any, mime_type: file.type, file_size: file.size,
+        file_type: cat, mime_type: file.type, file_size: file.size,
       });
       if (dbErr) { fail++; console.error(dbErr); } else ok++;
     }
@@ -324,121 +300,32 @@ export default function PartDetail() {
 
         {/* ── TAB: Archivos ───────────────────────────────────────────────── */}
         <TabsContent value="archivos" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Archivos del parte</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {CATEGORIES.map((c) => {
-                  const filesInCat = archivos.filter((a) => normalizeCat(a.file_type) === c.id);
-                  return (
-                    <div key={c.id} className="rounded-lg border bg-card p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium">{c.label}</p>
-                        <span className="text-xs text-muted-foreground">{filesInCat.length}</span>
-                      </div>
-                      <label className="flex">
-                        <input
-                          type="file"
-                          multiple
-                          className="hidden"
-                          disabled={readOnly || uploadingCat === c.id}
-                          onChange={(e) => {
-                            if (e.target.files && e.target.files.length > 0) handleUpload(c.id, e.target.files);
-                            e.target.value = "";
-                          }}
-                        />
-                        <Button asChild size="sm" variant="outline" className="w-full cursor-pointer" disabled={readOnly || uploadingCat === c.id}>
-                          <span>
-                            <Upload className="h-4 w-4" />
-                            {uploadingCat === c.id ? "Subiendo…" : "Subir"}
-                          </span>
-                        </Button>
-                      </label>
-                      <ul className="space-y-1">
-                        {filesInCat.map((a) => (
-                          <li key={a.id} className="flex items-center gap-2 text-xs">
-                            <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
-                            <span className="truncate flex-1" title={a.file_name ?? ""}>{a.file_name}</span>
-                            {!readOnly && (
-                              <button onClick={() => handleDeleteFile(a)} className="text-muted-foreground hover:text-destructive" aria-label="Eliminar">
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                Sube los informes Excel y fotos en su categoría. Luego pulsa <strong>Analizar con IA</strong> para extraer los datos automáticamente.
-              </div>
-            </CardContent>
-          </Card>
+          <PartDetailArchivos
+            archivos={archivos}
+            readOnly={readOnly}
+            uploadingCat={uploadingCat}
+            handleUpload={handleUpload}
+            handleDeleteFile={handleDeleteFile}
+          />
         </TabsContent>
 
         {/* ── TAB: Datos manuales ─────────────────────────────────────────── */}
         <TabsContent value="manual" className="mt-4 space-y-6">
-          <Card>
-            <CardHeader><CardTitle className="text-lg">Ajustes manuales</CardTitle></CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              {MANUAL_FIELDS.map((f) => (
-                <div key={f.key as string} className="space-y-1.5">
-                  <Label htmlFor={f.key as string}>{f.label}</Label>
-                  <Input
-                    id={f.key as string}
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    disabled={readOnly}
-                    value={String(parte[f.key] ?? 0)}
-                    onChange={(e) => update(f.key, Number(e.target.value) as any)}
-                  />
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle className="text-lg">Datos automáticos (IA)</CardTitle></CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2 text-sm">
-              {[
-                ["Producción calibrador", parte.kg_produccion_calibrador],
-                ["Mujeres (L)", parte.kg_mujeres_calibrador],
-                ["Palets alta (bruto)", parte.kg_palets_brutos],
-                ["Podrido calibrador", parte.kg_podrido_calibrador_auto],
-                ["Inv. día anterior", parte.kg_inventario_anterior_sin_alta],
-              ].map(([label, val]) => (
-                <div key={label as string} className="flex justify-between border-b py-1">
-                  <span className="text-muted-foreground">{label}</span>
-                  <span className="tabular-nums">{formatKg(Number(val))}</span>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+          <PartDetailManual
+            parte={parte}
+            readOnly={readOnly}
+            update={update}
+            MANUAL_FIELDS={MANUAL_FIELDS}
+          />
         </TabsContent>
 
         {/* ── TAB: Notas ──────────────────────────────────────────────────── */}
         <TabsContent value="notas" className="mt-4">
-          <Card>
-            <CardHeader><CardTitle className="text-lg">Notas</CardTitle></CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="ng">Notas generales</Label>
-                <Textarea id="ng" rows={4} disabled={readOnly} maxLength={2000}
-                  value={parte.notas_generales ?? ""}
-                  onChange={(e) => update("notas_generales", e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="ni">Notas inventario</Label>
-                <Textarea id="ni" rows={4} disabled={readOnly} maxLength={2000}
-                  value={parte.notas_inventario ?? ""}
-                  onChange={(e) => update("notas_inventario", e.target.value)} />
-              </div>
-            </CardContent>
-          </Card>
+          <PartDetailNotas
+            parte={parte}
+            readOnly={readOnly}
+            update={update}
+          />
         </TabsContent>
       </Tabs>
     </div>

@@ -73,7 +73,7 @@ export default function CalibreAnalysis() {
 
   async function load() {
     setLoading(true);
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("calibres_dia")
       .select("*, partes_diarios(date)")
       .gte("created_at", since + "T00:00:00")
@@ -262,8 +262,9 @@ export default function CalibreAnalysis() {
           {loading ? (
             <Skeleton className="h-72" />
           ) : porCalibre.length === 0 ? (
-            <div className="h-72 flex items-center justify-center text-sm text-muted-foreground">
-              Sin datos. Importa un Informe_tamaños desde el parte diario.
+            <div className="h-72 flex flex-col items-center justify-center text-sm text-muted-foreground">
+              <BarChart3 className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+              <p>Sin datos. Importa un Informe_tamaños desde el parte diario.</p>
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={280}>

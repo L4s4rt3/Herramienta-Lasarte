@@ -517,7 +517,12 @@ export default function ConsumoCostes() {
             </Card>
 
             {maquinas.length === 0 ? (
-              <Card><CardContent className="p-12 text-center text-muted-foreground">No hay máquinas registradas. Añade la primera cuando el experto os dé los datos.</CardContent></Card>
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <Settings className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">No hay máquinas registradas. Añade la primera cuando el experto os dé los datos.</p>
+                </CardContent>
+              </Card>
             ) : (
               <Card>
                 <CardHeader><CardTitle className="text-lg">Máquinas ({maquinas.length})</CardTitle></CardHeader>
@@ -552,7 +557,12 @@ export default function ConsumoCostes() {
           {/* ════════ HISTÓRICO ════════ */}
           <TabsContent value="historico" className="space-y-4">
             {sesiones.length === 0 ? (
-              <Card><CardContent className="p-12 text-center text-muted-foreground">No hay sesiones registradas.</CardContent></Card>
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <History className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">No hay sesiones registradas.</p>
+                </CardContent>
+              </Card>
             ) : (
               <>
                 {/* Tabla de sesiones */}

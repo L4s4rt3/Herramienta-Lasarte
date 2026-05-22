@@ -75,7 +75,7 @@ export default function Productores() {
 
   async function load() {
     setLoading(true);
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("lotes_dia")
       .select("*, partes_diarios(date)")
       .gte("created_at", since + "T00:00:00")
@@ -231,8 +231,11 @@ export default function Productores() {
                   {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-14" />)}
                 </div>
               ) : filtered.length === 0 ? (
-                <div className="p-6 text-center text-sm text-muted-foreground">
-                  Sin datos. Importa informes de producción para ver los productores.
+                <div className="p-10 text-center">
+                  <Users className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">
+                    Sin datos. Importa informes de producción para ver los productores.
+                  </p>
                 </div>
               ) : (
                 <ul className="divide-y">

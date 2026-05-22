@@ -299,40 +299,40 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
       {/* ────────────────────────────────────────────────────────────────── */}
 
       {/* PRODUCCIÓN: todos los campos de lote */}
-      {(analisis as any)._raw_produccion && (analisis as any)._raw_produccion.lotes?.length > 0 && (
+      {analisis._raw_produccion && analisis._raw_produccion.lotes?.length > 0 && (
         <section>
           <SectionTitle>Producción — Lotes</SectionTitle>
-          <RawProduccionTable lotes={(analisis as any)._raw_produccion.lotes} columnas={(analisis as any)._raw_produccion._columnas_detectadas} />
+          <RawProduccionTable lotes={analisis._raw_produccion.lotes} columnas={analisis._raw_produccion._columnas_detectadas} />
         </section>
       )}
 
       {/* PRODUCTO: Producto · Empaque · Empaques · Peso(kg) · Fruta */}
-      {(analisis as any)._raw_producto && (analisis as any)._raw_producto.lineas?.length > 0 && (
+      {analisis._raw_producto && analisis._raw_producto.lineas?.length > 0 && (
         <section>
           <SectionTitle>Producto Empacado</SectionTitle>
-          <RawProductoTable lineas={(analisis as any)._raw_producto.lineas} columnas={(analisis as any)._raw_producto._columnas_detectadas} />
+          <RawProductoTable lineas={analisis._raw_producto.lineas} columnas={analisis._raw_producto._columnas_detectadas} />
         </section>
       )}
 
       {/* CALIBRES/TAMAÑOS: Variedad · Clase · Grupo · Peso(kg) · Tamaños */}
-      {(analisis as any)._raw_calibres && (analisis as any)._raw_calibres.calibres?.length > 0 && (
+      {analisis._raw_calibres && analisis._raw_calibres.calibres?.length > 0 && (
         <section className="space-y-4">
           <SectionTitle>Tamaños, Clase y Calidad por Variedad</SectionTitle>
-          <RawCalibresTable calibres={(analisis as any)._raw_calibres.calibres} columnas={(analisis as any)._raw_calibres._columnas_detectadas} />
-          {(analisis as any)._raw_calibres.tipos_clasificacion?.length > 0 && (
+          <RawCalibresTable calibres={analisis._raw_calibres.calibres} columnas={analisis._raw_calibres._columnas_detectadas} />
+          {analisis._raw_calibres.tipos_clasificacion?.length > 0 && (
             <>
               <SectionTitle>Clasificación por Tipo</SectionTitle>
-              <TiposClasificacionTable tipos={(analisis as any)._raw_calibres.tipos_clasificacion} />
+              <TiposClasificacionTable tipos={analisis._raw_calibres.tipos_clasificacion} />
             </>
           )}
         </section>
       )}
 
       {/* PALETS: Producto · Fecha · Cliente · Kg Netos */}
-      {(analisis as any)._raw_palets && (analisis as any)._raw_palets.palets?.length > 0 && (
+      {analisis._raw_palets && analisis._raw_palets.palets?.length > 0 && (
         <section>
           <SectionTitle>Palets</SectionTitle>
-          <RawPaletsTable palets={(analisis as any)._raw_palets.palets} columnas={(analisis as any)._raw_palets._columnas_detectadas} />
+          <RawPaletsTable palets={analisis._raw_palets.palets} columnas={analisis._raw_palets._columnas_detectadas} />
         </section>
       )}
 

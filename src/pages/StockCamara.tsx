@@ -74,7 +74,7 @@ export default function StockCamara() {
   async function load() {
     setLoading(true);
     // palets_dia joined with partes_diarios for the date
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("palets_dia")
       .select("*, partes_diarios(date)")
       .gte("created_at", since + "T00:00:00")
@@ -221,9 +221,12 @@ export default function StockCamara() {
             {loading ? (
               <Skeleton className="h-52" />
             ) : porProducto.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                Sin datos. Importa un informe de palets para ver el stock.
-              </p>
+              <div className="text-center py-10">
+                <Package className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+                <p className="text-sm text-muted-foreground">
+                  Sin datos. Importa un informe de palets para ver el stock.
+                </p>
+              </div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={porProducto.slice(0, 10)} layout="vertical">
