@@ -239,15 +239,11 @@ async function parseWorkbookRemoto(dataBase64: string, fileName: string): Promis
  * Escanea byte a byte los headers ZIP y parchea el método de compresión.
  */
 function repairXlsx(bytes: Uint8Array): Uint8Array {
-  const MAGIC_PK03 = 0x50; const MAGIC_PK04 = 0x4b;
-  // 1. Buscar inicio del ZIP (PK\x03\x04)
-  let start = 0;
-  for (let i = 0; i < Math.min(bytes.length - 4, 65536); i++) {
-    if (bytes[i] === 0x50 && bytes[i + 1] === 0x4b && bytes[i + 2] === 0x03 && bytes[i + 3] === 0x04) {
-      start = i; break;
-    }
+  // 1. Parchear cabeceras PK00 → PK\x03\x04 (ciertos sistemas ZIP)
+  const buf = new Uint8Array(bytes);
+  if (buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x30 && buf[3] === 0x30) {
+    buf[2] = 0x03; buf[3] = 0x04;
   }
-  const buf = start === 0 ? new Uint8Array(bytes) : new Uint8Array(bytes.slice(start));
 
   // 2. Parchear local file headers (PK\x03\x04)
   for (let i = 0; i < buf.length - 30; i++) {
