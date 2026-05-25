@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, isToday, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { usePartes } from "@/hooks/usePartes";
@@ -51,16 +52,16 @@ function KPIStatCards({ monthPartes, totalDays }: { monthPartes: Parte[]; totalD
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
       {items.map((item) => (
         <Card key={item.label} className={cn("border shadow-sm", item.border)}>
-          <CardContent className="p-4">
+          <CardContent className="p-5">
             <div className="flex items-start justify-between">
-              <div className="space-y-1">
-                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{item.label}</p>
-                <p className={cn("text-2xl font-semibold tabular-nums", item.color)}>{item.value}</p>
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{item.label}</p>
+                <p className={cn("text-3xl font-bold tabular-nums", item.color)}>{item.value}</p>
               </div>
-              <item.icon className={cn("h-5 w-5 mt-0.5", item.color)} />
+              <item.icon className={cn("h-6 w-6 mt-0.5", item.color)} />
             </div>
             {item.trend && (
               <p className="text-[11px] text-muted-foreground mt-1.5">{item.trend}</p>
@@ -87,15 +88,15 @@ function CalendarHeader({
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">Calendario de Producción</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Calendario de Producción</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Vista mensual con estado DJPMN por día</p>
       </div>
       <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" className="h-8" onClick={onToday}>
-          <CalendarDays className="h-3.5 w-3.5 mr-1.5" /> Hoy
+        <Button variant="outline" size="sm" onClick={onToday}>
+          <CalendarDays className="h-4 w-4 mr-1.5" /> Hoy
         </Button>
-        <Button variant="outline" size="sm" className="h-8" onClick={onExport}>
-          <Download className="h-3.5 w-3.5 mr-1.5" /> Exportar
+        <Button variant="outline" size="sm" onClick={onExport}>
+          <Download className="h-4 w-4 mr-1.5" /> Exportar
         </Button>
       </div>
     </div>
@@ -106,15 +107,15 @@ function CalendarHeader({
 
 function MonthNavigator({ currentMonth, onPrev, onNext }: { currentMonth: Date; onPrev: () => void; onNext: () => void }) {
   return (
-    <div className="flex items-center justify-between">
-      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={onPrev}>
-        <ChevronLeft className="h-4 w-4" />
+    <div className="flex items-center justify-between mb-2">
+      <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={onPrev}>
+        <ChevronLeft className="h-5 w-5" />
       </Button>
-      <h2 className="text-base font-semibold capitalize">
+      <h2 className="text-lg font-bold capitalize">
         {format(currentMonth, "MMMM yyyy", { locale: es })}
       </h2>
-      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={onNext}>
-        <ChevronRight className="h-4 w-4" />
+      <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={onNext}>
+        <ChevronRight className="h-5 w-5" />
       </Button>
     </div>
   );
@@ -141,7 +142,7 @@ function CalendarFilters({
           key={opt.key}
           onClick={() => onStatusChange(opt.key)}
           className={cn(
-            "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors",
+            "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors",
             statusFilter === opt.key
               ? "bg-primary text-primary-foreground"
               : "bg-muted text-muted-foreground hover:bg-muted/80",
@@ -157,15 +158,15 @@ function CalendarFilters({
 
 function StatusLegend() {
   return (
-    <div className="flex items-center gap-4 text-xs text-muted-foreground">
+    <div className="flex items-center gap-5 text-sm text-muted-foreground">
       <span className="inline-flex items-center gap-1.5">
-        <span className="h-2 w-2 rounded-full bg-emerald-500" /> OK ≤3%
+        <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> OK ≤3%
       </span>
       <span className="inline-flex items-center gap-1.5">
-        <span className="h-2 w-2 rounded-full bg-amber-500" /> Revisar 3–5%
+        <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Revisar 3–5%
       </span>
       <span className="inline-flex items-center gap-1.5">
-        <span className="h-2 w-2 rounded-full bg-red-500" /> Crítico &gt;5%
+        <span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Crítico &gt;5%
       </span>
     </div>
   );
@@ -188,11 +189,11 @@ function CalendarDayCell({
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
+            <button
             onClick={() => onClick(day)}
             disabled={!isCurrentMonth && !parte}
             className={cn(
-              "relative w-full flex flex-col items-center justify-center rounded-lg border p-1.5 transition-all",
+              "relative w-full flex flex-col items-center justify-center rounded-xl border p-3 transition-all min-h-[80px]",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               !isCurrentMonth && !parte && "border-transparent",
               isCurrentMonth && !parte && "border-dashed border-muted-foreground/20 bg-muted/10",
@@ -204,7 +205,7 @@ function CalendarDayCell({
             )}
           >
             <span className={cn(
-              "text-xs font-medium leading-tight",
+              "text-sm font-semibold leading-tight",
               !isCurrentMonth && "text-muted-foreground/40",
               isTodayDate && "text-primary font-bold",
               isAbsent && "text-muted-foreground/50",
@@ -214,20 +215,20 @@ function CalendarDayCell({
             {parte && meta && (
               <>
                 <span className={cn(
-                  "text-[10px] font-semibold tabular-nums mt-0.5 leading-tight",
+                  "text-[11px] font-bold tabular-nums mt-1 leading-tight",
                   meta.text,
                 )}>
                   {parte.cascade.dsj_pct > 0 ? "+" : ""}{parte.cascade.dsj_pct.toFixed(1)}%
                 </span>
-                <span className={cn("h-1 w-6 rounded-full mt-0.5", meta.dot)} />
+                <span className={cn("h-1.5 w-8 rounded-full mt-1", meta.dot)} />
               </>
             )}
-            {isAbsent && <span className="text-[9px] text-muted-foreground/40 mt-0.5">—</span>}
+            {isAbsent && <span className="text-[10px] text-muted-foreground/40 mt-1">—</span>}
           </button>
         </TooltipTrigger>
         {parte && meta && (
-          <TooltipContent side="top" className="text-xs space-y-1">
-            <p className="font-medium">{format(day, "EEEE d MMMM", { locale: es })}</p>
+          <TooltipContent side="top" className="text-sm space-y-1">
+            <p className="font-semibold">{format(day, "EEEE d MMMM", { locale: es })}</p>
             <p className={meta.text}>{meta.label} · DJPMN {parte.cascade.dsj_pct > 0 ? "+" : ""}{parte.cascade.dsj_pct.toFixed(1)}%</p>
           </TooltipContent>
         )}
@@ -255,15 +256,15 @@ function CalendarGrid({
   }, [currentMonth]);
 
   return (
-    <div className="space-y-1">
-      <div className="grid grid-cols-7 gap-1.5">
+    <div className="space-y-2">
+      <div className="grid grid-cols-7 gap-2">
         {WEEKDAYS.map((wd) => (
-          <div key={wd} className="text-center text-[11px] font-semibold text-muted-foreground uppercase tracking-wider py-1">
+          <div key={wd} className="text-center text-xs font-bold text-muted-foreground uppercase tracking-wider py-1.5">
             {wd}
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-1.5">
+      <div className="grid grid-cols-7 gap-2">
         {days.map((day) => (
           <CalendarDayCell
             key={day.toISOString()}
@@ -283,7 +284,7 @@ function CalendarGrid({
 
 // ─── Day Details Panel ────────────────────────────────────────────────────────
 
-function DayDetailsPanel({ date, parte, onClose }: { date: Date; parte: Parte | undefined; onClose: () => void }) {
+function DayDetailsPanel({ date, parte, onClose, onNavigate }: { date: Date; parte: Parte | undefined; onClose: () => void; onNavigate: (id: string) => void }) {
   if (!parte) {
     return (
       <div className="space-y-4">
@@ -308,67 +309,68 @@ function DayDetailsPanel({ date, parte, onClose }: { date: Date; parte: Parte | 
   const mermas = parte.cascade.mermas_totales ?? 0;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold capitalize">{format(date, "EEEE d MMMM", { locale: es })}</h3>
-          <p className="text-xs text-muted-foreground">{format(date, "yyyy")}</p>
+          <h3 className="text-base font-bold capitalize">{format(date, "EEEE d MMMM", { locale: es })}</h3>
+          <p className="text-sm text-muted-foreground">{format(date, "yyyy")}</p>
         </div>
-        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onClose}>
-          <ChevronRight className="h-4 w-4" />
+        <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => onNavigate(parte.id)}>
+          <FileText className="h-3.5 w-3.5" />
+          Abrir parte
         </Button>
       </div>
 
-      <div className={cn("flex items-center justify-between rounded-lg border p-3", meta.border, meta.bg)}>
+      <div className={cn("flex items-center justify-between rounded-xl border p-4", meta.border, meta.bg)}>
         <div>
-          <p className={cn("text-xs font-medium", meta.text)}>{meta.label}</p>
-          <p className={cn("text-2xl font-bold tabular-nums", meta.color)}>
+          <p className={cn("text-sm font-semibold", meta.text)}>{meta.label}</p>
+          <p className={cn("text-3xl font-bold tabular-nums", meta.color)}>
             {dsj > 0 ? "+" : ""}{dsj.toFixed(1)}%
           </p>
         </div>
-        <div className={cn("h-10 w-10 rounded-full flex items-center justify-center", meta.dot.replace("bg-", "bg-").replace("-500", "-100"))}>
-          {parte.cascade.semaforo === "verde" ? <CheckCircle2 className={cn("h-6 w-6", meta.color)} /> :
-           parte.cascade.semaforo === "amarillo" ? <AlertTriangle className={cn("h-6 w-6", meta.color)} /> :
-           <XCircle className={cn("h-6 w-6", meta.color)} />}
+        <div className={cn("h-12 w-12 rounded-full flex items-center justify-center", meta.dot.replace("bg-", "bg-").replace("-500", "-100"))}>
+          {parte.cascade.semaforo === "verde" ? <CheckCircle2 className={cn("h-7 w-7", meta.color)} /> :
+           parte.cascade.semaforo === "amarillo" ? <AlertTriangle className={cn("h-7 w-7", meta.color)} /> :
+           <XCircle className={cn("h-7 w-7", meta.color)} />}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 text-xs">
-        <div className="rounded-lg border p-2.5 space-y-0.5">
-          <span className="text-muted-foreground">Producción</span>
-          <p className="font-semibold tabular-nums">{totalKg.toFixed(0)} kg</p>
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="rounded-xl border p-3 space-y-1">
+          <span className="text-xs text-muted-foreground font-medium">Producción</span>
+          <p className="font-bold tabular-nums text-base">{totalKg.toFixed(0)} kg</p>
         </div>
-        <div className="rounded-lg border p-2.5 space-y-0.5">
-          <span className="text-muted-foreground">Mermas</span>
-          <p className="font-semibold tabular-nums">{mermas.toFixed(0)} kg</p>
+        <div className="rounded-xl border p-3 space-y-1">
+          <span className="text-xs text-muted-foreground font-medium">Mermas</span>
+          <p className="font-bold tabular-nums text-base">{mermas.toFixed(0)} kg</p>
         </div>
-        <div className="rounded-lg border p-2.5 space-y-0.5">
-          <span className="text-muted-foreground">Diferencia bruta</span>
-          <p className="font-semibold tabular-nums">{parte.cascade.diferencia_bruta?.toFixed(0) ?? "—"} kg</p>
+        <div className="rounded-xl border p-3 space-y-1">
+          <span className="text-xs text-muted-foreground font-medium">Diferencia bruta</span>
+          <p className="font-bold tabular-nums text-base">{parte.cascade.diferencia_bruta?.toFixed(0) ?? "—"} kg</p>
         </div>
-        <div className="rounded-lg border p-2.5 space-y-0.5">
-          <span className="text-muted-foreground">Palets brutos</span>
-          <p className="font-semibold tabular-nums">{parte.kg_palets_brutos ?? "—"}</p>
+        <div className="rounded-xl border p-3 space-y-1">
+          <span className="text-xs text-muted-foreground font-medium">Palets brutos</span>
+          <p className="font-bold tabular-nums text-base">{parte.kg_palets_brutos ?? "—"}</p>
         </div>
       </div>
 
       {parte.notas_generales && (
-        <div className="rounded-lg border p-3 space-y-1">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <FileText className="h-3 w-3" />
-            <span className="font-medium">Observaciones</span>
+        <div className="rounded-xl border p-4 space-y-1.5">
+          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <FileText className="h-3.5 w-3.5" />
+            <span className="font-semibold">Observaciones</span>
           </div>
-          <p className="text-sm">{parte.notas_generales}</p>
+          <p className="text-sm leading-relaxed">{parte.notas_generales}</p>
         </div>
       )}
 
       {parte.notas_inventario && (
-        <div className="rounded-lg border p-3 space-y-1">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <FileText className="h-3 w-3" />
-            <span className="font-medium">Notas de inventario</span>
+        <div className="rounded-xl border p-4 space-y-1.5">
+          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <FileText className="h-3.5 w-3.5" />
+            <span className="font-semibold">Notas de inventario</span>
           </div>
-          <p className="text-sm">{parte.notas_inventario}</p>
+          <p className="text-sm leading-relaxed">{parte.notas_inventario}</p>
         </div>
       )}
 
@@ -388,6 +390,7 @@ function DayDetailsPanel({ date, parte, onClose }: { date: Date; parte: Parte | 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function CalendarioProduccion() {
+  const navigate = useNavigate();
   const { partes, loading } = usePartes();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -458,7 +461,7 @@ export default function CalendarioProduccion() {
   }
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 mx-auto max-w-[1400px]">
+    <div className="p-6 md:p-8 lg:p-10 mx-auto max-w-[1600px]">
       <CalendarHeader currentMonth={currentMonth} onPrev={() => setCurrentMonth(subMonths(currentMonth, 1))} onNext={() => setCurrentMonth(addMonths(currentMonth, 1))} onToday={handleToday} onExport={handleExport} />
 
       <div className="mt-6">
@@ -471,9 +474,9 @@ export default function CalendarioProduccion() {
       </div>
 
       {/* Desktop: grid | sidebar  |  Mobile: stack + drawer */}
-      <div className="mt-4 lg:grid lg:grid-cols-[1fr_320px] gap-6 items-start">
+      <div className="mt-4 lg:grid lg:grid-cols-[1fr_360px] gap-6 items-start">
         <Card className="shadow-sm border">
-          <CardContent className="p-3 sm:p-4">
+          <CardContent className="p-4 sm:p-6">
             <MonthNavigator currentMonth={currentMonth} onPrev={() => setCurrentMonth(subMonths(currentMonth, 1))} onNext={() => setCurrentMonth(addMonths(currentMonth, 1))} />
             <div className="mt-3">
               <CalendarGrid currentMonth={currentMonth} dateParteMap={dateParteMap} selectedDate={selectedDate} onDayClick={handleDayClick} statusFilter={statusFilter} />
@@ -487,7 +490,7 @@ export default function CalendarioProduccion() {
             <CardContent className="p-4">
               <ScrollArea className="h-[calc(100vh-12rem)]">
                 {selectedDate ? (
-                  <DayDetailsPanel date={selectedDate} parte={selectedParte} onClose={() => setSelectedDate(null)} />
+                  <DayDetailsPanel date={selectedDate} parte={selectedParte} onClose={() => setSelectedDate(null)} onNavigate={(id) => navigate(`/partes/${id}`)} />
                 ) : (
                   <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
                     <CalendarDays className="h-10 w-10 mb-3 opacity-30" />
@@ -508,7 +511,7 @@ export default function CalendarioProduccion() {
         </DrawerTrigger>
         <DrawerContent className="p-4 max-h-[80vh]">
           <ScrollArea className="h-full">
-            {selectedDate && <DayDetailsPanel date={selectedDate} parte={selectedParte} onClose={() => {}} />}
+            {selectedDate && <DayDetailsPanel date={selectedDate} parte={selectedParte} onClose={() => {}} onNavigate={(id) => navigate(`/partes/${id}`)} />}
           </ScrollArea>
         </DrawerContent>
       </Drawer>
