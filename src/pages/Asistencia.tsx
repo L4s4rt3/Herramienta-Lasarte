@@ -394,7 +394,7 @@ export default function Asistencia() {
   // ─── Render ───────────────────────────────────────────────────────────
 
   return (
-    <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6">
+    <div className="p-4 md:p-6 mx-auto space-y-6">
       <header>
         <h1 className="text-2xl md:text-3xl">Asistencia</h1>
         <p className="text-sm text-muted-foreground">
@@ -402,7 +402,10 @@ export default function Asistencia() {
         </p>
       </header>
 
-      {/* ── Daily Attendance ────────────────────────────────────────── */}
+      <div className="lg:grid lg:grid-cols-[1fr_300px] gap-6 items-start">
+
+      {/* ── Left Column: Attendance ──────────────────────────────────── */}
+      <div className="space-y-6">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-lg">Asistencia del día</CardTitle>
@@ -476,72 +479,6 @@ export default function Asistencia() {
               />
             </label>
           </div>
-
-          <Separator />
-
-          {/* ── Rendimiento por grupo ──────────────────────────────────── */}
-          {loadingParte ? (
-            <div className="space-y-2">
-              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-6 w-full" />)}
-            </div>
-          ) : parteDelDia ? (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold">Rendimiento por grupo</CardTitle>
-              </CardHeader>
-              <CardContent className="pb-3">
-                <div className="space-y-1 text-sm">
-                  <div className="flex justify-between">
-                    <span>Envasadoras:</span>
-                    <span className="font-mono tabular-nums">
-                      {new Intl.NumberFormat("es-ES").format(Math.round(rendimientoGrupos.Envasadoras.kg))} kg &middot;{" "}
-                      {rendimientoGrupos.Envasadoras.personas} pers &middot;{" "}
-                      {new Intl.NumberFormat("es-ES").format(
-                        Math.round(rendimientoGrupos.Envasadoras.personas > 0
-                          ? rendimientoGrupos.Envasadoras.kg / rendimientoGrupos.Envasadoras.personas
-                          : 0)
-                      )} kg/pers
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Mallas:</span>
-                    <span className="font-mono tabular-nums">
-                      {new Intl.NumberFormat("es-ES").format(Math.round(rendimientoGrupos.Mallas.kg))} kg &middot;{" "}
-                      {rendimientoGrupos.Mallas.personas} pers &middot;{" "}
-                      {new Intl.NumberFormat("es-ES").format(
-                        Math.round(rendimientoGrupos.Mallas.personas > 0
-                          ? rendimientoGrupos.Mallas.kg / rendimientoGrupos.Mallas.personas
-                          : 0)
-                      )} kg/pers
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Graneleras:</span>
-                    <span className="font-mono tabular-nums">
-                      {new Intl.NumberFormat("es-ES").format(Math.round(rendimientoGrupos.Graneleras.kg))} kg &middot;{" "}
-                      {rendimientoGrupos.Graneleras.personas} pers &middot;{" "}
-                      {new Intl.NumberFormat("es-ES").format(
-                        Math.round(rendimientoGrupos.Graneleras.personas > 0
-                          ? rendimientoGrupos.Graneleras.kg / rendimientoGrupos.Graneleras.personas
-                          : 0)
-                      )} kg/pers
-                    </span>
-                  </div>
-                  <Separator className="my-1" />
-                  <div className="flex justify-between font-semibold">
-                    <span>Total directo:</span>
-                    <span className="font-mono tabular-nums">
-                      {new Intl.NumberFormat("es-ES").format(Math.round(totalKg))} kg &middot;{" "}
-                      {totalPersonas} pers &middot;{" "}
-                      {new Intl.NumberFormat("es-ES").format(
-                        Math.round(totalPersonas > 0 ? totalKg / totalPersonas : 0)
-                      )} kg/pers
-                    </span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ) : null}
 
           {loadingAsistencia ? (
             <div className="space-y-2">
@@ -641,6 +578,81 @@ export default function Asistencia() {
           )}
         </CardContent>
       </Card>
+      </div>
+
+      {/* ── Right Column ────────────────────────────────────────────── */}
+      <div className="space-y-6">
+
+      {/* ── Rendimiento por grupo ──────────────────────────────────────── */}
+      {loadingParte ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Rendimiento por grupo</CardTitle>
+          </CardHeader>
+          <CardContent className="pb-3">
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-6 w-full" />)}
+            </div>
+          </CardContent>
+        </Card>
+      ) : parteDelDia ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Rendimiento por grupo</CardTitle>
+          </CardHeader>
+          <CardContent className="pb-3">
+            <div className="space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span>Envasadoras:</span>
+                <span className="font-mono tabular-nums">
+                  {new Intl.NumberFormat("es-ES").format(Math.round(rendimientoGrupos.Envasadoras.kg))} kg &middot;{" "}
+                  {rendimientoGrupos.Envasadoras.personas} pers &middot;{" "}
+                  {new Intl.NumberFormat("es-ES").format(
+                    Math.round(rendimientoGrupos.Envasadoras.personas > 0
+                      ? rendimientoGrupos.Envasadoras.kg / rendimientoGrupos.Envasadoras.personas
+                      : 0)
+                  )} kg/pers
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Mallas:</span>
+                <span className="font-mono tabular-nums">
+                  {new Intl.NumberFormat("es-ES").format(Math.round(rendimientoGrupos.Mallas.kg))} kg &middot;{" "}
+                  {rendimientoGrupos.Mallas.personas} pers &middot;{" "}
+                  {new Intl.NumberFormat("es-ES").format(
+                    Math.round(rendimientoGrupos.Mallas.personas > 0
+                      ? rendimientoGrupos.Mallas.kg / rendimientoGrupos.Mallas.personas
+                      : 0)
+                  )} kg/pers
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Graneleras:</span>
+                <span className="font-mono tabular-nums">
+                  {new Intl.NumberFormat("es-ES").format(Math.round(rendimientoGrupos.Graneleras.kg))} kg &middot;{" "}
+                  {rendimientoGrupos.Graneleras.personas} pers &middot;{" "}
+                  {new Intl.NumberFormat("es-ES").format(
+                    Math.round(rendimientoGrupos.Graneleras.personas > 0
+                      ? rendimientoGrupos.Graneleras.kg / rendimientoGrupos.Graneleras.personas
+                      : 0)
+                  )} kg/pers
+                </span>
+              </div>
+              <Separator className="my-1" />
+              <div className="flex justify-between font-semibold">
+                <span>Total directo:</span>
+                <span className="font-mono tabular-nums">
+                  {new Intl.NumberFormat("es-ES").format(Math.round(totalKg))} kg &middot;{" "}
+                  {totalPersonas} pers &middot;{" "}
+                  {new Intl.NumberFormat("es-ES").format(
+                    Math.round(totalPersonas > 0 ? totalKg / totalPersonas : 0)
+                  )} kg/pers
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* ── Workers Reference List ─────────────────────────────────── */}
       <Collapsible open={showWorkerList} onOpenChange={setShowWorkerList}>
@@ -752,6 +764,8 @@ export default function Asistencia() {
           </CollapsibleContent>
         </Card>
       </Collapsible>
+      </div>
+    </div>
     </div>
   );
 }
