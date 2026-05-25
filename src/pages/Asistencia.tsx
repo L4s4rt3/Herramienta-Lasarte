@@ -8,6 +8,9 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible, CollapsibleContent, CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/hooks/use-toast";
@@ -30,6 +33,7 @@ export default function Asistencia() {
   const [loadingAsistencia, setLoadingAsistencia] = useState(false);
   const [newWorkerName, setNewWorkerName] = useState("");
   const [newWorkerZona, setNewWorkerZona] = useState("");
+  const [showWorkerList, setShowWorkerList] = useState(false);
   const [importing, setImporting] = useState(false);
   const [parteDelDia, setParteDelDia] = useState<any>(null);
   const [loadingParte, setLoadingParte] = useState(false);
@@ -396,108 +400,6 @@ export default function Asistencia() {
         </p>
       </header>
 
-      {/* ── Workers Reference List ─────────────────────────────────── */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Lista de trabajadores</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="flex-1 min-w-[200px]">
-              <label className="text-xs text-muted-foreground mb-1 block">Nombre</label>
-              <Input
-                placeholder="Nuevo trabajador"
-                value={newWorkerName}
-                onChange={(e) => setNewWorkerName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addTrabajador()}
-              />
-            </div>
-            <div className="w-44">
-              <label className="text-xs text-muted-foreground mb-1 block">Grupo</label>
-              <select
-                value={newWorkerZona}
-                onChange={(e) => setNewWorkerZona(e.target.value)}
-                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-              >
-                <option value="">Sin grupo</option>
-                {GRUPOS.map((z) => <option key={z} value={z}>{z}</option>)}
-              </select>
-            </div>
-            <Button onClick={addTrabajador} disabled={!newWorkerName.trim()}>
-              <Plus className="h-4 w-4" /> Añadir
-            </Button>
-          </div>
-
-          {loadingTrabajadores ? (
-            <div className="space-y-2">
-              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8" />)}
-            </div>
-          ) : (
-            <div className="border rounded-md">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nombre</TableHead>
-                    <TableHead>Grupo</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead className="w-20"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {trabajadores.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
-                        Añade trabajadores para comenzar
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    groupByZona(trabajadores).flatMap(({ grupo, workers }) => [
-                      <TableRow key={`h-${grupo}`} className="bg-muted/50">
-                        <TableCell colSpan={4} className="font-semibold text-sm py-2">
-                          {grupo} <span className="text-muted-foreground font-normal">({workers.length})</span>
-                        </TableCell>
-                      </TableRow>,
-                      ...workers.map((t) => (
-                        <TableRow key={t.id} className={cn(!t.activo && "opacity-50")}>
-                          <TableCell className="font-medium">{t.nombre}</TableCell>
-                          <TableCell className="text-muted-foreground">{t.zona ?? "—"}</TableCell>
-                          <TableCell>
-                            <Badge variant={t.activo ? "default" : "secondary"}>
-                              {t.activo ? "Activo" : "Inactivo"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={() => toggleTrabajadorActivo(t)}
-                                title={t.activo ? "Desactivar" : "Activar"}
-                              >
-                                {t.activo ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-destructive"
-                                onClick={() => deleteTrabajador(t.id)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )),
-                    ])
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       {/* ── Daily Attendance ────────────────────────────────────────── */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -719,6 +621,117 @@ export default function Asistencia() {
           )}
         </CardContent>
       </Card>
+
+      {/* ── Workers Reference List ─────────────────────────────────── */}
+      <Collapsible open={showWorkerList} onOpenChange={setShowWorkerList}>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-lg">Lista de trabajadores</CardTitle>
+            <CollapsibleTrigger asChild>
+              <Button variant="outline" size="sm">
+                {showWorkerList ? "Cerrar" : "Gestionar"}
+              </Button>
+            </CollapsibleTrigger>
+          </CardHeader>
+          <CollapsibleContent>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="text-xs text-muted-foreground mb-1 block">Nombre</label>
+                  <Input
+                    placeholder="Nuevo trabajador"
+                    value={newWorkerName}
+                    onChange={(e) => setNewWorkerName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addTrabajador()}
+                  />
+                </div>
+                <div className="w-44">
+                  <label className="text-xs text-muted-foreground mb-1 block">Grupo</label>
+                  <select
+                    value={newWorkerZona}
+                    onChange={(e) => setNewWorkerZona(e.target.value)}
+                    className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                  >
+                    <option value="">Sin grupo</option>
+                    {GRUPOS.map((z) => <option key={z} value={z}>{z}</option>)}
+                  </select>
+                </div>
+                <Button onClick={addTrabajador} disabled={!newWorkerName.trim()}>
+                  <Plus className="h-4 w-4" /> Añadir
+                </Button>
+              </div>
+
+              {loadingTrabajadores ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8" />)}
+                </div>
+              ) : (
+                <div className="border rounded-md">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Nombre</TableHead>
+                        <TableHead>Grupo</TableHead>
+                        <TableHead>Estado</TableHead>
+                        <TableHead className="w-20"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {trabajadores.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
+                            Añade trabajadores para comenzar
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        groupByZona(trabajadores).flatMap(({ grupo, workers }) => [
+                          <TableRow key={`h-${grupo}`} className="bg-muted/50">
+                            <TableCell colSpan={4} className="font-semibold text-sm py-2">
+                              {grupo} <span className="text-muted-foreground font-normal">({workers.length})</span>
+                            </TableCell>
+                          </TableRow>,
+                          ...workers.map((t) => (
+                            <TableRow key={t.id} className={cn(!t.activo && "opacity-50")}>
+                              <TableCell className="font-medium">{t.nombre}</TableCell>
+                              <TableCell className="text-muted-foreground">{t.zona ?? "—"}</TableCell>
+                              <TableCell>
+                                <Badge variant={t.activo ? "default" : "secondary"}>
+                                  {t.activo ? "Activo" : "Inactivo"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={() => toggleTrabajadorActivo(t)}
+                                    title={t.activo ? "Desactivar" : "Activar"}
+                                  >
+                                    {t.activo ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-destructive"
+                                    onClick={() => deleteTrabajador(t.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )),
+                        ])
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
     </div>
   );
 }
