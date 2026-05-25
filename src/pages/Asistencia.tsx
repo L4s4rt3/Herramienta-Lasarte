@@ -209,6 +209,13 @@ export default function Asistencia() {
       const activos = trabajadores.filter((t) => t.activo);
       if (!user) return;
 
+      toast({ title: `Filas: ${rows.length}, Nombres: ${nombresImport.length}` });
+      const testScore = matchScore(nombresImport[0], activos[0]?.nombre || '');
+      const testEWords = wordSet(nombresImport[0]).join(",");
+      const testDWords = wordSet(activos[0]?.nombre || '').join(",");
+      toast({ title: `Test: "${nombresImport[0]}" -> "${activos[0]?.nombre}" score=${testScore}`
+        + ` eW=[${testEWords}] dW=[${testDWords}]` });
+
       function cleanName(s: string) {
         const corruptMap: Record<string, string> = {
           '\u01ed': 'A', '\u01ec': 'A',
@@ -241,17 +248,25 @@ export default function Asistencia() {
         return hits / dWords.length;
       }
 
-      const records = activos.map((t) => ({
-        user_id: user.id,
-        date: selectedDate,
-        trabajador_id: t.id,
-        presente: nombresImport.some((n) => {
+      const records = activos.map((t) => {
+        const matched = nombresImport.some((n) => {
           const score = matchScore(n, t.nombre);
           const eWords = wordSet(n);
           const need = Math.min(eWords.length, 2) / Math.max(eWords.length, 1);
           return score >= Math.max(0.5, need);
-        }),
-      }));
+        });
+        if (!matched) {
+          const bestScore = Math.max(...nombresImport.map(n => matchScore(n, t.nombre)));
+          const bestName = nombresImport.reduce((a, b) => matchScore(a, t.nombre) > matchScore(b, t.nombre) ? a : b);
+          if (bestScore > 0) console.log("NO MATCH:", t.nombre, "-> mejor:", bestName, "score:", bestScore);
+        }
+        return {
+          user_id: user.id,
+          date: selectedDate,
+          trabajador_id: t.id,
+          presente: matched,
+        };
+      });
 
       const { error } = await supabase
         .from("asistencia_detalle")
