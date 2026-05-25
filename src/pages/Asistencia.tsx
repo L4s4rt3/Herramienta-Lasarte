@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthProvider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -35,6 +36,7 @@ export default function Asistencia() {
   const [newWorkerZona, setNewWorkerZona] = useState("");
   const [showWorkerList, setShowWorkerList] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [parteDelDia, setParteDelDia] = useState<any>(null);
   const [loadingParte, setLoadingParte] = useState(false);
 
@@ -422,37 +424,41 @@ export default function Asistencia() {
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
             <p className="text-sm font-medium capitalize">{fechaDisplay}</p>
-            <div className="flex items-center gap-1 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               {totalActivos > 0 && (
                 <>
-                  <span className="inline-flex items-center gap-1 text-green-600">
+                  <span className="inline-flex items-center gap-1 text-green-600 font-medium">
                     <UserCheck className="h-3.5 w-3.5" />{presentesCount}
                   </span>
-                  <span className="mx-1">·</span>
-                  <span className="inline-flex items-center gap-1 text-destructive">
+                  <span className="inline-flex items-center gap-1 text-destructive font-medium">
                     <UserX className="h-3.5 w-3.5" />{ausentesCount}
                   </span>
                   {sinRegistro > 0 && (
-                    <>
-                      <span className="mx-1">·</span>
-                      <span className="text-muted-foreground">? {sinRegistro} sin registro</span>
-                    </>
+                    <span className="text-muted-foreground">? {sinRegistro} sin registro</span>
                   )}
-                  <span className="mx-1">·</span>
-                  <span>{totalActivos} total</span>
+                  <span className="text-xs">de {totalActivos}</span>
                 </>
               )}
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[200px]">
+              <Input
+                placeholder="Buscar trabajador…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-9 pl-8"
+              />
+              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            </div>
             <Button
               variant="outline"
               size="sm"
               disabled={!user}
               onClick={marcarTodosPresentes}
             >
-              <UserCheck className="h-4 w-4" /> Marcar todos presentes
+              <UserCheck className="h-4 w-4" /> Marcar todos
             </Button>
             <label className="relative">
               <Button variant="outline" size="sm" disabled={importing} asChild>
@@ -546,75 +552,89 @@ export default function Asistencia() {
               Añade trabajadores activos en la lista de referencia para registrar asistencia.
             </div>
           ) : (
-            <div className="border rounded-md">
+            <div className="border rounded-md overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Trabajador</TableHead>
-                    <TableHead>Grupo</TableHead>
-                    <TableHead>Asistencia</TableHead>
-                    <TableHead className="w-24 text-right">Acción</TableHead>
+                    <TableHead className="w-1/2">Trabajador</TableHead>
+                    <TableHead className="w-24">Grupo</TableHead>
+                    <TableHead className="w-28">Asistencia</TableHead>
+                    <TableHead className="w-16 text-right">Presente</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {groupByZona(activos).flatMap(({ grupo, workers }) => {
-                    const presentes = workers.filter((w) => asistencia[w.id] === true).length;
-                    return [
-                      <TableRow key={`h-${grupo}`} className="bg-muted/50">
-                        <TableCell colSpan={4} className="font-semibold text-sm py-2">
-                          {grupo} <span className="text-muted-foreground font-normal">({presentes}/{workers.length})</span>
+                  {(() => {
+                    const filtered = searchQuery
+                      ? activos.filter(t => t.nombre.toLowerCase().includes(searchQuery.toLowerCase()))
+                      : activos;
+                    const grouped = groupByZona(filtered);
+                    if (filtered.length === 0) return (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
+                          Sin resultados para &quot;{searchQuery}&quot;
                         </TableCell>
-                      </TableRow>,
-                      ...workers.map((t) => {
-                        const presente = asistencia[t.id];
-                        return (
-                          <TableRow key={t.id}>
-                            <TableCell className="font-medium">{t.nombre}</TableCell>
-                            <TableCell className="text-muted-foreground">{t.zona ?? "—"}</TableCell>
-                            <TableCell>
-                              {presente === true && (
-                                <Badge variant="default" className="bg-green-600">Presente</Badge>
+                      </TableRow>
+                    );
+                    return grouped.flatMap(({ grupo, workers }) => {
+                      const presentes = workers.filter((w) => asistencia[w.id] === true).length;
+                      const todosPresentes = presentes === workers.length;
+                      const todosAusentes = workers.every((w) => asistencia[w.id] === false);
+                      return [
+                        <TableRow key={`h-${grupo}`} className="bg-muted/50">
+                          <TableCell colSpan={3} className="font-semibold text-sm py-2">
+                            {grupo} <span className="text-muted-foreground font-normal">({presentes}/{workers.length})</span>
+                          </TableCell>
+                          <TableCell className="text-right py-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={() => {
+                                for (const w of workers) {
+                                  if (asistencia[w.id] !== true) toggleAsistencia(w.id, true);
+                                }
+                              }}
+                              disabled={todosPresentes}
+                            >
+                              <UserCheck className="h-3 w-3 mr-1" />Todos
+                            </Button>
+                          </TableCell>
+                        </TableRow>,
+                        ...workers.map((t) => {
+                          const presente = asistencia[t.id];
+                          return (
+                            <TableRow
+                              key={t.id}
+                              className={cn(
+                                presente === true && "bg-green-50/50",
+                                presente === false && "bg-red-50/50",
                               )}
-                              {presente === false && (
-                                <Badge variant="destructive">Ausente</Badge>
-                              )}
-                              {presente === undefined && (
-                                <Badge variant="secondary">Sin registrar</Badge>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className={cn(
-                                    "h-8 w-8",
-                                    presente === true && "bg-green-100 text-green-700"
-                                  )}
-                                  onClick={() => toggleAsistencia(t.id, true)}
-                                  disabled={presente === true}
-                                >
-                                  <UserCheck className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className={cn(
-                                    "h-8 w-8",
-                                    presente === false && "bg-red-100 text-red-700"
-                                  )}
-                                  onClick={() => toggleAsistencia(t.id, false)}
-                                  disabled={presente === false}
-                                >
-                                  <UserX className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      }),
-                    ];
-                  })}
+                            >
+                              <TableCell className="font-medium py-2.5">{t.nombre}</TableCell>
+                              <TableCell className="text-muted-foreground text-xs py-2.5">{t.zona ?? "—"}</TableCell>
+                              <TableCell className="py-2.5">
+                                {presente === true && (
+                                  <Badge variant="default" className="bg-green-600 text-xs">Presente</Badge>
+                                )}
+                                {presente === false && (
+                                  <Badge variant="destructive" className="text-xs">Ausente</Badge>
+                                )}
+                                {presente === undefined && (
+                                  <Badge variant="secondary" className="text-xs">Sin reg.</Badge>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right py-2.5">
+                                <Switch
+                                  checked={presente === true}
+                                  onCheckedChange={(checked) => toggleAsistencia(t.id, checked)}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          );
+                        }),
+                      ];
+                    });
+                  })()}
                 </TableBody>
               </Table>
             </div>
