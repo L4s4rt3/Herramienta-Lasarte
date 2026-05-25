@@ -189,14 +189,29 @@ export default function Asistencia() {
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: "array" });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      const rowsAll: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+
+      if (rowsAll.length < 2) {
+        toast({ title: "Excel vacío o sin datos", variant: "destructive" });
+        setImporting(false); e.target.value = ""; return;
+      }
+
+      const header = rowsAll[0] ?? [];
+      let colIdx: number | null = null;
+      for (let i = 0; i < header.length; i++) {
+        const h = String(header[i] ?? "").toLowerCase().trim();
+        if (/productor|nombre/.test(h)) { colIdx = i; break; }
+      }
+      if (colIdx === null) {
+        toast({ title: "No se encontró columna 'Productor' o 'Nombre' en el Excel", variant: "destructive" });
+        setImporting(false); e.target.value = ""; return;
+      }
 
       const nombresImport: string[] = [];
-      for (const row of rows) {
-        const cell = row[0];
-        if (typeof cell === "string" && cell.trim()) {
-          nombresImport.push(cell.trim());
-        }
+      for (let i = 1; i < rowsAll.length; i++) {
+        const cell = rowsAll[i]?.[colIdx];
+        const nombre = String(cell ?? "").trim();
+        if (nombre && !nombresImport.includes(nombre)) nombresImport.push(nombre);
       }
 
       if (nombresImport.length === 0) {
