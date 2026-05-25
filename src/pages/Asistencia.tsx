@@ -407,76 +407,65 @@ export default function Asistencia() {
       {/* ── Left Column: Attendance ──────────────────────────────────── */}
       <div className="space-y-6">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-lg">Asistencia del día</CardTitle>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => shiftDate(-1)}>
-              <ChevronLeft className="h-4 w-4" />
+        <CardHeader className="flex flex-row items-center justify-between py-3">
+          <CardTitle className="text-base">Asistencia del día</CardTitle>
+          <div className="flex items-center gap-1.5">
+            <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => shiftDate(-1)}>
+              <ChevronLeft className="h-3.5 w-3.5" />
             </Button>
             <Input
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="w-40 h-8 text-center"
+              className="w-32 h-7 text-xs text-center"
             />
-            <Button variant="outline" size="sm" onClick={() => shiftDate(1)}>
-              <ChevronRight className="h-4 w-4" />
+            <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => shiftDate(1)}>
+              <ChevronRight className="h-3.5 w-3.5" />
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <p className="text-sm font-medium capitalize">{fechaDisplay}</p>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <CardContent className="space-y-3 pb-4">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <p className="text-xs font-medium capitalize">{fechaDisplay}</p>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               {totalActivos > 0 && (
                 <>
-                  <span className="inline-flex items-center gap-1 text-green-600 font-medium">
-                    <UserCheck className="h-3.5 w-3.5" />{presentesCount}
+                  <span className="inline-flex items-center gap-0.5 text-green-600 font-medium">
+                    <UserCheck className="h-3 w-3" />{presentesCount}
                   </span>
-                  <span className="inline-flex items-center gap-1 text-destructive font-medium">
-                    <UserX className="h-3.5 w-3.5" />{ausentesCount}
+                  <span className="inline-flex items-center gap-0.5 text-destructive font-medium">
+                    <UserX className="h-3 w-3" />{ausentesCount}
                   </span>
                   {sinRegistro > 0 && (
-                    <span className="text-muted-foreground">? {sinRegistro} sin registro</span>
+                    <span className="text-muted-foreground">? {sinRegistro}</span>
                   )}
-                  <span className="text-xs">de {totalActivos}</span>
+                  <span className="text-muted-foreground">de {totalActivos}</span>
                 </>
               )}
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative flex-1 min-w-[200px]">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <div className="relative flex-1 min-w-[140px]">
               <Input
-                placeholder="Buscar trabajador…"
+                placeholder="Buscar…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-9 pl-8"
+                className="h-7 text-xs pl-6"
               />
-              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              <svg className="absolute left-1.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!user}
-              onClick={marcarTodosPresentes}
-            >
-              <UserCheck className="h-4 w-4" /> Marcar todos
+            <Button variant="outline" size="sm" className="h-7 text-xs px-2" disabled={!user} onClick={marcarTodosPresentes}>
+              <UserCheck className="h-3 w-3 mr-1" /> Todos
             </Button>
             <label className="relative">
-              <Button variant="outline" size="sm" disabled={importing} asChild>
+              <Button variant="outline" size="sm" className="h-7 text-xs px-2" disabled={importing} asChild>
                 <span className="cursor-pointer">
-                  <Upload className="h-4 w-4" />
-                  {importing ? "Importando…" : "Importar XLSX"}
+                  <Upload className="h-3 w-3 mr-1" />
+                  {importing ? "…" : "XLSX"}
                 </span>
               </Button>
-              <input
-                type="file"
-                accept=".xlsx,.xls"
-                className="absolute inset-0 opacity-0 cursor-pointer"
-                onChange={handleImportXLSX}
-                disabled={importing}
-              />
+              <input type="file" accept=".xlsx,.xls" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleImportXLSX} disabled={importing} />
             </label>
           </div>
 
@@ -488,94 +477,78 @@ export default function Asistencia() {
             <div className="p-6 text-center text-sm text-muted-foreground">
               Añade trabajadores activos en la lista de referencia para registrar asistencia.
             </div>
-          ) : (
-            <div className="border rounded-md overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-1/2">Trabajador</TableHead>
-                    <TableHead className="w-24">Grupo</TableHead>
-                    <TableHead className="w-28">Asistencia</TableHead>
-                    <TableHead className="w-16 text-right">Presente</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(() => {
-                    const filtered = searchQuery
-                      ? activos.filter(t => t.nombre.toLowerCase().includes(searchQuery.toLowerCase()))
-                      : activos;
-                    const grouped = groupByZona(filtered);
-                    if (filtered.length === 0) return (
-                      <TableRow>
-                        <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
-                          Sin resultados para &quot;{searchQuery}&quot;
-                        </TableCell>
-                      </TableRow>
-                    );
-                    return grouped.flatMap(({ grupo, workers }) => {
-                      const presentes = workers.filter((w) => asistencia[w.id] === true).length;
-                      const todosPresentes = presentes === workers.length;
-                      const todosAusentes = workers.every((w) => asistencia[w.id] === false);
-                      return [
-                        <TableRow key={`h-${grupo}`} className="bg-muted/50">
-                          <TableCell colSpan={3} className="font-semibold text-sm py-2">
-                            {grupo} <span className="text-muted-foreground font-normal">({presentes}/{workers.length})</span>
-                          </TableCell>
-                          <TableCell className="text-right py-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 text-xs"
-                              onClick={() => {
-                                for (const w of workers) {
-                                  if (asistencia[w.id] !== true) toggleAsistencia(w.id, true);
-                                }
-                              }}
-                              disabled={todosPresentes}
-                            >
-                              <UserCheck className="h-3 w-3 mr-1" />Todos
-                            </Button>
-                          </TableCell>
-                        </TableRow>,
-                        ...workers.map((t) => {
+          ) : (() => {
+            const filtered = searchQuery
+              ? activos.filter(t => t.nombre.toLowerCase().includes(searchQuery.toLowerCase()))
+              : activos;
+            const grouped = groupByZona(filtered);
+            if (filtered.length === 0) return (
+              <div className="p-6 text-center text-sm text-muted-foreground">
+                Sin resultados para &quot;{searchQuery}&quot;
+              </div>
+            );
+            return (
+              <div className="space-y-3">
+                {grouped.map(({ grupo, workers }) => {
+                  const presentes = workers.filter((w) => asistencia[w.id] === true).length;
+                  const todosPresentes = presentes === workers.length;
+                  return (
+                    <div key={grupo}>
+                      <div className="flex items-center justify-between mb-1.5 px-1">
+                        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                          {grupo}
+                          <span className="ml-1.5 font-normal text-[10px]">
+                            ({presentes}/{workers.length})
+                          </span>
+                        </h3>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-[11px] px-2"
+                          onClick={() => {
+                            for (const w of workers) {
+                              if (asistencia[w.id] !== true) toggleAsistencia(w.id, true);
+                            }
+                          }}
+                          disabled={todosPresentes}
+                        >
+                          <UserCheck className="h-3 w-3 mr-1" />Todos
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-1.5">
+                        {workers.map((t) => {
                           const presente = asistencia[t.id];
                           return (
-                            <TableRow
+                            <div
                               key={t.id}
                               className={cn(
-                                presente === true && "bg-green-50/50",
-                                presente === false && "bg-red-50/50",
+                                "flex items-center justify-between gap-1 rounded-md border px-2.5 py-1.5 transition-colors",
+                                presente === true && "bg-green-50 border-green-200",
+                                presente === false && "bg-red-50 border-red-200",
+                                presente === undefined && "bg-card",
                               )}
                             >
-                              <TableCell className="font-medium py-2.5">{t.nombre}</TableCell>
-                              <TableCell className="text-muted-foreground text-xs py-2.5">{t.zona ?? "—"}</TableCell>
-                              <TableCell className="py-2.5">
-                                {presente === true && (
-                                  <Badge variant="default" className="bg-green-600 text-xs">Presente</Badge>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-medium truncate">{t.nombre}</p>
+                                {t.zona && (
+                                  <p className="text-[10px] text-muted-foreground truncate">{t.zona}</p>
                                 )}
-                                {presente === false && (
-                                  <Badge variant="destructive" className="text-xs">Ausente</Badge>
-                                )}
-                                {presente === undefined && (
-                                  <Badge variant="secondary" className="text-xs">Sin reg.</Badge>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-right py-2.5">
-                                <Switch
-                                  checked={presente === true}
-                                  onCheckedChange={(checked) => toggleAsistencia(t.id, checked)}
-                                />
-                              </TableCell>
-                            </TableRow>
+                              </div>
+                              <Switch
+                                checked={presente === true}
+                                onCheckedChange={(checked) => toggleAsistencia(t.id, checked)}
+                                className="shrink-0"
+                              />
+                            </div>
                           );
-                        }),
-                      ];
-                    });
-                  })()}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
       </div>
