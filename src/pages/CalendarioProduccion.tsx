@@ -34,10 +34,10 @@ function KPIStatCards({ monthPartes, totalDays }: { monthPartes: Parte[]; totalD
   const nAmarillo = monthPartes.filter(p => p.cascade.semaforo === "amarillo").length;
   const nRojo = monthPartes.filter(p => p.cascade.semaforo === "rojo").length;
   const avgDsj = monthPartes.length > 0
-    ? monthPartes.reduce((s, p) => s + Math.abs(p.cascade.dsj), 0) / monthPartes.length
+    ? monthPartes.reduce((s, p) => s + Math.abs(p.cascade.dsj_pct), 0) / monthPartes.length
     : 0;
   const worstDay = monthPartes.length > 0
-    ? monthPartes.reduce((a, b) => Math.abs(a.cascade.dsj) > Math.abs(b.cascade.dsj) ? a : b)
+    ? monthPartes.reduce((a, b) => Math.abs(a.cascade.dsj_pct) > Math.abs(b.cascade.dsj_pct) ? a : b)
     : null;
   const coverage = monthPartes.length;
   const pctCoverage = totalDays > 0 ? Math.round((coverage / totalDays) * 100) : 0;
@@ -47,7 +47,7 @@ function KPIStatCards({ monthPartes, totalDays }: { monthPartes: Parte[]; totalD
     { label: "Revisar", value: nAmarillo, color: "text-amber-600", icon: AlertTriangle, bg: "bg-amber-50", border: "border-amber-200", trend: null },
     { label: "Crítico", value: nRojo, color: "text-red-600", icon: XCircle, bg: "bg-red-50", border: "border-red-200", trend: null },
     { label: "DJPMN medio", value: `${avgDsj.toFixed(1)}%`, color: "text-sky-600", icon: TrendingUp, bg: "bg-sky-50", border: "border-sky-200", trend: `${coverage} días` },
-    { label: "Peor día", value: worstDay ? `${Math.abs(worstDay.cascade.dsj).toFixed(1)}%` : "—", color: "text-slate-600", icon: TrendingDown, bg: "bg-slate-50", border: "border-slate-200", trend: worstDay ? format(parseISO(worstDay.date), "d MMM", { locale: es }) : null },
+    { label: "Peor día", value: worstDay ? `${Math.abs(worstDay.cascade.dsj_pct).toFixed(1)}%` : "—", color: "text-slate-600", icon: TrendingDown, bg: "bg-slate-50", border: "border-slate-200", trend: worstDay ? format(parseISO(worstDay.date), "d MMM", { locale: es }) : null },
   ];
 
   return (
@@ -217,7 +217,7 @@ function CalendarDayCell({
                   "text-[10px] font-semibold tabular-nums mt-0.5 leading-tight",
                   meta.text,
                 )}>
-                  {parte.cascade.dsj > 0 ? "+" : ""}{parte.cascade.dsj.toFixed(1)}%
+                  {parte.cascade.dsj_pct > 0 ? "+" : ""}{parte.cascade.dsj_pct.toFixed(1)}%
                 </span>
                 <span className={cn("h-1 w-6 rounded-full mt-0.5", meta.dot)} />
               </>
@@ -228,7 +228,7 @@ function CalendarDayCell({
         {parte && meta && (
           <TooltipContent side="top" className="text-xs space-y-1">
             <p className="font-medium">{format(day, "EEEE d MMMM", { locale: es })}</p>
-            <p className={meta.text}>{meta.label} · DJPMN {parte.cascade.dsj > 0 ? "+" : ""}{parte.cascade.dsj.toFixed(1)}%</p>
+            <p className={meta.text}>{meta.label} · DJPMN {parte.cascade.dsj_pct > 0 ? "+" : ""}{parte.cascade.dsj_pct.toFixed(1)}%</p>
           </TooltipContent>
         )}
       </Tooltip>
@@ -303,7 +303,7 @@ function DayDetailsPanel({ date, parte, onClose }: { date: Date; parte: Parte | 
   }
 
   const meta = SEMAFORO_META[parte.cascade.semaforo] ?? SEMAFORO_META.rojo;
-  const dsj = parte.cascade.dsj;
+  const dsj = parte.cascade.dsj_pct;
   const totalKg = (parte.kg_produccion_calibrador ?? 0) + (parte.kg_mujeres_calibrador ?? 0);
   const mermas = parte.cascade.mermas_totales ?? 0;
 
@@ -426,7 +426,7 @@ export default function CalendarioProduccion() {
     const rows = monthPartes.map((p) => ({
       Fecha: p.date,
       Estado: SEMAFORO_META[p.cascade.semaforo]?.label ?? "—",
-      "DJPMN %": p.cascade.dsj.toFixed(1),
+      "DJPMN %": p.cascade.dsj_pct.toFixed(1),
       "Prod. (kg)": (p.kg_produccion_calibrador ?? 0) + (p.kg_mujeres_calibrador ?? 0),
       Mermas: p.cascade.mermas_totales?.toFixed(0) ?? "—",
       Observaciones: p.notas_generales ?? "",
