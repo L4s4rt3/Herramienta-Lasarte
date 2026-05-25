@@ -24,7 +24,7 @@ const Productores = lazy(() => import("./pages/Productores"));
 const CalibreAnalysis = lazy(() => import("./pages/CalibreAnalysis"));
 const AnalisisInformes = lazy(() => import("./pages/AnalisisInformes"));
 const AnalisisDiario = lazy(() => import("./pages/AnalisisDiario"));
-const Calendario = lazy(() => import("./pages/Calendario"));
+const Calendario = lazy(() => import("./pages/CalendarioProduccion"));
 
 const queryClient = new QueryClient();
 
