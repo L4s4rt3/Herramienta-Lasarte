@@ -209,14 +209,7 @@ export default function Asistencia() {
       const activos = trabajadores.filter((t) => t.activo);
       if (!user) return;
 
-      toast({ title: `Filas: ${rows.length}, Nombres: ${nombresImport.length}` });
-      const testScore = matchScore(nombresImport[0], activos[0]?.nombre || '');
-      const testEWords = wordSet(nombresImport[0]).join(",");
-      const testDWords = wordSet(activos[0]?.nombre || '').join(",");
-      toast({ title: `Test: "${nombresImport[0]}" -> "${activos[0]?.nombre}" score=${testScore}`
-        + ` eW=[${testEWords}] dW=[${testDWords}]` });
-
-      function cleanName(s: string) {
+      const cleanName = (s: string) => {
         const corruptMap: Record<string, string> = {
           '\u01ed': 'A', '\u01ec': 'A',
           '\u01f8': 'E', '\u01f9': 'E',
@@ -226,18 +219,16 @@ export default function Asistencia() {
         for (const [k, v] of Object.entries(corruptMap)) r = r.split(k).join(v);
         return r.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
           .replace(/[,\u00ad]/g, "").toUpperCase().replace(/\s+/g, " ").trim();
-      }
-      function wordSet(s: string) {
-        return cleanName(s).split(" ").filter(w => w.length >= 2).sort();
-      }
-      function wordsMatch(a: string, b: string) {
+      };
+      const wordSet = (s: string) => cleanName(s).split(" ").filter(w => w.length >= 2).sort();
+      const wordsMatch = (a: string, b: string) => {
         if (a === b || a.includes(b) || b.includes(a)) return true;
         let prefixLen = 0;
         const minLen = Math.min(a.length, b.length);
         for (let i = 0; i < minLen; i++) { if (a[i] === b[i]) prefixLen++; else break; }
         return prefixLen >= 4;
-      }
-      function matchScore(excelName: string, dbName: string) {
+      };
+      const matchScore = (excelName: string, dbName: string) => {
         const eWords = wordSet(excelName);
         const dWords = wordSet(dbName);
         if (!eWords.length || !dWords.length) return 0;
@@ -246,7 +237,7 @@ export default function Asistencia() {
           if (eWords.some(ew => wordsMatch(ew, dw))) hits++;
         }
         return hits / dWords.length;
-      }
+      };
 
       const records = activos.map((t) => {
         const matched = nombresImport.some((n) => {
@@ -255,11 +246,6 @@ export default function Asistencia() {
           const need = Math.min(eWords.length, 2) / Math.max(eWords.length, 1);
           return score >= Math.max(0.5, need);
         });
-        if (!matched) {
-          const bestScore = Math.max(...nombresImport.map(n => matchScore(n, t.nombre)));
-          const bestName = nombresImport.reduce((a, b) => matchScore(a, t.nombre) > matchScore(b, t.nombre) ? a : b);
-          if (bestScore > 0) console.log("NO MATCH:", t.nombre, "-> mejor:", bestName, "score:", bestScore);
-        }
         return {
           user_id: user.id,
           date: selectedDate,
