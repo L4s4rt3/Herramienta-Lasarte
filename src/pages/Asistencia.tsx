@@ -209,22 +209,48 @@ export default function Asistencia() {
       const activos = trabajadores.filter((t) => t.activo);
       if (!user) return;
 
+      function cleanName(s: string) {
+        const corruptMap: Record<string, string> = {
+          '\u01ed': 'A', '\u01ec': 'A',
+          '\u01f8': 'E', '\u01f9': 'E',
+          '\u01d0': 'I', '\u01cf': 'I',
+        };
+        let r = s;
+        for (const [k, v] of Object.entries(corruptMap)) r = r.split(k).join(v);
+        return r.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+          .replace(/[,\u00ad]/g, "").toUpperCase().replace(/\s+/g, " ").trim();
+      }
+      function wordSet(s: string) {
+        return cleanName(s).split(" ").filter(w => w.length >= 2).sort();
+      }
+      function wordsMatch(a: string, b: string) {
+        if (a === b || a.includes(b) || b.includes(a)) return true;
+        let prefixLen = 0;
+        const minLen = Math.min(a.length, b.length);
+        for (let i = 0; i < minLen; i++) { if (a[i] === b[i]) prefixLen++; else break; }
+        return prefixLen >= 4;
+      }
+      function matchScore(excelName: string, dbName: string) {
+        const eWords = wordSet(excelName);
+        const dWords = wordSet(dbName);
+        if (!eWords.length || !dWords.length) return 0;
+        let hits = 0;
+        for (const dw of dWords) {
+          if (eWords.some(ew => wordsMatch(ew, dw))) hits++;
+        }
+        return hits / dWords.length;
+      }
+
       const records = activos.map((t) => ({
         user_id: user.id,
         date: selectedDate,
         trabajador_id: t.id,
-        presente: nombresImport.some((n) =>
-          n.toLowerCase()
-            .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-            .replace(/,/g, "")
-            .replace(/\s+/g, " ")
-            .trim() ===
-          t.nombre.toLowerCase()
-            .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-            .replace(/,/g, "")
-            .replace(/\s+/g, " ")
-            .trim()
-        ),
+        presente: nombresImport.some((n) => {
+          const score = matchScore(n, t.nombre);
+          const eWords = wordSet(n);
+          const need = Math.min(eWords.length, 2) / Math.max(eWords.length, 1);
+          return score >= Math.max(0.5, need);
+        }),
       }));
 
       const { error } = await supabase
