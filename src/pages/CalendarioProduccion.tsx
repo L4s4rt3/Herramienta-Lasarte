@@ -58,16 +58,16 @@ function KPIStatCards({ monthPartes, totalDays }: { monthPartes: Parte[]; totalD
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div className="space-y-1.5">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{item.label}</p>
+                <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{item.label}</p>
                 <p className={cn("text-3xl font-bold tabular-nums", item.color)}>{item.value}</p>
               </div>
-              <item.icon className={cn("h-6 w-6 mt-0.5", item.color)} />
+              <item.icon className={cn("h-7 w-7 mt-0.5", item.color)} />
             </div>
             {item.trend && (
-              <p className="text-[11px] text-muted-foreground mt-1.5">{item.trend}</p>
+              <p className="text-xs text-muted-foreground mt-2">{item.trend}</p>
             )}
             {item.label === "Días OK" && coverage > 0 && (
-              <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
+              <div className="mt-3 h-1.5 bg-muted rounded-full overflow-hidden">
                 <div className={cn("h-full rounded-full", nVerde > 0 ? "bg-emerald-500" : "bg-transparent")} style={{ width: `${(nVerde / coverage) * 100}%` }} />
               </div>
             )}
@@ -107,15 +107,15 @@ function CalendarHeader({
 
 function MonthNavigator({ currentMonth, onPrev, onNext }: { currentMonth: Date; onPrev: () => void; onNext: () => void }) {
   return (
-    <div className="flex items-center justify-between mb-2">
-      <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={onPrev}>
-        <ChevronLeft className="h-5 w-5" />
+    <div className="flex items-center justify-between mb-3">
+      <Button variant="ghost" size="sm" className="h-10 w-10 p-0" onClick={onPrev}>
+        <ChevronLeft className="h-6 w-6" />
       </Button>
-      <h2 className="text-lg font-bold capitalize">
+      <h2 className="text-xl font-bold capitalize">
         {format(currentMonth, "MMMM yyyy", { locale: es })}
       </h2>
-      <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={onNext}>
-        <ChevronRight className="h-5 w-5" />
+      <Button variant="ghost" size="sm" className="h-10 w-10 p-0" onClick={onNext}>
+        <ChevronRight className="h-6 w-6" />
       </Button>
     </div>
   );
@@ -136,13 +136,13 @@ function CalendarFilters({
   statusFilter: string; onStatusChange: (k: string) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-2">
       {STATUS_OPTS.map((opt) => (
         <button
           key={opt.key}
           onClick={() => onStatusChange(opt.key)}
           className={cn(
-            "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors",
+            "inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors",
             statusFilter === opt.key
               ? "bg-primary text-primary-foreground"
               : "bg-muted text-muted-foreground hover:bg-muted/80",
@@ -158,15 +158,15 @@ function CalendarFilters({
 
 function StatusLegend() {
   return (
-    <div className="flex items-center gap-5 text-sm text-muted-foreground">
-      <span className="inline-flex items-center gap-1.5">
-        <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> OK ≤3%
+    <div className="flex flex-wrap items-center gap-6 text-sm text-muted-foreground">
+      <span className="inline-flex items-center gap-2">
+        <span className="h-3 w-3 rounded-full bg-emerald-500" /> OK ≤3%
       </span>
-      <span className="inline-flex items-center gap-1.5">
-        <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Revisar 3–5%
+      <span className="inline-flex items-center gap-2">
+        <span className="h-3 w-3 rounded-full bg-amber-500" /> Revisar 3–5%
       </span>
-      <span className="inline-flex items-center gap-1.5">
-        <span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Crítico &gt;5%
+      <span className="inline-flex items-center gap-2">
+        <span className="h-3 w-3 rounded-full bg-red-500" /> Crítico &gt;5%
       </span>
     </div>
   );
@@ -193,7 +193,7 @@ function CalendarDayCell({
             onClick={() => onClick(day)}
             disabled={!isCurrentMonth && !parte}
             className={cn(
-              "relative w-full flex flex-col items-center justify-center rounded-xl border p-3 transition-all min-h-[80px]",
+              "relative w-full flex flex-col items-center justify-center rounded-xl border p-5 transition-all min-h-[110px]",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               !isCurrentMonth && !parte && "border-transparent",
               isCurrentMonth && !parte && "border-dashed border-muted-foreground/20 bg-muted/10",
@@ -205,7 +205,7 @@ function CalendarDayCell({
             )}
           >
             <span className={cn(
-              "text-sm font-semibold leading-tight",
+              "text-base font-bold leading-tight",
               !isCurrentMonth && "text-muted-foreground/40",
               isTodayDate && "text-primary font-bold",
               isAbsent && "text-muted-foreground/50",
@@ -215,15 +215,15 @@ function CalendarDayCell({
             {parte && meta && (
               <>
                 <span className={cn(
-                  "text-[11px] font-bold tabular-nums mt-1 leading-tight",
+                  "text-sm font-bold tabular-nums mt-1.5 leading-tight",
                   meta.text,
                 )}>
                   {parte.cascade.dsj_pct > 0 ? "+" : ""}{parte.cascade.dsj_pct.toFixed(1)}%
                 </span>
-                <span className={cn("h-1.5 w-8 rounded-full mt-1", meta.dot)} />
+                <span className={cn("h-2 w-12 rounded-full mt-1.5", meta.dot)} />
               </>
             )}
-            {isAbsent && <span className="text-[10px] text-muted-foreground/40 mt-1">—</span>}
+            {isAbsent && <span className="text-xs text-muted-foreground/40 mt-1.5">—</span>}
           </button>
         </TooltipTrigger>
         {parte && meta && (
@@ -256,15 +256,15 @@ function CalendarGrid({
   }, [currentMonth]);
 
   return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-7 gap-2">
+    <div className="space-y-3">
+      <div className="grid grid-cols-7 gap-2.5">
         {WEEKDAYS.map((wd) => (
-          <div key={wd} className="text-center text-xs font-bold text-muted-foreground uppercase tracking-wider py-1.5">
+          <div key={wd} className="text-center text-sm font-bold text-muted-foreground uppercase tracking-wider py-2">
             {wd}
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-2">
+      <div className="grid grid-cols-7 gap-2.5">
         {days.map((day) => (
           <CalendarDayCell
             key={day.toISOString()}
@@ -461,24 +461,24 @@ export default function CalendarioProduccion() {
   }
 
   return (
-    <div className="p-6 md:p-8 lg:p-10 mx-auto max-w-[1600px]">
+    <div className="p-8 md:p-10 lg:p-12 mx-auto max-w-[1600px]">
       <CalendarHeader currentMonth={currentMonth} onPrev={() => setCurrentMonth(subMonths(currentMonth, 1))} onNext={() => setCurrentMonth(addMonths(currentMonth, 1))} onToday={handleToday} onExport={handleExport} />
 
-      <div className="mt-6">
+      <div className="mt-8">
         <KPIStatCards monthPartes={monthPartes} totalDays={totalDaysInMonth} />
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
         <CalendarFilters statusFilter={statusFilter} onStatusChange={setStatusFilter} />
         <StatusLegend />
       </div>
 
       {/* Desktop: grid | sidebar  |  Mobile: stack + drawer */}
-      <div className="mt-4 lg:grid lg:grid-cols-[1fr_360px] gap-6 items-start">
+      <div className="mt-6 lg:grid lg:grid-cols-[1fr_360px] gap-6 items-start">
         <Card className="shadow-sm border">
-          <CardContent className="p-4 sm:p-6">
+          <CardContent className="p-6 sm:p-8">
             <MonthNavigator currentMonth={currentMonth} onPrev={() => setCurrentMonth(subMonths(currentMonth, 1))} onNext={() => setCurrentMonth(addMonths(currentMonth, 1))} />
-            <div className="mt-3">
+            <div className="mt-4">
               <CalendarGrid currentMonth={currentMonth} dateParteMap={dateParteMap} selectedDate={selectedDate} onDayClick={handleDayClick} statusFilter={statusFilter} />
             </div>
           </CardContent>
@@ -487,7 +487,7 @@ export default function CalendarioProduccion() {
         {/* Desktop sidebar */}
         <div className="hidden lg:block">
           <Card className="shadow-sm border sticky top-6">
-            <CardContent className="p-4">
+            <CardContent className="p-6">
               <ScrollArea className="h-[calc(100vh-12rem)]">
                 {selectedDate ? (
                   <DayDetailsPanel date={selectedDate} parte={selectedParte} onClose={() => setSelectedDate(null)} onNavigate={(id) => navigate(`/partes/${id}`)} />
