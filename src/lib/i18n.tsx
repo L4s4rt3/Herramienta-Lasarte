@@ -11,7 +11,7 @@ const dict = {
     email: "Correo electrónico",
     password: "Contraseña",
     full_name: "Nombre completo",
-    dashboard: "Control de producción",
+    dashboard: "Dashboard",
     partes: "Partes diarios",
     parte: "Parte diario",
     new_parte: "Nuevo parte",

@@ -46,7 +46,7 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
   {
     label: "Control",
     items: [
-      { to: "/", label: "Control de producción", icon: LayoutDashboard, match: (path) => path === "/" },
+      { to: "/", label: "Dashboard", icon: LayoutDashboard, match: (path) => path === "/" },
       { to: "/calendario", label: "Calendario", icon: CalendarDays },
       { to: "/partes", label: "Partes diarios", icon: FileText, match: (path) => path.startsWith("/partes") },
       { to: "/dsj", label: "Calculadora DJPMN", icon: Calculator },
@@ -92,7 +92,7 @@ export default function AppLayout() {
                   </div>
                   <div className="grid flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-semibold text-sidebar-foreground">{t("app_name")}</span>
-                    <span className="truncate text-xs text-sidebar-foreground/55">Control de producción</span>
+                    <span className="truncate text-xs text-sidebar-foreground/55">Dashboard</span>
                   </div>
                 </NavLink>
               </SidebarMenuButton>

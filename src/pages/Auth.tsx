@@ -100,7 +100,7 @@ export default function Auth() {
           </div>
           <div>
             <p className="text-sm font-semibold">{t("app_name")}</p>
-            <p className="text-xs text-sidebar-foreground/55">Control de producción</p>
+            <p className="text-xs text-sidebar-foreground/55">Dashboard</p>
           </div>
         </div>
 
@@ -110,7 +110,7 @@ export default function Auth() {
             Acceso seguro
           </div>
           <h1 className="text-4xl font-semibold tracking-tight">
-            Control de producción citrícola.
+            Dashboard citrícola.
           </h1>
           <p className="mt-4 text-sm leading-6 text-sidebar-foreground/68">
             Producción diaria, DJPMN, stock, consumos y asistencia en una herramienta de control para planta.
@@ -127,7 +127,7 @@ export default function Auth() {
               <Citrus className="h-6 w-6" />
             </div>
             <CardTitle>{t("app_name")}</CardTitle>
-            <CardDescription>Control de producción citrícola</CardDescription>
+            <CardDescription>Dashboard citrícola</CardDescription>
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="signin">

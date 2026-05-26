@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 
 const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: string; parentLabel?: string }> = {
   "/": {
-    label: "Control de producción",
+    label: "Dashboard",
     subtitle: "Seguimiento diario de producción, DJPMN, stock, consumos y asistencia",
   },
   "/partes": {
@@ -111,7 +111,7 @@ function TopBar() {
           </BreadcrumbList>
         </Breadcrumb>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">
-          {meta?.subtitle ?? "Control de producción Lasarte"}
+          {meta?.subtitle ?? "Dashboard"}
         </p>
       </div>
 
