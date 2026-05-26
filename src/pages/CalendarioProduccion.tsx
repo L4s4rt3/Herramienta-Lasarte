@@ -52,22 +52,22 @@ function KPIStatCards({ monthPartes, totalDays }: { monthPartes: Parte[]; totalD
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
       {items.map((item) => (
         <Card key={item.label} className={cn("border shadow-sm", item.border)}>
-          <CardContent className="p-5">
+          <CardContent className="p-4">
             <div className="flex items-start justify-between">
-              <div className="space-y-1.5">
-                <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{item.label}</p>
-                <p className={cn("text-3xl font-bold tabular-nums", item.color)}>{item.value}</p>
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{item.label}</p>
+                <p className={cn("text-2xl font-bold tabular-nums", item.color)}>{item.value}</p>
               </div>
-              <item.icon className={cn("h-7 w-7 mt-0.5", item.color)} />
+              <item.icon className={cn("h-5 w-5 mt-0.5", item.color)} />
             </div>
             {item.trend && (
-              <p className="text-xs text-muted-foreground mt-2">{item.trend}</p>
+              <p className="text-xs text-muted-foreground mt-1">{item.trend}</p>
             )}
             {item.label === "Días OK" && coverage > 0 && (
-              <div className="mt-3 h-1.5 bg-muted rounded-full overflow-hidden">
+              <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
                 <div className={cn("h-full rounded-full", nVerde > 0 ? "bg-emerald-500" : "bg-transparent")} style={{ width: `${(nVerde / coverage) * 100}%` }} />
               </div>
             )}
@@ -107,15 +107,15 @@ function CalendarHeader({
 
 function MonthNavigator({ currentMonth, onPrev, onNext }: { currentMonth: Date; onPrev: () => void; onNext: () => void }) {
   return (
-    <div className="flex items-center justify-between mb-3">
-      <Button variant="ghost" size="sm" className="h-10 w-10 p-0" onClick={onPrev}>
-        <ChevronLeft className="h-6 w-6" />
+    <div className="flex items-center justify-between mb-2">
+      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={onPrev}>
+        <ChevronLeft className="h-5 w-5" />
       </Button>
-      <h2 className="text-xl font-bold capitalize">
+      <h2 className="text-lg font-bold capitalize">
         {format(currentMonth, "MMMM yyyy", { locale: es })}
       </h2>
-      <Button variant="ghost" size="sm" className="h-10 w-10 p-0" onClick={onNext}>
-        <ChevronRight className="h-6 w-6" />
+      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={onNext}>
+        <ChevronRight className="h-5 w-5" />
       </Button>
     </div>
   );
@@ -193,7 +193,7 @@ function CalendarDayCell({
             onClick={() => onClick(day)}
             disabled={!isCurrentMonth && !parte}
             className={cn(
-              "relative w-full flex flex-col items-center justify-center rounded-xl border p-5 transition-all min-h-[110px]",
+              "relative w-full flex flex-col items-center justify-center rounded-xl border p-3 transition-all min-h-[90px]",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               !isCurrentMonth && !parte && "border-transparent",
               isCurrentMonth && !parte && "border-dashed border-muted-foreground/20 bg-muted/10",
@@ -205,7 +205,7 @@ function CalendarDayCell({
             )}
           >
             <span className={cn(
-              "text-base font-bold leading-tight",
+              "text-sm font-bold leading-tight",
               !isCurrentMonth && "text-muted-foreground/40",
               isTodayDate && "text-primary font-bold",
               isAbsent && "text-muted-foreground/50",
@@ -215,15 +215,15 @@ function CalendarDayCell({
             {parte && meta && (
               <>
                 <span className={cn(
-                  "text-sm font-bold tabular-nums mt-1.5 leading-tight",
+                  "text-xs font-bold tabular-nums mt-1 leading-tight",
                   meta.text,
                 )}>
                   {parte.cascade.dsj_pct > 0 ? "+" : ""}{parte.cascade.dsj_pct.toFixed(1)}%
                 </span>
-                <span className={cn("h-2 w-12 rounded-full mt-1.5", meta.dot)} />
+                <span className={cn("h-1.5 w-10 rounded-full mt-1", meta.dot)} />
               </>
             )}
-            {isAbsent && <span className="text-xs text-muted-foreground/40 mt-1.5">—</span>}
+            {isAbsent && <span className="text-xs text-muted-foreground/40 mt-1">—</span>}
           </button>
         </TooltipTrigger>
         {parte && meta && (
@@ -257,14 +257,14 @@ function CalendarGrid({
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-7 gap-2.5">
+      <div className="grid grid-cols-7 gap-2">
         {WEEKDAYS.map((wd) => (
-          <div key={wd} className="text-center text-sm font-bold text-muted-foreground uppercase tracking-wider py-2">
+          <div key={wd} className="text-center text-xs font-bold text-muted-foreground uppercase tracking-wider py-1">
             {wd}
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-2.5">
+      <div className="grid grid-cols-7 gap-2">
         {days.map((day) => (
           <CalendarDayCell
             key={day.toISOString()}
@@ -476,7 +476,7 @@ export default function CalendarioProduccion() {
       {/* Desktop: grid | sidebar  |  Mobile: stack + drawer */}
       <div className="mt-6 lg:grid lg:grid-cols-[1fr_360px] gap-6 items-start">
         <Card className="shadow-sm border">
-          <CardContent className="p-6 sm:p-8">
+          <CardContent className="p-5 sm:p-6">
             <MonthNavigator currentMonth={currentMonth} onPrev={() => setCurrentMonth(subMonths(currentMonth, 1))} onNext={() => setCurrentMonth(addMonths(currentMonth, 1))} />
             <div className="mt-4">
               <CalendarGrid currentMonth={currentMonth} dateParteMap={dateParteMap} selectedDate={selectedDate} onDayClick={handleDayClick} statusFilter={statusFilter} />
