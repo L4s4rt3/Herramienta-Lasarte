@@ -75,8 +75,9 @@ export default function CalibreAnalysis() {
     setLoading(true);
     const { data, error } = await supabase
       .from("calibres_dia")
-      .select("*, partes_diarios(date)")
-      .gte("created_at", since + "T00:00:00")
+      .select("*, partes_diarios!inner(date)")
+      .eq("source", "manual")
+      .gte("partes_diarios.date", since)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -88,7 +89,7 @@ export default function CalibreAnalysis() {
     const rows: CalibreDia[] = (data ?? []).map((r: any) => ({
       ...r,
       parte_date: r.partes_diarios?.date ?? null,
-    }));
+    })).sort((a, b) => (b.parte_date ?? "").localeCompare(a.parte_date ?? ""));
     setCalibres(rows);
     setLoading(false);
   }
@@ -152,19 +153,19 @@ export default function CalibreAnalysis() {
   const pctIndustria = kg_total > 0 ? (kg_industria / kg_total) * 100 : 0;
 
   return (
-    <Suspense fallback={<div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6"><Skeleton className="h-96" /></div>}>
-    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
-      <header className="flex items-start justify-between flex-wrap gap-3">
+    <Suspense fallback={<div className="page-shell"><Skeleton className="h-96" /></div>}>
+    <div className="page-shell">
+      <header className="page-header">
         <div>
-          <h1 className="text-2xl md:text-3xl font-semibold flex items-center gap-2">
-            <BarChart3 className="h-6 w-6 text-muted-foreground" />
+          <h1 className="page-title flex items-center gap-2">
+            <BarChart3 className="h-6 w-6 text-primary" />
             Análisis de calibres
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Curva de calibres, clase y destino — datos desde Informe_tamaños importado
+          <p className="page-subtitle">
+            Curva de calibres, clase y destino — filtrado por fecha del parte
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 rounded-lg border bg-muted/35 px-3 py-2">
           <label className="text-sm font-medium text-muted-foreground">Desde</label>
           <Input
             type="date"

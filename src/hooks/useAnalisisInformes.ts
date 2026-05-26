@@ -169,7 +169,7 @@ async function guardarEnSupabase(
   // 2. lotes_dia  (del informe produccion)
   const prodInforme = informes.find((i) => i.tipo === "produccion") as import("@/lib/parsers").ParsedProduccion | undefined;
   if (prodInforme && prodInforme.lotes.length > 0) {
-    await supabase.from("lotes_dia").delete().eq("part_id", partId);
+    await supabase.from("lotes_dia").delete().eq("part_id", partId).eq("source", "manual");
     ops.push(
       supabase.from("lotes_dia").insert(
         prodInforme.lotes.map((l) => ({
@@ -192,7 +192,7 @@ async function guardarEnSupabase(
   // 3. palets_dia
   const paletsInforme = informes.find((i) => i.tipo === "palets") as import("@/lib/parsers").ParsedPalets | undefined;
   if (paletsInforme && paletsInforme.palets.length > 0) {
-    await (supabase as any).from("palets_dia").delete().eq("part_id", partId);
+    await (supabase as any).from("palets_dia").delete().eq("part_id", partId).eq("source", "manual");
     ops.push(
       (supabase as any).from("palets_dia").insert(
         paletsInforme.palets.map((p) => ({
@@ -230,7 +230,7 @@ async function guardarEnSupabase(
   // 4. calibres_dia
   const calibresInforme = informes.find((i) => i.tipo === "calibres") as import("@/lib/parsers").ParsedCalibres | undefined;
   if (calibresInforme && calibresInforme.calibres.length > 0) {
-    await (supabase as any).from("calibres_dia").delete().eq("part_id", partId);
+    await (supabase as any).from("calibres_dia").delete().eq("part_id", partId).eq("source", "manual");
     ops.push(
       (supabase as any).from("calibres_dia").insert(
         calibresInforme.calibres.map((c) => ({
@@ -251,7 +251,7 @@ async function guardarEnSupabase(
   // 5. producto_dia
   const productoInforme = informes.find((i) => i.tipo === "producto") as import("@/lib/parsers").ParsedProducto | undefined;
   if (productoInforme && productoInforme.lineas.length > 0) {
-    await (supabase as any).from("producto_dia").delete().eq("part_id", partId);
+    await (supabase as any).from("producto_dia").delete().eq("part_id", partId).eq("source", "manual");
     ops.push(
       (supabase as any).from("producto_dia").insert(
         productoInforme.lineas.map((l) => ({

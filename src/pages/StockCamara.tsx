@@ -76,8 +76,9 @@ export default function StockCamara() {
     // palets_dia joined with partes_diarios for the date
     const { data, error } = await supabase
       .from("palets_dia")
-      .select("*, partes_diarios(date)")
-      .gte("created_at", since + "T00:00:00")
+      .select("*, partes_diarios!inner(date)")
+      .eq("source", "manual")
+      .gte("partes_diarios.date", since)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -89,7 +90,7 @@ export default function StockCamara() {
     const rows: PaletDia[] = (data ?? []).map((r: any) => ({
       ...r,
       parte_date: r.partes_diarios?.date ?? null,
-    }));
+    })).sort((a, b) => (b.parte_date ?? "").localeCompare(a.parte_date ?? ""));
     setPalets(rows);
     setLoading(false);
   }
@@ -153,19 +154,19 @@ export default function StockCamara() {
   }, [filtered]);
 
   return (
-    <Suspense fallback={<div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6"><Skeleton className="h-96" /></div>}>
-    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
-      <header className="flex items-start justify-between flex-wrap gap-3">
+    <Suspense fallback={<div className="page-shell"><Skeleton className="h-96" /></div>}>
+    <div className="page-shell">
+      <header className="page-header">
         <div>
-          <h1 className="text-2xl md:text-3xl font-semibold flex items-center gap-2">
-            <Warehouse className="h-6 w-6 text-muted-foreground" />
+          <h1 className="page-title flex items-center gap-2">
+            <Warehouse className="h-6 w-6 text-primary" />
             Stock en cámara
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Palets en cámara (Sit=S) y facturados (Sit=F) — fuente: informe palets importado
+          <p className="page-subtitle">
+            Palets en cámara (Sit=S) y facturados (Sit=F) — filtrado por fecha del parte
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 rounded-lg border bg-muted/35 px-3 py-2">
           <label className="text-sm font-medium text-muted-foreground">Desde</label>
           <Input
             type="date"
@@ -177,7 +178,7 @@ export default function StockCamara() {
       </header>
 
       {/* KPIs */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="metric-strip">
         {loading ? (
           Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28" />)
         ) : (
