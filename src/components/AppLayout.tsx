@@ -9,13 +9,11 @@ import {
   Users,
   BarChart3,
   Sprout,
-  Sun,
-  Moon,
   CalendarDays,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
-import { useTheme } from "@/contexts/ThemeProvider";
-import { useI18n } from "@/lib/i18n";
+
+
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -70,8 +68,7 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
 
 export default function AppLayout() {
   const { signOut, user } = useAuth();
-  const { theme, toggleTheme } = useTheme();
-  const { t, lang, setLang } = useI18n();
+
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -91,7 +88,7 @@ export default function AppLayout() {
                     <Citrus className="size-5" />
                   </div>
                   <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold text-sidebar-foreground">{t("app_name")}</span>
+                    <span className="truncate font-semibold text-sidebar-foreground">Lasarte SAT</span>
                     <span className="truncate text-xs text-sidebar-foreground/55">Dashboard</span>
                   </div>
                 </NavLink>
@@ -131,33 +128,7 @@ export default function AppLayout() {
           <SidebarMenu>
             <SidebarMenuItem>
               <div className="flex flex-col gap-3 px-1 py-1">
-                <div className="flex gap-1 rounded-lg bg-sidebar-accent/55 p-1 group-data-[collapsible=icon]:hidden">
-                  {(["es", "en"] as const).map((l) => (
-                    <button
-                      key={l}
-                      onClick={() => setLang(l)}
-                      className={cn(
-                        "flex-1 rounded-md px-2 py-1.5 text-xs font-semibold uppercase transition-colors",
-                        lang === l
-                          ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                          : "text-sidebar-foreground/60 hover:bg-sidebar-accent/80"
-                      )}
-                    >
-                      {l}
-                    </button>
-                  ))}
-                  <button
-                    onClick={toggleTheme}
-                    className="flex items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent/80"
-                    title={theme === "dark" ? "Modo claro" : "Modo oscuro"}
-                  >
-                    {theme === "dark" ? (
-                      <Sun className="size-4" />
-                    ) : (
-                      <Moon className="size-4" />
-                    )}
-                  </button>
-                </div>
+
 
                 <div className="flex items-center gap-2 rounded-lg border border-sidebar-border/65 bg-sidebar-accent/35 p-2">
                   <Avatar className="size-8 shrink-0">
