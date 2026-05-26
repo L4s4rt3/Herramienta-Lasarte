@@ -9,27 +9,78 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Badge } from "@/components/ui/badge";
 
-// ─── Route metadata ────────────────────────────────────────────────────────────
-const ROUTE_META: Record<string, { label: string; parent?: string; parentLabel?: string }> = {
-  "/":                       { label: "Dashboard" },
-  "/partes":                 { label: "Partes", parent: "/", parentLabel: "Dashboard" },
-  "/dsj":                    { label: "Calculadora DJPMN", parent: "/", parentLabel: "Dashboard" },
-  "/costes/consumos":        { label: "Consumos", parent: "/", parentLabel: "Dashboard" },
-  "/costes/asistencia":      { label: "Asistencia", parent: "/", parentLabel: "Dashboard" },
-  "/stock":                  { label: "Stock en cámara", parent: "/", parentLabel: "Dashboard" },
-  "/productores":            { label: "Productores", parent: "/", parentLabel: "Dashboard" },
-  "/analisis/calibres":      { label: "Calibres", parent: "/", parentLabel: "Dashboard" },
-  "/analisis/informes":      { label: "Análisis Informes", parent: "/", parentLabel: "Dashboard" },
-  "/analisis/diario":        { label: "Análisis Diario", parent: "/", parentLabel: "Dashboard" },
-  "/calendario":             { label: "Calendario", parent: "/", parentLabel: "Dashboard" },
+const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: string; parentLabel?: string }> = {
+  "/": {
+    label: "Control de producción",
+    subtitle: "Seguimiento diario de producción, DJPMN, stock, consumos y asistencia",
+  },
+  "/partes": {
+    label: "Partes",
+    subtitle: "Reconciliación diaria y seguimiento de descuadres",
+    parent: "/",
+    parentLabel: "Control",
+  },
+  "/dsj": {
+    label: "Calculadora DJPMN",
+    subtitle: "Simulación y validación de diferencias sin justificar",
+    parent: "/",
+    parentLabel: "Control",
+  },
+  "/costes/consumos": {
+    label: "Consumos",
+    subtitle: "Control operativo de recursos y consumos físicos",
+    parent: "/",
+    parentLabel: "Control",
+  },
+  "/costes/asistencia": {
+    label: "Asistencia",
+    subtitle: "Seguimiento de turnos, horas y equipos",
+    parent: "/",
+    parentLabel: "Control",
+  },
+  "/stock": {
+    label: "Stock en cámara",
+    subtitle: "Inventario disponible y trazabilidad de cámara",
+    parent: "/",
+    parentLabel: "Control",
+  },
+  "/productores": {
+    label: "Productores",
+    subtitle: "Análisis de origen, rendimiento y comportamiento",
+    parent: "/",
+    parentLabel: "Control",
+  },
+  "/analisis/calibres": {
+    label: "Calibres",
+    subtitle: "Distribución de calibre y lectura por día",
+    parent: "/",
+    parentLabel: "Control",
+  },
+  "/analisis/informes": {
+    label: "Análisis informes",
+    subtitle: "Revisión estructurada de informes operativos",
+    parent: "/",
+    parentLabel: "Control",
+  },
+  "/analisis/diario": {
+    label: "Análisis diario",
+    subtitle: "Indicadores diarios de rendimiento y calidad",
+    parent: "/",
+    parentLabel: "Control",
+  },
+  "/calendario": {
+    label: "Calendario",
+    subtitle: "Planificación de producción y actividad",
+    parent: "/",
+    parentLabel: "Control",
+  },
 };
 
-// ─── Top bar ───────────────────────────────────────────────────────────────────
 function TopBar() {
   const location = useLocation();
 
-  // Match route (handles dynamic segments like /partes/:id)
   const baseRoute = Object.keys(ROUTE_META)
     .filter((r) => location.pathname === r || location.pathname.startsWith(r + "/"))
     .sort((a, b) => b.length - a.length)[0];
@@ -37,26 +88,36 @@ function TopBar() {
   const meta = baseRoute ? ROUTE_META[baseRoute] : null;
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
-      <SidebarTrigger className="-ml-1" />
-      <Separator orientation="vertical" className="mr-2 h-4" />
-      <Breadcrumb>
-        <BreadcrumbList>
-          {meta?.parent && (
-            <>
-              <BreadcrumbItem className="hidden md:block">
-                <BreadcrumbLink asChild>
-                  <NavLink to={meta.parent}>{meta.parentLabel}</NavLink>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator className="hidden md:block" />
-            </>
-          )}
-          <BreadcrumbItem>
-            <BreadcrumbPage>{meta?.label ?? "—"}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+    <header className="sticky top-0 z-20 flex min-h-16 shrink-0 items-center gap-3 border-b bg-background/82 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8">
+      <SidebarTrigger className="-ml-1 size-8 rounded-lg border bg-card shadow-sm" />
+      <Separator orientation="vertical" className="hidden h-6 sm:block" />
+
+      <div className="min-w-0 flex-1">
+        <Breadcrumb className="hidden sm:block">
+          <BreadcrumbList>
+            {meta?.parent && (
+              <>
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <NavLink to={meta.parent}>{meta.parentLabel}</NavLink>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+              </>
+            )}
+            <BreadcrumbItem>
+              <BreadcrumbPage>{meta?.label ?? "-"}</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          {meta?.subtitle ?? "Control de producción Lasarte"}
+        </p>
+      </div>
+
+      <Badge variant="outline" className="hidden rounded-md border-primary/20 bg-card/80 px-2.5 py-1 font-medium text-primary md:inline-flex">
+        Producción
+      </Badge>
     </header>
   );
 }

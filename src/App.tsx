@@ -29,8 +29,11 @@ const Calendario = lazy(() => import("./pages/CalendarioProduccion"));
 const queryClient = new QueryClient();
 
 const LoadingFallback = () => (
-  <div className="flex items-center justify-center min-h-screen">
-    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+  <div className="flex min-h-screen items-center justify-center bg-background">
+    <div className="flex items-center gap-3 rounded-lg border bg-card px-5 py-4 shadow-[var(--shadow-card)]">
+      <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/25 border-t-primary" />
+      <span className="text-sm font-medium text-muted-foreground">Cargando herramienta...</span>
+    </div>
   </div>
 );
 

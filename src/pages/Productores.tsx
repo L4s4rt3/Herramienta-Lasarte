@@ -77,8 +77,8 @@ export default function Productores() {
     setLoading(true);
     const { data, error } = await supabase
       .from("lotes_dia")
-      .select("*, partes_diarios(date)")
-      .gte("created_at", since + "T00:00:00")
+      .select("*, partes_diarios!inner(date)")
+      .gte("partes_diarios.date", since)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -90,7 +90,7 @@ export default function Productores() {
     const rows: LoteDia[] = (data ?? []).map((r: any) => ({
       ...r,
       parte_date: r.partes_diarios?.date ?? null,
-    }));
+    })).sort((a, b) => (b.parte_date ?? "").localeCompare(a.parte_date ?? ""));
     setLotes(rows);
     setLoading(false);
   }
@@ -110,9 +110,12 @@ export default function Productores() {
       .map(([productor, ls]) => {
         const kg_total = ls.reduce((s, l) => s + (l.kg_peso_total ?? 0), 0);
         const lotesConTph = ls.filter((l) => l.toneladas_hora && l.toneladas_hora > 0);
+        const totalMin = lotesConTph.reduce((s, l) => s + (l.duracion_min ?? 0), 0);
         const tph_promedio =
           lotesConTph.length > 0
-            ? lotesConTph.reduce((s, l) => s + l.toneladas_hora!, 0) / lotesConTph.length
+            ? totalMin > 0
+              ? lotesConTph.reduce((s, l) => s + l.toneladas_hora! * (l.duracion_min ?? 1), 0) / totalMin
+              : lotesConTph.reduce((s, l) => s + l.toneladas_hora!, 0) / lotesConTph.length
             : null;
         const lotesConPeso = ls.filter((l) => l.peso_fruta_promedio_g && l.peso_fruta_promedio_g > 0);
         const peso_fruta_promedio_g =
@@ -160,29 +163,30 @@ export default function Productores() {
 
   // KPIs globales
   const totalKg = byProductor.reduce((s, p) => s + p.kg_total, 0);
+  const lotesConTph = lotes.filter((l) => l.toneladas_hora && l.toneladas_hora > 0);
+  const totalMin = lotesConTph.reduce((s, l) => s + (l.duracion_min ?? 0), 0);
   const avgTph =
-    byProductor.filter((p) => p.tph_promedio !== null).length > 0
-      ? byProductor
-          .filter((p) => p.tph_promedio !== null)
-          .reduce((s, p) => s + p.tph_promedio!, 0) /
-        byProductor.filter((p) => p.tph_promedio !== null).length
+    lotesConTph.length > 0
+      ? totalMin > 0
+        ? lotesConTph.reduce((s, l) => s + l.toneladas_hora! * (l.duracion_min ?? 1), 0) / totalMin
+        : lotesConTph.reduce((s, l) => s + l.toneladas_hora!, 0) / lotesConTph.length
       : null;
   const nProductores = byProductor.length;
 
   return (
-    <Suspense fallback={<div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6"><Skeleton className="h-96" /></div>}>
-    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
-      <header className="flex items-start justify-between flex-wrap gap-3">
+    <Suspense fallback={<div className="page-shell"><Skeleton className="h-96" /></div>}>
+    <div className="page-shell">
+      <header className="page-header">
         <div>
-          <h1 className="text-2xl md:text-3xl font-semibold flex items-center gap-2">
-            <Users className="h-6 w-6 text-muted-foreground" />
+          <h1 className="page-title flex items-center gap-2">
+            <Users className="h-6 w-6 text-primary" />
             Productores
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Trazabilidad por productor · kg, T/h, peso fruta promedio — datos desde importación de informes
+          <p className="page-subtitle">
+            Trazabilidad por productor · kg, T/h, peso fruta promedio — filtrado por fecha del parte
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 rounded-lg border bg-muted/35 px-3 py-2">
           <label className="text-sm font-medium text-muted-foreground">Desde</label>
           <Input
             type="date"

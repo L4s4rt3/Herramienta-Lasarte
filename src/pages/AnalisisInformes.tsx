@@ -125,12 +125,12 @@ export default function AnalisisInformes() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
+    <div className="page-shell">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+      <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Análisis de Informes</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
+          <h1 className="page-title">Análisis de Informes</h1>
+          <p className="page-subtitle">
             Sube los informes Excel del calibrador y obtén KPIs, alertas y reporte ejecutivo
           </p>
         </div>

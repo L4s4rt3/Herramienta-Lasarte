@@ -8,6 +8,10 @@ import {
   Droplet,
   Users,
   BarChart3,
+  Boxes,
+  ChartNoAxesCombined,
+  ClipboardList,
+  Sprout,
   Sun,
   Moon,
   CalendarDays,
@@ -34,7 +38,42 @@ import {
 import { cn } from "@/lib/utils";
 import { TopBar } from "@/components/TopBar";
 
-// ─── App Layout ────────────────────────────────────────────────────────────────
+type NavItem = {
+  to: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  match?: (path: string) => boolean;
+};
+
+const navGroups: Array<{ label: string; items: NavItem[] }> = [
+  {
+    label: "Control",
+    items: [
+      { to: "/", label: "Control de producción", icon: LayoutDashboard, match: (path) => path === "/" },
+      { to: "/calendario", label: "Calendario", icon: CalendarDays },
+      { to: "/partes", label: "Partes diarios", icon: FileText, match: (path) => path.startsWith("/partes") },
+      { to: "/dsj", label: "Calculadora DJPMN", icon: Calculator },
+    ],
+  },
+  {
+    label: "Producción",
+    items: [
+      { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3 },
+      { to: "/analisis/calibres", label: "Calibres", icon: ChartNoAxesCombined },
+      { to: "/analisis/informes", label: "Informes", icon: ClipboardList },
+      { to: "/stock", label: "Stock en cámara", icon: Boxes },
+      { to: "/productores", label: "Productores", icon: Sprout },
+    ],
+  },
+  {
+    label: "Operaciones",
+    items: [
+      { to: "/costes/consumos", label: "Consumos", icon: Droplet },
+      { to: "/costes/asistencia", label: "Asistencia", icon: Users },
+    ],
+  },
+];
+
 export default function AppLayout() {
   const { signOut, user } = useAuth();
   const { theme, toggleTheme } = useTheme();
@@ -42,28 +81,24 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // User initials for avatar
   const initials = user?.email
     ? user.email.slice(0, 2).toUpperCase()
     : "??";
 
   return (
     <SidebarProvider>
-      {/* ── Sidebar ── */}
       <Sidebar collapsible="icon">
-
-        {/* Logo / App name */}
         <SidebarHeader>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton size="lg" asChild>
+              <SidebarMenuButton size="lg" asChild className="h-14">
                 <NavLink to="/">
-                  <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                    <Citrus className="size-4" />
+                  <div className="flex aspect-square size-10 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground shadow-lg shadow-orange-950/25">
+                    <Citrus className="size-5" />
                   </div>
                   <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold">{t("app_name")}</span>
-                    <span className="truncate text-xs text-muted-foreground">Citrus production</span>
+                    <span className="truncate font-semibold text-sidebar-foreground">{t("app_name")}</span>
+                    <span className="truncate text-xs text-sidebar-foreground/55">Control de producción</span>
                   </div>
                 </NavLink>
               </SidebarMenuButton>
@@ -72,137 +107,46 @@ export default function AppLayout() {
         </SidebarHeader>
 
         <SidebarContent>
+          {navGroups.map((group) => (
+            <SidebarGroup key={group.label}>
+              <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+              <SidebarMenu>
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  const active = item.match
+                    ? item.match(location.pathname)
+                    : location.pathname === item.to;
 
-          {/* ── Main nav ── */}
-          <SidebarGroup>
-            <SidebarGroupLabel>Navegación</SidebarGroupLabel>
-            <SidebarMenu>
-
-              {/* Dashboard */}
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location.pathname === "/"} tooltip={t("dashboard")}>
-                  <NavLink to="/" end>
-                    <LayoutDashboard />
-                    <span>{t("dashboard")}</span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-
-              {/* Calendario */}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location.pathname === "/calendario"}
-                  tooltip="Calendario"
-                >
-                  <NavLink to="/calendario">
-                    <CalendarDays />
-                    <span>Calendario</span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-
-              {/* Partes */}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location.pathname.startsWith("/partes")}
-                  tooltip={t("partes")}
-                >
-                  <NavLink to="/partes">
-                    <FileText />
-                    <span>{t("partes")}</span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-
-              {/* Calculadora */}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location.pathname === "/dsj"}
-                  tooltip="Calculadora DJPMN"
-                >
-                  <NavLink to="/dsj">
-                    <Calculator />
-                    <span>Calculadora DJPMN</span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-
-            </SidebarMenu>
-          </SidebarGroup>
-
-          {/* ── Producción ── */}
-          <SidebarGroup>
-            <SidebarGroupLabel>Producción</SidebarGroupLabel>
-            <SidebarMenu>
-              {/* Análisis diario */}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location.pathname === "/analisis/diario"}
-                  tooltip="Análisis Diario"
-                >
-                  <NavLink to="/analisis/diario">
-                    <BarChart3 />
-                    <span>Análisis Diario</span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroup>
-
-          {/* ── Consumos y asistencia ── */}
-          <SidebarGroup>
-            <SidebarGroupLabel>Operaciones</SidebarGroupLabel>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location.pathname === "/costes/consumos"}
-                  tooltip="Consumos"
-                >
-                  <NavLink to="/costes/consumos">
-                    <Droplet />
-                    <span>Consumos</span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location.pathname === "/costes/asistencia"}
-                  tooltip="Asistencia"
-                >
-                  <NavLink to="/costes/asistencia">
-                    <Users />
-                    <span>Asistencia</span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroup>
-
+                  return (
+                    <SidebarMenuItem key={item.to}>
+                      <SidebarMenuButton asChild isActive={active} tooltip={item.label}>
+                        <NavLink to={item.to} end={item.to === "/"}>
+                          <Icon />
+                          <span>{item.label}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroup>
+          ))}
         </SidebarContent>
 
-        {/* ── Footer: idioma + usuario + logout ── */}
         <SidebarFooter>
           <SidebarMenu>
             <SidebarMenuItem>
-              <div className="flex flex-col gap-2 px-1 py-1">
-
-                {/* Language switcher + theme toggle */}
-                <div className="flex gap-1 group-data-[collapsible=icon]:hidden">
+              <div className="flex flex-col gap-3 px-1 py-1">
+                <div className="flex gap-1 rounded-lg bg-sidebar-accent/55 p-1 group-data-[collapsible=icon]:hidden">
                   {(["es", "en"] as const).map((l) => (
                     <button
                       key={l}
                       onClick={() => setLang(l)}
                       className={cn(
-                        "flex-1 rounded-md px-2 py-1 text-xs font-medium uppercase transition-colors",
+                        "flex-1 rounded-md px-2 py-1.5 text-xs font-semibold uppercase transition-colors",
                         lang === l
                           ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                          : "text-sidebar-foreground/60 hover:bg-sidebar-accent"
+                          : "text-sidebar-foreground/60 hover:bg-sidebar-accent/80"
                       )}
                     >
                       {l}
@@ -210,7 +154,7 @@ export default function AppLayout() {
                   ))}
                   <button
                     onClick={toggleTheme}
-                    className="flex items-center justify-center rounded-md px-2 py-1 text-xs font-medium transition-colors text-sidebar-foreground/60 hover:bg-sidebar-accent"
+                    className="flex items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent/80"
                     title={theme === "dark" ? "Modo claro" : "Modo oscuro"}
                   >
                     {theme === "dark" ? (
@@ -221,10 +165,9 @@ export default function AppLayout() {
                   </button>
                 </div>
 
-                {/* User row */}
-                <div className="flex items-center gap-2">
-                  <Avatar className="size-7 shrink-0">
-                    <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
+                <div className="flex items-center gap-2 rounded-lg border border-sidebar-border/65 bg-sidebar-accent/35 p-2">
+                  <Avatar className="size-8 shrink-0">
+                    <AvatarFallback className="bg-sidebar-primary/15 text-sidebar-primary text-xs font-semibold">
                       {initials}
                     </AvatarFallback>
                   </Avatar>
@@ -244,20 +187,17 @@ export default function AppLayout() {
                     <LogOut className="size-4" />
                   </Button>
                 </div>
-
               </div>
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarFooter>
 
-        {/* Rail for resize hint */}
         <SidebarRail />
       </Sidebar>
 
-      {/* ── Main content ── */}
       <SidebarInset>
         <TopBar />
-        <div className="flex flex-1 flex-col gap-4 p-4 animate-fadeIn">
+        <div className="flex flex-1 flex-col px-4 py-5 animate-fadeIn sm:px-6 lg:px-8">
           <Outlet />
         </div>
       </SidebarInset>

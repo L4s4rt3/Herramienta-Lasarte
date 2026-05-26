@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Loader2, Calendar, AlertTriangle, Search, RefreshCw, FileText, BarChart3, FilterX,
+  Loader2, Calendar, Search, RefreshCw, FileText, BarChart3, FilterX,
+  Gauge, PackageCheck, Timer,
 } from "lucide-react";
 import { useAnalisisDiario } from "@/hooks/useAnalisisDiario";
 import type { LoteResumen, ClaseResumen, GrupoClasificacionResumen } from "@/hooks/useAnalisisDiario";
@@ -28,6 +29,11 @@ function formatFechaLarga(iso: string): string {
   if (!iso || iso === "—") return "—";
   const [y, m, d] = iso.split("-");
   return `${d}/${m}/${y}`;
+}
+
+function formatHoras(min: number): string {
+  if (!min) return "—";
+  return `${(min / 60).toFixed(1)} h`;
 }
 
 function daysAgo(n: number): string {
@@ -87,12 +93,12 @@ export default function AnalisisDiario() {
   }, [data.lotes, searchLower]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="page-shell">
+      <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Análisis Diario</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">
-            Clasificación por categoría y grupo de destino · {formatFechaLarga(desde)} — {formatFechaLarga(hasta)}
+          <h1 className="page-title">Análisis Diario</h1>
+          <p className="page-subtitle">
+            Ritmo de producción, lotes y clasificación · {formatFechaLarga(desde)} — {formatFechaLarga(hasta)}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()} disabled={loading}>
@@ -101,7 +107,7 @@ export default function AnalisisDiario() {
         </Button>
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between flex-wrap">
+      <div className="section-toolbar">
         <div className="flex items-center gap-2 flex-wrap">
           {(["7d", "30d", "90d", "custom"] as Periodo[]).map((p) => (
             <Button
@@ -155,9 +161,9 @@ export default function AnalisisDiario() {
       {!loading && hayDatos && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <KpiMini icon={<Calendar className="size-4" />} label="Días" value={data.totals.n_dias} />
-          <KpiMini icon={<Calendar className="size-4" />} label="Clases" value={data.clases.length} sub={formatKg(data.totals.kg_calibres)} />
-          <KpiMini icon={<Calendar className="size-4" />} label="Grupos" value={data.grupos.length} />
-          <KpiMini icon={<Calendar className="size-4" />} label="Lotes" value={data.totals.n_lotes} sub={formatKg(data.totals.kg_lotes)} />
+          <KpiMini icon={<PackageCheck className="size-4" />} label="Kg en lotes" value={data.totals.n_lotes} sub={formatKg(data.totals.kg_lotes)} />
+          <KpiMini icon={<Gauge className="size-4" />} label="Velocidad media" value={data.totals.avg_tph ? Number(data.totals.avg_tph.toFixed(1)) : 0} sub={data.totals.avg_tph ? "T/h" : "sin datos"} />
+          <KpiMini icon={<Timer className="size-4" />} label="Horas / lotes lentos" value={data.totals.n_lotes_lentos} sub={formatHoras(data.totals.total_min)} />
         </div>
       )}
 
@@ -182,27 +188,27 @@ export default function AnalisisDiario() {
       )}
 
       {!loading && hayDatos && (
-        <Tabs defaultValue="clase" className="w-full">
+        <Tabs defaultValue="lotes" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="lotes">
+              Lotes <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5">{filteredLotes.length}</Badge>
+            </TabsTrigger>
             <TabsTrigger value="clase">
               Clase <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5">{filteredClases.length}</Badge>
             </TabsTrigger>
             <TabsTrigger value="grupo">
               Grupo <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5">{filteredGrupos.length}</Badge>
             </TabsTrigger>
-            <TabsTrigger value="lotes">
-              Lotes <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5">{filteredLotes.length}</Badge>
-            </TabsTrigger>
           </TabsList>
 
+          <TabsContent value="lotes">
+            <TabLotes data={filteredLotes} />
+          </TabsContent>
           <TabsContent value="clase">
             <TabClases data={filteredClases} totalKg={data.totals.kg_calibres} />
           </TabsContent>
           <TabsContent value="grupo">
             <TabGrupos data={filteredGrupos} totalKg={data.totals.kg_calibres} />
-          </TabsContent>
-          <TabsContent value="lotes">
-            <TabLotes data={filteredLotes} />
           </TabsContent>
         </Tabs>
       )}

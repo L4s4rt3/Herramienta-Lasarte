@@ -132,13 +132,13 @@ export default function PartesList() {
   const hasFilter = filter.search || filter.estado !== "todos" || filter.soloAlertas;
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
+    <div className="page-shell">
 
       {/* Header */}
-      <header className="flex items-start justify-between flex-wrap gap-3">
+      <header className="page-header">
         <div>
-          <h1 className="text-2xl md:text-3xl font-semibold">{t("partes")}</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
+          <h1 className="page-title">{t("partes")}</h1>
+          <p className="page-subtitle">
             Reconciliación diaria de masa
             {!loading && <> · <span className="font-medium text-foreground">{allPartes.length}</span> partes</>}
             {!loading && partes.length > 0 && (
@@ -153,7 +153,7 @@ export default function PartesList() {
       </header>
 
       {/* Toolbar */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center flex-wrap">
+      <div className="section-toolbar">
         {/* Crear parte */}
         <div className="flex items-center gap-2">
           <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
@@ -249,8 +249,8 @@ export default function PartesList() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/40 border-b">
+              <table className="data-table">
+                <thead>
                   <tr>
                     <ColHead label="Fecha"         sk="date"         sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
                     <ColHead label="Estado"        sk="estado"       sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
@@ -259,12 +259,11 @@ export default function PartesList() {
                     <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-left">% DJPMN</th>
                     <ColHead label="DJPMN (kg)"   sk="dsj_pct"      sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
                     <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-right whitespace-nowrap">Mermas</th>
-                    <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-right whitespace-nowrap">T/h</th>
                     <th className="w-10" />
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-border/60">
+                <tbody>
                   {sorted.map((p) => {
                     const abs = Math.abs(p.cascade.dsj_pct);
                     return (
@@ -290,9 +289,6 @@ export default function PartesList() {
                           {formatKg(p.cascade.dsj)}
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{formatKg(p.cascade.mermas_totales)}</td>
-                        <td className="px-4 py-3 text-right tabular-nums text-muted-foreground text-xs">
-                          {p.cascade.tph_promedio ? `${p.cascade.tph_promedio.toFixed(1)} T/h` : "—"}
-                        </td>
                         <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
@@ -336,7 +332,6 @@ export default function PartesList() {
                         {formatKg(totals.dsj)}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums text-muted-foreground font-semibold">{formatKg(totals.mermas_totales)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground text-xs">—</td>
                       <td />
                     </tr>
                   </tfoot>

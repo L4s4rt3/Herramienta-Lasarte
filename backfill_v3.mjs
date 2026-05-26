@@ -2,8 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import * as XLSX from 'xlsx';
 
 const supabase = createClient(
-  'https://lhbmxmdjyrbhjcsazhqi.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoYm14bWRqeXJiaGpjc2F6aHFpIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzUwNTIzOSwiZXhwIjoyMDkzMDgxMjM5fQ.4e2bjg_kD0aPsz8uFCH8IrQIRzAnqJvxQdUCyc5lrg0'
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
 );
 
 function norm(s) { return String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim(); }

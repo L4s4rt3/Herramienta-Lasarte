@@ -39,14 +39,16 @@ function KPIStatCards({ presentes, ausentes, bajas, total, asistenciaPct }: {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
       {items.map((item) => (
-        <Card key={item.label} className={cn("border shadow-sm", item.border)}>
+        <Card key={item.label} className={cn("overflow-hidden", item.border)}>
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div className="space-y-1.5">
-                <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{item.label}</p>
-                <p className={cn("text-3xl font-bold tabular-nums", item.color)}>{item.value}</p>
+                <p className="panel-kicker">{item.label}</p>
+                <p className={cn("text-3xl font-semibold tabular-nums", item.color)}>{item.value}</p>
               </div>
-              <item.icon className={cn("h-7 w-7 mt-0.5", item.color)} />
+              <div className={cn("rounded-lg border p-2", item.bg, item.border)}>
+                <item.icon className={cn("h-5 w-5", item.color)} />
+              </div>
             </div>
             {item.trend && (
               <p className="text-xs text-muted-foreground mt-2">{item.trend}</p>
@@ -434,12 +436,12 @@ export default function Asistencia() {
   // ─── Render ───────────────────────────────────────────────────────────
 
   return (
-    <div className="p-6 md:p-8 lg:p-10 mx-auto max-w-[1600px] space-y-6">
+    <div className="page-shell">
       {/* ── Header ──────────────────────────────────────────────── */}
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <header className="page-header">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Asistencia</h1>
-          <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5">
+          <h1 className="page-title">Asistencia</h1>
+          <p className="page-subtitle flex items-center gap-1.5">
             <Calendar className="h-4 w-4" />
             <span className="capitalize">{fechaDisplay}</span>
           </p>
@@ -470,13 +472,13 @@ export default function Asistencia() {
       />
 
       {/* ── Main Grid ───────────────────────────────────────────── */}
-      <div className="lg:grid lg:grid-cols-[1fr_360px] gap-6 items-start">
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] gap-6 items-start">
         {/* Left: Attendance */}
         <div className="space-y-6">
-          <Card className="shadow-sm border">
-            <CardContent className="p-6 sm:p-8">
+          <Card>
+            <CardContent className="p-5 sm:p-6">
               {/* Search + actions bar */}
-              <div className="flex flex-wrap items-center gap-3 mb-6">
+              <div className="section-toolbar mb-6 shadow-none">
                 <div className="relative flex-1 min-w-[180px]">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
@@ -501,7 +503,7 @@ export default function Asistencia() {
               </div>
 
               {/* Stats summary */}
-              <div className="flex flex-wrap items-center gap-4 mb-6 text-sm">
+              <div className="mb-6 grid gap-3 rounded-lg border bg-muted/35 p-3 text-sm sm:grid-cols-4">
                 <span className="inline-flex items-center gap-1.5 text-emerald-600 font-medium">
                   <UserCheck className="h-4 w-4" /> {presentesCount} presentes
                 </span>
@@ -509,7 +511,7 @@ export default function Asistencia() {
                   <UserX className="h-4 w-4" /> {ausentesCount} ausentes
                 </span>
                 {sinRegistro > 0 && (
-                  <span className="text-muted-foreground">? {sinRegistro} sin registro</span>
+                  <span className="text-muted-foreground">{sinRegistro} sin registro</span>
                 )}
                 <span className="text-muted-foreground">de {totalActivos} activos</span>
               </div>

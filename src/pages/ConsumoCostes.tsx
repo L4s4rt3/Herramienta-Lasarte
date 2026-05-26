@@ -277,11 +277,11 @@ export default function ConsumoCostes() {
   const loading = loadingMaquinas || loadingSesiones;
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
-      <header className="flex items-center justify-between flex-wrap gap-3">
+    <div className="page-shell">
+      <header className="page-header">
         <div>
-          <h1 className="text-2xl md:text-3xl">Consumos físicos</h1>
-          <p className="text-sm text-muted-foreground">Agua · Electricidad · Gasoil · Químicos por kg de naranja</p>
+          <h1 className="page-title">Consumos físicos</h1>
+          <p className="page-subtitle">Agua · Electricidad · Gasoil · Químicos por kg de naranja</p>
         </div>
       </header>
 
@@ -291,18 +291,23 @@ export default function ConsumoCostes() {
           <Skeleton className="h-64" />
         </div>
       ) : (
-        <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid w-full grid-cols-4">
+        <Tabs value={tab} onValueChange={setTab} className="space-y-4">
+          <div className="section-toolbar">
+          <TabsList className="grid w-full grid-cols-2 md:w-auto md:grid-cols-4">
             <TabsTrigger value="sesion"><Save className="h-4 w-4 mr-1.5" />Sesión</TabsTrigger>
             <TabsTrigger value="resultados"><BarChart3 className="h-4 w-4 mr-1.5" />Resultados</TabsTrigger>
             <TabsTrigger value="maquinas"><Settings className="h-4 w-4 mr-1.5" />Máquinas</TabsTrigger>
             <TabsTrigger value="historico"><History className="h-4 w-4 mr-1.5" />Histórico</TabsTrigger>
           </TabsList>
+          </div>
 
           {/* ════════ SESIÓN ════════ */}
           <TabsContent value="sesion" className="space-y-4">
             <Card>
-              <CardHeader><CardTitle className="text-lg">Nueva sesión</CardTitle></CardHeader>
+              <CardHeader>
+                <p className="panel-kicker">Registro</p>
+                <CardTitle>Nueva sesión</CardTitle>
+              </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-1.5">
                   <Label>Fecha inicio</Label>
@@ -351,7 +356,10 @@ export default function ConsumoCostes() {
             {/* kWh por máquina */}
             {maquinas.length > 0 && (
               <Card>
-                <CardHeader><CardTitle className="text-lg">Consumo por máquina (kWh)</CardTitle></CardHeader>
+                <CardHeader>
+                  <p className="panel-kicker">Detalle energético</p>
+                  <CardTitle>Consumo por máquina (kWh)</CardTitle>
+                </CardHeader>
                 <CardContent className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                   {maquinas.map((m) => (
                     <div key={m.id} className="space-y-1.5">
@@ -402,7 +410,8 @@ export default function ConsumoCostes() {
                 {/* Métricas acumuladas */}
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-lg">Resumen acumulado ({sesiones.length} sesiones, {formatNumber(resultados.totalKg)} kg totales)</CardTitle>
+                    <p className="panel-kicker">Acumulado</p>
+                    <CardTitle>Resumen ({sesiones.length} sesiones, {formatNumber(resultados.totalKg)} kg)</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

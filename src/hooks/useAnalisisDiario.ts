@@ -46,6 +46,9 @@ export interface AnalisisDiarioData {
     n_lotes: number;
     kg_lotes: number;
     kg_calibres: number;
+    avg_tph: number | null;
+    total_min: number;
+    n_lotes_lentos: number;
   };
   lotes: LoteResumen[];
   clases: ClaseResumen[];
@@ -54,7 +57,7 @@ export interface AnalisisDiarioData {
 
 export function useAnalisisDiario(desde: string, hasta: string) {
   const [data, setData] = useState<AnalisisDiarioData>({
-    totals: { n_dias: 0, n_lotes: 0, kg_lotes: 0, kg_calibres: 0 },
+    totals: { n_dias: 0, n_lotes: 0, kg_lotes: 0, kg_calibres: 0, avg_tph: null, total_min: 0, n_lotes_lentos: 0 },
     lotes: [],
     clases: [],
     grupos: [],
@@ -83,7 +86,7 @@ export function useAnalisisDiario(desde: string, hasta: string) {
 
       if (partIds.length === 0) {
         setData({
-          totals: { n_dias: 0, n_lotes: 0, kg_lotes: 0, kg_calibres: 0 },
+          totals: { n_dias: 0, n_lotes: 0, kg_lotes: 0, kg_calibres: 0, avg_tph: null, total_min: 0, n_lotes_lentos: 0 },
           lotes: [],
           clases: [],
           grupos: [],
@@ -190,6 +193,13 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       }));
 
       const kg_lotes = lotesAll.reduce((s, l) => s + l.kg_peso_total, 0);
+      const lotesConTph = lotesAll.filter((l) => l.toneladas_hora !== null && l.toneladas_hora > 0);
+      const totalMin = lotesConTph.reduce((s, l) => s + (l.duracion_min ?? 0), 0);
+      const avgTph = lotesConTph.length > 0
+        ? totalMin > 0
+          ? lotesConTph.reduce((s, l) => s + (l.toneladas_hora ?? 0) * (l.duracion_min ?? 1), 0) / totalMin
+          : lotesConTph.reduce((s, l) => s + (l.toneladas_hora ?? 0), 0) / lotesConTph.length
+        : null;
 
       setData({
         totals: {
@@ -197,6 +207,9 @@ export function useAnalisisDiario(desde: string, hasta: string) {
           n_lotes: lotesAll.length,
           kg_lotes,
           kg_calibres: kgCalibres,
+          avg_tph: avgTph,
+          total_min: totalMin,
+          n_lotes_lentos: lotesConTph.filter((l) => (l.toneladas_hora ?? 0) < 12).length,
         },
         lotes: lotesAll.sort((a, b) => b.fecha.localeCompare(a.fecha)),
         clases,

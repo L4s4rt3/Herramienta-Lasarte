@@ -86,10 +86,10 @@ function CalendarHeader({
   currentMonth: Date; onPrev: () => void; onNext: () => void; onToday: () => void; onExport: () => void;
 }) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div className="page-header">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Calendario de Producción</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Vista mensual con estado DJPMN por día</p>
+        <h1 className="page-title">Calendario de Producción</h1>
+        <p className="page-subtitle">Vista mensual con estado DJPMN por día</p>
       </div>
       <div className="flex items-center gap-2">
         <Button variant="outline" size="sm" onClick={onToday}>
@@ -449,7 +449,7 @@ export default function CalendarioProduccion() {
 
   if (loading) {
     return (
-      <div className="p-6 space-y-6">
+      <div className="page-shell">
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-6 w-96" />
         <div className="grid grid-cols-5 gap-3">
@@ -461,7 +461,7 @@ export default function CalendarioProduccion() {
   }
 
   return (
-    <div className="p-8 md:p-10 lg:p-12 mx-auto max-w-[1600px]">
+    <div className="page-shell">
       <CalendarHeader currentMonth={currentMonth} onPrev={() => setCurrentMonth(subMonths(currentMonth, 1))} onNext={() => setCurrentMonth(addMonths(currentMonth, 1))} onToday={handleToday} onExport={handleExport} />
 
       <div className="mt-8">

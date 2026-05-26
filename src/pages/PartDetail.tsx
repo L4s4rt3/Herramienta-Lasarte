@@ -238,7 +238,7 @@ export default function PartDetail() {
 
   if (!parte || !cascade) {
     return (
-      <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-4">
+      <div className="page-shell">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-48" />
         <Skeleton className="h-64" />
@@ -247,14 +247,14 @@ export default function PartDetail() {
   }
 
   return (
-    <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <div className="page-shell">
+      <header className="page-header">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => navigate("/partes")}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-2xl md:text-3xl">Parte · {formatDate(parte.date)}</h1>
+            <h1 className="page-title">Parte · {formatDate(parte.date)}</h1>
             <div className="mt-1"><StatusBadge estado={parte.estado} /></div>
           </div>
         </div>
@@ -282,7 +282,10 @@ export default function PartDetail() {
       </header>
 
       <Card>
-        <CardHeader><CardTitle className="text-lg">Cascada DJPMN</CardTitle></CardHeader>
+        <CardHeader>
+          <p className="panel-kicker">Resultado del parte</p>
+          <CardTitle>Cascada DJPMN</CardTitle>
+        </CardHeader>
         <CardContent>
           <CascadeView result={cascade} />
           <p className="mt-4 text-xs text-muted-foreground">

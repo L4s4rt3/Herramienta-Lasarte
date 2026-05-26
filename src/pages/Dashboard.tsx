@@ -27,6 +27,11 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 
+type ProductionPaceData = {
+  avgTph: number | null;
+  loteCount: number;
+};
+
 // ─── Tooltip personalizado ───────────────────────────────────────────────────
 
 function ChartTooltip({ active, payload, label }: any) {
@@ -128,23 +133,31 @@ export default function Dashboard() {
     };
   }, [showYoY, allPartes]);
 
-  // T/h promedio últimos 30 días
-  const { data: tphData } = useQuery({
-    queryKey: ["dashboard-tph"],
+  // T/h promedio: resumen ejecutivo. El detalle vive en Analisis Diario y Productores.
+  const { data: paceData } = useQuery<ProductionPaceData | null>({
+    queryKey: ["dashboard-production-pace"],
     queryFn: async () => {
       const since = new Date();
       since.setDate(since.getDate() - 30);
+      const sinceStr = since.toISOString().slice(0, 10);
       const { data } = await supabase
         .from("lotes_dia")
-        .select("toneladas_hora, duracion_min")
-        .gte("created_at", since.toISOString())
+        .select("toneladas_hora, duracion_min, partes_diarios!inner(date)")
+        .gte("partes_diarios.date", sinceStr)
         .not("toneladas_hora", "is", null);
-      const rows = (data ?? []).filter((r: any) => r.toneladas_hora > 0);
+      const rows = (data ?? []).filter((row) => (row.toneladas_hora ?? 0) > 0);
       if (rows.length === 0) return null;
-      const totalMin = rows.reduce((s: number, r: any) => s + (r.duracion_min ?? 1), 0);
-      return totalMin > 0
-        ? rows.reduce((s: number, r: any) => s + r.toneladas_hora * (r.duracion_min ?? 1), 0) / totalMin
-        : rows.reduce((s: number, r: any) => s + r.toneladas_hora, 0) / rows.length;
+      const totalMin = rows.reduce((sum, row) => sum + (row.duracion_min ?? 0), 0);
+      const weightedTph = rows.reduce(
+        (sum, row) => sum + (row.toneladas_hora ?? 0) * (row.duracion_min ?? 1),
+        0
+      );
+      const simpleTph = rows.reduce((sum, row) => sum + (row.toneladas_hora ?? 0), 0);
+
+      return {
+        avgTph: totalMin > 0 ? weightedTph / totalMin : simpleTph / rows.length,
+        loteCount: rows.length,
+      };
     },
   });
 
@@ -154,18 +167,20 @@ export default function Dashboard() {
     [partes]
   );
 
+  const avgTph = paceData?.avgTph ?? null;
+
   return (
-    <div className="max-w-7xl mx-auto space-y-8">
+    <div className="page-shell">
 
       {/* ─── Header con acción principal ─────────────────────────────────── */}
-      <header className="flex items-start justify-between flex-wrap gap-4">
+      <header className="page-header">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Panel de Control</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Resumen operativo · últimos 30 días · {partes.length} partes
+          <h1 className="page-title">Control de Producción</h1>
+          <p className="page-subtitle">
+            Revisión de producción · últimos 30 días · {partes.length} partes
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant={showYoY ? "default" : "outline"}
             size="sm"
@@ -184,9 +199,44 @@ export default function Dashboard() {
         </div>
       </header>
 
+      {/* ─── KPIs principales ─────────────────────────────────────────────── */}
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {loading ? (
+          Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28" />)
+        ) : (
+          <>
+            <KPICard
+              label="Producción real"
+              value={formatKg(totals.produccion_real)}
+              hint={`${partes.length} partes analizados`}
+              icon={Truck}
+            />
+            <KPICard
+              label="Kg dados de alta"
+              value={formatKg(totals.palets_ajustados)}
+              icon={Package}
+            />
+            <KPICard
+              label="Dif. Sin Justificar"
+              value={formatKg(totals.dsj)}
+              hint={`${totals.dsj_pct >= 0 ? "+" : ""}${totals.dsj_pct.toFixed(2)}% sobre producción`}
+              icon={TrendingDown}
+              trend={Math.abs(totals.dsj_pct) <= 3 ? "up" : Math.abs(totals.dsj_pct) <= 5 ? "neutral" : "down"}
+            />
+            <KPICard
+              label="Velocidad media"
+              value={avgTph !== null ? `${avgTph.toFixed(1)} T/h` : "—"}
+              hint={`${paceData?.loteCount ?? 0} lotes con velocidad`}
+              icon={Gauge}
+              trend={avgTph !== null ? (avgTph >= 16 ? "up" : avgTph >= 12 ? "neutral" : "down") : "neutral"}
+            />
+          </>
+        )}
+      </section>
+
       {/* ─── Semáforo de estado (lo más importante, primero) ──────────────── */}
       {!loading && partes.length > 0 && (
-        <section className="grid grid-cols-3 gap-4">
+        <section className="grid gap-4 md:grid-cols-3">
           <SemaforoCard
             icon={CheckCircle2}
             label="OK"
@@ -213,41 +263,6 @@ export default function Dashboard() {
           />
         </section>
       )}
-
-      {/* ─── KPIs principales ─────────────────────────────────────────────── */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {loading ? (
-          Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28" />)
-        ) : (
-          <>
-            <KPICard
-              label="Producción real"
-              value={formatKg(totals.produccion_real)}
-              hint={`${partes.length} partes analizados`}
-              icon={Truck}
-            />
-            <KPICard
-              label="Palets ajustados"
-              value={formatKg(totals.palets_ajustados)}
-              icon={Package}
-            />
-            <KPICard
-              label="Dif. Sin Justificar"
-              value={formatKg(totals.dsj)}
-              hint={`${totals.dsj_pct >= 0 ? "+" : ""}${totals.dsj_pct.toFixed(2)}% sobre producción`}
-              icon={TrendingDown}
-              trend={Math.abs(totals.dsj_pct) <= 3 ? "up" : Math.abs(totals.dsj_pct) <= 5 ? "neutral" : "down"}
-            />
-            <KPICard
-              label="Eficiencia máquina"
-              value={tphData ? `${tphData.toFixed(1)} T/h` : "—"}
-              hint="promedio ponderado"
-              icon={Gauge}
-              trend={tphData ? (tphData >= 16 ? "up" : tphData >= 12 ? "neutral" : "down") : "neutral"}
-            />
-          </>
-        )}
-      </section>
 
       {/* ─── Year-over-Year comparison ──────────────────────────────────── */}
       {showYoY && yoyData && (
@@ -369,7 +384,7 @@ export default function Dashboard() {
       )}
 
       {/* ─── Gráfico (más espacio, lectura clara) ─────────────────────────── */}
-      <Card>
+      <Card className="overflow-hidden">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <div>
@@ -394,7 +409,7 @@ export default function Dashboard() {
               <p>Sin datos para mostrar</p>
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={320}>
+            <ResponsiveContainer width="100%" height={340}>
               <ComposedChart data={chartSeries} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                 <XAxis dataKey="label" fontSize={10} tick={{ fill: "hsl(var(--muted-foreground))" }} />
@@ -449,7 +464,7 @@ export default function Dashboard() {
       </Card>
 
       {/* ─── Partes recientes (compacto, accionable) ──────────────────────── */}
-      <Card>
+      <Card className="overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between pb-3">
           <div>
             <CardTitle className="text-lg font-semibold">Últimos partes</CardTitle>
@@ -515,4 +530,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
