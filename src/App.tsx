@@ -19,10 +19,7 @@ const DSJCalculator = lazy(() => import("./pages/DSJCalculator"));
 const ConsumoCostes = lazy(() => import("./pages/ConsumoCostes"));
 const Asistencia = lazy(() => import("./pages/Asistencia"));
 const NotFound = lazy(() => import("./pages/NotFound"));
-const StockCamara = lazy(() => import("./pages/StockCamara"));
 const Productores = lazy(() => import("./pages/Productores"));
-const CalibreAnalysis = lazy(() => import("./pages/CalibreAnalysis"));
-const AnalisisInformes = lazy(() => import("./pages/AnalisisInformes"));
 const AnalisisDiario = lazy(() => import("./pages/AnalisisDiario"));
 const Calendario = lazy(() => import("./pages/CalendarioProduccion"));
 
@@ -63,10 +60,7 @@ const App = () => (
                     <Route path="/dsj" element={<DSJCalculator />} />
                     <Route path="/costes/consumos" element={<ConsumoCostes />} />
                     <Route path="/costes/asistencia" element={<Asistencia />} />
-                    <Route path="/stock" element={<StockCamara />} />
                     <Route path="/productores" element={<Productores />} />
-                    <Route path="/analisis/calibres" element={<CalibreAnalysis />} />
-                    <Route path="/analisis/informes" element={<AnalisisInformes />} />
                     <Route path="/analisis/diario" element={<AnalisisDiario />} />
                     <Route path="/calendario" element={<Calendario />} />
                   </Route>
