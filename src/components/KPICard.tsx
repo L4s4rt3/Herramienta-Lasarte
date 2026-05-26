@@ -36,7 +36,7 @@ export function KPICard({ label, value, hint, icon: Icon, trend, className }: KP
             )}
           </div>
           {Icon && (
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-primary/10 bg-primary/10 text-primary">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl glass-strong text-primary">
               <Icon className="h-5 w-5" />
             </div>
           )}

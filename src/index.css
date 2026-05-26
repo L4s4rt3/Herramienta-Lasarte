@@ -2,34 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Lasarte SAT Design System
-   Professional operations UI for production, quality and cost control.
-   All colors HSL.
-*/
+/* Lasarte SAT — Glass UI Design System */
 
 @layer base {
   :root {
-    --background: 40 33% 96%;
-    --foreground: 150 15% 15%;
+    --background: 38 42% 93%;
+    --foreground: 150 18% 14%;
 
     --card: 0 0% 100%;
-    --card-foreground: 150 15% 15%;
+    --card-foreground: 150 18% 14%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 150 15% 15%;
+    --popover-foreground: 150 18% 14%;
 
     --primary: 24 95% 53%;
     --primary-foreground: 0 0% 100%;
     --primary-glow: 28 100% 62%;
 
-    --secondary: 40 25% 90%;
-    --secondary-foreground: 150 15% 15%;
+    --secondary: 38 30% 88%;
+    --secondary-foreground: 150 18% 14%;
 
-    --muted: 40 20% 92%;
+    --muted: 38 25% 90%;
     --muted-foreground: 150 10% 40%;
 
-    --accent: 90 35% 90%;
-    --accent-foreground: 150 30% 20%;
+    --accent: 90 35% 85%;
+    --accent-foreground: 150 30% 18%;
 
     --success: 142 55% 42%;
     --success-foreground: 0 0% 100%;
@@ -42,24 +39,31 @@
     --destructive: 0 75% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 40 20% 85%;
-    --input: 40 20% 88%;
+    --border: 38 25% 82%;
+    --input: 38 20% 85%;
     --ring: 24 95% 53%;
 
-    --radius: 0.5rem;
+    --radius: 0.625rem;
 
-    --sidebar-background: 150 30% 18%;
+    --sidebar-background: 150 30% 14% / 0.85;
     --sidebar-foreground: 40 20% 92%;
     --sidebar-primary: 24 95% 53%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 150 25% 25%;
+    --sidebar-accent: 150 25% 22%;
     --sidebar-accent-foreground: 40 25% 95%;
-    --sidebar-border: 150 20% 25%;
+    --sidebar-border: 150 20% 22%;
     --sidebar-ring: 24 95% 53%;
 
     --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
-    --shadow-card: 0 1px 2px hsl(150 30% 18% / 0.06), 0 14px 30px -26px hsl(150 30% 18% / 0.42);
-    --shadow-elegant: 0 18px 40px -24px hsl(var(--primary) / 0.38);
+    --glass-border: hsl(38 30% 75% / 0.35);
+    --glass-border-accent: hsl(24 95% 53% / 0.22);
+    --glass-bg: hsl(38 50% 99% / 0.35);
+    --glass-bg-strong: hsl(38 50% 99% / 0.55);
+    --glass-shadow: 0 4px 16px hsl(150 18% 14% / 0.05), 0 1px 3px hsl(150 18% 14% / 0.04);
+    --glass-shadow-lg: 0 8px 30px hsl(150 18% 14% / 0.07), 0 2px 6px hsl(150 18% 14% / 0.04);
+    --glass-glow: 0 0 24px hsl(24 95% 53% / 0.12);
+    --shadow-card: var(--glass-shadow);
+    --shadow-elegant: var(--glass-shadow-lg);
   }
 
   .dark {
@@ -87,7 +91,7 @@
     --border: 150 15% 22%;
     --input: 150 15% 22%;
     --ring: 24 95% 58%;
-    --sidebar-background: 150 30% 12%;
+    --sidebar-background: 150 30% 12% / 0.8;
     --sidebar-foreground: 40 20% 92%;
     --sidebar-primary: 24 95% 58%;
     --sidebar-primary-foreground: 0 0% 100%;
@@ -95,6 +99,15 @@
     --sidebar-accent-foreground: 40 25% 95%;
     --sidebar-border: 150 20% 20%;
     --sidebar-ring: 24 95% 58%;
+    --glass-border: hsl(0 0% 100% / 0.08);
+    --glass-border-accent: hsl(24 95% 58% / 0.15);
+    --glass-bg: hsl(150 20% 13% / 0.7);
+    --glass-bg-strong: hsl(150 20% 13% / 0.85);
+    --glass-shadow: 0 4px 20px hsl(0 0% 0% / 0.15);
+    --glass-shadow-lg: 0 8px 32px hsl(0 0% 0% / 0.2);
+    --glass-glow: 0 0 20px hsl(24 95% 58% / 0.08);
+    --shadow-card: var(--glass-shadow);
+    --shadow-elegant: var(--glass-shadow-lg);
   }
 }
 
@@ -102,26 +115,73 @@
   * { @apply border-border; }
   html { @apply antialiased; }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
     font-feature-settings: "cv11", "ss01";
     background:
-      linear-gradient(180deg, hsl(40 42% 98%) 0%, hsl(var(--background)) 42%, hsl(42 32% 94%) 100%);
+      radial-gradient(ellipse 65% 50% at 10% -10%, hsl(27 92% 62% / 0.15) 0%, transparent 60%),
+      radial-gradient(ellipse 55% 45% at 90% 5%, hsl(90 35% 45% / 0.1) 0%, transparent 55%),
+      radial-gradient(ellipse 40% 35% at 50% 100%, hsl(24 95% 53% / 0.07) 0%, transparent 50%),
+      linear-gradient(175deg, hsl(38 48% 98%) 0%, hsl(38 42% 93%) 50%, hsl(36 38% 90%) 100%);
+    background-attachment: fixed;
   }
   .dark body {
     background:
-      linear-gradient(180deg, hsl(150 24% 12%) 0%, hsl(var(--background)) 45%, hsl(150 24% 8%) 100%);
+      radial-gradient(ellipse 65% 50% at 10% -10%, hsl(27 92% 62% / 0.12) 0%, transparent 60%),
+      radial-gradient(ellipse 55% 45% at 90% 5%, hsl(90 35% 35% / 0.08) 0%, transparent 55%),
+      radial-gradient(ellipse 40% 35% at 50% 100%, hsl(24 95% 53% / 0.06) 0%, transparent 50%),
+      linear-gradient(175deg, hsl(150 24% 12%) 0%, hsl(150 20% 9%) 50%, hsl(150 20% 7%) 100%);
+    background-attachment: fixed;
   }
   h1, h2, h3, h4 { @apply font-semibold tracking-tight text-foreground; }
   ::selection { @apply bg-primary/20 text-foreground; }
 }
 
 @layer components {
+  .glass {
+    @apply border border-[var(--glass-border)] bg-[var(--glass-bg)] shadow-[var(--glass-shadow)] backdrop-blur-xl;
+  }
+
+  .glass-strong {
+    @apply border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] shadow-[var(--glass-shadow)] backdrop-blur-xl;
+  }
+
+  .glass-lg {
+    @apply border border-[var(--glass-border)] bg-[var(--glass-bg)] shadow-[var(--glass-shadow-lg)] backdrop-blur-2xl;
+  }
+
+  .glass-accented {
+    @apply glass;
+    border-color: var(--glass-border-accent);
+  }
+
+  .glass-hover {
+    @apply transition-shadow duration-300;
+  }
+  .glass-hover:hover {
+    box-shadow: var(--glass-shadow), var(--glass-glow);
+  }
+
+  .glass-accent-top {
+    @apply relative;
+  }
+  .glass-accent-top::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 1.25rem;
+    right: 1.25rem;
+    height: 2px;
+    border-radius: 1px;
+    background: linear-gradient(90deg, hsl(var(--primary) / 0.6), hsl(var(--primary-glow) / 0.2), transparent);
+    pointer-events: none;
+  }
+
   .page-shell {
     @apply mx-auto w-full max-w-[1500px] space-y-6;
   }
 
   .page-header {
-    @apply flex flex-wrap items-start justify-between gap-4 rounded-lg border bg-card/80 p-5 shadow-[var(--shadow-card)] backdrop-blur;
+    @apply flex flex-wrap items-start justify-between gap-4 rounded-xl glass-accented p-5;
   }
 
   .page-title {
@@ -133,11 +193,11 @@
   }
 
   .section-toolbar {
-    @apply flex flex-col gap-3 rounded-lg border bg-card/80 p-3 shadow-[var(--shadow-card)] backdrop-blur sm:flex-row sm:flex-wrap sm:items-center;
+    @apply flex flex-col gap-3 rounded-xl glass-accented p-3 sm:flex-row sm:flex-wrap sm:items-center;
   }
 
   .content-panel {
-    @apply rounded-lg border bg-card/95 shadow-[var(--shadow-card)] backdrop-blur-sm;
+    @apply rounded-xl glass;
   }
 
   .panel-title {
@@ -157,7 +217,7 @@
   }
 
   .data-table thead {
-    @apply border-b bg-muted/60;
+    @apply border-b;
   }
 
   .data-table th {
@@ -169,7 +229,7 @@
   }
 
   .data-table tbody tr {
-    @apply border-b border-border/60;
+    @apply border-b border-border/50;
   }
 
   .data-table tbody tr:last-child {

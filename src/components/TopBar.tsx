@@ -88,7 +88,7 @@ function TopBar() {
   const meta = baseRoute ? ROUTE_META[baseRoute] : null;
 
   return (
-    <header className="sticky top-0 z-20 flex min-h-16 shrink-0 items-center gap-3 border-b bg-background/82 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-20 flex min-h-16 shrink-0 items-center gap-3 border-b border-primary/10 bg-[var(--glass-bg-strong)] px-4 py-3 shadow-[var(--glass-shadow)] backdrop-blur-xl sm:px-6 lg:px-8">
       <SidebarTrigger className="-ml-1 size-8 rounded-lg border bg-card shadow-sm" />
       <Separator orientation="vertical" className="hidden h-6 sm:block" />
 
