@@ -143,7 +143,7 @@ export default function AppLayout() {
                     variant="ghost"
                     size="icon"
                     className="size-7 shrink-0 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                    title={t("logout")}
+                    title="Cerrar sesión"
                     onClick={async () => {
                       await signOut();
                       navigate("/auth");
