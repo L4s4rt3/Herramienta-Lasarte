@@ -2,7 +2,8 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { computeCascade, CascadeInput, CascadeResult } from "./cascade";
-import { formatDate, formatKg, formatPct } from "./format";
+import { formatDate, formatKg } from "./format";
+import { PDF_THEME, drawExportHeader, drawExportFooter, drawKpiCard, pdfTableTheme } from "./exportTheme";
 
 export interface ParteRow {
   id: string;
@@ -25,548 +26,511 @@ export interface ParteRow {
   resumen_ia?: any;
 }
 
+function n(value: unknown): number {
+  return Number(value) || 0;
+}
+
 function buildCascade(p: ParteRow): CascadeResult {
   const input: CascadeInput = {
-    kg_produccion_calibrador: Number(p.kg_produccion_calibrador) || 0,
-    kg_mujeres_calibrador: Number(p.kg_mujeres_calibrador) || 0,
-    kg_palets_brutos: (Number(p.kg_palets_brutos) || 0) - (Number(p.kg_palets_egipto) || 0),
-    kg_podrido_calibrador: Number(p.kg_podrido_calibrador_auto) || 0,
-    kg_industria_manual: Number(p.kg_industria_manual) || 0,
-    kg_reciclado_malla_z1: Number(p.kg_reciclado_malla_z1) || 0,
-    kg_reciclado_malla_z2: Number(p.kg_reciclado_malla_z2) || 0,
-    kg_inventario_sin_alta: Number(p.kg_inventario_sin_alta) || 0,
-    kg_podrido_bolsa_basura: Number(p.kg_podrido_bolsa_basura) || 0,
-    kg_inventario_anterior_sin_alta: Number(p.kg_inventario_anterior_sin_alta) || 0,
+    kg_produccion_calibrador: n(p.kg_produccion_calibrador),
+    kg_mujeres_calibrador: n(p.kg_mujeres_calibrador),
+    kg_palets_brutos: n(p.kg_palets_brutos) - n(p.kg_palets_egipto),
+    kg_podrido_calibrador: n(p.kg_podrido_calibrador_auto),
+    kg_industria_manual: n(p.kg_industria_manual),
+    kg_reciclado_malla_z1: n(p.kg_reciclado_malla_z1),
+    kg_reciclado_malla_z2: n(p.kg_reciclado_malla_z2),
+    kg_inventario_sin_alta: n(p.kg_inventario_sin_alta),
+    kg_podrido_bolsa_basura: n(p.kg_podrido_bolsa_basura),
+    kg_inventario_anterior_sin_alta: n(p.kg_inventario_anterior_sin_alta),
   };
   return computeCascade(input);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// EXCEL
-// ─────────────────────────────────────────────────────────────────────────────
+function pct(part: number, total: number, digits = 1) {
+  return total > 0 ? +((part / total) * 100).toFixed(digits) : 0;
+}
+
+function kg(value: number, digits = 0) {
+  return +value.toFixed(digits);
+}
+
+function safePdf(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function pdfDate(value: string | Date) {
+  return safePdf(formatDate(value));
+}
+
+function pdfKg(value: number, digits = 0) {
+  return safePdf(formatKg(value, digits));
+}
+
+function semLabel(s: "verde" | "amarillo" | "rojo"): string {
+  return s === "verde" ? "[OK] <= 3%" : s === "amarillo" ? "[!] 3-5%" : "[X] > 5%";
+}
+
+function semColor(s: "verde" | "amarillo" | "rojo"): [number, number, number] {
+  return s === "verde" ? PDF_THEME.success : s === "amarillo" ? PDF_THEME.warning : PDF_THEME.destructive;
+}
+
+const EXCEL_CELL_MAX = 32000;
+
+function excelText(value: unknown): string {
+  const text = String(value ?? "");
+  if (text.length <= EXCEL_CELL_MAX) return text;
+  return `${text.slice(0, EXCEL_CELL_MAX - 80)}\n\n[Texto recortado por limite de Excel. Ver hoja IA fragmentos.]`;
+}
+
+function splitExcelText(value: unknown, chunkSize = 30000): string[] {
+  const text = String(value ?? "");
+  if (!text) return [];
+  const chunks: string[] = [];
+  for (let i = 0; i < text.length; i += chunkSize) {
+    chunks.push(text.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+function sanitizeRow(row: Record<string, any>) {
+  return Object.fromEntries(
+    Object.entries(row).map(([key, value]) => [key, typeof value === "string" ? excelText(value) : value]),
+  );
+}
+
+function sheetFromRows(rows: Record<string, any>[], cols: number[]) {
+  const safeRows = rows.map(sanitizeRow);
+  const ws = safeRows.length > 0 ? XLSX.utils.json_to_sheet(safeRows) : XLSX.utils.aoa_to_sheet([["Sin datos"]]);
+  ws["!cols"] = cols.map((wch) => ({ wch }));
+  if (safeRows.length > 0) {
+    const headers = Object.keys(safeRows[0]);
+    ws["!autofilter"] = {
+      ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: safeRows.length, c: headers.length - 1 } }),
+    };
+  }
+  return ws;
+}
+
+function flattenProducto(partes: ParteRow[]) {
+  return partes.flatMap((p) => {
+    const rows = p.resumen_ia?.producto_detalle;
+    if (!Array.isArray(rows)) return [];
+    return rows.map((r: any) => ({
+      Fecha: formatDate(p.date),
+      Linea: r.linea ?? "",
+      Producto: r.producto ?? "",
+      "Formato caja": r.formato_caja ?? r.empaque ?? "",
+      "Grupo destino": r.grupo_destino ?? "",
+      "Kg": n(r.kg),
+      "Cajas": n(r.n_cajas ?? r.cajas),
+    }));
+  });
+}
+
+function flattenPalets(partes: ParteRow[]) {
+  return partes.flatMap((p) => {
+    const rows = p.resumen_ia?.palets_detalle;
+    if (!Array.isArray(rows)) return [];
+    return rows.map((r: any) => ({
+      Fecha: formatDate(p.date),
+      Palet: r.palet_id ?? "",
+      Producto: r.producto ?? "",
+      Cliente: r.cliente ?? "",
+      Destino: r.destino ?? "",
+      Situacion: r.situacion ?? "",
+      "Kg neto": n(r.kg_neto),
+      "Cajas": n(r.n_cajas),
+    }));
+  });
+}
 
 export function exportPartesToExcel(partes: ParteRow[], from: string, to: string) {
   const enriched = partes.map((p) => ({ p, c: buildCascade(p) }));
   const wb = XLSX.utils.book_new();
+  wb.Props = {
+    Title: "Lasarte SAT - Informe de partes",
+    Subject: "Control de produccion y DJPMN",
+    Author: "Herramienta Lasarte SAT",
+  };
 
-  // ── Hoja 1: Resumen ejecutivo ─────────────────────────────────────────────
-  const totalProd     = enriched.reduce((s, { c }) => s + c.produccion_real, 0);
-  const totalPalets   = enriched.reduce((s, { c }) => s + c.palets_ajustados, 0);
-  const totalDsj      = enriched.reduce((s, { c }) => s + c.dsj, 0);
-  const totalMermas   = enriched.reduce((s, { c }) => s + c.mermas_totales, 0);
-  const dsjPctGlobal  = totalProd ? (totalDsj / totalProd) * 100 : 0;
-  const nAlerta       = enriched.filter(({ c }) => Math.abs(c.dsj_pct) > 5).length;
-  const nAmarillo     = enriched.filter(({ c }) => Math.abs(c.dsj_pct) > 3 && Math.abs(c.dsj_pct) <= 5).length;
-  const nOk           = enriched.filter(({ c }) => Math.abs(c.dsj_pct) <= 3).length;
+  const totalProd = enriched.reduce((s, { c }) => s + c.produccion_real, 0);
+  const totalPalets = enriched.reduce((s, { c }) => s + c.palets_ajustados, 0);
+  const totalDsj = enriched.reduce((s, { c }) => s + c.dsj, 0);
+  const totalMermas = enriched.reduce((s, { c }) => s + c.mermas_totales, 0);
+  const dsjPctGlobal = totalProd > 0 ? (totalDsj / totalProd) * 100 : 0;
+  const nOk = enriched.filter(({ c }) => Math.abs(c.dsj_pct) <= 3).length;
+  const nWarn = enriched.filter(({ c }) => Math.abs(c.dsj_pct) > 3 && Math.abs(c.dsj_pct) <= 5).length;
+  const nCrit = enriched.filter(({ c }) => Math.abs(c.dsj_pct) > 5).length;
+  const worst = enriched.reduce<typeof enriched[number] | null>(
+    (acc, row) => (!acc || Math.abs(row.c.dsj_pct) > Math.abs(acc.c.dsj_pct) ? row : acc),
+    null,
+  );
 
-  const resumenAOA: (string | number)[][] = [
-    ["HERRAMIENTA LASARTE - INFORME DE PARTES DIARIOS"],
-    [`Periodo: ${formatDate(from)}  -  ${formatDate(to)}`],
+  const portada = XLSX.utils.aoa_to_sheet([
+    ["Lasarte SAT - Informe de control de produccion"],
+    [`Periodo: ${formatDate(from)} - ${formatDate(to)}`],
     [`Generado: ${new Date().toLocaleString("es-ES")}`],
     [],
-    ["RESUMEN GLOBAL"],
-    ["Indicador", "Valor"],
-    ["Nº de partes", partes.length],
-    ["Producción real total (kg)", +totalProd.toFixed(2)],
-    ["Palets alta ajustados (kg)", +totalPalets.toFixed(2)],
-    ["DJPMN total (kg)", +totalDsj.toFixed(2)],
+    ["Lectura ejecutiva", "Valor"],
+    ["Partes incluidos", partes.length],
+    ["Produccion real total (kg)", kg(totalProd, 2)],
+    ["Palets alta ajustados (kg)", kg(totalPalets, 2)],
+    ["DJPMN total (kg)", kg(totalDsj, 2)],
     ["DJPMN global (%)", +dsjPctGlobal.toFixed(3)],
-    ["Mermas totales (kg)", +totalMermas.toFixed(2)],
+    ["Mermas totales (kg)", kg(totalMermas, 2)],
+    ["Dias OK", nOk],
+    ["Dias a revisar", nWarn],
+    ["Dias criticos", nCrit],
+    ["Peor dia", worst ? `${formatDate(worst.p.date)} (${worst.c.dsj_pct.toFixed(2)}%)` : ""],
     [],
-    ["DISTRIBUCIÓN POR SEMÁFORO"],
-    ["Semáforo", "Nº partes", "%"],
-    ["[OK] Verde  (< 1%)", nOk,       +(partes.length ? nOk / partes.length * 100 : 0).toFixed(1)],
-    ["[!] Amarillo (1-3%)", nAmarillo, +(partes.length ? nAmarillo / partes.length * 100 : 0).toFixed(1)],
-    ["[X] Rojo   (> 3%)", nAlerta,   +(partes.length ? nAlerta / partes.length * 100 : 0).toFixed(1)],
-    [],
-    ["DISTRIBUCIÓN POR ESTADO"],
-    ["Estado", "Nº partes", "%"],
-    ...["Borrador", "Analizado", "Con descuadre", "Validado"].map((e) => {
-      const n = partes.filter((p) => p.estado === e).length;
-      return [e, n, +(partes.length ? n / partes.length * 100 : 0).toFixed(1)];
-    }),
-  ];
-  const wsResumen = XLSX.utils.aoa_to_sheet(resumenAOA);
-  wsResumen["!cols"] = [{ wch: 38 }, { wch: 22 }, { wch: 12 }];
-  XLSX.utils.book_append_sheet(wb, wsResumen, "Resumen");
-
-  // ── Hoja 2: Detalle por parte ─────────────────────────────────────────────
-  const headers = [
-    "Fecha", "Estado",
-    "Calib. (kg)", "Industria (kg)", "Mujeres L (kg)", "Recic. Z1 (kg)", "Recic. Z2 (kg)",
-    "Prod. Real (kg)",
-    "Palets brutos (kg)", "Inv. ant. (kg)", "Inv. final (kg)", "Palets ajust. (kg)",
-    "Dif. bruta (kg)",
-    "Podrido cal. (kg)", "Podrido manual (kg)", "Mermas total (kg)",
-    "DJPMN (kg)", "DJPMN (%)", "Semáforo",
-    "Notas generales", "Notas inventario",
-  ];
-
-  const detalleRows = enriched.map(({ p, c }) => [
-    formatDate(p.date),
-    p.estado,
-    Number(p.kg_produccion_calibrador) || 0,
-    Number(p.kg_industria_manual) || 0,
-    Number(p.kg_mujeres_calibrador) || 0,
-    Number(p.kg_reciclado_malla_z1) || 0,
-    Number(p.kg_reciclado_malla_z2) || 0,
-    +c.produccion_real.toFixed(2),
-    Number(p.kg_palets_brutos) || 0,
-    Number(p.kg_inventario_anterior_sin_alta) || 0,
-    Number(p.kg_inventario_sin_alta) || 0,
-    +c.palets_ajustados.toFixed(2),
-    +c.diferencia_bruta.toFixed(2),
-    Number(p.kg_podrido_calibrador_auto) || 0,
-    Number(p.kg_podrido_bolsa_basura) || 0,
-    +c.mermas_totales.toFixed(2),
-    +c.dsj.toFixed(2),
-    +c.dsj_pct.toFixed(3),
-    c.semaforo === "verde" ? "[OK]" : c.semaforo === "amarillo" ? "[!] Revisar" : "[X] Critico",
-    p.notas_generales ?? "",
-    p.notas_inventario ?? "",
+    ["Como leer el archivo"],
+    ["Detalle diario", "Una fila por parte con los KPIs principales y semaforo."],
+    ["Cascada DJPMN", "Misma estructura que se muestra en la herramienta."],
+    ["Datos entrada", "Campos brutos usados para calcular la cascada."],
+    ["Producto y palets", "Detalle extraido del analisis cuando existe."],
+    ["Notas e IA", "Observaciones y analisis del parte."],
   ]);
+  portada["!cols"] = [{ wch: 34 }, { wch: 50 }];
+  XLSX.utils.book_append_sheet(wb, portada, "Portada");
 
-  const totalsRow: (string | number)[] = [
-    "TOTAL", `${partes.length} partes`,
-    enriched.reduce((s, { p }) => s + (Number(p.kg_produccion_calibrador) || 0), 0),
-    enriched.reduce((s, { p }) => s + (Number(p.kg_industria_manual) || 0), 0),
-    enriched.reduce((s, { p }) => s + (Number(p.kg_mujeres_calibrador) || 0), 0),
-    enriched.reduce((s, { p }) => s + (Number(p.kg_reciclado_malla_z1) || 0), 0),
-    enriched.reduce((s, { p }) => s + (Number(p.kg_reciclado_malla_z2) || 0), 0),
-    +totalProd.toFixed(2),
-    enriched.reduce((s, { p }) => s + (Number(p.kg_palets_brutos) || 0), 0),
-    "", "",
-    +totalPalets.toFixed(2),
-    "",
-    enriched.reduce((s, { p }) => s + (Number(p.kg_podrido_calibrador_auto) || 0), 0),
-    enriched.reduce((s, { p }) => s + (Number(p.kg_podrido_bolsa_basura) || 0), 0),
-    +totalMermas.toFixed(2),
-    +totalDsj.toFixed(2),
-    +dsjPctGlobal.toFixed(3),
-    "", "", "",
-  ];
+  const detalleRows = enriched.map(({ p, c }) => ({
+    Fecha: formatDate(p.date),
+    Estado: p.estado,
+    Semaforo: semLabel(c.semaforo),
+    "Produccion real kg": kg(c.produccion_real, 2),
+    "Palets ajustados kg": kg(c.palets_ajustados, 2),
+    "Inventario final kg": kg(c.inventario_final, 2),
+    "Diferencia bruta kg": kg(c.diferencia_bruta, 2),
+    "Podrido manual kg": kg(c.podrido_manual, 2),
+    "Mermas totales kg": kg(c.mermas_totales, 2),
+    "DJPMN kg": kg(c.dsj, 2),
+    "DJPMN %": +c.dsj_pct.toFixed(3),
+    "Mermas % prod": +c.mermas_pct.toFixed(3),
+    "Produccion vs palets kg": kg(c.produccion_real - c.palets_ajustados, 2),
+    "Notas generales": p.notas_generales ?? "",
+  }));
+  XLSX.utils.book_append_sheet(wb, sheetFromRows(detalleRows, [14, 16, 14, 18, 18, 18, 18, 18, 18, 14, 12, 14, 20, 45]), "Detalle diario");
 
-  const wsDetalle = XLSX.utils.aoa_to_sheet([headers, ...detalleRows, totalsRow]);
-  wsDetalle["!cols"] = [
-    { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 13 }, { wch: 13 },
-    { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 16 },
-    { wch: 14 }, { wch: 15 }, { wch: 16 }, { wch: 15 },
-    { wch: 14 }, { wch: 12 }, { wch: 12 },
-    { wch: 32 }, { wch: 32 },
-  ];
-  XLSX.utils.book_append_sheet(wb, wsDetalle, "Detalle partes");
+  const cascadeRows = enriched.flatMap(({ p, c }) => [
+    { Fecha: formatDate(p.date), Bloque: "Produccion real", Concepto: "Calibrador", Op: "=", "Kg": kg(c.produccion_calibrador, 2), "Resultado": "" },
+    { Fecha: formatDate(p.date), Bloque: "Produccion real", Concepto: "Mujeres clase L", Op: "-", "Kg": kg(c.mujeres, 2), "Resultado": "" },
+    { Fecha: formatDate(p.date), Bloque: "Produccion real", Concepto: "Reciclado malla Z1", Op: "-", "Kg": kg(c.reciclado_z1, 2), "Resultado": "" },
+    { Fecha: formatDate(p.date), Bloque: "Produccion real", Concepto: "Reciclado malla Z2", Op: "-", "Kg": kg(c.reciclado_z2, 2), "Resultado": kg(c.produccion_real, 2) },
+    { Fecha: formatDate(p.date), Bloque: "Palets e inventario", Concepto: "Palets alta bruto", Op: "=", "Kg": kg(c.palets_brutos, 2), "Resultado": "" },
+    { Fecha: formatDate(p.date), Bloque: "Palets e inventario", Concepto: "Inventario dia anterior", Op: "-", "Kg": kg(c.inventario_anterior, 2), "Resultado": kg(c.palets_ajustados, 2) },
+    { Fecha: formatDate(p.date), Bloque: "Mermas y DJPMN", Concepto: "Produccion real", Op: "=", "Kg": kg(c.produccion_real, 2), "Resultado": "" },
+    { Fecha: formatDate(p.date), Bloque: "Mermas y DJPMN", Concepto: "Palets alta ajustados", Op: "-", "Kg": kg(c.palets_ajustados, 2), "Resultado": "" },
+    { Fecha: formatDate(p.date), Bloque: "Mermas y DJPMN", Concepto: "Inventario final sin alta", Op: "-", "Kg": kg(c.inventario_final, 2), "Resultado": kg(c.diferencia_bruta, 2) },
+    { Fecha: formatDate(p.date), Bloque: "Mermas y DJPMN", Concepto: "Podrido manual", Op: "-", "Kg": kg(c.podrido_manual, 2), "Resultado": kg(c.mermas_totales, 2) },
+    { Fecha: formatDate(p.date), Bloque: "Resultado", Concepto: "DJPMN", Op: "=", "Kg": kg(c.dsj, 2), "Resultado": `${c.dsj_pct.toFixed(3)}%` },
+  ]);
+  XLSX.utils.book_append_sheet(wb, sheetFromRows(cascadeRows, [14, 22, 28, 8, 14, 16]), "Cascada DJPMN");
 
-  // ── Hoja 3: Cascada (cada parte en columna) ───────────────────────────────
-  const cascadeRows: (string | number)[][] = [
-    ["CASCADA DJPMN POR PARTE"],
-    [],
-    ["Concepto", "Op.", ...enriched.map(({ p }) => formatDate(p.date))],
-    ["Estado", "",    ...enriched.map(({ p }) => p.estado)],
-    [],
-    ["-- PRODUCCION --", "", ...enriched.map(() => "")],
-    ["Calibrador (kg)",          "=", ...enriched.map(({ c }) => +c.produccion_calibrador.toFixed(2))],
-    ["+ Industria manual (kg)",  "+", ...enriched.map(({ c }) => +c.industria_manual.toFixed(2))],
-    ["- Mujeres L (kg)",         "-", ...enriched.map(({ c }) => +c.mujeres.toFixed(2))],
-    ["- Reciclado Z1 (kg)",      "-", ...enriched.map(({ c }) => +c.reciclado_z1.toFixed(2))],
-    ["- Reciclado Z2 (kg)",      "-", ...enriched.map(({ c }) => +c.reciclado_z2.toFixed(2))],
-    ["= PRODUCCION REAL (kg)",   "=", ...enriched.map(({ c }) => +c.produccion_real.toFixed(2))],
-    [],
-    ["-- PALETS --", "", ...enriched.map(() => "")],
-    ["Palets brutos (kg)",       "",  ...enriched.map(({ c }) => +c.palets_brutos.toFixed(2))],
-    ["- Inv. dia anterior (kg)", "-", ...enriched.map(({ c }) => +c.inventario_anterior.toFixed(2))],
-    ["- Inv. final sin alta (kg)","-", ...enriched.map(({ c }) => +c.inventario_final.toFixed(2))],
-    ["= PALETS AJUSTADOS (kg)",  "=", ...enriched.map(({ c }) => +c.palets_ajustados.toFixed(2))],
-    [],
-    ["-- DJPMN --", "", ...enriched.map(() => "")],
-    ["Diferencia bruta (kg)",    "=", ...enriched.map(({ c }) => +c.diferencia_bruta.toFixed(2))],
-    ["- Podrido calibrador (kg)","-", ...enriched.map(({ c }) => +c.podrido_calibrador.toFixed(2))],
-    ["- Podrido manual (kg)",    "-", ...enriched.map(({ c }) => +c.podrido_manual.toFixed(2))],
-    ["= MERMAS TOTALES (kg)",    "=", ...enriched.map(({ c }) => +c.mermas_totales.toFixed(2))],
-    ["DJPMN (kg)",               "=", ...enriched.map(({ c }) => +c.dsj.toFixed(2))],
-    ["DJPMN (%)",                "",  ...enriched.map(({ c }) => +c.dsj_pct.toFixed(3))],
-    ["Semáforo",                 "",  ...enriched.map(({ c }) =>
-      c.semaforo === "verde" ? "✓ OK" : c.semaforo === "amarillo" ? "⚠ Revisar" : "✗ Crítico"
-    )],
-  ];
-  const wsCascada = XLSX.utils.aoa_to_sheet(cascadeRows);
-  wsCascada["!cols"] = [{ wch: 32 }, { wch: 5 }, ...enriched.map(() => ({ wch: 14 }))];
-  XLSX.utils.book_append_sheet(wb, wsCascada, "Cascada");
+  const rawRows = enriched.map(({ p }) => ({
+    Fecha: formatDate(p.date),
+    "Calibrador kg": n(p.kg_produccion_calibrador),
+    "Industria manual kg": n(p.kg_industria_manual),
+    "Mujeres L kg": n(p.kg_mujeres_calibrador),
+    "Reciclado Z1 kg": n(p.kg_reciclado_malla_z1),
+    "Reciclado Z2 kg": n(p.kg_reciclado_malla_z2),
+    "Palets brutos kg": n(p.kg_palets_brutos),
+    "Palets Egipto kg": n(p.kg_palets_egipto),
+    "Palets campo kg": n(p.kg_palets_campo),
+    "Inventario anterior kg": n(p.kg_inventario_anterior_sin_alta),
+    "Inventario final kg": n(p.kg_inventario_sin_alta),
+    "Podrido calibrador kg": n(p.kg_podrido_calibrador_auto),
+    "Podrido manual kg": n(p.kg_podrido_bolsa_basura),
+  }));
+  XLSX.utils.book_append_sheet(wb, sheetFromRows(rawRows, [14, 16, 18, 14, 16, 16, 16, 16, 16, 20, 18, 20, 18]), "Datos entrada");
 
-  // ── Hoja 4: Notas y análisis IA ───────────────────────────────────────────
-  const ia = partes.map((p) => ({
+  const productoRows = flattenProducto(partes);
+  XLSX.utils.book_append_sheet(wb, sheetFromRows(productoRows, [14, 14, 36, 18, 18, 14, 12]), "Producto");
+
+  const paletsRows = flattenPalets(partes);
+  XLSX.utils.book_append_sheet(wb, sheetFromRows(paletsRows, [14, 16, 36, 24, 18, 18, 14, 12]), "Palets");
+
+  const notasRows = partes.map((p) => ({
     Fecha: formatDate(p.date),
     Estado: p.estado,
     "Notas generales": p.notas_generales ?? "",
     "Notas inventario": p.notas_inventario ?? "",
-    "Análisis IA": p.resumen_ia?.analisis ? String(p.resumen_ia.analisis) : "",
-    "Resumen IA (raw)": p.resumen_ia ? JSON.stringify(p.resumen_ia) : "",
+    "Analisis IA": p.resumen_ia?.analisis ? String(p.resumen_ia.analisis) : "",
+    "Resumen IA completo": p.resumen_ia ? excelText(JSON.stringify(p.resumen_ia)) : "",
   }));
-  const wsIA = XLSX.utils.json_to_sheet(ia);
-  wsIA["!cols"] = [{ wch: 14 }, { wch: 16 }, { wch: 50 }, { wch: 50 }, { wch: 60 }, { wch: 40 }];
-  XLSX.utils.book_append_sheet(wb, wsIA, "Notas e IA");
+  XLSX.utils.book_append_sheet(wb, sheetFromRows(notasRows, [14, 16, 55, 55, 70, 55]), "Notas e IA");
 
-  XLSX.writeFile(wb, `partes_${from}_${to}.xlsx`);
+  const iaFragmentRows = partes.flatMap((p) => {
+    const raw = p.resumen_ia ? JSON.stringify(p.resumen_ia, null, 2) : "";
+    return splitExcelText(raw).map((fragmento, index, arr) => ({
+      Fecha: formatDate(p.date),
+      Campo: "resumen_ia",
+      Fragmento: `${index + 1}/${arr.length}`,
+      Texto: fragmento,
+    }));
+  });
+  if (iaFragmentRows.length > 0) {
+    XLSX.utils.book_append_sheet(wb, sheetFromRows(iaFragmentRows, [14, 18, 12, 100]), "IA fragmentos");
+  }
+
+  XLSX.writeFile(wb, `partes_${from}_${to}.xlsx`, { bookType: "xlsx", compression: true });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PDF
-// ─────────────────────────────────────────────────────────────────────────────
-
-const C_VERDE  = [30, 70, 50]   as [number, number, number];
-const C_NARANJA = [218, 101, 0] as [number, number, number];
-const C_CREMA  = [252, 248, 240] as [number, number, number];
-const C_GRIS   = [110, 110, 110] as [number, number, number];
-const C_WHITE  = [255, 255, 255] as [number, number, number];
-const C_SEM_OK    = [34, 120, 74]  as [number, number, number];
-const C_SEM_WARN  = [174,  97,   9] as [number, number, number];
-const C_SEM_ERROR = [168,  32,  32] as [number, number, number];
-
-function semColor(s: "verde" | "amarillo" | "rojo"): [number, number, number] {
-  return s === "verde" ? C_SEM_OK : s === "amarillo" ? C_SEM_WARN : C_SEM_ERROR;
+function drawHeader(doc: jsPDF, pageIndex: number, from: string, to: string, title?: string) {
+  drawExportHeader(doc, pageIndex, "Partes diarios", safePdf(`${pdfDate(from)} - ${pdfDate(to)}${title ? ` - ${title}` : ""}`));
 }
-function semLabel(s: "verde" | "amarillo" | "rojo"): string {
-  return s === "verde" ? "[OK] < 1%" : s === "amarillo" ? "[!] Revisar 1-3%" : "[X] Critico > 3%";
+
+function drawFooter(doc: jsPDF) {
+  drawExportFooter(doc);
+}
+
+const PDF_TABLE_MARGIN = { top: 30, bottom: 18, left: 8, right: 8 };
+
+function addAutoTablePageHeader(doc: jsPDF, pageIndexRef: { value: number }, from: string, to: string, title: string) {
+  const pages = doc.getNumberOfPages();
+  if (pages > pageIndexRef.value) {
+    pageIndexRef.value = pages;
+    drawHeader(doc, pageIndexRef.value, from, to, title);
+    drawFooter(doc);
+  }
 }
 
 export function exportPartesToPDF(partes: ParteRow[], from: string, to: string) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const enriched = partes.map((p) => ({ p, c: buildCascade(p) }));
+  const pageIndex = { value: 1 };
 
-  const totalProd    = enriched.reduce((s, { c }) => s + c.produccion_real, 0);
-  const totalPalets  = enriched.reduce((s, { c }) => s + c.palets_ajustados, 0);
-  const totalDsj     = enriched.reduce((s, { c }) => s + c.dsj, 0);
-  const totalMermas  = enriched.reduce((s, { c }) => s + c.mermas_totales, 0);
-  const dsjPctGlobal = totalProd ? (totalDsj / totalProd) * 100 : 0;
-  const nAlerta      = enriched.filter(({ c }) => Math.abs(c.dsj_pct) > 5).length;
+  const totalProd = enriched.reduce((s, { c }) => s + c.produccion_real, 0);
+  const totalPalets = enriched.reduce((s, { c }) => s + c.palets_ajustados, 0);
+  const totalDsj = enriched.reduce((s, { c }) => s + c.dsj, 0);
+  const totalMermas = enriched.reduce((s, { c }) => s + c.mermas_totales, 0);
+  const dsjPctGlobal = totalProd > 0 ? (totalDsj / totalProd) * 100 : 0;
+  const nOk = enriched.filter(({ c }) => Math.abs(c.dsj_pct) <= 3).length;
+  const nWarn = enriched.filter(({ c }) => Math.abs(c.dsj_pct) > 3 && Math.abs(c.dsj_pct) <= 5).length;
+  const nCrit = enriched.filter(({ c }) => Math.abs(c.dsj_pct) > 5).length;
 
-  let pageIndex = 0;
+  drawHeader(doc, pageIndex.value, from, to, "Resumen ejecutivo");
 
-  function drawPageHeader(title?: string) {
-    // Top bar
-    doc.setFillColor(...C_VERDE);
-    doc.rect(0, 0, 297, 14, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.setTextColor(...C_WHITE);
-    doc.text("HERRAMIENTA LASARTE", 8, 9);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.5);
-    doc.text(`${formatDate(from)} - ${formatDate(to)}`, 8, 13);
-    doc.text(`Generado: ${new Date().toLocaleString("es-ES")}`, 200, 9);
-    doc.text(`Pág. ${pageIndex}`, 289, 13, { align: "right" });
-    if (title) {
-      doc.setFontSize(7);
-      doc.setTextColor(...C_GRIS);
-      doc.text(title, 289, 9, { align: "right" });
-    }
-  }
-
-  // ── Página 1: Portada + KPIs + Tabla resumen ─────────────────────────────
-  pageIndex++;
-  drawPageHeader("Resumen ejecutivo");
-
-  // Título
-  doc.setFillColor(...C_CREMA);
-  doc.roundedRect(8, 17, 281, 16, 2, 2, "F");
+  doc.setFillColor(...PDF_THEME.cream);
+  doc.roundedRect(8, 26, 281, 16, 2, 2, "F");
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
-  doc.setTextColor(...C_VERDE);
-  doc.text("Informe de Partes Diarios - DJPMN", 148.5, 26, { align: "center" });
+  doc.setTextColor(...PDF_THEME.primaryDark);
+  doc.text("Informe de partes diarios - DJPMN", 148.5, 35, { align: "center" });
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
-  doc.setTextColor(...C_GRIS);
-  doc.text(`${partes.length} parte(s) · ${formatDate(from)} al ${formatDate(to)}`, 148.5, 31, { align: "center" });
+  doc.setFontSize(8);
+  doc.setTextColor(...PDF_THEME.muted);
+  doc.text(safePdf(`${partes.length} parte(s) - ${pdfDate(from)} al ${pdfDate(to)}`), 148.5, 40, { align: "center" });
 
-  // KPI cards (5 tarjetas)
-  const kpis = [
-    { label: "PRODUCCIÓN REAL", val: formatKg(totalProd),    sub: `${partes.length} partes` },
-    { label: "PALETS AJUSTADOS",val: formatKg(totalPalets),  sub: "neto ajustado" },
-    { label: "DJPMN TOTAL",     val: formatKg(totalDsj),     sub: `${dsjPctGlobal >= 0 ? "+" : ""}${dsjPctGlobal.toFixed(2)}% global` },
-    { label: "MERMAS TOTALES",  val: formatKg(totalMermas),  sub: "podrido + natural" },
-    { label: "PARTES CRÍTICOS", val: `${nAlerta}`,           sub: "DJPMN > 3%" },
-  ];
+  [
+    { label: "PRODUCCION REAL", val: pdfKg(totalProd), sub: `${partes.length} partes` },
+    { label: "PALETS AJUSTADOS", val: pdfKg(totalPalets), sub: "neto ajustado" },
+    { label: "DJPMN TOTAL", val: pdfKg(totalDsj), sub: `${dsjPctGlobal >= 0 ? "+" : ""}${dsjPctGlobal.toFixed(2)}% global` },
+    { label: "MERMAS TOTALES", val: pdfKg(totalMermas), sub: "podrido manual" },
+    { label: "DIAS CRITICOS", val: `${nCrit}`, sub: "DJPMN > 5%" },
+  ].forEach((k, i) => drawKpiCard(doc, 8 + i * 57, 48, 55, k.label, k.val, k.sub));
 
-  kpis.forEach((k, i) => {
-    const x = 8 + i * 57;
-    doc.setFillColor(...C_WHITE);
-    doc.setDrawColor(...C_NARANJA);
-    doc.setLineWidth(0.4);
-    doc.roundedRect(x, 36, 55, 20, 1.5, 1.5, "FD");
-    // accent top bar
-    doc.setFillColor(...C_NARANJA);
-    doc.rect(x, 36, 55, 2, "F");
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(6);
-    doc.setTextColor(...C_GRIS);
-    doc.text(k.label, x + 27.5, 41.5, { align: "center" });
+  const barY = 74;
+  const totalSem = nOk + nWarn + nCrit;
+  let x = 8;
+  [
+    { label: "OK", n: nOk, color: PDF_THEME.success },
+    { label: "Revisar", n: nWarn, color: PDF_THEME.warning },
+    { label: "Critico", n: nCrit, color: PDF_THEME.destructive },
+  ].forEach((item) => {
+    const width = totalSem > 0 && item.n > 0 ? Math.max(22, (item.n / totalSem) * 281) : 0;
+    if (width <= 0) return;
+    doc.setFillColor(...item.color);
+    doc.roundedRect(x, barY, width, 14, 1.5, 1.5, "F");
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(...C_VERDE);
-    doc.text(k.val, x + 27.5, 49, { align: "center" });
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(6.5);
-    doc.setTextColor(...C_GRIS);
-    doc.text(k.sub, x + 27.5, 53.5, { align: "center" });
+    doc.setFontSize(8);
+    doc.setTextColor(...PDF_THEME.white);
+    doc.text(`${item.label} ${Math.round((item.n / totalSem) * 100)}%`, x + width / 2, barY + 9, { align: "center" });
+    x += width + 1;
   });
 
-  // Tabla resumen de todos los partes
   autoTable(doc, {
-    startY: 59,
-    head: [[
-      "Fecha", "Estado",
-      "Prod. Real (kg)", "Palets Ajust. (kg)",
-      "Dif. Bruta (kg)", "Podrido Cal. (kg)", "Podrido Manual (kg)",
-      "Mermas (kg)", "DJPMN (kg)", "DJPMN (%)", "Semáforo",
-    ]],
+    startY: 94,
+    head: [["Fecha", "Estado", "Prod. real", "Palets ajust.", "Diferencia", "Mermas", "DJPMN", "% DJPMN", "Semaforo"]],
     body: [
       ...enriched.map(({ p, c }) => [
-        formatDate(p.date),
-        p.estado,
-        formatKg(c.produccion_real),
-        formatKg(c.palets_ajustados),
-        formatKg(c.diferencia_bruta),
-        formatKg(c.podrido_calibrador),
-        formatKg(c.podrido_manual),
-        formatKg(c.mermas_totales),
-        formatKg(c.dsj),
+        pdfDate(p.date),
+        safePdf(p.estado),
+        pdfKg(c.produccion_real),
+        pdfKg(c.palets_ajustados),
+        pdfKg(c.diferencia_bruta),
+        pdfKg(c.mermas_totales),
+        pdfKg(c.dsj),
         `${c.dsj_pct >= 0 ? "+" : ""}${c.dsj_pct.toFixed(2)}%`,
         semLabel(c.semaforo),
       ]),
-      // Fila de totales
-      [
-        "TOTAL", `${partes.length} partes`,
-        formatKg(totalProd), formatKg(totalPalets),
-        "", "", "",
-        formatKg(totalMermas), formatKg(totalDsj),
-        `${dsjPctGlobal >= 0 ? "+" : ""}${dsjPctGlobal.toFixed(2)}%`,
-        "",
-      ],
+      ["TOTAL", `${partes.length} partes`, pdfKg(totalProd), pdfKg(totalPalets), "", pdfKg(totalMermas), pdfKg(totalDsj), `${dsjPctGlobal >= 0 ? "+" : ""}${dsjPctGlobal.toFixed(2)}%`, ""],
     ],
-    styles: { fontSize: 7, cellPadding: 2 },
-    headStyles: { fillColor: C_VERDE, textColor: C_WHITE, fontStyle: "bold", fontSize: 6.5 },
+    margin: PDF_TABLE_MARGIN,
+    ...pdfTableTheme(),
+    styles: { ...pdfTableTheme().styles, fontSize: 7, cellPadding: 2 },
+    headStyles: { ...pdfTableTheme().headStyles, fontSize: 6.8 },
     columnStyles: {
       0: { cellWidth: 22 },
-      1: { cellWidth: 22 },
       8: { halign: "right" },
-      9: { halign: "right" },
     },
-    alternateRowStyles: { fillColor: [250, 248, 244] },
     didParseCell: (data) => {
-      // Semáforo en color
-      if (data.column.index === 10 && data.section === "body") {
-        const v = String((data.row.raw as string[])[10] ?? "");
-        if (v.startsWith("[OK]")) data.cell.styles.textColor = C_SEM_OK;
-        else if (v.startsWith("[!]")) data.cell.styles.textColor = C_SEM_WARN;
-        else if (v.startsWith("[X]")) data.cell.styles.textColor = C_SEM_ERROR;
+      if (data.column.index === 8 && data.section === "body") {
+        const value = String((data.row.raw as string[])[8] ?? "");
+        if (value.startsWith("[OK]")) data.cell.styles.textColor = PDF_THEME.success;
+        if (value.startsWith("[!]")) data.cell.styles.textColor = PDF_THEME.warning;
+        if (value.startsWith("[X]")) data.cell.styles.textColor = PDF_THEME.destructive;
       }
-      // Fila total en negrita
-      const isTotal = data.row.index === enriched.length && data.section === "body";
-      if (isTotal) {
+      if (data.row.index === enriched.length && data.section === "body") {
         data.cell.styles.fontStyle = "bold";
-        data.cell.styles.fillColor = [238, 234, 224];
+        data.cell.styles.fillColor = PDF_THEME.creamStrong;
       }
     },
-    didDrawPage: () => {
-      // autoTable puede crear páginas extra; les añadimos cabecera
-      const pages = doc.getNumberOfPages();
-      if (pages > pageIndex) {
-        pageIndex++;
-        drawPageHeader("Resumen ejecutivo (cont.)");
-      }
-    },
+    didDrawPage: () => addAutoTablePageHeader(doc, pageIndex, from, to, "Resumen ejecutivo"),
   });
 
-  // ── Una página por parte: cascada detallada ───────────────────────────────
+  drawFooter(doc);
+
   enriched.forEach(({ p, c }) => {
     doc.addPage();
-    pageIndex++;
-    drawPageHeader(`Parte · ${formatDate(p.date)}`);
+    pageIndex.value = doc.getNumberOfPages();
+    const detailTitle = `Parte ${pdfDate(p.date)}`;
+    drawHeader(doc, pageIndex.value, from, to, detailTitle);
 
-    // Encabezado del parte
-    doc.setFillColor(...C_CREMA);
-    doc.roundedRect(8, 17, 281, 13, 2, 2, "F");
+    const sc = semColor(c.semaforo);
+    doc.setFillColor(...PDF_THEME.cream);
+    doc.roundedRect(8, 26, 281, 14, 2, 2, "F");
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
-    doc.setTextColor(...C_VERDE);
-    doc.text(`Parte diario - ${formatDate(p.date)}`, 14, 25);
+    doc.setTextColor(...PDF_THEME.primaryDark);
+    doc.text(`Parte diario - ${pdfDate(p.date)}`, 14, 35);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
-    doc.setTextColor(...C_GRIS);
-    doc.text(`Estado: ${p.estado}`, 110, 25);
-
-    // Semáforo box (esquina derecha)
-    const sc = semColor(c.semaforo);
+    doc.setTextColor(...PDF_THEME.muted);
+    doc.text(`Estado: ${safePdf(p.estado)}`, 112, 35);
     doc.setFillColor(...sc);
-    doc.roundedRect(232, 17, 57, 13, 2, 2, "F");
+    doc.roundedRect(232, 26, 57, 14, 2, 2, "F");
+    doc.setTextColor(...PDF_THEME.white);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(13);
-    doc.setTextColor(...C_WHITE);
-    doc.text(`${c.dsj_pct >= 0 ? "+" : ""}${c.dsj_pct.toFixed(2)}%`, 260.5, 25, { align: "center" });
-    doc.setFontSize(6);
-    doc.setFont("helvetica", "normal");
-    doc.text("DJPMN", 260.5, 28.5, { align: "center" });
+    doc.text(`${c.dsj_pct >= 0 ? "+" : ""}${c.dsj_pct.toFixed(2)}%`, 260.5, 34, { align: "center" });
+    doc.setFontSize(6.5);
+    doc.text("DJPMN", 260.5, 38, { align: "center" });
 
-    // Cascada (tabla izquierda) + KPIs (derecha)
-    const cascadeBody: (string | [string, object])[][] = [
-      ["Produccion calibrador",        "=", formatKg(c.produccion_calibrador)],
-      ["+ Industria / Citricos manual","+", formatKg(c.industria_manual)],
-      ["- Mujeres clase L",            "-", formatKg(c.mujeres)],
-      ["- Reciclado malla Z1",         "-", formatKg(c.reciclado_z1)],
-      ["- Reciclado malla Z2",         "-", formatKg(c.reciclado_z2)],
-      ["PRODUCCION REAL",              "=", formatKg(c.produccion_real)],
-      ["Palets alta (bruto)",          "",  formatKg(c.palets_brutos)],
-      ["- Inv. dia anterior (en palets)","-",formatKg(c.inventario_anterior)],
-      ["- Inventario final sin alta",  "-", formatKg(c.inventario_final)],
-      ["PALETS ALTA AJUSTADOS",        "=", formatKg(c.palets_ajustados)],
-      ["DIFERENCIA BRUTA",             "=", formatKg(c.diferencia_bruta)],
-      ["- Podrido calibrador",         "-", formatKg(c.podrido_calibrador)],
-      ["- Podrido manual (bolsa basura)","-",formatKg(c.podrido_manual)],
-      ["MERMAS TOTALES",               "=", formatKg(c.mermas_totales)],
-      ["DJPMN",                        "=", `${formatKg(c.dsj)}  (${c.dsj_pct >= 0 ? "+" : ""}${c.dsj_pct.toFixed(2)}%)`],
+    [
+      { label: "PROD. REAL", val: pdfKg(c.produccion_real), sub: "Calibrador - ajustes" },
+      { label: "PALETS AJUST.", val: pdfKg(c.palets_ajustados), sub: "Alta neta" },
+      { label: "MERMAS", val: pdfKg(c.mermas_totales), sub: "Podrido manual" },
+      { label: "DJPMN", val: pdfKg(c.dsj), sub: semLabel(c.semaforo) },
+    ].forEach((card, i) => drawKpiCard(doc, 8 + i * 70.5, 46, 68, card.label, card.val, card.sub));
+
+    const cascadeRows = [
+      ["Produccion real", "Calibrador", "=", pdfKg(c.produccion_calibrador)],
+      ["Produccion real", "Mujeres clase L", "-", pdfKg(c.mujeres)],
+      ["Produccion real", "Reciclado malla Z1", "-", pdfKg(c.reciclado_z1)],
+      ["Produccion real", "Reciclado malla Z2", "-", pdfKg(c.reciclado_z2)],
+      ["Produccion real", "Produccion real", "=", pdfKg(c.produccion_real)],
+      ["Palets e inventario", "Palets alta bruto", "=", pdfKg(c.palets_brutos)],
+      ["Palets e inventario", "Inv. dia anterior", "-", pdfKg(c.inventario_anterior)],
+      ["Palets e inventario", "Palets alta ajustados", "=", pdfKg(c.palets_ajustados)],
+      ["Mermas y DJPMN", "Produccion real", "=", pdfKg(c.produccion_real)],
+      ["Mermas y DJPMN", "Palets alta ajustados", "-", pdfKg(c.palets_ajustados)],
+      ["Mermas y DJPMN", "Inventario final sin alta", "-", pdfKg(c.inventario_final)],
+      ["Mermas y DJPMN", "Diferencia bruta", "=", pdfKg(c.diferencia_bruta)],
+      ["Mermas y DJPMN", "Podrido manual", "-", pdfKg(c.podrido_manual)],
+      ["Mermas y DJPMN", "Mermas totales", "=", pdfKg(c.mermas_totales)],
+      ["Resultado", "DJPMN", "=", `${pdfKg(c.dsj)} (${c.dsj_pct >= 0 ? "+" : ""}${c.dsj_pct.toFixed(2)}%)`],
     ];
 
-    const emphRows = new Set([5, 9, 10, 13, 14]);
-
     autoTable(doc, {
-      startY: 33,
-      tableWidth: 155,
-      head: [["Concepto", "Op.", "Valor (kg)"]],
-      body: cascadeBody as any,
-      styles: { fontSize: 8, cellPadding: 2.5 },
-      headStyles: { fillColor: C_VERDE, textColor: C_WHITE, fontStyle: "bold", fontSize: 7.5 },
+      startY: 72,
+      head: [["Bloque", "Concepto", "Op.", "Valor"]],
+      body: cascadeRows,
+      margin: PDF_TABLE_MARGIN,
+      ...pdfTableTheme(),
+      styles: { ...pdfTableTheme().styles, fontSize: 7.2, cellPadding: 2.1 },
+      headStyles: { ...pdfTableTheme().headStyles, fontSize: 6.8 },
       columnStyles: {
-        0: { cellWidth: 100 },
-        1: { cellWidth: 12, halign: "center", textColor: C_GRIS as any },
-        2: { cellWidth: 43, halign: "right", fontStyle: "bold" },
+        0: { cellWidth: 48 },
+        1: { cellWidth: 150 },
+        2: { cellWidth: 12, halign: "center" },
+        3: { cellWidth: 55, halign: "right", fontStyle: "bold" },
       },
       didParseCell: (data) => {
         if (data.section !== "body") return;
-        if (emphRows.has(data.row.index)) {
-          data.cell.styles.fillColor = [238, 234, 224];
+        const raw = data.row.raw as string[];
+        if (["Produccion real", "Palets alta ajustados", "Diferencia bruta", "Mermas totales", "DJPMN"].includes(raw[1])) {
           data.cell.styles.fontStyle = "bold";
-        }
-        if (data.row.index === 14) {
-          data.cell.styles.fillColor = sc;
-          data.cell.styles.textColor = C_WHITE;
+          data.cell.styles.fillColor = raw[1] === "DJPMN" ? sc : PDF_THEME.creamStrong;
+          if (raw[1] === "DJPMN") data.cell.styles.textColor = PDF_THEME.white;
         }
       },
+      didDrawPage: () => addAutoTablePageHeader(doc, pageIndex, from, to, detailTitle),
     });
 
-    // Panel de datos brutos (derecha)
-    const panelX = 168;
-    let panelY = 33;
-    const panelW = 121;
-
-    function miniCard(label: string, val: string, color: [number,number,number] = C_VERDE) {
-      doc.setFillColor(248, 245, 240);
-      doc.setDrawColor(210, 205, 195);
-      doc.setLineWidth(0.3);
-      doc.roundedRect(panelX, panelY, panelW, 14, 1.5, 1.5, "FD");
-      // accent left
-      doc.setFillColor(...color);
-      doc.rect(panelX, panelY, 2, 14, "F");
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(6.5);
-      doc.setTextColor(...C_GRIS);
-      doc.text(label.toUpperCase(), panelX + 5, panelY + 5);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(9.5);
-      doc.setTextColor(...color);
-      doc.text(val, panelX + panelW - 4, panelY + 11, { align: "right" });
-      panelY += 16;
-    }
-
-    miniCard("Producción real",    formatKg(c.produccion_real),    C_VERDE);
-    miniCard("Palets ajustados",   formatKg(c.palets_ajustados),   C_NARANJA);
-    miniCard("Diferencia bruta",   formatKg(c.diferencia_bruta),   C_GRIS);
-    miniCard("Mermas totales",     formatKg(c.mermas_totales),     C_GRIS);
-    miniCard("DJPMN",              formatKg(c.dsj),                sc);
-    panelY += 2;
-
-    // Semáforo grande en el panel
-    doc.setFillColor(...sc);
-    doc.roundedRect(panelX, panelY, panelW, 18, 2, 2, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.setTextColor(...C_WHITE);
-    doc.text(`${c.dsj_pct >= 0 ? "+" : ""}${c.dsj_pct.toFixed(2)}%`, panelX + panelW / 2, panelY + 9, { align: "center" });
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "normal");
-    doc.text(semLabel(c.semaforo), panelX + panelW / 2, panelY + 15, { align: "center" });
-    panelY += 22;
-
-    // Datos de entrada brutos
-    const rawFields: [string, number | null | undefined][] = [
-      ["Calibrador",   p.kg_produccion_calibrador],
-      ["Industria",    p.kg_industria_manual],
-      ["Mujeres (L)",  p.kg_mujeres_calibrador],
-      ["Recic. Z1",    p.kg_reciclado_malla_z1],
-      ["Recic. Z2",    p.kg_reciclado_malla_z2],
-      ["Palets brutos",p.kg_palets_brutos],
-      ["Inv. anterior",p.kg_inventario_anterior_sin_alta],
-      ["Inv. final",   p.kg_inventario_sin_alta],
-      ["Podrido cal.", p.kg_podrido_calibrador_auto],
-      ["Podrido man.", p.kg_podrido_bolsa_basura],
+    const rawStartY = ((doc as any).lastAutoTable?.finalY ?? 72) + 6;
+    const rawRows = [
+      ["Calibrador", pdfKg(n(p.kg_produccion_calibrador)), "Base de produccion"],
+      ["Industria manual", pdfKg(n(p.kg_industria_manual)), "Dato bruto registrado"],
+      ["Mujeres clase L", pdfKg(n(p.kg_mujeres_calibrador)), "Resta en produccion real"],
+      ["Reciclado malla Z1", pdfKg(n(p.kg_reciclado_malla_z1)), "Resta en produccion real"],
+      ["Reciclado malla Z2", pdfKg(n(p.kg_reciclado_malla_z2)), "Resta en produccion real"],
+      ["Palets brutos", pdfKg(n(p.kg_palets_brutos)), "Alta bruta"],
+      ["Palets Egipto", pdfKg(n(p.kg_palets_egipto)), "Descontado del bruto"],
+      ["Inv. dia anterior", pdfKg(n(p.kg_inventario_anterior_sin_alta)), "Ajuste de palets"],
+      ["Inv. final sin alta", pdfKg(n(p.kg_inventario_sin_alta)), "Resta en diferencia bruta"],
+      ["Podrido calibrador", pdfKg(n(p.kg_podrido_calibrador_auto)), "Dato informativo"],
+      ["Podrido manual", pdfKg(n(p.kg_podrido_bolsa_basura)), "Merma usada en DJPMN"],
     ];
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(6.5);
-    doc.setTextColor(...C_VERDE);
-    doc.text("DATOS DE ENTRADA", panelX, panelY + 3);
-    panelY += 6;
-    doc.setLineWidth(0.2);
-    rawFields.forEach(([label, val]) => {
+
+    autoTable(doc, {
+      startY: rawStartY,
+      head: [["Datos de entrada", "Valor", "Uso"]],
+      body: rawRows,
+      margin: PDF_TABLE_MARGIN,
+      ...pdfTableTheme(),
+      styles: { ...pdfTableTheme().styles, fontSize: 6.8, cellPadding: 1.8 },
+      headStyles: { ...pdfTableTheme().headStyles, fontSize: 6.5 },
+      columnStyles: {
+        0: { cellWidth: 70 },
+        1: { cellWidth: 45, halign: "right", fontStyle: "bold" },
+        2: { cellWidth: 150 },
+      },
+      didDrawPage: () => addAutoTablePageHeader(doc, pageIndex, from, to, `${detailTitle} - datos entrada`),
+    });
+
+    let noteY = ((doc as any).lastAutoTable?.finalY ?? rawStartY) + 6;
+    const noteBlocks = [
+      { title: "Notas generales", text: p.notas_generales },
+      { title: "Notas inventario", text: p.notas_inventario },
+      { title: "Analisis IA", text: p.resumen_ia?.analisis ? String(p.resumen_ia.analisis) : "" },
+    ].filter((block) => block.text);
+
+    for (const block of noteBlocks) {
+      if (noteY > 178) {
+        doc.addPage();
+        pageIndex.value = doc.getNumberOfPages();
+        drawHeader(doc, pageIndex.value, from, to, `${detailTitle} - notas`);
+        noteY = 28;
+      }
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.5);
+      doc.setTextColor(...PDF_THEME.primaryDark);
+      doc.text(safePdf(block.title), 8, noteY);
+      noteY += 4;
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7);
-      doc.setTextColor(...C_GRIS);
-      doc.text(label, panelX + 2, panelY);
-      doc.setTextColor(...C_VERDE);
-      doc.setFont("helvetica", "bold");
-      doc.text(formatKg(Number(val) || 0), panelX + panelW - 2, panelY, { align: "right" });
-      doc.setDrawColor(220, 215, 205);
-      doc.line(panelX, panelY + 1.5, panelX + panelW, panelY + 1.5);
-      panelY += 7;
-    });
-
-    // Notas y análisis IA
-    let notaY = (doc as any).lastAutoTable.finalY + 5;
-    notaY = Math.max(notaY, 33 + 5 * 16 + 22 + 6 * 7 + 14);
-
-    const hasNotas = p.notas_generales || p.notas_inventario;
-    const hasIA = p.resumen_ia?.analisis;
-
-    if (hasNotas || hasIA) {
-      doc.setDrawColor(...C_VERDE);
-      doc.setLineWidth(0.3);
-      doc.line(8, notaY, 162, notaY);
-      notaY += 4;
-
-      if (p.notas_generales) {
-        doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...C_VERDE);
-        doc.text("Notas generales:", 8, notaY);
-        notaY += 4;
-        doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(...C_GRIS);
-        const lines = doc.splitTextToSize(p.notas_generales, 154);
-        doc.text(lines, 8, notaY);
-        notaY += lines.length * 4 + 3;
-      }
-      if (p.notas_inventario) {
-        doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...C_VERDE);
-        doc.text("Notas inventario:", 8, notaY);
-        notaY += 4;
-        doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(...C_GRIS);
-        const lines = doc.splitTextToSize(p.notas_inventario, 154);
-        doc.text(lines, 8, notaY);
-        notaY += lines.length * 4 + 3;
-      }
-      if (hasIA) {
-        doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...C_NARANJA);
-        doc.text("Análisis IA:", 8, notaY);
-        notaY += 4;
-        doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(...C_GRIS);
-        const lines = doc.splitTextToSize(String(p.resumen_ia.analisis), 154);
-        doc.text(lines, 8, notaY);
-      }
+      doc.setTextColor(...PDF_THEME.muted);
+      const lines = doc.splitTextToSize(safePdf(block.text), 281);
+      doc.text(lines, 8, noteY);
+      noteY += lines.length * 3.4 + 4;
     }
+
+    drawFooter(doc);
   });
 
   doc.save(`partes_${from}_${to}.pdf`);

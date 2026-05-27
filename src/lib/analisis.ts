@@ -140,7 +140,7 @@ const UMBRAL_EXPORT_MIN      = 60;  // % exportación por debajo → warning
 const UMBRAL_TPH_MIN         = 12;  // T/h por debajo → warning de eficiencia
 const UMBRAL_TPH_DROP        = 20;  // % caída de T/h respecto a max → warning
 const COLORES_DESTINO = {
-  exportacion: "#22c55e",
+  exportacion: "#10b981",
   mercado:     "#3b82f6",
   industria:   "#f59e0b",
   rechazo:     "#ef4444",

@@ -58,7 +58,7 @@ function DSJBar({ pct }: { pct: number }) {
   const width = Math.min((abs / 5) * 100, 100);
   return (
     <div className="flex items-center gap-2 min-w-[110px]">
-      <div className="w-14 h-1.5 rounded-full bg-muted overflow-hidden shrink-0">
+      <div className="w-14 h-1.5 shrink-0 overflow-hidden rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
         <div className={cn("h-full rounded-full", color)} style={{ width: `${width}%` }} />
       </div>
       <span className={cn(
@@ -144,7 +144,7 @@ export default function PartesList() {
             {!loading && partes.length > 0 && (
               <> · DJPMN global: <span className={cn(
                 "font-semibold",
-                dsjAbs <= 3 ? "text-emerald-600" : dsjAbs <= 5 ? "text-amber-600" : "text-red-600"
+                dsjAbs <= 3 ? "text-success" : dsjAbs <= 5 ? "text-warning" : "text-destructive"
               )}>{totals.dsj_pct >= 0 ? "+" : ""}{totals.dsj_pct.toFixed(2)}%</span></>
             )}
           </p>
@@ -159,7 +159,7 @@ export default function PartesList() {
           <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
           <Label htmlFor="newdate" className="text-sm font-medium whitespace-nowrap">Nuevo parte</Label>
           <Input id="newdate" type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} className="w-40 h-9" />
-          <Button onClick={createParte} disabled={creating} size="sm">
+          <Button onClick={createParte} disabled={creating} size="sm" className="glass glass-hover">
             <Plus className="h-3.5 w-3.5" /> Crear
           </Button>
         </div>
@@ -184,17 +184,15 @@ export default function PartesList() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="todos">Todos los estados</SelectItem>
-            <SelectItem value="Borrador">Borrador</SelectItem>
             <SelectItem value="Analizado">Analizado</SelectItem>
-            <SelectItem value="Con descuadre">Con descuadre</SelectItem>
-            <SelectItem value="Validado">Validado</SelectItem>
+            <SelectItem value="Borrador">Borrador</SelectItem>
           </SelectContent>
         </Select>
 
         {/* Solo críticos */}
         <Button
           variant={filter.soloAlertas ? "default" : "outline"}
-          size="sm" className="h-9"
+          size="sm" className="h-9 glass glass-hover"
           onClick={() => setFilter((f) => ({ ...f, soloAlertas: !f.soloAlertas }))}
         >
           <AlertTriangle className="h-3.5 w-3.5" /> Solo críticos
@@ -209,7 +207,7 @@ export default function PartesList() {
       </div>
 
       {/* Tabla */}
-      <Card className="overflow-hidden">
+      <Card className="glass-accented overflow-hidden">
         <CardHeader className="py-3 px-4 border-b flex-row items-center justify-between space-y-0">
           <div className="flex items-center gap-2">
             <BarChart3 className="h-4 w-4 text-muted-foreground" />
@@ -230,7 +228,7 @@ export default function PartesList() {
               {Array.from({ length: 7 }).map((_, i) => <Skeleton key={i} className="h-11 rounded" />)}
             </div>
           ) : partes.length === 0 ? (
-            <div className="py-16 text-center">
+            <div className="py-16 text-center glass m-6 rounded-xl">
               <Factory className="h-12 w-12 text-muted-foreground/20 mx-auto mb-4" />
               <p className="text-sm text-muted-foreground">
                 {hasFilter ? "Sin partes con los filtros actuales." : "Aún no hay partes. Crea el primero arriba."}
@@ -241,103 +239,134 @@ export default function PartesList() {
                   Limpiar filtros
                 </Button>
               ) : (
-                <Button size="sm" className="mt-4" onClick={() => document.getElementById("newdate")?.focus()}>
+                <Button size="sm" className="mt-4 glass glass-hover" onClick={() => document.getElementById("newdate")?.focus()}>
                   <Plus className="h-3.5 w-3.5 mr-1" />
                   Crear primer parte
                 </Button>
               )}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <ColHead label="Fecha"         sk="date"         sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
-                    <ColHead label="Estado"        sk="estado"       sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
-                    <ColHead label="Prod. real"    sk="produccion"   sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
-                    <ColHead label="Palets ajust." sk="palets"       sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
-                    <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-left">% DJPMN</th>
-                    <ColHead label="DJPMN (kg)"   sk="dsj_pct"      sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
-                    <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-right whitespace-nowrap">Mermas</th>
-                    <th className="w-10" />
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {sorted.map((p) => {
-                    const abs = Math.abs(p.cascade.dsj_pct);
-                    return (
-                      <tr
-                        key={p.id}
-                        className={cn(
-                          "cursor-pointer transition-colors group",
-                          abs > 5
-                            ? "bg-destructive/[0.04] hover:bg-destructive/[0.08]"
-                            : "hover:bg-muted/40"
-                        )}
-                        onClick={() => navigate(`/partes/${p.id}`)}
-                      >
-                        <td className="px-4 py-3 font-medium whitespace-nowrap">{formatDate(p.date)}</td>
-                        <td className="px-4 py-3"><StatusBadge estado={p.estado} /></td>
-                        <td className="px-4 py-3 text-right tabular-nums font-medium">{formatKg(p.cascade.produccion_real)}</td>
-                        <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{formatKg(p.cascade.palets_ajustados)}</td>
-                        <td className="px-4 py-3"><DSJBar pct={p.cascade.dsj_pct} /></td>
-                        <td className={cn(
-                          "px-4 py-3 text-right tabular-nums font-semibold",
-                          abs <= 3 ? "text-success" : abs <= 5 ? "text-warning" : "text-destructive"
-                        )}>
-                          {formatKg(p.cascade.dsj)}
-                        </td>
-                        <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{formatKg(p.cascade.mermas_totales)}</td>
-                        <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="ghost" size="icon"
-                                className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive">
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>¿Eliminar parte?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Se eliminará el parte del {formatDate(p.date)}. Esta acción no se puede deshacer.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => deleteParte(p.id)}>{t("delete")}</AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-
-                {sorted.length > 1 && (
-                  <tfoot className="border-t-2 border-border bg-muted/60">
-                    <tr>
-                      <td className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground" colSpan={2}>
-                        Total ({sorted.length} partes)
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums font-bold">{formatKg(totals.produccion_real)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums font-semibold text-muted-foreground">{formatKg(totals.palets_ajustados)}</td>
-                      <td className="px-4 py-3"><DSJBar pct={totals.dsj_pct} /></td>
-                      <td className={cn(
-                        "px-4 py-3 text-right tabular-nums font-bold",
+            <>
+              {sorted.length > 1 && (
+                <div className="border-b border-[var(--glass-border)] bg-[var(--glass-bg)] px-4 py-4 backdrop-blur-sm">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                    Total ({sorted.length} partes)
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                    <div className="glass p-3 rounded-xl">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Producción Real</div>
+                      <div className="text-lg font-bold tabular-nums">{formatKg(totals.produccion_real)}</div>
+                    </div>
+                    <div className="glass p-3 rounded-xl">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Palets Ajustados</div>
+                      <div className="text-lg font-semibold tabular-nums text-muted-foreground">{formatKg(totals.palets_ajustados)}</div>
+                    </div>
+                    <div className="glass p-3 rounded-xl">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">DJPMN</div>
+                      <div className={cn("text-lg font-bold tabular-nums",
                         dsjAbs <= 3 ? "text-success" : dsjAbs <= 5 ? "text-warning" : "text-destructive"
                       )}>
                         {formatKg(totals.dsj)}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground font-semibold">{formatKg(totals.mermas_totales)}</td>
-                      <td />
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-            </div>
+                      </div>
+                      <div className={cn("text-xs font-medium",
+                        dsjAbs <= 3 ? "text-success" : dsjAbs <= 5 ? "text-warning" : "text-destructive"
+                      )}>
+                        {totals.dsj_pct >= 0 ? "+" : ""}{totals.dsj_pct.toFixed(2)}%
+                      </div>
+                    </div>
+                    <div className="glass p-3 rounded-xl">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Mermas</div>
+                      <div className="text-lg font-semibold tabular-nums text-muted-foreground">{formatKg(totals.mermas_totales)}</div>
+                    </div>
+                    <div className="glass p-3 rounded-xl">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Semáforo</div>
+                      <div className="flex items-center gap-2">
+                        <div className="h-1.5 w-8 overflow-hidden rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
+                          <div className={cn(
+                            "h-full rounded-full",
+                            dsjAbs <= 3 ? "bg-success" : dsjAbs <= 5 ? "bg-warning" : "bg-destructive"
+                          )} style={{ width: `${Math.min((dsjAbs / 5) * 100, 100)}%` }} />
+                        </div>
+                        <span className={cn("text-xs font-bold",
+                          dsjAbs <= 3 ? "text-success" : dsjAbs <= 5 ? "text-warning" : "text-destructive"
+                        )}>
+                          {dsjAbs <= 3 ? "OK" : dsjAbs <= 5 ? "!" : "X"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className="overflow-x-auto">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <ColHead label="Fecha"         sk="date"         sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                        <ColHead label="Estado"        sk="estado"       sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                        <ColHead label="Prod. real"    sk="produccion"   sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
+                        <ColHead label="Palets ajust." sk="palets"       sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
+                        <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-left">% DJPMN</th>
+                        <ColHead label="DJPMN (kg)"   sk="dsj_pct"      sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
+                        <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-right whitespace-nowrap">Mermas</th>
+                        <th className="w-10" />
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {sorted.map((p) => {
+                        const abs = Math.abs(p.cascade.dsj_pct);
+                        return (
+                          <tr
+                            key={p.id}
+                            className={cn(
+                              "cursor-pointer transition-all group",
+                              abs > 5
+                                ? "bg-destructive/[0.04] hover:bg-destructive/[0.08]"
+                                : "hover:bg-[var(--glass-bg-strong)]"
+                            )}
+                            onClick={() => navigate(`/partes/${p.id}`)}
+                          >
+                            <td className="px-4 py-3 font-medium whitespace-nowrap">{formatDate(p.date)}</td>
+                            <td className="px-4 py-3"><StatusBadge estado={p.estado} /></td>
+                            <td className="px-4 py-3 text-right tabular-nums font-medium">{formatKg(p.cascade.produccion_real)}</td>
+                            <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{formatKg(p.cascade.palets_ajustados)}</td>
+                            <td className="px-4 py-3"><DSJBar pct={p.cascade.dsj_pct} /></td>
+                            <td className={cn(
+                              "px-4 py-3 text-right tabular-nums font-semibold",
+                              abs <= 3 ? "text-success" : abs <= 5 ? "text-warning" : "text-destructive"
+                            )}>
+                              {formatKg(p.cascade.dsj)}
+                            </td>
+                            <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{formatKg(p.cascade.mermas_totales)}</td>
+                            <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="ghost" size="icon"
+                                    className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive">
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>¿Eliminar parte?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Se eliminará el parte del {formatDate(p.date)}. Esta acción no se puede deshacer.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+                                    <AlertDialogAction onClick={() => deleteParte(p.id)}>{t("delete")}</AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+            </>
           )}
         </CardContent>
       </Card>

@@ -40,15 +40,15 @@ function mdToHtml(md: string): string {
 
       const tag = i === 0 ? "th" : "td";
       const rowClass = i === 0
-        ? 'class="bg-muted/50 font-semibold"'
+        ? 'class="bg-[var(--glass-bg-strong)] font-semibold"'
         : i % 2 === 0
-          ? 'class="bg-muted/20"'
+          ? 'class="bg-[var(--glass-bg)]"'
           : "";
 
       html.push(`<tr ${rowClass}>`);
       for (const cell of cells) {
         const styled = inlineStyle(cell);
-        html.push(`<${tag} class="px-2 py-1.5 border-b border-border text-left">${styled}</${tag}>`);
+        html.push(`<${tag} class="px-2 py-1.5 border-b border-[var(--glass-border)] text-left">${styled}</${tag}>`);
       }
       html.push("</tr>");
     }
@@ -74,7 +74,7 @@ function mdToHtml(md: string): string {
     if (trimmed.startsWith("# ")) {
       html.push(`<h1 class="text-xl font-bold mt-6 mb-2 text-foreground">${inlineStyle(trimmed.slice(2))}</h1>`);
     } else if (trimmed.startsWith("## ")) {
-      html.push(`<h2 class="text-lg font-semibold mt-5 mb-2 text-foreground border-b border-border pb-1">${inlineStyle(trimmed.slice(3))}</h2>`);
+      html.push(`<h2 class="text-lg font-semibold mt-5 mb-2 text-foreground border-b border-[var(--glass-border)] pb-1">${inlineStyle(trimmed.slice(3))}</h2>`);
     } else if (trimmed.startsWith("### ")) {
       html.push(`<h3 class="text-sm font-semibold mt-4 mb-1 text-foreground">${inlineStyle(trimmed.slice(4))}</h3>`);
     }
@@ -93,7 +93,7 @@ function mdToHtml(md: string): string {
     }
     // Horizontal rule
     else if (trimmed === "---") {
-      html.push('<hr class="my-4 border-border" />');
+      html.push('<hr class="my-4 border-[var(--glass-border)]" />');
     }
     // Italic line (metadata)
     else if (trimmed.startsWith("_") && trimmed.endsWith("_")) {
@@ -186,11 +186,11 @@ export function ReporteOperativo({ analisis, fechaParte }: Props) {
           <Badge variant="secondary" className="text-[10px]">Markdown</Badge>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={copiarAlPortapapeles}>
+          <Button variant="outline" size="sm" onClick={copiarAlPortapapeles} className="glass glass-hover">
             <Copy className="h-3.5 w-3.5 mr-1.5" />
             Copiar
           </Button>
-          <Button variant="outline" size="sm" onClick={descargarMd}>
+          <Button variant="outline" size="sm" onClick={descargarMd} className="glass glass-hover">
             <Download className="h-3.5 w-3.5 mr-1.5" />
             Descargar .md
           </Button>
@@ -216,7 +216,7 @@ export function ReporteOperativo({ analisis, fechaParte }: Props) {
           )}
           {resultadoBusquedaHtml && (
             <div
-              className="mt-3 ml-6 p-3 rounded-md bg-primary/5 border border-primary/20"
+              className="mt-3 ml-6 rounded-xl border border-primary/20 bg-primary/5 p-3"
               dangerouslySetInnerHTML={{ __html: resultadoBusquedaHtml }}
             />
           )}

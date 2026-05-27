@@ -183,7 +183,7 @@ export function AnalisisDiarioSummary({ days = 30 }: Props) {
             ) : (
               <div className="grid grid-cols-2 gap-3">
                 {data.clientes.slice(0, 6).map((c) => (
-                  <div key={c.cliente} className="rounded-lg border border-border/40 p-2">
+                  <div key={c.cliente} className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-2">
                     <p className="font-medium text-xs truncate">{c.cliente}</p>
                     <div className="flex items-center justify-between mt-1">
                       <span className="text-[10px] text-muted-foreground">

@@ -16,12 +16,17 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Trash2, Save, History, BarChart3, Settings, Droplet, Zap, Fuel, FlaskConical } from "lucide-react";
+import { Plus, Trash2, Save, History, BarChart3, Settings, Droplet, Zap, Fuel, FlaskConical, Download, FileText, FileSpreadsheet } from "lucide-react";
 import { today, formatNumber, formatDate } from "@/lib/format";
 import {
   BarChart, Bar, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
+import {
+  GlassTooltip, legendStyle, C, GRID, XAXIS, YAXIS, MARGIN,
+  BAR_STYLE, CHART_CURSOR, CHART_LINE_CURSOR, CHART_PANEL_CLASS, barFill, lineStyle,
+} from "@/lib/chartTheme";
 import { MaquinaRow, SesionConsumoRow, ConsumoMaquinaRow } from "@/lib/types";
+import { exportConsumoToExcel, exportConsumoToPDF } from "@/lib/exportConsumo";
 
 const ZONAS = [
   { value: "drencher", label: "Drencher" },
@@ -283,6 +288,14 @@ export default function ConsumoCostes() {
           <h1 className="page-title">Consumos físicos</h1>
           <p className="page-subtitle">Agua · Electricidad · Gasoil · Químicos por kg de naranja</p>
         </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" disabled={sesiones.length === 0} onClick={() => exportConsumoToExcel({ sesiones, maquinas, consumosMaquinas })} className="glass glass-hover">
+            <FileSpreadsheet className="h-4 w-4 mr-1.5" /> Excel
+          </Button>
+          <Button variant="outline" size="sm" disabled={sesiones.length === 0} onClick={() => exportConsumoToPDF({ sesiones, maquinas, consumosMaquinas })} className="glass glass-hover">
+            <FileText className="h-4 w-4 mr-1.5" /> PDF
+          </Button>
+        </div>
       </header>
 
       {loading ? (
@@ -291,8 +304,8 @@ export default function ConsumoCostes() {
           <Skeleton className="h-64" />
         </div>
       ) : (
-        <Tabs value={tab} onValueChange={setTab} className="space-y-4">
-          <div className="section-toolbar">
+        <Tabs value={tab} onValueChange={setTab} className="space-y-6">
+          <div className="glass-accented p-1.5 rounded-xl">
           <TabsList className="grid w-full grid-cols-2 md:w-auto md:grid-cols-4">
             <TabsTrigger value="sesion"><Save className="h-4 w-4 mr-1.5" />Sesión</TabsTrigger>
             <TabsTrigger value="resultados"><BarChart3 className="h-4 w-4 mr-1.5" />Resultados</TabsTrigger>
@@ -303,51 +316,56 @@ export default function ConsumoCostes() {
 
           {/* ════════ SESIÓN ════════ */}
           <TabsContent value="sesion" className="space-y-4">
-            <Card>
+            <Card className="glass-accented">
               <CardHeader>
                 <p className="panel-kicker">Registro</p>
                 <CardTitle>Nueva sesión</CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-1.5">
-                  <Label>Fecha inicio</Label>
+              <CardContent className="grid gap-5 md:grid-cols-3">
+                <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fecha inicio</Label>
                   <Input type="date" value={fInicio} onChange={(e) => setFInicio(e.target.value)} />
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Fecha fin</Label>
+                <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fecha fin</Label>
                   <Input type="date" value={fFin} onChange={(e) => setFFin(e.target.value)} />
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Kg procesados *</Label>
+                <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kg procesados *</Label>
                   <div className="flex gap-2">
                     <Input type="number" step="0.1" min="0" value={fKg} onChange={(e) => setFKg(e.target.value)} placeholder="0" className="flex-1" />
-                    <Button type="button" variant="outline" size="sm" onClick={calcularKgDesdePartes} disabled={calculandoKg} className="shrink-0">
+                    <Button type="button" variant="outline" size="sm" onClick={calcularKgDesdePartes} disabled={calculandoKg} className="glass glass-hover shrink-0">
                       {calculandoKg ? "..." : "Desde partes"}
                     </Button>
                   </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="flex items-center gap-1"><Droplet className="h-3.5 w-3.5 text-blue-500" /> Agua línea (L)</Label>
+                <div className="glass p-4 space-y-2 relative overflow-hidden">
+                  <div className="absolute inset-x-3 top-0 h-px bg-info/30" />
+                  <Label className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-info"><Droplet className="h-3.5 w-3.5" /> Agua línea (L)</Label>
                   <Input type="number" step="0.1" min="0" value={fAguaLinea} onChange={(e) => setFAguaLinea(e.target.value)} placeholder="0" />
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="flex items-center gap-1"><Droplet className="h-3.5 w-3.5 text-blue-300" /> Agua drencher (L)</Label>
+                <div className="glass p-4 space-y-2 relative overflow-hidden">
+                  <div className="absolute inset-x-3 top-0 h-px bg-info/25" />
+                  <Label className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-info"><Droplet className="h-3.5 w-3.5" /> Agua drencher (L)</Label>
                   <Input type="number" step="0.1" min="0" value={fAguaDrencher} onChange={(e) => setFAguaDrencher(e.target.value)} placeholder="0" />
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="flex items-center gap-1"><FlaskConical className="h-3.5 w-3.5 text-purple-500" /> Químicos drencher (L)</Label>
+                <div className="glass p-4 space-y-2 relative overflow-hidden">
+                  <div className="absolute inset-x-3 top-0 h-px bg-info/30" />
+                  <Label className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-info"><FlaskConical className="h-3.5 w-3.5" /> Químicos drencher (L)</Label>
                   <Input type="number" step="0.01" min="0" value={fQuimicos} onChange={(e) => setFQuimicos(e.target.value)} placeholder="0" />
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="flex items-center gap-1"><Fuel className="h-3.5 w-3.5 text-orange-500" /> Gasoil (L)</Label>
+                <div className="glass p-4 space-y-2 relative overflow-hidden">
+                  <div className="absolute inset-x-3 top-0 h-px bg-primary/30" />
+                  <Label className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-warning"><Fuel className="h-3.5 w-3.5" /> Gasoil (L)</Label>
                   <Input type="number" step="0.1" min="0" value={fGasoil} onChange={(e) => setFGasoil(e.target.value)} placeholder="0" />
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="flex items-center gap-1"><Zap className="h-3.5 w-3.5 text-yellow-500" /> Electricidad total (kWh)</Label>
+                <div className="glass p-4 space-y-2 relative overflow-hidden">
+                  <div className="absolute inset-x-3 top-0 h-px bg-warning/30" />
+                  <Label className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-warning"><Zap className="h-3.5 w-3.5" /> Electricidad total (kWh)</Label>
                   <Input type="number" step="0.1" min="0" value={fElectricidad} onChange={(e) => setFElectricidad(e.target.value)} placeholder="0" />
                 </div>
-                <div className="space-y-1.5 md:col-span-3">
-                  <Label>Notas</Label>
+                <div className="glass p-4 space-y-2 md:col-span-3">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Notas</Label>
                   <Input value={fNotas} onChange={(e) => setFNotas(e.target.value)} placeholder="Opcional" />
                 </div>
               </CardContent>
@@ -355,15 +373,15 @@ export default function ConsumoCostes() {
 
             {/* kWh por máquina */}
             {maquinas.length > 0 && (
-              <Card>
+              <Card className="glass-accented">
                 <CardHeader>
                   <p className="panel-kicker">Detalle energético</p>
                   <CardTitle>Consumo por máquina (kWh)</CardTitle>
                 </CardHeader>
-                <CardContent className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                <CardContent className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {maquinas.map((m) => (
-                    <div key={m.id} className="space-y-1.5">
-                      <Label className="text-sm">{m.nombre} <span className="text-muted-foreground text-xs">({ZONAS.find((z) => z.value === m.zona)?.label})</span></Label>
+                    <div key={m.id} className="glass p-4 space-y-2">
+                      <Label className="text-sm font-semibold">{m.nombre} <span className="text-muted-foreground font-normal text-xs">({ZONAS.find((z) => z.value === m.zona)?.label})</span></Label>
                       <Input type="number" step="0.1" min="0"
                         value={fMaquinaKwh[m.id] ?? ""}
                         onChange={(e) => setFMaquinaKwh((prev) => ({ ...prev, [m.id]: e.target.value }))}
@@ -374,72 +392,80 @@ export default function ConsumoCostes() {
               </Card>
             )}
 
-            <Button onClick={() => sessionMut.mutate()} disabled={sessionMut.isPending || !fKg} className="w-full md:w-auto">
-              <Save className="h-4 w-4 mr-2" /> Guardar sesión
-            </Button>
+            <div className="flex justify-end">
+              <Button onClick={() => sessionMut.mutate()} disabled={sessionMut.isPending || !fKg} className="glass glass-hover px-8">
+                <Save className="h-4 w-4 mr-2" /> Guardar sesión
+              </Button>
+            </div>
           </TabsContent>
 
           {/* ════════ RESULTADOS ════════ */}
-          <TabsContent value="resultados" className="space-y-4">
+          <TabsContent value="resultados" className="space-y-6">
             {!resultados || sesiones.length === 0 ? (
-              <Card><CardContent className="p-12 text-center text-muted-foreground">Aún no hay sesiones registradas.</CardContent></Card>
+              <Card className="glass-accented"><CardContent className="p-12 text-center text-muted-foreground">Aún no hay sesiones registradas.</CardContent></Card>
             ) : (
               <>
                 {/* KPIs última sesión */}
                 {kpisUltima && (
-                  <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     <KPICard label="Agua total" value={`${formatNumber(kpisUltima.aguaTotal_l_kg, 2)} L/kg`}
                       hint={kpisPenultima ? `${pct(kpisUltima.aguaTotal_l_kg, kpisPenultima.aguaTotal_l_kg) > 0 ? "+" : ""}${pct(kpisUltima.aguaTotal_l_kg, kpisPenultima.aguaTotal_l_kg).toFixed(1)}% vs anterior` : "—"}
                       trend={kpisPenultima ? (kpisUltima.aguaTotal_l_kg > kpisPenultima.aguaTotal_l_kg ? "up" : "down") : "neutral"}
-                      icon={Droplet} />
+                      icon={Droplet} className="glass-accented" />
                     <KPICard label="Electricidad" value={`${formatNumber(kpisUltima.electricidad_kwh_kg, 3)} kWh/kg`}
                       hint={kpisPenultima ? `${pct(kpisUltima.electricidad_kwh_kg, kpisPenultima.electricidad_kwh_kg) > 0 ? "+" : ""}${pct(kpisUltima.electricidad_kwh_kg, kpisPenultima.electricidad_kwh_kg).toFixed(1)}% vs anterior` : "—"}
                       trend={kpisPenultima ? (kpisUltima.electricidad_kwh_kg > kpisPenultima.electricidad_kwh_kg ? "up" : "down") : "neutral"}
-                      icon={Zap} />
+                      icon={Zap} className="glass-accented" />
                     <KPICard label="Gasoil" value={`${formatNumber(kpisUltima.gasoil_ml_kg, 1)} mL/kg`}
                       hint={kpisPenultima ? `${pct(kpisUltima.gasoil_ml_kg, kpisPenultima.gasoil_ml_kg) > 0 ? "+" : ""}${pct(kpisUltima.gasoil_ml_kg, kpisPenultima.gasoil_ml_kg).toFixed(1)}% vs anterior` : "—"}
                       trend={kpisPenultima ? (kpisUltima.gasoil_ml_kg > kpisPenultima.gasoil_ml_kg ? "up" : "down") : "neutral"}
-                      icon={Fuel} />
+                      icon={Fuel} className="glass-accented" />
                     <KPICard label="Químicos" value={`${formatNumber(kpisUltima.quimicos_ml_kg, 1)} mL/kg`}
                       hint={kpisPenultima ? `${pct(kpisUltima.quimicos_ml_kg, kpisPenultima.quimicos_ml_kg) > 0 ? "+" : ""}${pct(kpisUltima.quimicos_ml_kg, kpisPenultima.quimicos_ml_kg).toFixed(1)}% vs anterior` : "—"}
                       trend={kpisPenultima ? (kpisUltima.quimicos_ml_kg > kpisPenultima.quimicos_ml_kg ? "up" : "down") : "neutral"}
-                      icon={FlaskConical} />
+                      icon={FlaskConical} className="glass-accented" />
                   </section>
                 )}
 
                 {/* Métricas acumuladas */}
-                <Card>
+                <Card className="glass-accented">
                   <CardHeader>
                     <p className="panel-kicker">Acumulado</p>
                     <CardTitle>Resumen ({sesiones.length} sesiones, {formatNumber(resultados.totalKg)} kg)</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                      <div className="rounded-lg border p-4 bg-blue-50/50">
-                        <p className="text-xs font-medium text-blue-700 uppercase tracking-wider">Agua total</p>
-                        <p className="text-2xl font-bold text-blue-800">{formatNumber(resultados.agua_total_l_kg, 2)} L/kg</p>
-                        <p className="text-xs text-blue-600 mt-1">Línea: {formatNumber(resultados.agua_linea_l_kg, 2)} · Drencher: {formatNumber(resultados.agua_drencher_l_kg, 2)} L/kg</p>
+                      <div className="glass p-5 relative overflow-hidden">
+                        <div className="absolute inset-x-4 top-0 h-0.5 bg-info/40 rounded-full" />
+                        <p className="text-xs font-semibold text-info uppercase tracking-wider">Agua total</p>
+                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(resultados.agua_total_l_kg, 2)} <span className="text-sm font-normal text-muted-foreground">L/kg</span></p>
+                        <p className="mt-2 text-xs text-muted-foreground">Línea: {formatNumber(resultados.agua_linea_l_kg, 2)} · Drencher: {formatNumber(resultados.agua_drencher_l_kg, 2)} L/kg</p>
                       </div>
-                      <div className="rounded-lg border p-4 bg-yellow-50/50">
-                        <p className="text-xs font-medium text-yellow-700 uppercase tracking-wider">Electricidad</p>
-                        <p className="text-2xl font-bold text-yellow-800">{formatNumber(resultados.electricidad_kwh_kg, 3)} kWh/kg</p>
-                        <p className="text-xs text-yellow-600 mt-1">{formatNumber(resultados.totalKg > 0 ? (resultados.totalKg / (sesiones.reduce((s, r) => s + (r.electricidad_total_kwh || 0), 0) || 1)) : 0, 1)} kg/kWh</p>
+                      <div className="glass p-5 relative overflow-hidden">
+                        <div className="absolute inset-x-4 top-0 h-0.5 bg-warning/40 rounded-full" />
+                        <p className="text-xs font-semibold text-warning uppercase tracking-wider">Electricidad</p>
+                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(resultados.electricidad_kwh_kg, 3)} <span className="text-sm font-normal text-muted-foreground">kWh/kg</span></p>
+                        <p className="mt-2 text-xs text-muted-foreground">{formatNumber(resultados.totalKg > 0 ? (resultados.totalKg / (sesiones.reduce((s, r) => s + (r.electricidad_total_kwh || 0), 0) || 1)) : 0, 1)} kg/kWh</p>
                       </div>
-                      <div className="rounded-lg border p-4 bg-orange-50/50">
-                        <p className="text-xs font-medium text-orange-700 uppercase tracking-wider">Gasoil</p>
-                        <p className="text-2xl font-bold text-orange-800">{formatNumber(resultados.gasoil_ml_kg, 1)} mL/kg</p>
+                      <div className="glass p-5 relative overflow-hidden">
+                        <div className="absolute inset-x-4 top-0 h-0.5 bg-primary/40 rounded-full" />
+                        <p className="text-xs font-semibold text-warning uppercase tracking-wider">Gasoil</p>
+                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(resultados.gasoil_ml_kg, 1)} <span className="text-sm font-normal text-muted-foreground">mL/kg</span></p>
                       </div>
-                      <div className="rounded-lg border p-4 bg-purple-50/50">
-                        <p className="text-xs font-medium text-purple-700 uppercase tracking-wider">Químicos drencher</p>
-                        <p className="text-2xl font-bold text-purple-800">{formatNumber(resultados.quimicos_ml_kg, 1)} mL/kg</p>
+                      <div className="glass p-5 relative overflow-hidden">
+                        <div className="absolute inset-x-4 top-0 h-0.5 bg-info/40 rounded-full" />
+                        <p className="text-xs font-semibold text-info uppercase tracking-wider">Químicos drencher</p>
+                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(resultados.quimicos_ml_kg, 1)} <span className="text-sm font-normal text-muted-foreground">mL/kg</span></p>
                       </div>
-                      <div className="rounded-lg border p-4 bg-green-50/50">
-                        <p className="text-xs font-medium text-green-700 uppercase tracking-wider">Agua línea</p>
-                        <p className="text-2xl font-bold text-green-800">{formatNumber(resultados.agua_linea_l_kg, 2)} L/kg</p>
+                      <div className="glass p-5 relative overflow-hidden">
+                        <div className="absolute inset-x-4 top-0 h-0.5 bg-success/40 rounded-full" />
+                        <p className="text-xs font-semibold text-success uppercase tracking-wider">Agua línea</p>
+                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(resultados.agua_linea_l_kg, 2)} <span className="text-sm font-normal text-muted-foreground">L/kg</span></p>
                       </div>
-                      <div className="rounded-lg border p-4 bg-cyan-50/50">
-                        <p className="text-xs font-medium text-cyan-700 uppercase tracking-wider">Agua drencher</p>
-                        <p className="text-2xl font-bold text-cyan-800">{formatNumber(resultados.agua_drencher_l_kg, 2)} L/kg</p>
+                      <div className="glass p-5 relative overflow-hidden">
+                        <div className="absolute inset-x-4 top-0 h-0.5 bg-info/40 rounded-full" />
+                        <p className="text-xs font-semibold text-info uppercase tracking-wider">Agua drencher</p>
+                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(resultados.agua_drencher_l_kg, 2)} <span className="text-sm font-normal text-muted-foreground">L/kg</span></p>
                       </div>
                     </div>
                   </CardContent>
@@ -447,7 +473,7 @@ export default function ConsumoCostes() {
 
                 {/* Desglose por máquina */}
                 {resultados.maquinas.some((m) => m.totalKwh > 0) && (
-                  <Card>
+                  <Card className="glass-accented">
                     <CardHeader><CardTitle className="text-lg">Desglose por máquina</CardTitle></CardHeader>
                     <CardContent className="p-0">
                       <Table>
@@ -476,22 +502,32 @@ export default function ConsumoCostes() {
 
                 {/* Gráfico comparativo histórico */}
                 {historicoChart.length > 1 && (
-                  <Card>
-                    <CardHeader><CardTitle className="text-lg">Evolución por sesión</CardTitle></CardHeader>
-                    <CardContent>
-                      <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={historicoChart}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                          <XAxis dataKey="periodo" fontSize={10} />
-                          <YAxis fontSize={11} />
-                          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "var(--radius)" }} />
-                          <Legend wrapperStyle={{ fontSize: 11 }} />
-                          <Bar dataKey="Agua L/kg" fill="#3b82f6" />
-                          <Bar dataKey="Electricidad kWh/kg" fill="#eab308" />
-                          <Bar dataKey="Gasoil mL/kg" fill="#f97316" />
-                          <Bar dataKey="Químicos mL/kg" fill="#a855f7" />
+                  <Card className="glass-accented">
+                    <CardHeader className="pb-3 px-5 pt-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-7 w-1 rounded-full bg-primary" />
+                        <div>
+                          <CardTitle className="text-lg font-semibold">Evolución por sesión</CardTitle>
+                          <p className="text-xs text-muted-foreground mt-0.5">Ratios de consumo por sesión registrada</p>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="px-4 pb-4 pt-1">
+                      <div className={CHART_PANEL_CLASS}>
+                      <ResponsiveContainer width="100%" height={320}>
+                        <BarChart data={historicoChart} {...MARGIN}>
+                          <CartesianGrid {...GRID} />
+                          <XAxis dataKey="periodo" {...XAXIS} />
+                          <YAxis {...YAXIS} />
+                          <Tooltip cursor={CHART_CURSOR} content={<GlassTooltip formatter={(v, n) => `${Number(v).toFixed(3)} ${n.split(" ")[1] ?? ""}`} />} />
+                          <Legend wrapperStyle={legendStyle} />
+                          <Bar dataKey="Agua L/kg"           fill={barFill(C.info, 0.25)}   stroke={C.info}   {...BAR_STYLE} />
+                          <Bar dataKey="Electricidad kWh/kg" fill={barFill(C.warning, 0.25)}  stroke={C.warning}  {...BAR_STYLE} />
+                          <Bar dataKey="Gasoil mL/kg"        fill={barFill(C.primary, 0.25)} stroke={C.primary} {...BAR_STYLE} />
+                          <Bar dataKey="Químicos mL/kg"      fill={barFill(C.destructive, 0.25)} stroke={C.destructive} {...BAR_STYLE} />
                         </BarChart>
                       </ResponsiveContainer>
+                      </div>
                     </CardContent>
                   </Card>
                 )}
@@ -500,16 +536,19 @@ export default function ConsumoCostes() {
           </TabsContent>
 
           {/* ════════ MÁQUINAS ════════ */}
-          <TabsContent value="maquinas" className="space-y-4">
-            <Card>
-              <CardHeader><CardTitle className="text-lg">Añadir máquina</CardTitle></CardHeader>
-              <CardContent className="flex flex-wrap gap-3 items-end">
-                <div className="space-y-1.5 flex-1 min-w-[200px]">
-                  <Label>Nombre</Label>
+          <TabsContent value="maquinas" className="space-y-6">
+            <Card className="glass-accented">
+              <CardHeader>
+                <p className="panel-kicker">Gestión</p>
+                <CardTitle>Añadir máquina</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-4 items-end">
+                <div className="glass p-4 space-y-2 flex-1 min-w-[200px]">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Nombre</Label>
                   <Input value={mNombre} onChange={(e) => setMNombre(e.target.value)} placeholder="Ej: Cinta principal" />
                 </div>
-                <div className="space-y-1.5 w-48">
-                  <Label>Zona</Label>
+                <div className="glass p-4 space-y-2 w-52">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Zona</Label>
                   <Select value={mZona} onValueChange={setMZona}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -519,22 +558,25 @@ export default function ConsumoCostes() {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button onClick={() => maquinaMut.mutate()} disabled={maquinaMut.isPending || !mNombre.trim()}>
+                <Button onClick={() => maquinaMut.mutate()} disabled={maquinaMut.isPending || !mNombre.trim()} className="glass glass-hover h-10">
                   <Plus className="h-4 w-4 mr-2" /> Añadir
                 </Button>
               </CardContent>
             </Card>
 
             {maquinas.length === 0 ? (
-              <Card>
+              <Card className="glass-accented">
                 <CardContent className="p-12 text-center">
                   <Settings className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
                   <p className="text-sm text-muted-foreground">No hay máquinas registradas. Añade la primera cuando el experto os dé los datos.</p>
                 </CardContent>
               </Card>
             ) : (
-              <Card>
-                <CardHeader><CardTitle className="text-lg">Máquinas ({maquinas.length})</CardTitle></CardHeader>
+              <Card className="glass-accented">
+                <CardHeader>
+                  <p className="panel-kicker">Inventario</p>
+                  <CardTitle>Máquinas ({maquinas.length})</CardTitle>
+                </CardHeader>
                 <CardContent className="p-0">
                   <Table>
                     <TableHeader>
@@ -564,9 +606,9 @@ export default function ConsumoCostes() {
           </TabsContent>
 
           {/* ════════ HISTÓRICO ════════ */}
-          <TabsContent value="historico" className="space-y-4">
+          <TabsContent value="historico" className="space-y-6">
             {sesiones.length === 0 ? (
-              <Card>
+              <Card className="glass-accented">
                 <CardContent className="p-12 text-center">
                   <History className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
                   <p className="text-sm text-muted-foreground">No hay sesiones registradas.</p>
@@ -575,8 +617,11 @@ export default function ConsumoCostes() {
             ) : (
               <>
                 {/* Tabla de sesiones */}
-                <Card>
-                  <CardHeader><CardTitle className="text-lg">Sesiones anteriores</CardTitle></CardHeader>
+                <Card className="glass-accented">
+                  <CardHeader>
+                    <p className="panel-kicker">Historial</p>
+                    <CardTitle>Sesiones anteriores</CardTitle>
+                  </CardHeader>
                   <CardContent className="p-0">
                     <Table>
                       <TableHeader>
@@ -609,7 +654,7 @@ export default function ConsumoCostes() {
                               <TableCell className="text-right tabular-nums">{formatNumber(((s.quimicos_drencher_l || 0) * 1000) / kg, 1)}</TableCell>
                               <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate">{s.notas}</TableCell>
                               <TableCell className="text-right">
-                                <Button variant="ghost" size="icon" onClick={() => delSesionMut.mutate(s.id)}>
+                                <Button variant="ghost" size="icon" className="hover:bg-destructive/10 hover:text-destructive" onClick={() => delSesionMut.mutate(s.id)}>
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
                               </TableCell>
@@ -623,20 +668,30 @@ export default function ConsumoCostes() {
 
                 {/* Evolución histórica */}
                 {historicoChart.length > 1 && (
-                  <Card>
-                    <CardHeader><CardTitle className="text-lg">Evolución de ratios</CardTitle></CardHeader>
-                    <CardContent>
-                      <ResponsiveContainer width="100%" height={300}>
-                        <LineChart data={historicoChart}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                          <XAxis dataKey="periodo" fontSize={10} />
-                          <YAxis fontSize={11} />
-                          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "var(--radius)" }} />
-                          <Legend wrapperStyle={{ fontSize: 11 }} />
-                          <Line type="monotone" dataKey="Agua L/kg" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                          <Line type="monotone" dataKey="Electricidad kWh/kg" stroke="#eab308" strokeWidth={2} dot={false} />
+                  <Card className="glass-accented">
+                    <CardHeader className="pb-3 px-5 pt-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-7 w-1 rounded-full bg-primary" />
+                        <div>
+                          <CardTitle className="text-lg font-semibold">Evolución de ratios</CardTitle>
+                          <p className="text-xs text-muted-foreground mt-0.5">Tendencia de consumo por kg procesado</p>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="px-4 pb-4 pt-1">
+                      <div className={CHART_PANEL_CLASS}>
+                      <ResponsiveContainer width="100%" height={320}>
+                        <LineChart data={historicoChart} {...MARGIN}>
+                          <CartesianGrid {...GRID} />
+                          <XAxis dataKey="periodo" {...XAXIS} />
+                          <YAxis {...YAXIS} />
+                          <Tooltip cursor={CHART_LINE_CURSOR} content={<GlassTooltip formatter={(v, n) => `${Number(v).toFixed(3)} ${n.split(" ")[1] ?? ""}`} />} />
+                          <Legend wrapperStyle={legendStyle} />
+                          <Line dataKey="Agua L/kg" {...lineStyle(C.info)} />
+                          <Line dataKey="Electricidad kWh/kg" {...lineStyle(C.warning)} />
                         </LineChart>
                       </ResponsiveContainer>
+                      </div>
                     </CardContent>
                   </Card>
                 )}

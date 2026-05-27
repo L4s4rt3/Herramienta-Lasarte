@@ -42,11 +42,11 @@ function Row({
   return (
     <div
       className={cn(
-        "grid items-center gap-2 rounded-lg px-3 py-2 text-sm",
+        "grid items-center gap-2 rounded-xl px-3 py-2 text-sm",
         "grid-cols-[1fr_auto_auto]",
-        variant === "base"  && "bg-muted/40",
+        variant === "base"  && "border border-[var(--glass-border)] bg-[var(--glass-bg)]",
         variant === "sub"   && "pl-6",
-        variant === "total" && "bg-background border border-border/60",
+        variant === "total" && "bg-[var(--glass-bg-strong)] border border-[var(--glass-border-accent)]",
       )}
     >
       <div className={cn("flex items-center gap-2", variant === "total" && "font-medium")}>
@@ -67,7 +67,7 @@ function Row({
 }
 
 function Divider() {
-  return <div className="h-px bg-border/50 my-1" />;
+  return <div className="my-1 h-px bg-[var(--glass-border)]" />;
 }
 
 // ─── Barra de destino de fruta (M3) ──────────────────────────────────────────
@@ -100,7 +100,7 @@ function DestinoBar({
           </span>
         </div>
       </div>
-      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+      <div className="h-1.5 overflow-hidden rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
         <div
           className={cn("h-full rounded-full transition-all", color.replace("text-", "bg-"))}
           style={{ width: `${Math.min(pct, 100)}%` }}
@@ -172,7 +172,6 @@ export function CascadeView({ result }: { result: CascadeResult }) {
       <Row label="Palets alta ajustados" op="−" value={result.palets_ajustados} variant="sub" icon={Minus} />
       <Row label="Inventario final sin alta" op="−" value={result.inventario_final} variant="sub" icon={Minus} />
       <Row label="Diferencia bruta" op="=" value={result.diferencia_bruta} variant="total" />
-      <Row label="Podrido calibrador (ya descontado)" op="=" value={result.podrido_calibrador} variant="sub" />
       <Row label="Podrido manual (bolsa basura)" op="−" value={result.podrido_manual} variant="sub" icon={Minus} />
       <Row label="Mermas totales" op="=" value={result.mermas_totales} variant="total" />
       <Row label="% Mermas / prod." op="=" value={result.produccion_real > 0 ? (result.mermas_totales / result.produccion_real) * 100 : 0} format="pct" variant="sub" />
@@ -200,7 +199,7 @@ export function CascadeView({ result }: { result: CascadeResult }) {
       {result.tph_promedio !== null && result.tph_promedio > 0 && (
         <>
           <Divider />
-          <div className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2.5">
+          <div className="flex items-center justify-between rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2.5 backdrop-blur-sm">
             <div className="flex items-center gap-2 text-sm">
               <Gauge className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="text-muted-foreground">Eficiencia máquina</span>
@@ -218,7 +217,7 @@ export function CascadeView({ result }: { result: CascadeResult }) {
           <Divider />
           <SectionLabel icon={Globe} label="Destino de fruta" />
 
-          <div className="rounded-lg border border-border/60 bg-background px-4 py-3 space-y-3">
+          <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] px-4 py-3 space-y-3">
             <DestinoBar
               label="Exportación"
               kg={result.kg_exportacion}
@@ -251,7 +250,7 @@ export function CascadeView({ result }: { result: CascadeResult }) {
             )}
 
             {/* Rendimiento comercial KPI */}
-            <div className="pt-2 border-t border-border/50 flex items-center justify-between">
+            <div className="flex items-center justify-between border-t border-[var(--glass-border)] pt-2">
               <div className="space-y-0.5">
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                   Rendimiento comercial

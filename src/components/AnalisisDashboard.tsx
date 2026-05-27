@@ -31,6 +31,11 @@ const Pie = lazy(() => import("recharts").then(m => ({ default: m.Pie })));
 const Cell = lazy(() => import("recharts").then(m => ({ default: m.Cell })));
 import { AlertTriangle, Info, XCircle, Globe, Gauge, Package, Warehouse, TrendingUp, Users, BarChart3, FileText } from "lucide-react";
 import {
+  GlassTooltip, C, DEST_COLORS, GRID, XAXIS, YAXIS, MARGIN,
+  BAR_STYLE, BAR_STYLE_STACKED, CHART_CURSOR, CHART_LINE_CURSOR,
+  CHART_PANEL_CLASS, PIE_STYLE, tphColor, barFill,
+} from "@/lib/chartTheme";
+import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -40,10 +45,10 @@ function AlertaBadge({ alerta }: { alerta: Alerta }) {
   const styles = {
     danger:  { wrap: "bg-destructive/10 border-destructive/30 text-destructive", icon: <XCircle className="h-3.5 w-3.5 shrink-0" /> },
     warning: { wrap: "bg-warning/10 border-warning/30 text-warning", icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> },
-    info:    { wrap: "bg-muted border-border text-muted-foreground", icon: <Info className="h-3.5 w-3.5 shrink-0" /> },
+    info:    { wrap: "bg-[var(--glass-bg)] border-[var(--glass-border)] text-muted-foreground", icon: <Info className="h-3.5 w-3.5 shrink-0" /> },
   }[alerta.severidad];
   return (
-    <div className={cn("flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs", styles.wrap)}>
+    <div className={cn("flex items-start gap-2 rounded-xl border px-3 py-2.5 text-xs backdrop-blur-sm", styles.wrap)}>
       {styles.icon}
       <div><span className="font-semibold">{alerta.titulo}</span>{" — "}<span className="opacity-80">{alerta.detalle}</span></div>
     </div>
@@ -64,7 +69,7 @@ function KpiCard({ label, value, sub, icon: Icon, accentClass }: {
             <p className="mt-1 text-2xl font-bold tabular-nums truncate">{value}</p>
             {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
           </div>
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
             <Icon className="h-4 w-4" />
           </div>
         </div>
@@ -73,35 +78,20 @@ function KpiCard({ label, value, sub, icon: Icon, accentClass }: {
   );
 }
 
-// ─── Tooltip de gráficos ──────────────────────────────────────────────────────
+// ─── Tooltip de gráficos (glass) ──────────────────────────────────────────────
 function CalibreTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   const total = payload.reduce((s: number, p: any) => s + (p.value ?? 0), 0);
-  return (
-    <div className="rounded-lg border bg-card shadow-lg p-3 text-xs space-y-1 min-w-[150px]">
-      <p className="font-semibold border-b pb-1">{label}</p>
-      {payload.map((p: any) => (
-        <div key={p.dataKey} className="flex justify-between gap-3">
-          <span style={{ color: p.fill }} className="font-medium">{p.name}</span>
-          <span className="tabular-nums">{formatKg(p.value)}</span>
-        </div>
-      ))}
-      <div className="flex justify-between border-t pt-1 font-semibold">
-        <span>Total</span><span className="tabular-nums">{formatKg(total)}</span>
-      </div>
-    </div>
-  );
+  const items = payload.map((p: any) => ({ name: p.name, value: formatKg(p.value), color: p.fill }));
+  items.push({ name: "Total", value: formatKg(total), color: "#888" });
+  return <GlassTooltip active label={label} payload={items} />;
 }
 
 function PieTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
   const d = payload[0];
-  return (
-    <div className="rounded-lg border bg-card shadow-lg p-2.5 text-xs">
-      <span style={{ color: d.payload.color }} className="font-semibold">{d.name}: </span>
-      <span className="tabular-nums">{formatKg(d.value)}</span>
-    </div>
-  );
+  const items = [{ name: d.name, value: formatKg(d.value), color: d.payload.color }];
+  return <GlassTooltip active payload={items} />;
 }
 
 // ─── Sección colapsable ───────────────────────────────────────────────────────
@@ -144,13 +134,13 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
     <div className="space-y-8">
 
       {/* ── Selector de vista ─────────────────────────────────────────── */}
-      <div className="flex items-center gap-1 p-1 bg-muted rounded-lg w-fit">
+      <div className="flex w-fit items-center gap-1 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-1 shadow-[var(--glass-shadow)] backdrop-blur-sm">
         <button
           onClick={() => setVista("dashboard")}
           className={cn(
-            "px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5",
+            "flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-colors",
             vista === "dashboard"
-              ? "bg-background text-foreground shadow-sm"
+              ? "border border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] text-foreground shadow-[var(--glass-shadow)]"
               : "text-muted-foreground hover:text-foreground"
           )}
         >
@@ -160,9 +150,9 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
         <button
           onClick={() => setVista("reporte")}
           className={cn(
-            "px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5",
+            "flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-colors",
             vista === "reporte"
-              ? "bg-background text-foreground shadow-sm"
+              ? "border border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] text-foreground shadow-[var(--glass-shadow)]"
               : "text-muted-foreground hover:text-foreground"
           )}
         >
@@ -211,42 +201,56 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
       {(serie_calibres.length > 0 || serie_destinos.length > 0) && (
         <div className="grid gap-4 xl:grid-cols-3">
           {serie_calibres.length > 0 && (
-            <Card className="xl:col-span-2">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Calibres / Variedades por destino</CardTitle>
-                <p className="text-xs text-muted-foreground">kg apilados por tipo de destino</p>
+            <Card className="xl:col-span-2 glass-accented">
+              <CardHeader className="pb-3 px-5 pt-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-7 w-1 rounded-full bg-primary" />
+                  <div>
+                    <CardTitle className="text-lg font-semibold">Calibres / Variedades por destino</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-0.5">kg apilados por tipo de destino</p>
+                  </div>
+                </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="px-4 pb-4 pt-1">
+                <div className={CHART_PANEL_CLASS}>
                 <ResponsiveContainer width="100%" height={240}>
                   <BarChart data={serie_calibres} margin={{ top: 4, right: 8, left: 0, bottom: 36 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis dataKey="name" fontSize={9} tick={{ fill: "hsl(var(--muted-foreground))" }} angle={-35} textAnchor="end" interval={0} />
-                    <YAxis fontSize={9} tick={{ fill: "hsl(var(--muted-foreground))" }} tickFormatter={v => `${(v/1000).toFixed(0)}t`} width={32} />
-                    <Tooltip content={<CalibreTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} />
-                    <Bar dataKey="export"   name="Exportación" stackId="a" fill="#22c55e" />
-                    <Bar dataKey="mercado"  name="Mercado"     stackId="a" fill="#3b82f6" />
-                    <Bar dataKey="industria" name="Industria"  stackId="a" fill="#f59e0b" radius={[3,3,0,0]} />
+                    <CartesianGrid {...GRID} />
+                    <XAxis dataKey="name" {...XAXIS} fontSize={9} angle={-35} textAnchor="end" interval={0} />
+                    <YAxis {...YAXIS} tickFormatter={v => `${(v/1000).toFixed(0)}t`} width={32} />
+                    <Tooltip cursor={CHART_CURSOR} content={<CalibreTooltip />} />
+                    <Legend wrapperStyle={legendStyle} />
+                    <Bar dataKey="export"    name="Exportación" stackId="a" fill={barFill(DEST_COLORS.exportacion, 0.28)} stroke={DEST_COLORS.exportacion} {...BAR_STYLE_STACKED} />
+                    <Bar dataKey="mercado"   name="Mercado"     stackId="a" fill={barFill(DEST_COLORS.mercado,     0.28)} stroke={DEST_COLORS.mercado} {...BAR_STYLE_STACKED} />
+                    <Bar dataKey="industria" name="Industria"   stackId="a" fill={barFill(DEST_COLORS.industria,   0.28)} stroke={DEST_COLORS.industria} {...BAR_STYLE_STACKED} />
                   </BarChart>
                 </ResponsiveContainer>
+                </div>
               </CardContent>
             </Card>
           )}
           {serie_destinos.length > 0 && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Destino de la fruta</CardTitle>
-                <p className="text-xs text-muted-foreground">distribución en kg</p>
+            <Card className="glass-accented">
+              <CardHeader className="pb-3 px-5 pt-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-7 w-1 rounded-full bg-primary" />
+                  <div>
+                    <CardTitle className="text-lg font-semibold">Destino de la fruta</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-0.5">distribución en kg</p>
+                  </div>
+                </div>
               </CardHeader>
-              <CardContent className="flex flex-col items-center gap-3">
-                <ResponsiveContainer width="100%" height={180}>
-                  <PieChart>
-                    <Pie data={serie_destinos} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={78} paddingAngle={2}>
-                      {serie_destinos.map((d) => <Cell key={d.name} fill={d.color} />)}
-                    </Pie>
-                    <Tooltip content={<PieTooltip />} />
-                  </PieChart>
-                </ResponsiveContainer>
+              <CardContent className="px-4 pb-4 pt-1 flex flex-col items-center gap-3">
+                <div className={CHART_PANEL_CLASS + " w-full"}>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <PieChart>
+                      <Pie data={serie_destinos} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={78} {...PIE_STYLE}>
+                        {serie_destinos.map((d) => <Cell key={d.name} fill={barFill(d.color, 0.35)} stroke={d.color} strokeWidth={2} />)}
+                      </Pie>
+                      <Tooltip cursor={CHART_LINE_CURSOR} content={<PieTooltip />} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
                 <div className="w-full space-y-1.5">
                   {serie_destinos.map(d => {
                     const total = serie_destinos.reduce((s, x) => s + x.value, 0);
@@ -273,23 +277,41 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
 
       {/* ── T/h por lote ──────────────────────────────────────────────── */}
       {serie_tph_por_lote.length > 1 && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">T/h por lote</CardTitle></CardHeader>
-          <CardContent>
+        <Card className="glass-accented">
+          <CardHeader className="pb-3 px-5 pt-4">
+            <div className="flex items-center gap-3">
+              <div className="h-7 w-1 rounded-full bg-primary" />
+              <div>
+                <CardTitle className="text-lg font-semibold">T/h por lote</CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">Velocidad de procesamiento por lote del día</p>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 pt-1">
+            <div className={CHART_PANEL_CLASS}>
             <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={serie_tph_por_lote} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                <XAxis dataKey="lote" fontSize={9} tick={{ fill: "hsl(var(--muted-foreground))" }} />
-                <YAxis fontSize={9} tick={{ fill: "hsl(var(--muted-foreground))" }} tickFormatter={v => `${v}T`} width={30} domain={["auto", "auto"]} />
-                <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "var(--radius)", fontSize: 11 }}
-                  formatter={(v: number, _: string, props: any) => [`${v} T/h — ${props.payload.productor}`, "T/h"]} />
-                <Bar dataKey="tph" name="T/h" fill="hsl(var(--primary))" radius={[3,3,0,0]}>
+              <BarChart data={serie_tph_por_lote} {...MARGIN}>
+                <CartesianGrid {...GRID} />
+                <XAxis dataKey="lote" {...XAXIS} fontSize={9} />
+                <YAxis {...YAXIS} tickFormatter={v => `${v}T`} width={30} domain={["auto", "auto"]} />
+                <Tooltip cursor={CHART_CURSOR} content={(props: any) => {
+                  if (!props.active || !props.payload?.length) return null;
+                  const d = props.payload[0].payload;
+                  const c = tphColor(d.tph);
+                  const items = [
+                    { name: "Productor", value: d.productor, color: c },
+                    { name: "T/h", value: `${d.tph} T/h`, color: c },
+                  ];
+                  return <GlassTooltip active label={d.lote} payload={items} />;
+                }} />
+                <Bar dataKey="tph" name="T/h" {...BAR_STYLE}>
                   {serie_tph_por_lote.map((e) => (
-                    <Cell key={e.lote} fill={e.tph >= 16 ? "#22c55e" : e.tph >= 12 ? "#f59e0b" : "#ef4444"} />
+                    <Cell key={e.lote} fill={barFill(tphColor(e.tph), 0.25)} stroke={tphColor(e.tph)} strokeWidth={1.5} />
                   ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -609,6 +631,6 @@ function GrupoBadge({ grupo }: { grupo: string }) {
   if (s.includes("ind") || s.includes("no_comerc") || s.includes("no comerc"))
     return <span className="text-[10px] font-medium text-destructive bg-destructive/10 px-1.5 py-0.5 rounded">{grupo}</span>;
   if (s.includes("mercado") || s.includes("nac"))
-    return <span className="text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{grupo}</span>;
+    return <span className="text-[10px] font-medium text-info bg-info/10 px-1.5 py-0.5 rounded">{grupo}</span>;
   return <span className="text-[10px] text-muted-foreground">{grupo}</span>;
 }

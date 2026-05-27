@@ -45,7 +45,7 @@ export default function PartDetailArchivos({
   handleDeleteFile,
 }: PartDetailArchivosProps) {
   return (
-    <Card>
+    <Card className="glass-accented">
       <CardHeader>
         <CardTitle className="text-lg">Archivos del parte</CardTitle>
       </CardHeader>
@@ -54,7 +54,7 @@ export default function PartDetailArchivos({
           {CATEGORIES.map((c) => {
             const filesInCat = archivos.filter((a) => normalizeCat(a.file_type) === c.id);
             return (
-              <div key={c.id} className="rounded-lg border bg-card p-3 space-y-2">
+              <div key={c.id} className="rounded-xl glass p-3 space-y-2">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium">{c.label}</p>
                   <span className="text-xs text-muted-foreground">{filesInCat.length}</span>
@@ -94,7 +94,7 @@ export default function PartDetailArchivos({
             );
           })}
         </div>
-        <div className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+        <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 text-xs text-muted-foreground">
           Sube los informes Excel y fotos en su categoría. Luego pulsa <strong>Analizar con IA</strong> para extraer los datos automáticamente.
         </div>
       </CardContent>

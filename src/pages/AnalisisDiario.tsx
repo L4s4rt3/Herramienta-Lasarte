@@ -13,6 +13,14 @@ import {
 import { useAnalisisDiario } from "@/hooks/useAnalisisDiario";
 import type { LoteResumen, ClaseResumen, GrupoClasificacionResumen } from "@/hooks/useAnalisisDiario";
 import { today } from "@/lib/format";
+import { KPICard } from "@/components/KPICard";
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from "recharts";
+import {
+  GlassTooltip, C, GRID, XAXIS, YAXIS, MARGIN,
+  CHART_CURSOR, CHART_PANEL_CLASS, activeDotStyle, areaStops, dotStyle,
+} from "@/lib/chartTheme";
 
 function formatKg(v: number): string {
   if (v >= 1000) return (v / 1000).toFixed(1) + " t";
@@ -42,6 +50,13 @@ function daysAgo(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+function normalizeText(value: string | null | undefined): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 type Periodo = "7d" | "30d" | "90d" | "custom";
 
 export default function AnalisisDiario() {
@@ -66,31 +81,53 @@ export default function AnalisisDiario() {
 
   const hayDatos = data.totals.n_lotes > 0 || data.totals.kg_calibres > 0;
 
-  const searchLower = search.toLowerCase().trim();
+  const searchLower = normalizeText(search).trim();
 
   const filteredClases = useMemo(() => {
     if (!searchLower) return data.clases;
     return data.clases.filter((c) =>
-      c.clase.toLowerCase().includes(searchLower) ||
-      Object.keys(c.grupos).some((g) => g.toLowerCase().includes(searchLower))
+      normalizeText(c.clase).includes(searchLower) ||
+      Object.keys(c.grupos).some((g) => normalizeText(g).includes(searchLower))
     );
   }, [data.clases, searchLower]);
 
   const filteredGrupos = useMemo(() => {
     if (!searchLower) return data.grupos;
     return data.grupos.filter((g) =>
-      g.grupo.toLowerCase().includes(searchLower)
+      normalizeText(g.grupo).includes(searchLower)
     );
   }, [data.grupos, searchLower]);
 
   const filteredLotes = useMemo(() => {
     if (!searchLower) return data.lotes;
     return data.lotes.filter((l) =>
-      l.productor.toLowerCase().includes(searchLower) ||
-      l.producto.toLowerCase().includes(searchLower) ||
-      l.lote_codigo.toLowerCase().includes(searchLower)
+      normalizeText(l.productor).includes(searchLower) ||
+      normalizeText(l.producto).includes(searchLower) ||
+      normalizeText(l.lote_codigo).includes(searchLower) ||
+      normalizeText(l.fecha).includes(searchLower)
     );
   }, [data.lotes, searchLower]);
+
+  const searchHits = useMemo(() => {
+    if (!searchLower) return null;
+    return {
+      lotes: filteredLotes,
+      clases: filteredClases,
+      grupos: filteredGrupos,
+      total: filteredLotes.length + filteredClases.length + filteredGrupos.length,
+    };
+  }, [searchLower, filteredLotes, filteredClases, filteredGrupos]);
+
+  const dailyTrend = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const l of data.lotes) {
+      const day = l.fecha.slice(5);
+      map.set(day, (map.get(day) ?? 0) + l.kg_peso_total);
+    }
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, kg]) => ({ date, kg }));
+  }, [data.lotes]);
 
   return (
     <div className="page-shell">
@@ -101,13 +138,13 @@ export default function AnalisisDiario() {
             Ritmo de producción, lotes y clasificación · {formatFechaLarga(desde)} — {formatFechaLarga(hasta)}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={loading}>
+        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={loading} className="glass glass-hover">
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           Actualizar
         </Button>
       </div>
 
-      <div className="section-toolbar">
+      <div className="section-toolbar glass">
         <div className="flex items-center gap-2 flex-wrap">
           {(["7d", "30d", "90d", "custom"] as Periodo[]).map((p) => (
             <Button
@@ -115,6 +152,7 @@ export default function AnalisisDiario() {
               variant={periodo === p ? "default" : "outline"}
               size="sm"
               onClick={() => setPeriodo(p)}
+              className="glass glass-hover"
             >
               {p === "7d" ? "7 días" : p === "30d" ? "30 días" : p === "90d" ? "90 días" : "Rango"}
             </Button>
@@ -158,17 +196,71 @@ export default function AnalisisDiario() {
         </div>
       )}
 
+      {!loading && hayDatos && searchHits && (
+        <SearchResults query={search} hits={searchHits} />
+      )}
+
       {!loading && hayDatos && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <KpiMini icon={<Calendar className="size-4" />} label="Días" value={data.totals.n_dias} />
-          <KpiMini icon={<PackageCheck className="size-4" />} label="Kg en lotes" value={data.totals.n_lotes} sub={formatKg(data.totals.kg_lotes)} />
-          <KpiMini icon={<Gauge className="size-4" />} label="Velocidad media" value={data.totals.avg_tph ? Number(data.totals.avg_tph.toFixed(1)) : 0} sub={data.totals.avg_tph ? "T/h" : "sin datos"} />
-          <KpiMini icon={<Timer className="size-4" />} label="Horas / lotes lentos" value={data.totals.n_lotes_lentos} sub={formatHoras(data.totals.total_min)} />
-        </div>
+        <>
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <KPICard label="Días analizados" value={String(data.totals.n_dias)} icon={Calendar} />
+          <KPICard
+            label="Kg en lotes"
+            value={formatKg(data.totals.kg_lotes)}
+            hint={`${data.totals.n_lotes} lotes`}
+            icon={PackageCheck}
+          />
+          <KPICard
+            label="Velocidad media"
+            value={data.totals.avg_tph ? `${data.totals.avg_tph.toFixed(1)} T/h` : "—"}
+            icon={Gauge}
+            trend={data.totals.avg_tph ? (data.totals.avg_tph >= 16 ? "up" : "down") : "neutral"}
+          />
+          <KPICard
+            label="Lotes lentos"
+            value={String(data.totals.n_lotes_lentos)}
+            hint={`${formatHoras(data.totals.total_min)} total`}
+            icon={Timer}
+            trend={data.totals.n_lotes_lentos <= 3 ? "up" : "down"}
+          />
+        </section>
+
+        {dailyTrend.length > 0 && (
+          <Card className="glass-accented overflow-hidden">
+            <CardHeader className="pb-3 px-5 pt-4">
+              <div className="flex items-center gap-3">
+                <div className="h-7 w-1 rounded-full bg-primary" />
+                <div>
+                  <CardTitle className="text-lg font-semibold">Evolución producción</CardTitle>
+                  <CardDescription className="text-xs text-muted-foreground mt-0.5">Kg totales por día en el período</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="px-4 pb-4 pt-1">
+              <div className={CHART_PANEL_CLASS}>
+              <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={dailyTrend} {...MARGIN}>
+                {areaStops("analisisTrendFill", C.primary)}
+                <CartesianGrid {...GRID} />
+                <XAxis dataKey="date" {...XAXIS} />
+                <YAxis {...YAXIS} tickFormatter={(v) => `${(v / 1000).toFixed(0)}t`} width={36} />
+                  <Tooltip cursor={CHART_CURSOR} content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    const items = [{ name: "Producción", value: formatKg(payload[0].value as number), color: "hsl(var(--primary))" }];
+                    return <GlassTooltip active label={label} payload={items} />;
+                  }} />
+                  <Area type="monotone" dataKey="kg" stroke={C.primary} strokeWidth={2.5} fill="url(#analisisTrendFill)" dot={dotStyle(C.primary)} activeDot={activeDotStyle(C.primary)} />
+                </AreaChart>
+              </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </>
       )}
 
       {!loading && !hayDatos && (
-        <Card className="border-muted-foreground/20 bg-muted/30">
+        <Card className="glass-accented">
           <CardContent className="py-12 text-center">
             <BarChart3 className="size-12 mx-auto text-muted-foreground/30 mb-4" />
             <p className="font-semibold text-lg">No hay datos de detalle para este periodo</p>
@@ -176,10 +268,10 @@ export default function AnalisisDiario() {
               Para ver datos aquí necesitas subir el informe de tamaños/calibres al parte y pulsar "Analizar".
             </p>
             <div className="mt-6 flex items-center justify-center gap-3">
-              <Button asChild>
+              <Button asChild className="glass glass-hover">
                 <Link to="/partes"><FileText className="h-4 w-4" /> Ir a Partes</Link>
               </Button>
-              <Button variant="outline" onClick={() => setPeriodo("90d")}>
+              <Button variant="outline" onClick={() => setPeriodo("90d")} className="glass glass-hover">
                 Ampliar a 90 días
               </Button>
             </div>
@@ -216,28 +308,14 @@ export default function AnalisisDiario() {
   );
 }
 
-function KpiMini({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: number; sub?: string }) {
-  return (
-    <Card>
-      <CardContent className="flex items-center gap-3 py-3 px-4">
-        <div className="rounded-md bg-primary/10 p-2 text-primary">{icon}</div>
-        <div>
-          <p className="text-xl font-bold tabular-nums">{value}</p>
-          <p className="text-[11px] text-muted-foreground">{label}{sub ? ` · ${sub}` : ""}</p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 // ─── Tab: Clase ──────────────────────────────────────────────────────────────
 
 const GRUPO_COLOR: Record<string, string> = {
-  Exportación: "text-green-600",
-  Mujeres: "text-blue-500",
-  "No exportación": "text-amber-500",
-  "No comercial": "text-red-500",
-  Mercado: "text-blue-600",
+  Exportación: "text-success",
+  Mujeres: "text-info",
+  "No exportación": "text-warning",
+  "No comercial": "text-destructive",
+  Mercado: "text-info",
   Otro: "text-muted-foreground",
 };
 
@@ -388,6 +466,97 @@ function EmptyTab({ msg }: { msg: string }) {
       <CardContent className="py-10 text-center">
         <FilterX className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
         <p className="text-sm text-muted-foreground">{msg}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function SearchResults({
+  query,
+  hits,
+}: {
+  query: string;
+  hits: {
+    lotes: LoteResumen[];
+    clases: ClaseResumen[];
+    grupos: GrupoClasificacionResumen[];
+    total: number;
+  };
+}) {
+  return (
+    <Card className="glass-accented">
+      <CardHeader className="pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="panel-kicker">Resultados de busqueda</p>
+            <CardTitle className="text-base">
+              {hits.total > 0 ? `${hits.total} coincidencia(s) para "${query}"` : `Sin coincidencias para "${query}"`}
+            </CardTitle>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="secondary">{hits.lotes.length} lotes</Badge>
+            <Badge variant="secondary">{hits.clases.length} clases</Badge>
+            <Badge variant="secondary">{hits.grupos.length} grupos</Badge>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-3 lg:grid-cols-3">
+        <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lotes</p>
+          {hits.lotes.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Sin lotes coincidentes</p>
+          ) : (
+            <div className="space-y-2">
+              {hits.lotes.slice(0, 6).map((l, i) => (
+                <div key={`${l.fecha}-${l.lote_codigo}-${i}`} className="rounded-xl bg-[var(--glass-bg-strong)] px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-mono text-xs">{l.lote_codigo}</span>
+                    <span className="tabular-nums text-xs text-muted-foreground">{formatKg(l.kg_peso_total)}</span>
+                  </div>
+                  <p className="truncate text-xs text-muted-foreground">{formatFecha(l.fecha)} · {l.productor} · {l.producto}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Clases</p>
+          {hits.clases.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Sin clases coincidentes</p>
+          ) : (
+            <div className="space-y-2">
+              {hits.clases.slice(0, 6).map((c) => (
+                <div key={c.clase} className="rounded-xl bg-[var(--glass-bg-strong)] px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-medium">{c.clase}</span>
+                    <span className="tabular-nums text-xs text-muted-foreground">{formatKg(c.kg_total)}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{c.n_registros} registros · {c.n_dias} dias</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Grupos</p>
+          {hits.grupos.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Sin grupos coincidentes</p>
+          ) : (
+            <div className="space-y-2">
+              {hits.grupos.slice(0, 6).map((g) => (
+                <div key={g.grupo} className="rounded-xl bg-[var(--glass-bg-strong)] px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className={`font-medium ${GRUPO_COLOR[g.grupo] ?? ""}`}>{g.grupo}</span>
+                    <span className="tabular-nums text-xs text-muted-foreground">{formatKg(g.kg_total)}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{g.n_registros} registros · {g.n_dias} dias</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

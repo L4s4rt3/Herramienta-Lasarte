@@ -22,7 +22,7 @@ export function PageSkeleton({ rows = 3, showHeader = true }: PageSkeletonProps)
       )}
       <div className="space-y-4">
         {Array.from({ length: rows }).map((_, i) => (
-          <div key={i} className="rounded-xl border bg-card p-5 space-y-4">
+          <div key={i} className="rounded-xl glass p-5 space-y-4">
             <div className="flex items-center justify-between">
               <Skeleton className="h-5 w-36" />
               <Skeleton className="h-4 w-20" />

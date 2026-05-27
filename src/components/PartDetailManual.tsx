@@ -38,7 +38,7 @@ export default function PartDetailManual({
 }: PartDetailManualProps) {
   return (
     <>
-      <Card>
+      <Card className="glass-accented">
         <CardHeader><CardTitle className="text-lg">Ajustes manuales</CardTitle></CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           {MANUAL_FIELDS.map((f) => (
@@ -57,7 +57,7 @@ export default function PartDetailManual({
           ))}
         </CardContent>
       </Card>
-      <Card>
+      <Card className="glass-accented">
         <CardHeader><CardTitle className="text-lg">Datos automáticos (IA)</CardTitle></CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 text-sm">
           {[

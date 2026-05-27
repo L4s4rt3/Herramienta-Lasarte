@@ -13,37 +13,37 @@ type Estado =
 
 const statusConfig: Record<string, { bg: string; text: string; icon?: React.ComponentType<{ className?: string }> }> = {
   Borrador: {
-    bg: "border border-border/70 bg-muted/80",
+    bg: "border border-[var(--glass-border)] bg-[var(--glass-bg)]",
     text: "text-muted-foreground",
     icon: Clock,
   },
   Analizado: {
-    bg: "border border-blue-200/70 bg-blue-50 dark:border-blue-900/60 dark:bg-blue-950/50",
-    text: "text-blue-700 dark:text-blue-300",
+    bg: "border border-info/40 bg-info/10",
+    text: "text-info",
   },
   "Con descuadre": {
-    bg: "border border-amber-200/70 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/50",
-    text: "text-amber-700 dark:text-amber-300",
+    bg: "border border-warning/40 bg-warning/10",
+    text: "text-warning",
     icon: AlertTriangle,
   },
   Validado: {
-    bg: "border border-emerald-200/70 bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/50",
-    text: "text-emerald-700 dark:text-emerald-300",
+    bg: "border border-success/40 bg-success/10",
+    text: "text-success",
     icon: CheckCircle2,
   },
   Pendiente: {
-    bg: "border border-slate-200/70 bg-slate-50 dark:border-slate-800/70 dark:bg-slate-900/60",
-    text: "text-slate-700 dark:text-slate-300",
+    bg: "border border-[var(--glass-border)] bg-[var(--glass-bg)]",
+    text: "text-muted-foreground",
     icon: Clock,
   },
   Completado: {
-    bg: "border border-emerald-200/70 bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/50",
-    text: "text-emerald-700 dark:text-emerald-300",
+    bg: "border border-success/40 bg-success/10",
+    text: "text-success",
     icon: CheckCircle2,
   },
   Error: {
-    bg: "border border-red-200/70 bg-red-50 dark:border-red-900/60 dark:bg-red-950/50",
-    text: "text-red-700 dark:text-red-300",
+    bg: "border border-destructive/40 bg-destructive/10",
+    text: "text-destructive",
     icon: AlertCircle,
   },
 };
@@ -55,7 +55,7 @@ export function StatusBadge({ estado }: { estado: Estado }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold shadow-sm",
+        "inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-xs font-semibold shadow-[var(--glass-shadow)]",
         config.bg,
         config.text,
       )}

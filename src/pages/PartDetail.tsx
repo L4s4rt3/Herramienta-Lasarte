@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthProvider";
 import { Button } from "@/components/ui/button";
@@ -254,7 +254,12 @@ export default function PartDetail() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="page-title">Parte · {formatDate(parte.date)}</h1>
+            <h1 className="page-title">
+              Parte ·{" "}
+              <Link to="/calendario" className="text-primary hover:underline">
+                {formatDate(parte.date)}
+              </Link>
+            </h1>
             <div className="mt-1"><StatusBadge estado={parte.estado} /></div>
           </div>
         </div>
@@ -264,33 +269,34 @@ export default function PartDetail() {
             variant="default"
             onClick={analyze}
             disabled={analyzing || archivos.length === 0}
+            className="glass glass-hover"
           >
             {analyzing
               ? <><Loader2 className="h-4 w-4 animate-spin" />Analizando…</>
               : <><Sparkles className="h-4 w-4" />Analizar con IA</>
             }
           </Button>
-          <Button variant="outline" onClick={toggleEstado}>
+          <Button variant="outline" onClick={toggleEstado} className="glass glass-hover">
             {parte.estado === "Borrador"
               ? <><Lock className="h-4 w-4" />Cerrar</>
               : <><Unlock className="h-4 w-4" />Reabrir</>}
           </Button>
-          <Button onClick={save} disabled={saving || readOnly}>
+          <Button onClick={save} disabled={saving || readOnly} className="glass glass-hover">
             <Save className="h-4 w-4" />Guardar
           </Button>
         </div>
       </header>
 
-      <Card>
+      <Card className="glass-accented">
         <CardHeader>
           <p className="panel-kicker">Resultado del parte</p>
           <CardTitle>Cascada DJPMN</CardTitle>
         </CardHeader>
         <CardContent>
           <CascadeView result={cascade} />
-          <p className="mt-4 text-xs text-muted-foreground">
+          <div className="mt-4 rounded-xl glass p-3 text-xs text-muted-foreground">
             Sube los archivos en cada categoría y pulsa <strong>Analizar con IA</strong> para rellenar automáticamente.
-          </p>
+          </div>
         </CardContent>
       </Card>
 

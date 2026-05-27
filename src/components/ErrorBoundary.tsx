@@ -51,7 +51,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               Ha ocurrido un error inesperado. Puedes intentar recargar la página o volver al inicio.
             </p>
             {this.state.error && (
-              <details className="text-left text-xs text-muted-foreground bg-muted/50 rounded-lg p-3 max-h-32 overflow-y-auto">
+              <details className="max-h-32 overflow-y-auto rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3 text-left text-xs text-muted-foreground backdrop-blur-sm">
                 <summary className="cursor-pointer font-medium">Detalles del error</summary>
                 <pre className="mt-2 whitespace-pre-wrap">{this.state.error.message}</pre>
               </details>

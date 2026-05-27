@@ -9,15 +9,14 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import {
-  Collapsible, CollapsibleContent, CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
-  Plus, Trash2, Upload, ChevronLeft, ChevronRight, UserCheck, UserX,
-  Users, AlertCircle, Calendar, Search, Download,
+  Plus, Trash2, Upload, ChevronLeft, ChevronRight, ChevronDown, UserCheck, UserX,
+  Users, AlertCircle, Calendar, Search, BarChart3,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { today } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
@@ -25,28 +24,46 @@ import type { TrabajadorRow } from "@/lib/types";
 
 const GRUPOS = ["Encargadas", "Produccion", "Aereo", "Tria podrido", "Punta", "Volcador", "Mecanica", "Envasadoras", "Mallas", "Carretilla", "Graneleras", "Mozos", "Carga y descarga"];
 
+const RENDIMIENTO_GRUPOS = ["Envasadoras", "Mallas", "Graneleras"] as const;
+type RendimientoGrupoKey = typeof RENDIMIENTO_GRUPOS[number];
+
+function num(value: unknown): number {
+  return Number(value) || 0;
+}
+
+function produccionRealParte(parte: any): number {
+  if (!parte) return 0;
+  return (
+    num(parte.kg_produccion_calibrador) +
+    num(parte.kg_industria_manual) -
+    num(parte.kg_mujeres_calibrador) -
+    num(parte.kg_reciclado_malla_z1) -
+    num(parte.kg_reciclado_malla_z2)
+  );
+}
+
 // ─── KPI Stat Cards ───────────────────────────────────────────────────────────
 
 function KPIStatCards({ presentes, ausentes, bajas, total, asistenciaPct }: {
   presentes: number; ausentes: number; bajas: number; total: number; asistenciaPct: number;
 }) {
   const items = [
-    { label: "Presentes", value: presentes, color: "text-emerald-600", icon: UserCheck, bg: "bg-emerald-50", border: "border-emerald-200", trend: `${asistenciaPct}% asistencia` },
-    { label: "Ausentes", value: ausentes, color: "text-slate-500", icon: UserX, bg: "bg-slate-50", border: "border-slate-200", trend: null },
-    { label: "Bajas", value: bajas, color: "text-amber-600", icon: AlertCircle, bg: "bg-amber-50", border: "border-amber-200", trend: null },
-    { label: "Total activos", value: total, color: "text-sky-600", icon: Users, bg: "bg-sky-50", border: "border-sky-200", trend: null },
+    { label: "Presentes", value: presentes, color: "text-success", icon: UserCheck, bg: "bg-success/10", border: "border-success/30", trend: `${asistenciaPct}% asistencia` },
+    { label: "Ausentes", value: ausentes, color: "text-muted-foreground", icon: UserX, bg: "bg-[var(--glass-bg)]", border: "border-[var(--glass-border)]", trend: null },
+    { label: "Bajas", value: bajas, color: "text-warning", icon: AlertCircle, bg: "bg-warning/10", border: "border-warning/30", trend: null },
+    { label: "Total activos", value: total, color: "text-info", icon: Users, bg: "bg-info/10", border: "border-info/30", trend: null },
   ];
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
       {items.map((item) => (
-        <Card key={item.label} className={cn("overflow-hidden", item.border)}>
+        <Card key={item.label} className="glass-accented overflow-hidden">
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div className="space-y-1.5">
                 <p className="panel-kicker">{item.label}</p>
                 <p className={cn("text-3xl font-semibold tabular-nums", item.color)}>{item.value}</p>
               </div>
-              <div className={cn("rounded-lg border p-2", item.bg, item.border)}>
+              <div className={cn("rounded-xl border p-2", item.bg, item.border)}>
                 <item.icon className={cn("h-5 w-5", item.color)} />
               </div>
             </div>
@@ -54,8 +71,8 @@ function KPIStatCards({ presentes, ausentes, bajas, total, asistenciaPct }: {
               <p className="text-xs text-muted-foreground mt-2">{item.trend}</p>
             )}
             {item.label === "Presentes" && total > 0 && (
-              <div className="mt-3 h-1.5 bg-muted rounded-full overflow-hidden">
-                <div className={cn("h-full rounded-full", presentes > 0 ? "bg-emerald-500" : "bg-transparent")} style={{ width: `${asistenciaPct}%` }} />
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
+                <div className={cn("h-full rounded-full", presentes > 0 ? "bg-success" : "bg-transparent")} style={{ width: `${asistenciaPct}%` }} />
               </div>
             )}
           </CardContent>
@@ -69,6 +86,7 @@ function KPIStatCards({ presentes, ausentes, bajas, total, asistenciaPct }: {
 
 export default function Asistencia() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [trabajadores, setTrabajadores] = useState<TrabajadorRow[]>([]);
   const [selectedDate, setSelectedDate] = useState(today());
   const [asistencia, setAsistencia] = useState<Record<string, boolean>>({});
@@ -125,16 +143,20 @@ export default function Asistencia() {
     setParteDelDia(null);
     const { data, error } = await supabase
       .from("partes_diarios")
-      .select("resumen_ia, kg_produccion_calibrador")
+      .select("id, resumen_ia, kg_produccion_calibrador, kg_industria_manual, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
       .eq("date", date)
       .maybeSingle();
     if (!error && data) {
-      setParteDelDia(data);
+      const { data: productoDia } = await supabase
+        .from("producto_dia")
+        .select("linea, producto, formato_caja, kg, n_cajas, grupo_destino")
+        .eq("part_id", data.id);
+      setParteDelDia({ ...data, producto_dia: productoDia ?? [] });
     }
     setLoadingParte(false);
   }
 
-  useEffect(() => { loadTrabajadores(); }, []);
+  useEffect(() => { loadTrabajadores(); loadEficiencia(); }, []);
   useEffect(() => { loadAsistencia(selectedDate); }, [selectedDate]);
   useEffect(() => { loadParteDelDia(selectedDate); }, [selectedDate]);
 
@@ -359,53 +381,205 @@ export default function Asistencia() {
 
   // ─── Rendimiento por grupo (producto_detalle) ────────────────────────────
 
-  function classificarProducto(producto: string): "Envasadoras" | "Mallas" | "Graneleras" | null {
-    const upper = producto.toUpperCase();
-    const isMdna = upper.includes("MDNA") || upper.includes("MERCADONA");
-    const isGranel = upper.includes("GRANEL");
-    const isExcluded =
-      upper.includes("INDUSTRIA GENERADA") ||
-      upper.includes("PODRIDO") ||
-      upper.includes("MUESTRA");
-    if (isExcluded) return null;
-    if (!isMdna) return "Envasadoras";
-    if (isGranel) return "Graneleras";
-    return "Mallas";
-  }
-
-  interface GrupoRendimiento {
+    interface GrupoRendimiento {
     kg: number;
     personas: number;
   }
 
+  function normalizarTexto(value: unknown): string {
+    return String(value ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+  }
+
+  function esLineaTotal(value: unknown): boolean {
+    const text = normalizarTexto(value);
+    return /\b(total|totales|subtotal|suma|gran total)\b/.test(text);
+  }
+
+  function esFilaTotal(item: any): boolean {
+    return [
+      item?.producto,
+      item?.linea,
+      item?.grupo_destino,
+      item?.destino,
+      item?.formato_caja,
+      item?.situacion,
+    ].some(esLineaTotal);
+  }
+
+  function normalizarGrupoRendimiento(value: unknown): RendimientoGrupoKey | null {
+    const text = normalizarTexto(value);
+    if (!text) return null;
+    if (/\bgranel|graneler|bulk/.test(text)) return "Graneleras";
+    if (/malla|malladora|mercadona/.test(text)) return "Mallas";
+    if (/envas|encaj|caja|linea\s*1|linea\s*2|linea\s*3/.test(text)) return "Envasadoras";
+    return null;
+  }
+
+  function prodToGrupo(prod: string): RendimientoGrupoKey | null {
+    if (esLineaTotal(prod)) return null;
+    const text = normalizarTexto(prod);
+    if (text.includes("granel")) return "Graneleras";
+    if (text.includes("malla")) return "Mallas";
+    if (text.includes("mercadona")) return text.includes("granel") ? "Graneleras" : "Mallas";
+    if (/envas|encaj|caja/.test(text)) return "Envasadoras";
+    return "Envasadoras";
+  }
+
+  function grupoDeLineaProducto(item: any): RendimientoGrupoKey | null {
+    return (
+      normalizarGrupoRendimiento(item.linea) ??
+      normalizarGrupoRendimiento(item.zona) ??
+      normalizarGrupoRendimiento(item.seccion) ??
+      normalizarGrupoRendimiento(item.maquina) ??
+      normalizarGrupoRendimiento(item.grupo_rendimiento) ??
+      normalizarGrupoRendimiento(item.grupo_destino) ??
+      normalizarGrupoRendimiento(item.destino) ??
+      prodToGrupo(item.producto ?? "")
+    );
+  }
+
   const rendimientoGrupos = useMemo<Record<string, GrupoRendimiento>>(() => {
-    const grupos: Record<string, GrupoRendimiento> = {
+    const grupos: Record<RendimientoGrupoKey, GrupoRendimiento> = {
       Envasadoras: { kg: 0, personas: 0 },
       Mallas: { kg: 0, personas: 0 },
       Graneleras: { kg: 0, personas: 0 },
     };
+    const gruposValidos = new Set<string>(RENDIMIENTO_GRUPOS);
 
-    const detalle = (parteDelDia as any)?.resumen_ia?.producto_detalle;
-    if (Array.isArray(detalle)) {
+    const addKg = (grupo: string | null, kg: number) => {
+      if (grupo && gruposValidos.has(grupo) && kg > 0) {
+        grupos[grupo as RendimientoGrupoKey].kg += kg;
+      }
+    };
+
+    // Fuente prioritaria: tabla normalizada producto_dia. Su campo "linea"
+    // es mas fiable para asignar kg a Envasadoras/Mallas/Graneleras que el nombre del producto.
+    const detalleDb = (parteDelDia as any)?.producto_dia;
+    const detalleIa = (parteDelDia as any)?.resumen_ia?.producto_detalle;
+    const detalle = Array.isArray(detalleDb) && detalleDb.length > 0 ? detalleDb : detalleIa;
+    if (Array.isArray(detalle) && detalle.length > 0) {
       for (const item of detalle) {
-        const grupo = classificarProducto(item.producto ?? "");
-        if (grupo) {
-          grupos[grupo].kg += Number(item.kg ?? 0);
+        if (esFilaTotal(item)) continue;
+        const grupo = grupoDeLineaProducto(item);
+        addKg(grupo, num(item.kg));
+      }
+    }
+
+    // Fallback: palets_detalle cuando no existe detalle de producto.
+    const kgFromDetalle = RENDIMIENTO_GRUPOS.reduce((s, g) => s + grupos[g].kg, 0);
+    if (kgFromDetalle === 0) {
+      const palets = (parteDelDia as any)?.resumen_ia?.palets_detalle;
+      if (Array.isArray(palets)) {
+        for (const item of palets) {
+          if (esFilaTotal(item)) continue;
+          const grupo =
+            normalizarGrupoRendimiento(item.linea) ??
+            normalizarGrupoRendimiento(item.grupo_destino) ??
+            normalizarGrupoRendimiento(item.destino) ??
+            normalizarGrupoRendimiento(item.situacion) ??
+            prodToGrupo(item.producto ?? "");
+          addKg(grupo, num(item.kg_neto));
         }
+      }
+    }
+
+    const kgObjetivo = produccionRealParte(parteDelDia) || num((parteDelDia as any)?.kg_produccion_calibrador);
+    const kgClasificados = RENDIMIENTO_GRUPOS.reduce((s, g) => s + grupos[g].kg, 0);
+    if (kgObjetivo > 0 && kgClasificados > kgObjetivo * 1.02) {
+      const factor = kgObjetivo / kgClasificados;
+      for (const grupo of RENDIMIENTO_GRUPOS) {
+        grupos[grupo].kg *= factor;
       }
     }
 
     for (const t of activos) {
       if (asistencia[t.id] === true && t.zona && grupos[t.zona]) {
-        grupos[t.zona].personas++;
+        grupos[t.zona as RendimientoGrupoKey].personas++;
       }
     }
-
     return grupos;
-  }, [parteDelDia, trabajadores, asistencia]);
+  }, [parteDelDia, activos, asistencia]);
 
   const totalKg = rendimientoGrupos.Envasadoras.kg + rendimientoGrupos.Mallas.kg + rendimientoGrupos.Graneleras.kg;
+  const kgCalibrador = produccionRealParte(parteDelDia) || ((parteDelDia as any)?.kg_produccion_calibrador ?? 0);
   const totalPersonas = rendimientoGrupos.Envasadoras.personas + rendimientoGrupos.Mallas.personas + rendimientoGrupos.Graneleras.personas;
+
+  // ─── Eficiencia histórica ──────────────────────────────────────────────
+
+  interface EficienciaRow {
+    rango: string;
+    dias: number;
+    kgMedia: number;
+    kgPorPersona: number;
+  }
+
+  const [eficiencia, setEficiencia] = useState<EficienciaRow[]>([]);
+  const [loadingEficiencia, setLoadingEficiencia] = useState(false);
+
+  async function loadEficiencia() {
+    setLoadingEficiencia(true);
+    const until = new Date().toISOString().slice(0, 10);
+    const from = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const { data: attendance } = await supabase
+      .from("asistencia_detalle")
+      .select("date, presente")
+      .gte("date", from)
+      .lte("date", until);
+
+    const dayWorkers: Record<string, number> = {};
+    for (const r of attendance ?? []) {
+      if (r.presente) dayWorkers[r.date] = (dayWorkers[r.date] ?? 0) + 1;
+    }
+
+    const { data: production } = await supabase
+      .from("partes_diarios")
+      .select("date, kg_produccion_calibrador, kg_industria_manual, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
+      .gte("date", from)
+      .lte("date", until);
+
+    const kgByDay: Record<string, number> = {};
+    for (const r of production ?? []) {
+      const kg = produccionRealParte(r) || num(r.kg_produccion_calibrador);
+      if (kg > 0) kgByDay[r.date] = (kgByDay[r.date] ?? 0) + kg;
+    }
+
+    const buckets: Record<string, { days: number; totalKg: number; totalWorkers: number }> = {};
+    for (const [date, workers] of Object.entries(dayWorkers)) {
+      const kg = kgByDay[date] ?? 0;
+      if (kg === 0) continue;
+      let bucket: string;
+      if (workers <= 5) bucket = "1–5";
+      else if (workers <= 10) bucket = "6–10";
+      else if (workers <= 15) bucket = "11–15";
+      else if (workers <= 20) bucket = "16–20";
+      else if (workers <= 25) bucket = "21–25";
+      else bucket = "26+";
+      if (!buckets[bucket]) buckets[bucket] = { days: 0, totalKg: 0, totalWorkers: 0 };
+      buckets[bucket].days++;
+      buckets[bucket].totalKg += kg;
+      buckets[bucket].totalWorkers += workers;
+    }
+
+    const result = Object.entries(buckets)
+      .sort(([a], [b]) => {
+        const aMin = parseInt(a.replace(/\D/g, "")) || 0;
+        const bMin = parseInt(b.replace(/\D/g, "")) || 0;
+        return aMin - bMin;
+      })
+      .map(([rango, data]) => ({
+        rango,
+        dias: data.days,
+        kgMedia: data.days > 0 ? data.totalKg / data.days : 0,
+        kgPorPersona: data.totalWorkers > 0 ? data.totalKg / data.totalWorkers : 0,
+      }));
+    setEficiencia(result);
+    setLoadingEficiencia(false);
+  }
 
   // ─── Grouping helper ─────────────────────────────────────────────────
 
@@ -447,7 +621,120 @@ export default function Asistencia() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => shiftDate(-1)}>
+          <Button variant="outline" size="sm" onClick={() => navigate("/costes/asistencia/comparativa")} className="glass glass-hover">
+            <BarChart3 className="h-4 w-4 mr-1" /> Comparativa
+          </Button>
+          <Dialog open={showWorkerList} onOpenChange={setShowWorkerList}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="glass glass-hover">
+                <Users className="h-4 w-4 mr-1" /> Gestionar
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Lista de trabajadores</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="flex-1 min-w-[200px]">
+                    <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Nombre</label>
+                    <Input
+                      placeholder="Nuevo trabajador"
+                      value={newWorkerName}
+                      onChange={(e) => setNewWorkerName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && addTrabajador()}
+                      className="h-10"
+                    />
+                  </div>
+                  <div className="w-44">
+                    <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Grupo</label>
+                    <div className="relative">
+                      <select
+                        value={newWorkerZona}
+                        onChange={(e) => setNewWorkerZona(e.target.value)}
+                        className="glass glass-hover h-10 w-full appearance-none rounded-xl border border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] px-3 pr-9 text-sm font-medium text-foreground shadow-[var(--glass-shadow)] outline-none backdrop-blur-xl transition focus:border-primary/45 focus:ring-2 focus:ring-primary/20"
+                      >
+                        <option value="">Sin grupo</option>
+                        {GRUPOS.map((z) => <option key={z} value={z}>{z}</option>)}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary" />
+                    </div>
+                  </div>
+                  <Button onClick={addTrabajador} disabled={!newWorkerName.trim()} className="h-10 glass glass-hover">
+                    <Plus className="h-4 w-4 mr-1" /> Añadir
+                  </Button>
+                </div>
+                {loadingTrabajadores ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10" />)}
+                  </div>
+                ) : (
+                  <div className="glass rounded-xl overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs font-bold uppercase">Nombre</TableHead>
+                          <TableHead className="text-xs font-bold uppercase">Grupo</TableHead>
+                          <TableHead className="text-xs font-bold uppercase">Estado</TableHead>
+                          <TableHead className="w-24"></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {trabajadores.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                              Añade trabajadores para comenzar
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          groupByZona(trabajadores).flatMap(({ grupo, workers }) => [
+                            <TableRow key={`h-${grupo}`} className="bg-[var(--glass-bg-strong)]">
+                              <TableCell colSpan={4} className="font-bold text-sm py-3">
+                                {grupo} <span className="text-muted-foreground font-normal">({workers.length})</span>
+                              </TableCell>
+                            </TableRow>,
+                            ...workers.map((t) => (
+                              <TableRow key={t.id} className={cn(!t.activo && "opacity-50")}>
+                                <TableCell className="font-semibold text-sm">{t.nombre}</TableCell>
+                                <TableCell className="text-muted-foreground text-sm">{t.zona ?? "—"}</TableCell>
+                                <TableCell>
+                                  <Badge variant={t.activo ? "default" : "secondary"} className="text-xs">
+                                    {t.activo ? "Activo" : "Inactivo"}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex justify-end gap-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-9 w-9"
+                                      onClick={() => toggleTrabajadorActivo(t)}
+                                      title={t.activo ? "Desactivar" : "Activar"}
+                                    >
+                                      {t.activo ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-9 w-9 text-destructive"
+                                      onClick={() => deleteTrabajador(t.id)}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )),
+                          ])
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+          <Button variant="outline" size="sm" onClick={() => shiftDate(-1)} className="glass glass-hover">
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <Input
@@ -456,7 +743,7 @@ export default function Asistencia() {
             onChange={(e) => setSelectedDate(e.target.value)}
             className="w-36 h-9 text-sm text-center"
           />
-          <Button variant="outline" size="sm" onClick={() => shiftDate(1)}>
+          <Button variant="outline" size="sm" onClick={() => shiftDate(1)} className="glass glass-hover">
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
@@ -488,26 +775,26 @@ export default function Asistencia() {
                     className="h-10 pl-9 text-sm"
                   />
                 </div>
-                <Button variant="outline" size="sm" disabled={!user} onClick={marcarTodosPresentes}>
+                <Button variant="outline" size="sm" disabled={!user} onClick={marcarTodosPresentes} className="glass glass-hover">
                   <UserCheck className="h-4 w-4 mr-1.5" /> Todos presentes
                 </Button>
                 <label className="relative">
-                  <Button variant="outline" size="sm" disabled={importing} asChild>
+                  <input type="file" accept=".xlsx,.xls" className="absolute inset-0 opacity-0 cursor-pointer peer" onChange={handleImportXLSX} disabled={importing} />
+                  <Button variant="outline" size="sm" disabled={importing} asChild className="glass transition-shadow duration-300 peer-hover:shadow-[var(--glass-shadow),var(--glass-glow)]">
                     <span className="cursor-pointer">
                       <Upload className="h-4 w-4 mr-1.5" />
                       {importing ? "Importando…" : "Importar XLSX"}
                     </span>
                   </Button>
-                  <input type="file" accept=".xlsx,.xls" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleImportXLSX} disabled={importing} />
                 </label>
               </div>
 
               {/* Stats summary */}
-              <div className="mb-6 grid gap-3 rounded-lg border bg-muted/35 p-3 text-sm sm:grid-cols-4">
-                <span className="inline-flex items-center gap-1.5 text-emerald-600 font-medium">
+              <div className="mb-6 grid gap-3 glass p-3 text-sm sm:grid-cols-4">
+                <span className="inline-flex items-center gap-1.5 text-success font-medium">
                   <UserCheck className="h-4 w-4" /> {presentesCount} presentes
                 </span>
-                <span className="inline-flex items-center gap-1.5 text-slate-500 font-medium">
+                <span className="inline-flex items-center gap-1.5 text-muted-foreground font-medium">
                   <UserX className="h-4 w-4" /> {ausentesCount} ausentes
                 </span>
                 {sinRegistro > 0 && (
@@ -573,10 +860,10 @@ export default function Asistencia() {
                                 <div
                                   key={t.id}
                                   className={cn(
-                                    "flex items-center justify-between gap-2 rounded-xl border px-4 py-3 transition-colors shadow-sm",
-                                    presente === true && "bg-emerald-50 border-emerald-200",
-                                    presente === false && "bg-red-50 border-red-200",
-                                    presente === undefined && "bg-card border-muted",
+                                    "flex items-center justify-between gap-2 rounded-xl border border-[var(--glass-border)] px-4 py-3 transition-colors shadow-[var(--glass-shadow)] bg-[var(--glass-bg)]",
+                                    presente === true && "bg-success/10 border-success/30",
+                                    presente === false && "bg-destructive/10 border-destructive/30",
+                                    presente === undefined && "border-[var(--glass-border)] bg-[var(--glass-bg)]",
                                   )}
                                 >
                                   <div className="min-w-0 flex-1">
@@ -608,7 +895,7 @@ export default function Asistencia() {
         <div className="space-y-6">
           {/* ── Rendimiento por grupo ── */}
           {loadingParte ? (
-            <Card className="shadow-sm border">
+            <Card className="glass-strong border">
               <CardContent className="p-5">
                 <div className="space-y-3">
                   {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-7 w-full" />)}
@@ -616,7 +903,7 @@ export default function Asistencia() {
               </CardContent>
             </Card>
           ) : parteDelDia ? (
-            <Card className="shadow-sm border">
+            <Card className="glass-strong border">
               <CardContent className="p-5 space-y-4">
                 <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Rendimiento por grupo</h3>
                 <div className="space-y-3 text-sm">
@@ -650,122 +937,16 @@ export default function Asistencia() {
                       )} kg/p
                     </span>
                   </div>
+                  <div className="flex justify-between items-center text-xs text-muted-foreground">
+                    <span>Total producción (calibrador)</span>
+                    <span className="font-semibold tabular-nums">{new Intl.NumberFormat("es-ES").format(Math.round(kgCalibrador))} kg</span>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           ) : null}
 
-          {/* ── Workers Reference List ── */}
-          <Collapsible open={showWorkerList} onOpenChange={setShowWorkerList}>
-            <Card className="shadow-sm border">
-              <CardHeader className="flex flex-row items-center justify-between py-4 px-5">
-                <CardTitle className="text-lg font-bold">Lista de trabajadores</CardTitle>
-                <CollapsibleTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    {showWorkerList ? "Cerrar" : "Gestionar"}
-                  </Button>
-                </CollapsibleTrigger>
-              </CardHeader>
-              <CollapsibleContent>
-                <CardContent className="space-y-4 px-5 pb-5">
-                  <div className="flex flex-wrap items-end gap-3">
-                    <div className="flex-1 min-w-[200px]">
-                      <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Nombre</label>
-                      <Input
-                        placeholder="Nuevo trabajador"
-                        value={newWorkerName}
-                        onChange={(e) => setNewWorkerName(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && addTrabajador()}
-                        className="h-10"
-                      />
-                    </div>
-                    <div className="w-44">
-                      <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Grupo</label>
-                      <select
-                        value={newWorkerZona}
-                        onChange={(e) => setNewWorkerZona(e.target.value)}
-                        className="h-10 w-full rounded-lg border bg-background px-3 text-sm"
-                      >
-                        <option value="">Sin grupo</option>
-                        {GRUPOS.map((z) => <option key={z} value={z}>{z}</option>)}
-                      </select>
-                    </div>
-                    <Button onClick={addTrabajador} disabled={!newWorkerName.trim()} className="h-10">
-                      <Plus className="h-4 w-4 mr-1" /> Añadir
-                    </Button>
-                  </div>
 
-                  {loadingTrabajadores ? (
-                    <div className="space-y-2">
-                      {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10" />)}
-                    </div>
-                  ) : (
-                    <div className="border rounded-xl overflow-hidden">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="text-xs font-bold uppercase">Nombre</TableHead>
-                            <TableHead className="text-xs font-bold uppercase">Grupo</TableHead>
-                            <TableHead className="text-xs font-bold uppercase">Estado</TableHead>
-                            <TableHead className="w-24"></TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {trabajadores.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                                Añade trabajadores para comenzar
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            groupByZona(trabajadores).flatMap(({ grupo, workers }) => [
-                              <TableRow key={`h-${grupo}`} className="bg-muted/50">
-                                <TableCell colSpan={4} className="font-bold text-sm py-3">
-                                  {grupo} <span className="text-muted-foreground font-normal">({workers.length})</span>
-                                </TableCell>
-                              </TableRow>,
-                              ...workers.map((t) => (
-                                <TableRow key={t.id} className={cn(!t.activo && "opacity-50")}>
-                                  <TableCell className="font-semibold text-sm">{t.nombre}</TableCell>
-                                  <TableCell className="text-muted-foreground text-sm">{t.zona ?? "—"}</TableCell>
-                                  <TableCell>
-                                    <Badge variant={t.activo ? "default" : "secondary"} className="text-xs">
-                                      {t.activo ? "Activo" : "Inactivo"}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    <div className="flex justify-end gap-1">
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-9 w-9"
-                                        onClick={() => toggleTrabajadorActivo(t)}
-                                        title={t.activo ? "Desactivar" : "Activar"}
-                                      >
-                                        {t.activo ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-9 w-9 text-destructive"
-                                        onClick={() => deleteTrabajador(t.id)}
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </Button>
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              )),
-                            ])
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </CardContent>
-              </CollapsibleContent>
-            </Card>
-          </Collapsible>
         </div>
       </div>
     </div>

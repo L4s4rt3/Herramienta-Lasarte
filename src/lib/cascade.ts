@@ -94,12 +94,10 @@ export function computeCascade(input: CascadeInput): CascadeResult {
 
   const diferencia_bruta = produccion_real - palets_ajustados - inventario_final;
 
-  const podrido_calibrador = n(input.kg_podrido_calibrador);
   const podrido_manual = n(input.kg_podrido_bolsa_basura);
-  const mermas_totales = podrido_calibrador + podrido_manual;
+  const mermas_totales = podrido_manual;
   const mermas_pct = produccion_real > 0 ? (mermas_totales / produccion_real) * 100 : 0;
 
-  // Podrido calibrador ya lo descuenta el calibrador, no se resta otra vez
   const dsj = diferencia_bruta - podrido_manual;
   const dsj_pct = produccion_real > 0 ? (dsj / produccion_real) * 100 : 0;
 
@@ -145,7 +143,7 @@ export function computeCascade(input: CascadeInput): CascadeResult {
     palets_ajustados,
     inventario_final,
     diferencia_bruta,
-    podrido_calibrador,
+    podrido_calibrador: 0,
     podrido_manual,
     mermas_totales,
     mermas_pct,

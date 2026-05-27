@@ -14,67 +14,49 @@ import { Badge } from "@/components/ui/badge";
 const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: string; parentLabel?: string }> = {
   "/": {
     label: "Dashboard",
-    subtitle: "Seguimiento diario de producción, DJPMN, stock, consumos y asistencia",
+    subtitle: "Visión estratégica de producción, alertas y tendencias",
   },
   "/partes": {
     label: "Partes",
     subtitle: "Reconciliación diaria y seguimiento de descuadres",
     parent: "/",
-    parentLabel: "Control",
+    parentLabel: "Operaciones diarias",
   },
   "/dsj": {
     label: "Calculadora DJPMN",
     subtitle: "Simulación y validación de diferencias sin justificar",
     parent: "/",
-    parentLabel: "Control",
-  },
-  "/costes/consumos": {
-    label: "Consumos",
-    subtitle: "Control operativo de recursos y consumos físicos",
-    parent: "/",
-    parentLabel: "Control",
-  },
-  "/costes/asistencia": {
-    label: "Asistencia",
-    subtitle: "Seguimiento de turnos, horas y equipos",
-    parent: "/",
-    parentLabel: "Control",
-  },
-  "/stock": {
-    label: "Stock en cámara",
-    subtitle: "Inventario disponible y trazabilidad de cámara",
-    parent: "/",
-    parentLabel: "Control",
-  },
-  "/productores": {
-    label: "Productores",
-    subtitle: "Análisis de origen, rendimiento y comportamiento",
-    parent: "/",
-    parentLabel: "Control",
-  },
-  "/analisis/calibres": {
-    label: "Calibres",
-    subtitle: "Distribución de calibre y lectura por día",
-    parent: "/",
-    parentLabel: "Control",
-  },
-  "/analisis/informes": {
-    label: "Análisis informes",
-    subtitle: "Revisión estructurada de informes operativos",
-    parent: "/",
-    parentLabel: "Control",
+    parentLabel: "Operaciones diarias",
   },
   "/analisis/diario": {
     label: "Análisis diario",
     subtitle: "Indicadores diarios de rendimiento y calidad",
     parent: "/",
-    parentLabel: "Control",
+    parentLabel: "Producción",
+  },
+  "/productores": {
+    label: "Productores",
+    subtitle: "Análisis de origen, rendimiento y comportamiento",
+    parent: "/",
+    parentLabel: "Producción",
   },
   "/calendario": {
     label: "Calendario",
     subtitle: "Planificación de producción y actividad",
     parent: "/",
-    parentLabel: "Control",
+    parentLabel: "Producción",
+  },
+  "/costes/consumos": {
+    label: "Consumos",
+    subtitle: "Control operativo de recursos y consumos físicos",
+    parent: "/",
+    parentLabel: "Operaciones",
+  },
+  "/costes/asistencia": {
+    label: "Asistencia",
+    subtitle: "Seguimiento de turnos, horas y equipos",
+    parent: "/",
+    parentLabel: "Operaciones",
   },
 };
 
@@ -89,7 +71,7 @@ function TopBar() {
 
   return (
     <header className="sticky top-0 z-20 flex min-h-16 shrink-0 items-center gap-3 border-b border-primary/10 bg-[var(--glass-bg-strong)] px-4 py-3 shadow-[var(--glass-shadow)] backdrop-blur-xl sm:px-6 lg:px-8">
-      <SidebarTrigger className="-ml-1 size-8 rounded-lg border bg-card shadow-sm" />
+      <SidebarTrigger className="-ml-1 size-8 rounded-xl border bg-[var(--glass-bg)] shadow-[var(--glass-shadow)]" />
       <Separator orientation="vertical" className="hidden h-6 sm:block" />
 
       <div className="min-w-0 flex-1">
@@ -115,7 +97,7 @@ function TopBar() {
         </p>
       </div>
 
-      <Badge variant="outline" className="hidden rounded-md border-primary/20 bg-card/80 px-2.5 py-1 font-medium text-primary md:inline-flex">
+      <Badge variant="outline" className="hidden rounded-xl border-primary/20 bg-[var(--glass-bg-strong)] px-2.5 py-1 font-medium text-primary backdrop-blur-sm md:inline-flex">
         Producción
       </Badge>
     </header>

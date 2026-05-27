@@ -99,7 +99,7 @@ export default function DSJCalculator() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={nextDay}>
+          <Button variant="outline" onClick={nextDay} className="glass glass-hover">
             <FastForward className="h-4 w-4" /> Día siguiente
           </Button>
           <Button variant="ghost" onClick={() => setS(EMPTY)}>
@@ -134,12 +134,19 @@ export default function DSJCalculator() {
             <CardContent className="grid gap-4 sm:grid-cols-2">{MER.map(renderField)}</CardContent>
           </Card>
 
-          <Card className="border-dashed bg-muted/35">
+          <Card className="glass-accented">
             <CardContent className="grid gap-3 p-4 text-xs text-muted-foreground sm:grid-cols-2">
-              <p><strong className="text-foreground">Producción real</strong><br />Calibrador + Industria - Mujeres(L) - Recic.Z1 - Recic.Z2</p>
-              <p><strong className="text-foreground">Palets ajustados</strong><br />Palets brutos - Inventario del día anterior</p>
-              <p><strong className="text-foreground">DJPMN</strong><br />Diferencia bruta - Podrido calibrador - Podrido manual</p>
-              <p><strong className="text-foreground">Día siguiente</strong><br />Copia el inventario final como inventario anterior.</p>
+              {[
+                ["Producción real", "Calibrador + Industria - Mujeres(L) - Recic.Z1 - Recic.Z2"],
+                ["Palets ajustados", "Palets brutos - Inventario del día anterior"],
+                ["DJPMN", "Diferencia bruta - Podrido calibrador - Podrido manual"],
+                ["Día siguiente", "Copia el inventario final como inventario anterior."],
+              ].map(([title, body]) => (
+                <div key={title} className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3 backdrop-blur-sm">
+                  <strong className="block text-foreground">{title}</strong>
+                  <span>{body}</span>
+                </div>
+              ))}
             </CardContent>
           </Card>
         </div>

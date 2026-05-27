@@ -18,6 +18,7 @@ const PartDetail = lazy(() => import("./pages/PartDetail"));
 const DSJCalculator = lazy(() => import("./pages/DSJCalculator"));
 const ConsumoCostes = lazy(() => import("./pages/ConsumoCostes"));
 const Asistencia = lazy(() => import("./pages/Asistencia"));
+const AsistenciaComparativa = lazy(() => import("./pages/AsistenciaComparativa"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Productores = lazy(() => import("./pages/Productores"));
 const AnalisisDiario = lazy(() => import("./pages/AnalisisDiario"));
@@ -26,8 +27,8 @@ const Calendario = lazy(() => import("./pages/CalendarioProduccion"));
 const queryClient = new QueryClient();
 
 const LoadingFallback = () => (
-  <div className="flex min-h-screen items-center justify-center bg-background">
-    <div className="flex items-center gap-3 rounded-lg border bg-card px-5 py-4 shadow-[var(--shadow-card)]">
+  <div className="flex min-h-screen items-center justify-center">
+    <div className="flex items-center gap-3 rounded-xl glass-accented px-5 py-4">
       <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/25 border-t-primary" />
       <span className="text-sm font-medium text-muted-foreground">Cargando herramienta...</span>
     </div>
@@ -60,6 +61,7 @@ const App = () => (
                     <Route path="/dsj" element={<DSJCalculator />} />
                     <Route path="/costes/consumos" element={<ConsumoCostes />} />
                     <Route path="/costes/asistencia" element={<Asistencia />} />
+                    <Route path="/costes/asistencia/comparativa" element={<AsistenciaComparativa />} />
                     <Route path="/productores" element={<Productores />} />
                     <Route path="/analisis/diario" element={<AnalisisDiario />} />
                     <Route path="/calendario" element={<Calendario />} />

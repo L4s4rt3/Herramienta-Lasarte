@@ -11,17 +11,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Drawer, DrawerContent, DrawerTrigger } from "@/components/ui/drawer";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   ChevronLeft, ChevronRight, CalendarDays, Download,
   CheckCircle2, AlertTriangle, XCircle, TrendingUp, TrendingDown,
   FileText, Clock, User, AlertCircle,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 
 const SEMAFORO_META: Record<string, { label: string; color: string; bg: string; border: string; dot: string; text: string }> = {
-  verde:   { label: "OK", color: "text-emerald-600", bg: "bg-emerald-50",   border: "border-emerald-200", dot: "bg-emerald-500",  text: "text-emerald-700" },
-  amarillo:{ label: "Revisar", color: "text-amber-600", bg: "bg-amber-50",   border: "border-amber-200",  dot: "bg-amber-500",   text: "text-amber-700" },
-  rojo:    { label: "Crítico", color: "text-red-600",   bg: "bg-red-50",     border: "border-red-200",    dot: "bg-red-500",     text: "text-red-700" },
+  verde:   { label: "OK",      color: "text-success",     bg: "bg-success/10",     border: "border-success/30",     dot: "bg-success",     text: "text-success" },
+  amarillo:{ label: "Revisar", color: "text-warning",     bg: "bg-warning/10",     border: "border-warning/30",     dot: "bg-warning",     text: "text-warning" },
+  rojo:    { label: "Crítico", color: "text-destructive", bg: "bg-destructive/10", border: "border-destructive/30", dot: "bg-destructive", text: "text-destructive" },
 };
 
 function formatDateStr(d: Date): string {
@@ -44,31 +46,34 @@ function KPIStatCards({ monthPartes, totalDays }: { monthPartes: Parte[]; totalD
   const pctCoverage = totalDays > 0 ? Math.round((coverage / totalDays) * 100) : 0;
 
   const items = [
-    { label: "Días OK", value: nVerde, color: "text-emerald-600", icon: CheckCircle2, bg: "bg-emerald-50", border: "border-emerald-200", trend: nVerde > 0 ? `${Math.round(nVerde / Math.max(coverage, 1) * 100)}% del mes` : null },
-    { label: "Revisar", value: nAmarillo, color: "text-amber-600", icon: AlertTriangle, bg: "bg-amber-50", border: "border-amber-200", trend: null },
-    { label: "Crítico", value: nRojo, color: "text-red-600", icon: XCircle, bg: "bg-red-50", border: "border-red-200", trend: null },
-    { label: "DJPMN medio", value: `${avgDsj.toFixed(1)}%`, color: "text-sky-600", icon: TrendingUp, bg: "bg-sky-50", border: "border-sky-200", trend: `${coverage} días` },
-    { label: "Peor día", value: worstDay ? `${Math.abs(worstDay.cascade.dsj_pct).toFixed(1)}%` : "—", color: "text-slate-600", icon: TrendingDown, bg: "bg-slate-50", border: "border-slate-200", trend: worstDay ? format(parseISO(worstDay.date), "d MMM", { locale: es }) : null },
+    { label: "Días OK",    value: nVerde,   color: "text-success",     icon: CheckCircle2, accent: "bg-success/40",     trend: nVerde > 0 ? `${Math.round(nVerde / Math.max(coverage, 1) * 100)}% del mes` : null },
+    { label: "Revisar",    value: nAmarillo,color: "text-warning",     icon: AlertTriangle,accent: "bg-warning/40",     trend: null },
+    { label: "Crítico",    value: nRojo,    color: "text-destructive", icon: XCircle,      accent: "bg-destructive/40", trend: null },
+    { label: "DJPMN medio",value: `${avgDsj.toFixed(1)}%`, color: "text-info", icon: TrendingUp, accent: "bg-info/40", trend: `${coverage} días` },
+    { label: "Peor día",   value: worstDay ? `${Math.abs(worstDay.cascade.dsj_pct).toFixed(1)}%` : "—", color: "text-muted-foreground", icon: TrendingDown, accent: "bg-[var(--glass-bg-strong)]", trend: worstDay ? format(parseISO(worstDay.date), "d MMM", { locale: es }) : null },
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
       {items.map((item) => (
-        <Card key={item.label} className={cn("border shadow-sm", item.border)}>
-          <CardContent className="p-4">
+        <Card key={item.label} className={cn("glass-accented overflow-hidden")}>
+          <div className={cn("absolute inset-x-4 top-0 h-0.5 rounded-full", item.accent)} />
+          <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div className="space-y-1">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{item.label}</p>
-                <p className={cn("text-2xl font-bold tabular-nums", item.color)}>{item.value}</p>
+                <p className="panel-kicker">{item.label}</p>
+                <p className={cn("text-xl font-bold tabular-nums", item.color)}>{item.value}</p>
               </div>
-              <item.icon className={cn("h-5 w-5 mt-0.5", item.color)} />
+              <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-xl", item.accent)}>
+                <item.icon className={cn("h-4 w-4", item.color)} />
+              </div>
             </div>
             {item.trend && (
-              <p className="text-xs text-muted-foreground mt-1">{item.trend}</p>
+              <p className="text-xs text-muted-foreground mt-2">{item.trend}</p>
             )}
             {item.label === "Días OK" && coverage > 0 && (
-              <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
-                <div className={cn("h-full rounded-full", nVerde > 0 ? "bg-emerald-500" : "bg-transparent")} style={{ width: `${(nVerde / coverage) * 100}%` }} />
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
+                <div className={cn("h-full rounded-full bg-success", nVerde === 0 && "bg-transparent")} style={{ width: `${(nVerde / coverage) * 100}%` }} />
               </div>
             )}
           </CardContent>
@@ -92,10 +97,10 @@ function CalendarHeader({
         <p className="page-subtitle">Vista mensual con estado DJPMN por día</p>
       </div>
       <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={onToday}>
+        <Button variant="outline" size="sm" onClick={onToday} className="glass glass-hover">
           <CalendarDays className="h-4 w-4 mr-1.5" /> Hoy
         </Button>
-        <Button variant="outline" size="sm" onClick={onExport}>
+        <Button variant="outline" size="sm" onClick={onExport} className="glass glass-hover">
           <Download className="h-4 w-4 mr-1.5" /> Exportar
         </Button>
       </div>
@@ -107,15 +112,15 @@ function CalendarHeader({
 
 function MonthNavigator({ currentMonth, onPrev, onNext }: { currentMonth: Date; onPrev: () => void; onNext: () => void }) {
   return (
-    <div className="flex items-center justify-between mb-2">
-      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={onPrev}>
-        <ChevronLeft className="h-5 w-5" />
+    <div className="flex items-center justify-between">
+      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-xl glass glass-hover" onClick={onPrev}>
+        <ChevronLeft className="h-4 w-4" />
       </Button>
-      <h2 className="text-lg font-bold capitalize">
+      <h2 className="text-base font-bold capitalize tracking-tight">
         {format(currentMonth, "MMMM yyyy", { locale: es })}
       </h2>
-      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={onNext}>
-        <ChevronRight className="h-5 w-5" />
+      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-xl glass glass-hover" onClick={onNext}>
+        <ChevronRight className="h-4 w-4" />
       </Button>
     </div>
   );
@@ -124,10 +129,10 @@ function MonthNavigator({ currentMonth, onPrev, onNext }: { currentMonth: Date; 
 // ─── Status Filters + Legend ──────────────────────────────────────────────────
 
 const STATUS_OPTS = [
-  { key: "todos", label: "Todos", color: "" },
-  { key: "verde", label: "OK", color: "bg-emerald-500" },
-  { key: "amarillo", label: "Revisar", color: "bg-amber-500" },
-  { key: "rojo", label: "Crítico", color: "bg-red-500" },
+  { key: "todos",    label: "Todos",   color: "" },
+  { key: "verde",    label: "OK",      color: "bg-success" },
+  { key: "amarillo", label: "Revisar", color: "bg-warning" },
+  { key: "rojo",     label: "Crítico", color: "bg-destructive" },
 ];
 
 function CalendarFilters({
@@ -136,16 +141,16 @@ function CalendarFilters({
   statusFilter: string; onStatusChange: (k: string) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="glass p-1.5 rounded-xl inline-flex flex-wrap items-center gap-1">
       {STATUS_OPTS.map((opt) => (
         <button
           key={opt.key}
           onClick={() => onStatusChange(opt.key)}
           className={cn(
-            "inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors",
+            "inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold transition-all",
             statusFilter === opt.key
-              ? "bg-primary text-primary-foreground"
-              : "bg-muted text-muted-foreground hover:bg-muted/80",
+              ? "border border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] text-foreground shadow-[var(--glass-shadow)]"
+              : "text-muted-foreground hover:text-foreground",
           )}
         >
           {opt.color && <span className={cn("h-2 w-2 rounded-full", opt.color)} />}
@@ -158,15 +163,15 @@ function CalendarFilters({
 
 function StatusLegend() {
   return (
-    <div className="flex flex-wrap items-center gap-6 text-sm text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-5 text-sm text-muted-foreground">
       <span className="inline-flex items-center gap-2">
-        <span className="h-3 w-3 rounded-full bg-emerald-500" /> OK ≤3%
+        <span className="h-3 w-3 rounded-full bg-success" /> OK ≤3%
       </span>
       <span className="inline-flex items-center gap-2">
-        <span className="h-3 w-3 rounded-full bg-amber-500" /> Revisar 3–5%
+        <span className="h-3 w-3 rounded-full bg-warning" /> Revisar 3–5%
       </span>
       <span className="inline-flex items-center gap-2">
-        <span className="h-3 w-3 rounded-full bg-red-500" /> Crítico &gt;5%
+        <span className="h-3 w-3 rounded-full bg-destructive" /> Crítico &gt;5%
       </span>
     </div>
   );
@@ -193,17 +198,19 @@ function CalendarDayCell({
             onClick={() => onClick(day)}
             disabled={!isCurrentMonth && !parte}
             className={cn(
-              "relative w-full flex flex-col items-center justify-center rounded-xl border p-3 transition-all min-h-[90px]",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              !isCurrentMonth && !parte && "border-transparent",
-              isCurrentMonth && !parte && "border-dashed border-muted-foreground/20 bg-muted/10",
-              parte && meta && cn(meta.bg, meta.border, "shadow-sm"),
+              "relative w-full flex flex-col items-center justify-center rounded-xl p-3 transition-all min-h-[88px] glass",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              !isCurrentMonth && !parte && "border border-[var(--glass-border)] opacity-40",
+              parte && meta && cn("glass-accented", meta.border.replace("-200", "-200/40")),
               parte && isFilteredOut && "opacity-30",
               isSelected && "ring-2 ring-primary ring-offset-2",
-              isTodayDate && !isSelected && "ring-1 ring-muted-foreground/30",
-              "hover:shadow-md hover:z-10",
+              isTodayDate && !isSelected && "ring-1 ring-accent-foreground/30",
+              "hover:z-10 hover:-translate-y-0.5 hover:shadow-[var(--glass-shadow-lg)]",
             )}
           >
+            {parte && meta && (
+              <div className={cn("absolute inset-x-3 top-0 h-0.5 rounded-full", meta.dot.replace("bg-", "bg-").replace("-500", "-400"))} />
+            )}
             <span className={cn(
               "text-sm font-bold leading-tight",
               !isCurrentMonth && "text-muted-foreground/40",
@@ -220,7 +227,7 @@ function CalendarDayCell({
                 )}>
                   {parte.cascade.dsj_pct > 0 ? "+" : ""}{parte.cascade.dsj_pct.toFixed(1)}%
                 </span>
-                <span className={cn("h-1.5 w-10 rounded-full mt-1", meta.dot)} />
+                <span className={cn("h-1.5 w-8 rounded-full mt-1", meta.dot)} />
               </>
             )}
             {isAbsent && <span className="text-xs text-muted-foreground/40 mt-1">—</span>}
@@ -256,7 +263,7 @@ function CalendarGrid({
   }, [currentMonth]);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <div className="grid grid-cols-7 gap-2">
         {WEEKDAYS.map((wd) => (
           <div key={wd} className="text-center text-xs font-bold text-muted-foreground uppercase tracking-wider py-1">
@@ -315,13 +322,13 @@ function DayDetailsPanel({ date, parte, onClose, onNavigate }: { date: Date; par
           <h3 className="text-base font-bold capitalize">{format(date, "EEEE d MMMM", { locale: es })}</h3>
           <p className="text-sm text-muted-foreground">{format(date, "yyyy")}</p>
         </div>
-        <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => onNavigate(parte.id)}>
+        <Button variant="outline" size="sm" className="h-7 gap-1 text-xs glass glass-hover" onClick={() => onNavigate(parte.id)}>
           <FileText className="h-3.5 w-3.5" />
           Abrir parte
         </Button>
       </div>
 
-      <div className={cn("flex items-center justify-between rounded-xl border p-4", meta.border, meta.bg)}>
+      <div className={cn("glass-accented flex items-center justify-between rounded-xl p-5 border-l-4", meta.border)}>
         <div>
           <p className={cn("text-sm font-semibold", meta.text)}>{meta.label}</p>
           <p className={cn("text-3xl font-bold tabular-nums", meta.color)}>
@@ -336,26 +343,25 @@ function DayDetailsPanel({ date, parte, onClose, onNavigate }: { date: Date; par
       </div>
 
       <div className="grid grid-cols-2 gap-3 text-sm">
-        <div className="rounded-xl border p-3 space-y-1">
+        <div className="glass p-3 space-y-1">
           <span className="text-xs text-muted-foreground font-medium">Producción</span>
           <p className="font-bold tabular-nums text-base">{totalKg.toFixed(0)} kg</p>
         </div>
-        <div className="rounded-xl border p-3 space-y-1">
+        <div className="glass p-3 space-y-1">
           <span className="text-xs text-muted-foreground font-medium">Mermas</span>
           <p className="font-bold tabular-nums text-base">{mermas.toFixed(0)} kg</p>
         </div>
-        <div className="rounded-xl border p-3 space-y-1">
+        <div className="glass p-3 space-y-1">
           <span className="text-xs text-muted-foreground font-medium">Diferencia bruta</span>
           <p className="font-bold tabular-nums text-base">{parte.cascade.diferencia_bruta?.toFixed(0) ?? "—"} kg</p>
         </div>
-        <div className="rounded-xl border p-3 space-y-1">
+        <div className="glass p-3 space-y-1">
           <span className="text-xs text-muted-foreground font-medium">Palets brutos</span>
           <p className="font-bold tabular-nums text-base">{parte.kg_palets_brutos ?? "—"}</p>
         </div>
       </div>
-
       {parte.notas_generales && (
-        <div className="rounded-xl border p-4 space-y-1.5">
+        <div className="glass p-4 space-y-1.5">
           <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
             <FileText className="h-3.5 w-3.5" />
             <span className="font-semibold">Observaciones</span>
@@ -365,7 +371,7 @@ function DayDetailsPanel({ date, parte, onClose, onNavigate }: { date: Date; par
       )}
 
       {parte.notas_inventario && (
-        <div className="rounded-xl border p-4 space-y-1.5">
+        <div className="glass p-4 space-y-1.5">
           <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
             <FileText className="h-3.5 w-3.5" />
             <span className="font-semibold">Notas de inventario</span>
@@ -426,25 +432,49 @@ export default function CalendarioProduccion() {
   };
 
   const handleExport = () => {
+    if (monthPartes.length === 0) {
+      toast({ title: "No hay datos este mes", variant: "destructive" });
+      return;
+    }
     const rows = monthPartes.map((p) => ({
       Fecha: p.date,
       Estado: SEMAFORO_META[p.cascade.semaforo]?.label ?? "—",
-      "DJPMN %": p.cascade.dsj_pct.toFixed(1),
-      "Prod. (kg)": (p.kg_produccion_calibrador ?? 0) + (p.kg_mujeres_calibrador ?? 0),
-      Mermas: p.cascade.mermas_totales?.toFixed(0) ?? "—",
+      "DJPMN %": p.cascade.dsj_pct.toFixed(2),
+      "Prod. (kg)": ((p.kg_produccion_calibrador ?? 0) + (p.kg_mujeres_calibrador ?? 0)).toFixed(0),
+      Mermas: p.cascade.mermas_totales?.toFixed(1) ?? "—",
       Observaciones: p.notas_generales ?? "",
     }));
-    const csv = [
-      Object.keys(rows[0] ?? {}).join(","),
-      ...rows.map((r) => Object.values(r).map((v) => `"${v}"`).join(",")),
-    ].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `calendario-${format(currentMonth, "yyyy-MM")}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const wb = XLSX.utils.book_new();
+    wb.Props = {
+      Title: "Lasarte SAT - Calendario de produccion",
+      Subject: "Control mensual de partes",
+      Author: "Herramienta Lasarte SAT",
+    };
+    const totalProd = monthPartes.reduce((s, p) => s + (p.cascade.produccion_real || 0), 0);
+    const totalDsj = monthPartes.reduce((s, p) => s + (p.cascade.dsj || 0), 0);
+    const wsResumen = XLSX.utils.aoa_to_sheet([
+      ["Lasarte SAT - Calendario de produccion"],
+      [`Mes: ${format(currentMonth, "MMMM yyyy", { locale: es })}`],
+      [`Generado: ${new Date().toLocaleString("es-ES")}`],
+      [],
+      ["Indicador", "Valor"],
+      ["Dias con parte", monthPartes.length],
+      ["Produccion real total (kg)", Math.round(totalProd)],
+      ["DJPMN global (%)", totalProd > 0 ? +((totalDsj / totalProd) * 100).toFixed(2) : 0],
+      ["Dias OK", monthPartes.filter((p) => p.cascade.semaforo === "verde").length],
+      ["Dias a revisar", monthPartes.filter((p) => p.cascade.semaforo === "amarillo").length],
+      ["Dias criticos", monthPartes.filter((p) => p.cascade.semaforo === "rojo").length],
+    ]);
+    wsResumen["!cols"] = [{ wch: 34 }, { wch: 20 }];
+    XLSX.utils.book_append_sheet(wb, wsResumen, "Resumen");
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws["!cols"] = [
+      { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 40 },
+    ];
+    ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: 5 } }) };
+    XLSX.utils.book_append_sheet(wb, ws, "Detalle calendario");
+    XLSX.writeFile(wb, `calendario-${format(currentMonth, "yyyy-MM")}.xlsx`, { bookType: "xlsx", compression: true });
+    toast({ title: `Exportado · ${monthPartes.length} día(s)` });
   };
 
   if (loading) {
@@ -452,10 +482,10 @@ export default function CalendarioProduccion() {
       <div className="page-shell">
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-6 w-96" />
-        <div className="grid grid-cols-5 gap-3">
-          {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24" />)}
+        <div className="grid grid-cols-5 gap-4 mt-8">
+          {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
         </div>
-        <Skeleton className="h-96" />
+        <Skeleton className="h-[500px] rounded-xl mt-6" />
       </div>
     );
   }
@@ -464,18 +494,18 @@ export default function CalendarioProduccion() {
     <div className="page-shell">
       <CalendarHeader currentMonth={currentMonth} onPrev={() => setCurrentMonth(subMonths(currentMonth, 1))} onNext={() => setCurrentMonth(addMonths(currentMonth, 1))} onToday={handleToday} onExport={handleExport} />
 
-      <div className="mt-8">
+      <div className="mt-6">
         <KPIStatCards monthPartes={monthPartes} totalDays={totalDaysInMonth} />
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
         <CalendarFilters statusFilter={statusFilter} onStatusChange={setStatusFilter} />
         <StatusLegend />
       </div>
 
       {/* Desktop: grid | sidebar  |  Mobile: stack + drawer */}
-      <div className="mt-6 lg:grid lg:grid-cols-[1fr_360px] gap-6 items-start">
-        <Card className="shadow-sm border">
+      <div className="mt-6 lg:grid lg:grid-cols-[1fr_350px] gap-6 items-start">
+        <Card className="glass-accented">
           <CardContent className="p-5 sm:p-6">
             <MonthNavigator currentMonth={currentMonth} onPrev={() => setCurrentMonth(subMonths(currentMonth, 1))} onNext={() => setCurrentMonth(addMonths(currentMonth, 1))} />
             <div className="mt-4">
@@ -486,7 +516,7 @@ export default function CalendarioProduccion() {
 
         {/* Desktop sidebar */}
         <div className="hidden lg:block">
-          <Card className="shadow-sm border sticky top-6">
+          <Card className="glass-accented sticky top-6">
             <CardContent className="p-6">
               <ScrollArea className="h-[calc(100vh-12rem)]">
                 {selectedDate ? (

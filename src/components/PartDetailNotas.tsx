@@ -34,7 +34,7 @@ export default function PartDetailNotas({
   update,
 }: PartDetailNotasProps) {
   return (
-    <Card>
+    <Card className="glass-accented">
       <CardHeader><CardTitle className="text-lg">Notas</CardTitle></CardHeader>
       <CardContent className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">

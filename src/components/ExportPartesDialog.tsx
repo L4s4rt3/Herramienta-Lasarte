@@ -54,7 +54,7 @@ export function ExportPartesDialog({ defaultFrom, defaultTo }: Props) {
       if (kind === "xlsx") exportPartesToExcel(rows, from, to);
       else exportPartesToPDF(rows, from, to);
       setOpen(false);
-      toast({ title: `Exportado correctamente · ${rows.length} parte(s)` });
+      toast({ title: `Exportado correctamente - ${rows.length} parte(s)` });
     } catch (e: any) {
       toast({ title: "Error al exportar", description: e.message, variant: "destructive" });
     } finally {
@@ -65,92 +65,116 @@ export function ExportPartesDialog({ defaultFrom, defaultTo }: Props) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline">
+        <Button variant="outline" className="glass glass-hover">
           <Download className="h-4 w-4" /> Exportar
         </Button>
       </DialogTrigger>
 
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Download className="h-4 w-4 text-primary" />
-            Exportar partes
+      <DialogContent className="sm:max-w-2xl glass-accented overflow-hidden">
+        <DialogHeader className="border-b border-[var(--glass-border)] pb-4">
+          <DialogTitle className="flex items-center gap-3 text-xl">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] text-primary">
+              <Download className="h-5 w-5" />
+            </span>
+            Exportar informe de produccion
           </DialogTitle>
-          <DialogDescription>
-            Genera un informe completo con cascada DJPMN, KPIs y detalle por parte.
+          <DialogDescription className="text-sm">
+            PDF ejecutivo para revisar y Excel estructurado para analizar, filtrar y compartir todo el rango seleccionado.
           </DialogDescription>
         </DialogHeader>
 
-        {/* Rango de fechas */}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label className="flex items-center gap-1.5 text-xs font-medium">
-              <Calendar className="h-3.5 w-3.5" /> Desde
-            </Label>
-            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="flex items-center gap-1.5 text-xs font-medium">
-              <Calendar className="h-3.5 w-3.5" /> Hasta
-            </Label>
-            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-          </div>
-        </div>
-
-        {/* Accesos rápidos */}
-        <div className="flex flex-wrap gap-1.5">
-          {[
-            { label: "Hoy",     fn: () => { setFrom(today());      setTo(today());   } },
-            { label: "7 días",  fn: () => { setFrom(daysAgo(6));   setTo(today());   } },
-            { label: "30 días", fn: () => { setFrom(daysAgo(30));  setTo(today());   } },
-            { label: "90 días", fn: () => { setFrom(daysAgo(90));  setTo(today());   } },
-          ].map(({ label, fn }) => (
-            <Button key={label} size="sm" variant="ghost" className="h-7 text-xs px-2.5" onClick={fn}>
-              {label}
-            </Button>
-          ))}
-        </div>
-
-        {/* Contenido del informe */}
-        <div className="rounded-lg bg-muted/50 p-3 space-y-1.5">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-            El informe incluye
-          </p>
-          <div className="grid grid-cols-2 gap-1.5">
-            {[
-              { icon: Factory,     text: "KPIs de producción" },
-              { icon: TrendingDown,text: "Cascada DJPMN completa" },
-              { icon: Package,     text: "Detalle de palets" },
-              { icon: FileText,    text: "Página por parte (PDF)" },
-              { icon: StickyNote,  text: "Notas e análisis IA" },
-              { icon: Download,    text: "4 hojas Excel" },
-            ].map(({ icon: Icon, text }) => (
-              <div key={text} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Icon className="h-3 w-3 text-primary shrink-0" />
-                <span>{text}</span>
+        <div className="grid gap-5 lg:grid-cols-[1fr_220px]">
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1.5 text-xs font-medium">
+                  <Calendar className="h-3.5 w-3.5" /> Desde
+                </Label>
+                <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
               </div>
-            ))}
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1.5 text-xs font-medium">
+                  <Calendar className="h-3.5 w-3.5" /> Hasta
+                </Label>
+                <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { label: "Hoy", fn: () => { setFrom(today()); setTo(today()); } },
+                { label: "7 dias", fn: () => { setFrom(daysAgo(6)); setTo(today()); } },
+                { label: "30 dias", fn: () => { setFrom(daysAgo(30)); setTo(today()); } },
+                { label: "90 dias", fn: () => { setFrom(daysAgo(90)); setTo(today()); } },
+              ].map(({ label, fn }) => (
+                <Button key={label} size="sm" variant="ghost" className="h-8 px-3 text-xs glass glass-hover" onClick={fn}>
+                  {label}
+                </Button>
+              ))}
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => doExport("pdf")}
+                disabled={busy !== null}
+                className="rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4 text-left shadow-sm backdrop-blur-xl transition hover:border-primary/40 hover:bg-[var(--glass-bg-strong)] disabled:opacity-60"
+              >
+                <span className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <FileText className="h-5 w-5" />
+                  </span>
+                  <span>
+                    <span className="block text-sm font-semibold text-foreground">{busy === "pdf" ? "Generando PDF..." : "PDF ejecutivo"}</span>
+                    <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">Resumen visual, KPIs, cascada DJPMN, semaforos y pagina por parte.</span>
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => doExport("xlsx")}
+                disabled={busy !== null}
+                className="rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4 text-left shadow-sm backdrop-blur-xl transition hover:border-primary/40 hover:bg-[var(--glass-bg-strong)] disabled:opacity-60"
+              >
+                <span className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-success/10 text-success">
+                    <FileSpreadsheet className="h-5 w-5" />
+                  </span>
+                  <span>
+                    <span className="block text-sm font-semibold text-foreground">{busy === "xlsx" ? "Generando Excel..." : "Excel analitico"}</span>
+                    <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">Hojas separadas, filtros, resumen, detalle, cascada y notas/IA.</span>
+                  </span>
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4 shadow-sm backdrop-blur-xl">
+            <p className="panel-kicker mb-3">Contenido incluido</p>
+            <div className="space-y-3">
+              {[
+                { icon: Factory, text: "KPIs de produccion y palets" },
+                { icon: TrendingDown, text: "Cascada DJPMN completa" },
+                { icon: Package, text: "Detalle operativo por parte" },
+                { icon: FileText, text: "Paginas de informe PDF" },
+                { icon: StickyNote, text: "Notas e analisis IA" },
+                { icon: Download, text: "Excel con hojas y filtros" },
+              ].map(({ icon: Icon, text }) => (
+                <div key={text} className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Icon className="h-3.5 w-3.5 shrink-0" />
+                  </span>
+                  <span>{text}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
-        <DialogFooter className="gap-2 sm:gap-2">
-          <Button
-            variant="outline"
-            className="flex-1"
-            onClick={() => doExport("pdf")}
-            disabled={busy !== null}
-          >
-            <FileText className="h-4 w-4" />
-            {busy === "pdf" ? "Generando PDF…" : "Exportar PDF"}
-          </Button>
-          <Button
-            className="flex-1"
-            onClick={() => doExport("xlsx")}
-            disabled={busy !== null}
-          >
-            <FileSpreadsheet className="h-4 w-4" />
-            {busy === "xlsx" ? "Generando Excel…" : "Exportar Excel"}
-          </Button>
+        <DialogFooter className="border-t border-[var(--glass-border)] pt-4">
+          <p className="text-xs text-muted-foreground">
+            El Excel queda preparado para filtros y analisis; el PDF queda listo para revision de direccion.
+          </p>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -30,8 +30,8 @@ import {
   SidebarProvider,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import { cn } from "@/lib/utils";
 import { TopBar } from "@/components/TopBar";
+import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
 
 type NavItem = {
   to: string;
@@ -42,11 +42,15 @@ type NavItem = {
 
 const navGroups: Array<{ label: string; items: NavItem[] }> = [
   {
-    label: "Control",
+    label: "Dashboard",
     items: [
-      { to: "/", label: "Dashboard", icon: LayoutDashboard, match: (path) => path === "/" },
-      { to: "/calendario", label: "Calendario", icon: CalendarDays },
-      { to: "/partes", label: "Partes diarios", icon: FileText, match: (path) => path.startsWith("/partes") },
+      { to: "/", label: "Panel de producción", icon: LayoutDashboard, match: (path) => path === "/" },
+    ],
+  },
+  {
+    label: "Operaciones diarias",
+    items: [
+      { to: "/partes", label: "Partes", icon: FileText, match: (path) => path.startsWith("/partes") },
       { to: "/dsj", label: "Calculadora DJPMN", icon: Calculator },
     ],
   },
@@ -55,6 +59,7 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3 },
       { to: "/productores", label: "Productores", icon: Sprout },
+      { to: "/calendario", label: "Calendario", icon: CalendarDays },
     ],
   },
   {
@@ -72,6 +77,8 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const cmd = useCommandPalette();
+
   const initials = user?.email
     ? user.email.slice(0, 2).toUpperCase()
     : "??";
@@ -84,7 +91,7 @@ export default function AppLayout() {
             <SidebarMenuItem>
               <SidebarMenuButton size="lg" asChild className="h-14">
                 <NavLink to="/">
-                  <div className="flex aspect-square size-10 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground shadow-lg shadow-orange-950/25">
+                  <div className="flex aspect-square size-10 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground shadow-[var(--glass-shadow-lg)]">
                     <Citrus className="size-5" />
                   </div>
                   <div className="grid flex-1 text-left text-sm leading-tight">
@@ -130,7 +137,7 @@ export default function AppLayout() {
               <div className="flex flex-col gap-3 px-1 py-1">
 
 
-                <div className="flex items-center gap-2 rounded-lg border border-sidebar-border/65 bg-sidebar-accent/35 p-2">
+                <div className="flex items-center gap-2 rounded-xl border border-sidebar-border/65 bg-sidebar-accent/35 p-2">
                   <Avatar className="size-8 shrink-0">
                     <AvatarFallback className="bg-sidebar-primary/15 text-sidebar-primary text-xs font-semibold">
                       {initials}
@@ -162,10 +169,11 @@ export default function AppLayout() {
 
       <SidebarInset>
         <TopBar />
-        <div className="flex flex-1 flex-col px-4 py-5 animate-fadeIn sm:px-6 lg:px-8">
+        <div className="flex flex-1 flex-col px-4 py-5 animate-slideIn sm:px-6 lg:px-8">
           <Outlet />
         </div>
       </SidebarInset>
+      <CommandPalette open={cmd.open} onOpenChange={cmd.setOpen} />
     </SidebarProvider>
   );
 }

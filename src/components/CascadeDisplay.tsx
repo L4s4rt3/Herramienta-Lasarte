@@ -113,7 +113,7 @@ export function CascadeDisplay({ parte_id, class_name }: Props) {
 
   if (error) {
     return (
-      <Card className={cn("border-destructive/50 bg-destructive/5", class_name)}>
+      <Card className={cn("glass-accented border-destructive/40 bg-destructive/10", class_name)}>
         <CardContent className="flex items-center gap-3 py-4">
           <AlertCircle className="h-5 w-5 text-destructive shrink-0" />
           <span className="text-sm text-destructive">{error}</span>
@@ -127,7 +127,7 @@ export function CascadeDisplay({ parte_id, class_name }: Props) {
   }
 
   return (
-    <Card className={class_name}>
+    <Card className={cn("glass-accented", class_name)}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">

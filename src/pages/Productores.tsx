@@ -3,27 +3,27 @@
  * Tabla por productor × día con kg, T/h, peso fruta promedio, nº lotes.
  * Histórico y alertas de calibre derivante.
  */
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import { KPICard } from "@/components/KPICard";
-import { formatKg, formatNumber } from "@/lib/format";
+import { formatKg } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Users, AlertTriangle, TrendingUp, TrendingDown, Gauge, Search } from "lucide-react";
+import { Users, AlertTriangle, TrendingUp, Gauge, Search } from "lucide-react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-const LineChart = lazy(() => import("recharts").then(m => ({ default: m.LineChart })));
-const Line = lazy(() => import("recharts").then(m => ({ default: m.Line })));
-const XAxis = lazy(() => import("recharts").then(m => ({ default: m.XAxis })));
-const YAxis = lazy(() => import("recharts").then(m => ({ default: m.YAxis })));
-const CartesianGrid = lazy(() => import("recharts").then(m => ({ default: m.CartesianGrid })));
-const Tooltip = lazy(() => import("recharts").then(m => ({ default: m.Tooltip })));
-const ResponsiveContainer = lazy(() => import("recharts").then(m => ({ default: m.ResponsiveContainer })));
-const Legend = lazy(() => import("recharts").then(m => ({ default: m.Legend })));
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Legend, AreaChart, Area,
+} from "recharts";
+import {
+  GlassTooltip, C, GRID, XAXIS, YAXIS, MARGIN, legendStyle,
+  CHART_CURSOR, CHART_LINE_CURSOR, CHART_PANEL_CLASS, areaStops, lineStyle,
+} from "@/lib/chartTheme";
 import { toast } from "@/hooks/use-toast";
 
 interface LoteDia {
@@ -67,18 +67,21 @@ export default function Productores() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
-  const [since, setSince] = useState(() => {
+  const today = new Date().toISOString().slice(0, 10);
+  const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
     return d.toISOString().slice(0, 10);
   });
+  const [dateTo, setDateTo] = useState(today);
 
   async function load() {
     setLoading(true);
     const { data, error } = await supabase
       .from("lotes_dia")
       .select("*, partes_diarios!inner(date)")
-      .gte("partes_diarios.date", since)
+      .gte("partes_diarios.date", dateFrom)
+      .lte("partes_diarios.date", dateTo)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -95,7 +98,7 @@ export default function Productores() {
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, [since]);
+  useEffect(() => { setSelected(null); load(); }, [dateFrom, dateTo]);
 
   // Agrupar por productor
   const byProductor = useMemo<ProductorStats[]>(() => {
@@ -154,11 +157,25 @@ export default function Productores() {
       .filter((l) => l.parte_date && l.toneladas_hora)
       .sort((a, b) => (a.parte_date ?? "").localeCompare(b.parte_date ?? ""))
       .map((l) => ({
-        date: l.parte_date?.slice(5) ?? "",
+        date: l.parte_date ?? "",
         tph: l.toneladas_hora ?? 0,
         kg: l.kg_peso_total,
         lote: l.lote_codigo ?? "",
       }));
+  }, [selectedStats]);
+
+  // Serie diaria de kg para el productor seleccionado
+  const dailyKg = useMemo(() => {
+    if (!selectedStats) return [];
+    const map = new Map<string, number>();
+    for (const l of selectedStats.lotes) {
+      const day = l.parte_date;
+      if (!day) continue;
+      map.set(day, (map.get(day) ?? 0) + (l.kg_peso_total || 0));
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([fecha, kg]) => ({ fecha, kg }));
   }, [selectedStats]);
 
   // KPIs globales
@@ -174,7 +191,6 @@ export default function Productores() {
   const nProductores = byProductor.length;
 
   return (
-    <Suspense fallback={<div className="page-shell"><Skeleton className="h-96" /></div>}>
     <div className="page-shell">
       <header className="page-header">
         <div>
@@ -186,13 +202,20 @@ export default function Productores() {
             Trazabilidad por productor · kg, T/h, peso fruta promedio — filtrado por fecha del parte
           </p>
         </div>
-        <div className="flex items-center gap-3 rounded-lg border bg-muted/35 px-3 py-2">
-          <label className="text-sm font-medium text-muted-foreground">Desde</label>
+        <div className="flex items-center gap-2 glass px-3 py-2">
+          <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Desde</label>
           <Input
             type="date"
-            value={since}
-            onChange={(e) => setSince(e.target.value)}
-            className="w-36 h-9"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="w-34 h-9"
+          />
+          <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Hasta</label>
+          <Input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="w-34 h-9"
           />
         </div>
       </header>
@@ -251,12 +274,21 @@ export default function Productores() {
                         <button
                           onClick={() => setSelected(isSelected ? null : p.productor)}
                           className={cn(
-                            "w-full text-left px-4 py-3 hover:bg-muted/40 transition-colors",
+                            "w-full text-left px-4 py-3 hover:bg-[var(--glass-bg-strong)] transition-colors",
                             isSelected && "bg-primary/5 border-l-2 border-l-primary"
                           )}
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-medium text-sm truncate">{p.productor}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm truncate">{p.productor}</span>
+                              <Link
+                                to={`/partes`}
+                                className="text-[10px] font-medium text-primary/70 hover:text-primary shrink-0"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                Ver partes →
+                              </Link>
+                            </div>
                             {p.tph_promedio !== null && !tphOk && (
                               <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0" />
                             )}
@@ -290,8 +322,12 @@ export default function Productores() {
         <div className="lg:col-span-2 space-y-4">
           {!selectedStats ? (
             <Card>
-              <CardContent className="py-16 text-center text-sm text-muted-foreground">
-                Selecciona un productor para ver su histórico detallado.
+              <CardContent className="py-16 text-center text-sm text-muted-foreground space-y-2">
+                <Users className="h-10 w-10 text-muted-foreground/30 mx-auto" />
+                <p>Selecciona un productor de la lista para ver su histórico detallado.</p>
+                <p className="text-xs text-muted-foreground/60">
+                  Datos desde {dateFrom} hasta {dateTo}
+                </p>
               </CardContent>
             </Card>
           ) : (
@@ -332,37 +368,65 @@ export default function Productores() {
                 </CardContent>
               </Card>
 
-              {tphSeries.length > 1 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-sm">Evolución T/h — {selectedStats.productor}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
+              <Card className="glass-accented">
+                <CardHeader className="pb-3 px-5 pt-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-7 w-1 rounded-full bg-primary" />
+                    <div>
+                      <CardTitle className="text-lg font-semibold">Evolución T/h — {selectedStats.productor}</CardTitle>
+                      <p className="text-xs text-muted-foreground mt-0.5">Velocidad de procesamiento por lote</p>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 pt-1">
+                  <div className={CHART_PANEL_CLASS}>
+                  {tphSeries.length > 0 ? (
                     <ResponsiveContainer width="100%" height={200}>
-                      <LineChart data={tphSeries}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                        <XAxis dataKey="date" fontSize={10} tick={{ fill: "hsl(var(--muted-foreground))" }} />
-                        <YAxis
-                          fontSize={10}
-                          tick={{ fill: "hsl(var(--muted-foreground))" }}
-                          domain={["auto", "auto"]}
-                          tickFormatter={(v) => `${v} T/h`}
-                          width={54}
-                        />
-                        <Tooltip
-                          contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "var(--radius)" }}
-                          formatter={(v: number, name: string) => [
-                            name === "tph" ? `${v.toFixed(2)} T/h` : formatKg(v),
-                            name === "tph" ? "T/h" : "kg",
-                          ]}
-                        />
-                        <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v) => v === "tph" ? "T/h" : "kg lote"} />
-                        <Line type="monotone" dataKey="tph" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                      <LineChart data={tphSeries} {...MARGIN}>
+                        <CartesianGrid {...GRID} />
+                        <XAxis dataKey="date" {...XAXIS} />
+                        <YAxis {...YAXIS} domain={["auto", "auto"]} tickFormatter={(v) => `${v} T/h`} width={54} />
+                        <Tooltip cursor={CHART_LINE_CURSOR} content={<GlassTooltip formatter={(v, name) => name === "tph" ? `${Number(v).toFixed(2)} T/h` : formatKg(Number(v))} />} />
+                        <Legend wrapperStyle={legendStyle} formatter={(v) => v === "tph" ? "T/h" : "kg lote"} />
+                        <Line dataKey="tph" {...lineStyle(C.primary)} />
                       </LineChart>
                     </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-              )}
+                  ) : (
+                    <p className="text-sm text-muted-foreground text-center py-8">Sin datos de velocidad (T/h) para este productor en el período seleccionado.</p>
+                  )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="glass-accented">
+                <CardHeader className="pb-3 px-5 pt-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-7 w-1 rounded-full bg-primary" />
+                    <div>
+                      <CardTitle className="text-lg font-semibold">Producción diaria — {selectedStats.productor}</CardTitle>
+                      <p className="text-xs text-muted-foreground mt-0.5">Kg totales procesados por día</p>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 pt-1">
+                  <div className={CHART_PANEL_CLASS}>
+                  {dailyKg.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <AreaChart data={dailyKg} {...MARGIN}>
+                        <CartesianGrid {...GRID} />
+                        <XAxis dataKey="fecha" {...XAXIS} />
+                        <YAxis {...YAXIS} tickFormatter={(v) => `${(v / 1000).toFixed(0)}t`} width={36} />
+                        <Tooltip cursor={CHART_CURSOR} content={<GlassTooltip formatter={(v) => formatKg(Number(v))} />} />
+                        {areaStops("productorKgFill", C.primary)}
+                        <Area type="monotone" dataKey="kg" stroke={C.primary} strokeWidth={2.5} fill="url(#productorKgFill)" dot={false} activeDot={lineStyle(C.primary).activeDot} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <p className="text-sm text-muted-foreground text-center py-8">Sin producción registrada para este productor en el período seleccionado.</p>
+                  )}
+                  </div>
+                </CardContent>
+              </Card>
 
               {/* Tabla lotes */}
               <Card>
@@ -407,6 +471,5 @@ export default function Productores() {
         </div>
       </div>
     </div>
-    </Suspense>
   );
 }
