@@ -10,6 +10,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
+import { Sparkles } from "lucide-react";
 
 const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: string; parentLabel?: string }> = {
   "/": {
@@ -100,6 +101,15 @@ function TopBar() {
       <Badge variant="outline" className="hidden rounded-xl border-primary/20 bg-[var(--glass-bg-strong)] px-2.5 py-1 font-medium text-primary backdrop-blur-sm md:inline-flex">
         Producción
       </Badge>
+
+      {/* Botón asistente */}
+      <button
+        onClick={() => window.dispatchEvent(new CustomEvent("lasarte:toggle-chat"))}
+        title="Asistente de producción"
+        className="flex h-8 w-8 items-center justify-center rounded-xl border border-[var(--glass-border-accent)] bg-primary/8 text-primary shadow-[var(--glass-shadow)] backdrop-blur-sm transition-all hover:bg-primary/15 hover:shadow-[var(--glass-shadow),var(--glass-glow)] active:scale-95"
+      >
+        <Sparkles className="h-4 w-4" />
+      </button>
     </header>
   );
 }
