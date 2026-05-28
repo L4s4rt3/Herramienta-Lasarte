@@ -1,7 +1,7 @@
 /**
  * chat — Edge Function para el asistente de producción Lasarte SAT.
- * Llama a Gemini 1.5 Flash con la API key guardada como secreto de Supabase.
- * La clave NUNCA se expone al cliente.
+ * Usa Groq (llama-3.1-8b-instant) — API compatible con OpenAI, free tier generoso.
+ * La API key vive como secreto de Supabase — nunca expuesta al cliente.
  */
 
 const corsHeaders = {
@@ -10,9 +10,9 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-interface GeminiContent {
-  role: "user" | "model";
-  parts: { text: string }[];
+interface ChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
 }
 
 Deno.serve(async (req) => {
@@ -21,55 +21,54 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const apiKey = Deno.env.get("GEMINI_API_KEY");
+    const apiKey = Deno.env.get("GROQ_API_KEY");
     if (!apiKey) {
       return new Response(
-        JSON.stringify({ error: "GEMINI_API_KEY no configurada en los secretos de Supabase" }),
+        JSON.stringify({ error: "GROQ_API_KEY no configurada en los secretos de Supabase" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
     const { message, history, systemInstruction } = await req.json() as {
       message: string;
-      history: GeminiContent[];
+      history: ChatMessage[];
       systemInstruction: string;
     };
 
-    // Llamada a Gemini REST API con streaming SSE
-    const url =
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse&key=${apiKey}`;
+    const messages: ChatMessage[] = [
+      { role: "system", content: systemInstruction },
+      ...(history ?? []),
+      { role: "user", content: message },
+    ];
 
-    const body = {
-      system_instruction: { parts: [{ text: systemInstruction }] },
-      contents: [
-        ...(history ?? []),
-        { role: "user", parts: [{ text: message }] },
-      ],
-      generationConfig: {
-        maxOutputTokens: 600,
-        temperature: 0.6,
-      },
-    };
-
-    const geminiRes = await fetch(url, {
+    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant",
+        messages,
+        stream: true,
+        max_tokens: 600,
+        temperature: 0.6,
+      }),
     });
 
-    if (!geminiRes.ok) {
-      const err = await geminiRes.text();
+    if (!groqRes.ok) {
+      const err = await groqRes.text();
       return new Response(
-        JSON.stringify({ error: `Gemini error ${geminiRes.status}: ${err}` }),
+        JSON.stringify({ error: `Groq error ${groqRes.status}: ${err}` }),
         { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    // Parsear SSE de Gemini y hacer streaming de texto plano al cliente
+    // Parsear SSE de Groq y hacer streaming de texto plano al cliente
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
-        const reader = geminiRes.body!.getReader();
+        const reader = groqRes.body!.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
 
@@ -87,8 +86,7 @@ Deno.serve(async (req) => {
             if (data === "[DONE]") continue;
             try {
               const json = JSON.parse(data);
-              const text: string =
-                json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+              const text: string = json?.choices?.[0]?.delta?.content ?? "";
               if (text) controller.enqueue(encoder.encode(text));
             } catch {
               // chunk malformado, ignorar

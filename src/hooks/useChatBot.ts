@@ -4,7 +4,7 @@
  */
 import { useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { callChatFunction, DOMAIN_PROMPT, GeminiContent } from "@/lib/gemini";
+import { callChatFunction, DOMAIN_PROMPT, ChatContent } from "@/lib/gemini";
 import { computeCascade } from "@/lib/cascade";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -88,8 +88,8 @@ export function useChatBot() {
   const [isLoading, setIsLoading]   = useState(false);
   const [streaming, setStreaming]   = useState("");
 
-  // Historial en formato Gemini (para enviar a la Edge Function)
-  const historyRef        = useRef<GeminiContent[]>([]);
+  // Historial en formato OpenAI/Groq (para enviar a la Edge Function)
+  const historyRef        = useRef<ChatContent[]>([]);
   const systemPromptRef   = useRef<string>(DOMAIN_PROMPT);
   const initializedRef    = useRef(false);
 
@@ -151,11 +151,11 @@ export function useChatBot() {
         onChunk:           (partial) => setStreaming(partial),
       });
 
-      // Guardar el intercambio en el historial Gemini
+      // Guardar el intercambio en el historial OpenAI/Groq
       historyRef.current = [
         ...historyRef.current,
-        { role: "user",  parts: [{ text: text.trim() }] },
-        { role: "model", parts: [{ text: fullText }] },
+        { role: "user",      content: text.trim() },
+        { role: "assistant", content: fullText },
       ];
 
       setMessages((prev) => [...prev, {

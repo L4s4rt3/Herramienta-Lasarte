@@ -29,11 +29,11 @@ COMPORTAMIENTO:
 - Usa los datos actuales del sistema cuando estén disponibles
 `.trim();
 
-// ─── Formato de historial para Gemini ────────────────────────────────────────
+// ─── Formato de historial compatible con OpenAI / Groq ───────────────────────
 
-export interface GeminiContent {
-  role: "user" | "model";
-  parts: { text: string }[];
+export interface ChatContent {
+  role: "user" | "assistant";
+  content: string;
 }
 
 // ─── Llamada a la Edge Function con streaming ─────────────────────────────────
@@ -48,7 +48,7 @@ export async function callChatFunction({
   onChunk,
 }: {
   message: string;
-  history: GeminiContent[];
+  history: ChatContent[];
   systemInstruction: string;
   onChunk: (text: string) => void;
 }): Promise<string> {
