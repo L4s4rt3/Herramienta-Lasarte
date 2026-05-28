@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/sidebar";
 import { TopBar } from "@/components/TopBar";
 import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
+import { ChatBot } from "@/components/ChatBot";
 
 type NavItem = {
   to: string;
@@ -174,6 +175,7 @@ export default function AppLayout() {
         </div>
       </SidebarInset>
       <CommandPalette open={cmd.open} onOpenChange={cmd.setOpen} />
+      <ChatBot />
     </SidebarProvider>
   );
 }
