@@ -10,14 +10,18 @@ import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ExportPartesDialog } from "@/components/ExportPartesDialog";
 import { useI18n } from "@/lib/i18n";
 import { formatDate, formatKg, today } from "@/lib/format";
+import { format, parseISO } from "date-fns";
+import { es } from "date-fns/locale";
 import { toast } from "@/hooks/use-toast";
 import {
   Plus, Trash2, ChevronUp, ChevronDown, ChevronsUpDown,
-  Search, X, Calendar, BarChart3, AlertTriangle, Factory,
+  Search, X, CalendarIcon, BarChart3, AlertTriangle, Factory,
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -156,9 +160,32 @@ export default function PartesList() {
       <div className="section-toolbar">
         {/* Crear parte */}
         <div className="flex items-center gap-2">
-          <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-          <Label htmlFor="newdate" className="text-sm font-medium whitespace-nowrap">Nuevo parte</Label>
-          <Input id="newdate" type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} className="w-40 h-9" />
+          <Label className="text-sm font-medium whitespace-nowrap">Nuevo parte</Label>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 w-40 justify-start gap-2 glass glass-hover font-normal"
+              >
+                <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <span className="tabular-nums">
+                  {newDate
+                    ? format(parseISO(newDate), "dd MMM yyyy", { locale: es })
+                    : "Seleccionar…"}
+                </span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0 glass-accented" align="start">
+              <Calendar
+                mode="single"
+                selected={newDate ? parseISO(newDate) : undefined}
+                onSelect={(d) => d && setNewDate(format(d, "yyyy-MM-dd"))}
+                locale={es}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
           <Button onClick={createParte} disabled={creating} size="sm" className="glass glass-hover">
             <Plus className="h-3.5 w-3.5" /> Crear
           </Button>
