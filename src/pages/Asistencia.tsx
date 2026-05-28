@@ -13,7 +13,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
-  Plus, Trash2, Upload, ChevronLeft, ChevronRight, ChevronDown, UserCheck, UserX,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Plus, Trash2, Upload, ChevronLeft, ChevronRight, UserCheck, UserX,
   Users, AlertCircle, Calendar, Search, BarChart3,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -648,17 +651,20 @@ export default function Asistencia() {
                   </div>
                   <div className="w-44">
                     <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Grupo</label>
-                    <div className="relative">
-                      <select
-                        value={newWorkerZona}
-                        onChange={(e) => setNewWorkerZona(e.target.value)}
-                        className="glass glass-hover h-10 w-full appearance-none rounded-xl border border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] px-3 pr-9 text-sm font-medium text-foreground shadow-[var(--glass-shadow)] outline-none backdrop-blur-xl transition focus:border-primary/45 focus:ring-2 focus:ring-primary/20"
-                      >
-                        <option value="">Sin grupo</option>
-                        {GRUPOS.map((z) => <option key={z} value={z}>{z}</option>)}
-                      </select>
-                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary" />
-                    </div>
+                    <Select
+                      value={newWorkerZona || "__none__"}
+                      onValueChange={(v) => setNewWorkerZona(v === "__none__" ? "" : v)}
+                    >
+                      <SelectTrigger className="h-10">
+                        <SelectValue placeholder="Sin grupo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Sin grupo</SelectItem>
+                        {GRUPOS.map((z) => (
+                          <SelectItem key={z} value={z}>{z}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <Button onClick={addTrabajador} disabled={!newWorkerName.trim()} className="h-10 glass glass-hover">
                     <Plus className="h-4 w-4 mr-1" /> Añadir

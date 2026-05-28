@@ -10,6 +10,9 @@ import {
 } from "@/lib/chartTheme";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Download, FileText, Scale } from "lucide-react";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { exportEficienciaToExcel, exportEficienciaToPDF } from "@/lib/exportEficiencia";
 
 interface DiaData {
@@ -264,16 +267,30 @@ export default function AsistenciaComparativa() {
                   </div>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2 lg:w-[420px]">
-                  <select value={compareWeek} onChange={(e) => setCompareWeek(e.target.value)} className="h-10 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 text-sm shadow-sm backdrop-blur-xl">
-                    {semanas.map((sem) => (
-                      <option key={sem.weekStart} value={sem.weekStart}>Comparar: semana del {sem.label}</option>
-                    ))}
-                  </select>
-                  <select value={baseWeek} onChange={(e) => setBaseWeek(e.target.value)} className="h-10 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 text-sm shadow-sm backdrop-blur-xl">
-                    {semanas.map((sem) => (
-                      <option key={sem.weekStart} value={sem.weekStart}>Actual: semana del {sem.label}</option>
-                    ))}
-                  </select>
+                  <Select value={compareWeek} onValueChange={setCompareWeek}>
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="Semana a comparar" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {semanas.map((sem) => (
+                        <SelectItem key={sem.weekStart} value={sem.weekStart}>
+                          Comparar: semana del {sem.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={baseWeek} onValueChange={setBaseWeek}>
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="Semana base" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {semanas.map((sem) => (
+                        <SelectItem key={sem.weekStart} value={sem.weekStart}>
+                          Actual: semana del {sem.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </CardHeader>
