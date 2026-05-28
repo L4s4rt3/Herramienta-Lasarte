@@ -55,17 +55,22 @@ export interface AnalisisDiarioData {
   grupos: GrupoClasificacionResumen[];
 }
 
+const EMPTY_DATA: AnalisisDiarioData = {
+  totals: { n_dias: 0, n_lotes: 0, kg_lotes: 0, kg_calibres: 0, avg_tph: null, total_min: 0, n_lotes_lentos: 0 },
+  lotes: [],
+  clases: [],
+  grupos: [],
+};
+
 export function useAnalisisDiario(desde: string, hasta: string) {
-  const [data, setData] = useState<AnalisisDiarioData>({
-    totals: { n_dias: 0, n_lotes: 0, kg_lotes: 0, kg_calibres: 0, avg_tph: null, total_min: 0, n_lotes_lentos: 0 },
-    lotes: [],
-    clases: [],
-    grupos: [],
-  });
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<AnalisisDiarioData>(EMPTY_DATA);
+  // Arranca en true para evitar el flash de "sin datos" en primera carga
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   async function fetchData() {
     setLoading(true);
+    setError(null);
     try {
       // ── 1. Partes en el rango ──────────────────────────────────────────────
       const { data: partes, error: pErr } = await supabase
@@ -217,6 +222,8 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       });
     } catch (e) {
       console.error("useAnalisisDiario error:", e);
+      setError(e instanceof Error ? e.message : "Error al cargar los datos");
+      setData(EMPTY_DATA);
     } finally {
       setLoading(false);
     }
@@ -224,7 +231,9 @@ export function useAnalisisDiario(desde: string, hasta: string) {
 
   useEffect(() => {
     fetchData();
+    // fetchData usa desde/hasta del closure — se actualiza correctamente
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [desde, hasta]);
 
-  return { data, loading, refetch: fetchData };
+  return { data, loading, error, refetch: fetchData };
 }

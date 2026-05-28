@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Loader2, Calendar, Search, RefreshCw, FileText, BarChart3, FilterX,
-  Gauge, PackageCheck, Timer,
+  Gauge, PackageCheck, Timer, AlertCircle,
 } from "lucide-react";
 import { useAnalisisDiario } from "@/hooks/useAnalisisDiario";
 import type { LoteResumen, ClaseResumen, GrupoClasificacionResumen } from "@/hooks/useAnalisisDiario";
@@ -77,7 +77,7 @@ export default function AnalisisDiario() {
     return today();
   }, [periodo, customHasta]);
 
-  const { data, loading, refetch } = useAnalisisDiario(desde, hasta);
+  const { data, loading, error, refetch } = useAnalisisDiario(desde, hasta);
 
   const hayDatos = data.totals.n_lotes > 0 || data.totals.kg_calibres > 0;
 
@@ -196,6 +196,21 @@ export default function AnalisisDiario() {
         </div>
       )}
 
+      {!loading && error && (
+        <Card className="glass-accented border-destructive/30">
+          <CardContent className="flex items-center gap-3 py-6 text-destructive">
+            <AlertCircle className="h-5 w-5 shrink-0" />
+            <div>
+              <p className="font-semibold text-sm">Error al cargar los datos</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={refetch} className="ml-auto glass glass-hover">
+              <RefreshCw className="h-3.5 w-3.5 mr-1" /> Reintentar
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {!loading && hayDatos && searchHits && (
         <SearchResults query={search} hits={searchHits} />
       )}
@@ -239,7 +254,7 @@ export default function AnalisisDiario() {
             <CardContent className="px-4 pb-4 pt-1">
               <div className={CHART_PANEL_CLASS}>
               <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={dailyTrend} {...MARGIN}>
+              <AreaChart data={dailyTrend} margin={MARGIN}>
                 {areaStops("analisisTrendFill", C.primary)}
                 <CartesianGrid {...GRID} />
                 <XAxis dataKey="date" {...XAXIS} />
