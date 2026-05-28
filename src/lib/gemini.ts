@@ -1,18 +1,12 @@
 /**
- * gemini.ts — Cliente Gemini para el asistente de producción Lasarte SAT.
- * Modelo: gemini-1.5-flash (free tier: 15 RPM, 1M tokens/day)
+ * gemini.ts — Utilidades para el asistente de producción Lasarte SAT.
+ * Las llamadas a Gemini se hacen a través de la Supabase Edge Function "chat",
+ * donde la API key vive como secreto de servidor — nunca expuesta al cliente.
  */
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// Clave embebida para que funcione en producción para todos los usuarios.
-// Herramienta interna — clave free tier de Gemini.
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "AIzaSyCg1uoTG5_sCTaE8ypG6mOJkHpAFepfkUg";
+// ─── System prompt (sin datos; el contexto de producción se inyecta en el hook) ─
 
-export const genAI = new GoogleGenerativeAI(apiKey);
-
-// ─── System prompt ────────────────────────────────────────────────────────────
-
-const DOMAIN_PROMPT = `
+export const DOMAIN_PROMPT = `
 Eres el asistente de producción de Lasarte SAT, cooperativa citrícola española.
 Ayudas a operarios y gestores a interpretar los datos del sistema de control de producción.
 
@@ -35,22 +29,55 @@ COMPORTAMIENTO:
 - Usa los datos actuales del sistema cuando estén disponibles
 `.trim();
 
-// ─── Crear sesión de chat ─────────────────────────────────────────────────────
+// ─── Formato de historial para Gemini ────────────────────────────────────────
 
-export function createChatSession(contextData?: string) {
-  const systemInstruction = contextData
-    ? `${DOMAIN_PROMPT}\n\nDATOS ACTUALES DEL SISTEMA (últimos 30 días):\n${contextData}`
-    : DOMAIN_PROMPT;
+export interface GeminiContent {
+  role: "user" | "model";
+  parts: { text: string }[];
+}
 
-  const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
-    systemInstruction,
-  });
+// ─── Llamada a la Edge Function con streaming ─────────────────────────────────
 
-  return model.startChat({
-    generationConfig: {
-      maxOutputTokens: 600,
-      temperature: 0.6,
+const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+export async function callChatFunction({
+  message,
+  history,
+  systemInstruction,
+  onChunk,
+}: {
+  message: string;
+  history: GeminiContent[];
+  systemInstruction: string;
+  onChunk: (text: string) => void;
+}): Promise<string> {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${SUPABASE_ANON}`,
+      "apikey": SUPABASE_ANON,
     },
+    body: JSON.stringify({ message, history, systemInstruction }),
   });
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(err);
+  }
+
+  const reader  = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let full = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    full += chunk;
+    onChunk(full);
+  }
+
+  return full;
 }

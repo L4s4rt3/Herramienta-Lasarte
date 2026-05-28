@@ -1,11 +1,10 @@
 /**
- * useChatBot — Hook para el asistente de producción con Gemini.
- * Inyecta contexto real de Supabase en el system prompt al abrir el chat.
+ * useChatBot — Hook para el asistente de producción con Gemini (vía Edge Function).
+ * La API key vive en Supabase como secreto — nunca en el cliente.
  */
 import { useState, useCallback, useRef } from "react";
-import type { ChatSession } from "@google/generative-ai";
 import { supabase } from "@/integrations/supabase/client";
-import { createChatSession } from "@/lib/gemini";
+import { callChatFunction, DOMAIN_PROMPT, GeminiContent } from "@/lib/gemini";
 import { computeCascade } from "@/lib/cascade";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -45,15 +44,15 @@ async function fetchProductionContext(): Promise<string> {
 
   const partes = data.map((p) => {
     const cascade = computeCascade({
-      kg_produccion_calibrador:    Number(p.kg_produccion_calibrador) || 0,
-      kg_mujeres_calibrador:       Number(p.kg_mujeres_calibrador) || 0,
-      kg_palets_brutos:            (Number(p.kg_palets_brutos) || 0) - (Number(p.kg_palets_egipto) || 0),
-      kg_podrido_calibrador:       Number(p.kg_podrido_calibrador_auto) || 0,
-      kg_industria_manual:         Number(p.kg_industria_manual) || 0,
-      kg_reciclado_malla_z1:       Number(p.kg_reciclado_malla_z1) || 0,
-      kg_reciclado_malla_z2:       Number(p.kg_reciclado_malla_z2) || 0,
-      kg_inventario_sin_alta:      Number(p.kg_inventario_sin_alta) || 0,
-      kg_podrido_bolsa_basura:     Number(p.kg_podrido_bolsa_basura) || 0,
+      kg_produccion_calibrador:        Number(p.kg_produccion_calibrador) || 0,
+      kg_mujeres_calibrador:           Number(p.kg_mujeres_calibrador) || 0,
+      kg_palets_brutos:                (Number(p.kg_palets_brutos) || 0) - (Number(p.kg_palets_egipto) || 0),
+      kg_podrido_calibrador:           Number(p.kg_podrido_calibrador_auto) || 0,
+      kg_industria_manual:             Number(p.kg_industria_manual) || 0,
+      kg_reciclado_malla_z1:           Number(p.kg_reciclado_malla_z1) || 0,
+      kg_reciclado_malla_z2:           Number(p.kg_reciclado_malla_z2) || 0,
+      kg_inventario_sin_alta:          Number(p.kg_inventario_sin_alta) || 0,
+      kg_podrido_bolsa_basura:         Number(p.kg_podrido_bolsa_basura) || 0,
       kg_inventario_anterior_sin_alta: Number(p.kg_inventario_anterior_sin_alta) || 0,
     });
     return { date: p.date as string, estado: p.estado as string, ...cascade };
@@ -84,34 +83,38 @@ async function fetchProductionContext(): Promise<string> {
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useChatBot() {
-  const [isOpen, setIsOpen]             = useState(false);
-  const [messages, setMessages]         = useState<ChatMessage[]>([]);
-  const [isLoading, setIsLoading]       = useState(false);
-  const [streaming, setStreaming]       = useState("");
-  const [apiError, setApiError]         = useState<string | null>(null);
-  const sessionRef                      = useRef<ChatSession | null>(null);
-  const initializedRef                  = useRef(false);
+  const [isOpen, setIsOpen]         = useState(false);
+  const [messages, setMessages]     = useState<ChatMessage[]>([]);
+  const [isLoading, setIsLoading]   = useState(false);
+  const [streaming, setStreaming]   = useState("");
 
-  // Inicializa sesión con contexto de producción real
+  // Historial en formato Gemini (para enviar a la Edge Function)
+  const historyRef        = useRef<GeminiContent[]>([]);
+  const systemPromptRef   = useRef<string>(DOMAIN_PROMPT);
+  const initializedRef    = useRef(false);
+
+  // ── Inicialización ────────────────────────────────────────────────────────
+
   const initSession = useCallback(async () => {
     if (initializedRef.current) return;
     initializedRef.current = true;
+
     try {
       const context = await fetchProductionContext();
-      sessionRef.current = createChatSession(context);
+      systemPromptRef.current = `${DOMAIN_PROMPT}\n\nDATOS ACTUALES DEL SISTEMA (últimos 30 días):\n${context}`;
+      historyRef.current = [];
+
       setMessages([{
         id: "welcome",
         role: "assistant",
         content: "¡Hola! Soy el asistente de Lasarte SAT. Tengo acceso a los datos de producción de los últimos 30 días. ¿En qué puedo ayudarte?",
         timestamp: new Date(),
       }]);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error al inicializar el asistente";
-      setApiError(msg);
+    } catch {
       setMessages([{
         id: "err-init",
         role: "assistant",
-        content: `⚠️ ${msg}`,
+        content: "⚠️ No se pudo cargar el contexto de producción. Puedes seguir preguntando, pero sin datos en tiempo real.",
         timestamp: new Date(),
         error: true,
       }]);
@@ -125,38 +128,50 @@ export function useChatBot() {
 
   const close = useCallback(() => setIsOpen(false), []);
 
-  const sendMessage = useCallback(async (text: string) => {
-    if (!text.trim() || !sessionRef.current || isLoading) return;
+  // ── Enviar mensaje ────────────────────────────────────────────────────────
 
-    setMessages((prev) => [...prev, {
+  const sendMessage = useCallback(async (text: string) => {
+    if (!text.trim() || isLoading) return;
+
+    const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
       role: "user",
       content: text.trim(),
       timestamp: new Date(),
-    }]);
+    };
+    setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
     setStreaming("");
 
     try {
-      const stream = await sessionRef.current.sendMessageStream(text.trim());
-      let full = "";
-      for await (const chunk of stream.stream) {
-        full += chunk.text();
-        setStreaming(full);
-      }
+      const fullText = await callChatFunction({
+        message:           text.trim(),
+        history:           historyRef.current,
+        systemInstruction: systemPromptRef.current,
+        onChunk:           (partial) => setStreaming(partial),
+      });
+
+      // Guardar el intercambio en el historial Gemini
+      historyRef.current = [
+        ...historyRef.current,
+        { role: "user",  parts: [{ text: text.trim() }] },
+        { role: "model", parts: [{ text: fullText }] },
+      ];
+
       setMessages((prev) => [...prev, {
-        id: `a-${Date.now()}`,
-        role: "assistant",
-        content: full,
+        id:        `a-${Date.now()}`,
+        role:      "assistant",
+        content:   fullText,
         timestamp: new Date(),
       }]);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error desconocido";
       setMessages((prev) => [...prev, {
-        id: `err-${Date.now()}`,
-        role: "assistant",
-        content: "Lo siento, hubo un error al procesar tu consulta. Inténtalo de nuevo.",
+        id:        `err-${Date.now()}`,
+        role:      "assistant",
+        content:   `Lo siento, hubo un error: ${msg}`,
         timestamp: new Date(),
-        error: true,
+        error:     true,
       }]);
     } finally {
       setIsLoading(false);
@@ -164,13 +179,14 @@ export function useChatBot() {
     }
   }, [isLoading]);
 
+  // ── Limpiar conversación ──────────────────────────────────────────────────
+
   const clearHistory = useCallback(() => {
     initializedRef.current = false;
-    sessionRef.current = null;
+    historyRef.current     = [];
     setMessages([]);
-    setApiError(null);
     initSession();
   }, [initSession]);
 
-  return { isOpen, open, close, messages, isLoading, streaming, sendMessage, clearHistory, apiError };
+  return { isOpen, open, close, messages, isLoading, streaming, sendMessage, clearHistory };
 }
