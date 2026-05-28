@@ -382,7 +382,7 @@ export default function Productores() {
                   <div className={CHART_PANEL_CLASS}>
                   {tphSeries.length > 0 ? (
                     <ResponsiveContainer width="100%" height={200}>
-                      <LineChart data={tphSeries} {...MARGIN}>
+                      <LineChart data={tphSeries} margin={MARGIN}>
                         <CartesianGrid {...GRID} />
                         <XAxis dataKey="date" {...XAXIS} />
                         <YAxis {...YAXIS} domain={["auto", "auto"]} tickFormatter={(v) => `${v} T/h`} width={54} />
@@ -412,7 +412,7 @@ export default function Productores() {
                   <div className={CHART_PANEL_CLASS}>
                   {dailyKg.length > 0 ? (
                     <ResponsiveContainer width="100%" height={200}>
-                      <AreaChart data={dailyKg} {...MARGIN}>
+                      <AreaChart data={dailyKg} margin={MARGIN}>
                         <CartesianGrid {...GRID} />
                         <XAxis dataKey="fecha" {...XAXIS} />
                         <YAxis {...YAXIS} tickFormatter={(v) => `${(v / 1000).toFixed(0)}t`} width={36} />

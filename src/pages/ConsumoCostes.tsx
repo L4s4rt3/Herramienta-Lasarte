@@ -515,7 +515,7 @@ export default function ConsumoCostes() {
                     <CardContent className="px-4 pb-4 pt-1">
                       <div className={CHART_PANEL_CLASS}>
                       <ResponsiveContainer width="100%" height={320}>
-                        <BarChart data={historicoChart} {...MARGIN}>
+                        <BarChart data={historicoChart} margin={MARGIN}>
                           <CartesianGrid {...GRID} />
                           <XAxis dataKey="periodo" {...XAXIS} />
                           <YAxis {...YAXIS} />
@@ -681,7 +681,7 @@ export default function ConsumoCostes() {
                     <CardContent className="px-4 pb-4 pt-1">
                       <div className={CHART_PANEL_CLASS}>
                       <ResponsiveContainer width="100%" height={320}>
-                        <LineChart data={historicoChart} {...MARGIN}>
+                        <LineChart data={historicoChart} margin={MARGIN}>
                           <CartesianGrid {...GRID} />
                           <XAxis dataKey="periodo" {...XAXIS} />
                           <YAxis {...YAXIS} />

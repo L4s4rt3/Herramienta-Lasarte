@@ -9,9 +9,8 @@ import {
   PieChart, Pie, Cell,
 } from "recharts";
 import { Button } from "@/components/ui/button";
-import { StatusBadge } from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatDate, formatKg, formatPct } from "@/lib/format";
+import { formatKg, formatPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   Popover,
@@ -20,9 +19,9 @@ import {
 } from "@/components/ui/popover";
 
 import {
-  Truck, Package, TrendingDown, FileText, BarChart3,
+  Truck, Package, TrendingDown, BarChart3,
   Gauge, CalendarSync, ChevronDown, CalendarDays, Droplet,
-  GaugeIcon, Zap, AlertTriangle, Plus, ChevronRight, Globe, Warehouse,
+  Plus, ChevronRight,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -66,15 +65,12 @@ const GRUPO_COLORS: Record<string, string> = {
 
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
-  const dsj = payload.find((p: any) => p.dataKey === "dsj_pct");
+  const dsj  = payload.find((p: any) => p.dataKey === "dsj_pct");
   const prod = payload.find((p: any) => p.dataKey === "produccion");
-  const palets = payload.find((p: any) => p.dataKey === "palets");
-  const abs = Math.abs(dsj?.value ?? 0);
-  const semColor = abs <= 3 ? "text-success" : abs <= 5 ? "text-warning" : "text-destructive";
-  const items = [];
-  if (prod) items.push({ name: "Producción", value: formatKg(prod.value), color: "hsl(var(--primary))" });
-  if (palets) items.push({ name: "Palets", value: formatKg(palets.value), color: C.info });
-  if (dsj) items.push({ name: "DJPMN", value: `${dsj.value >= 0 ? "+" : ""}${dsj.value.toFixed(2)}%`, color: semColor.includes("emerald") ? C.success : semColor.includes("amber") ? C.warning : C.destructive });
+  const abs  = Math.abs(dsj?.value ?? 0);
+  const items: { name: string; value: string; color: string }[] = [];
+  if (prod) items.push({ name: "Producción", value: formatKg(prod.value), color: C.primary });
+  if (dsj)  items.push({ name: "DJPMN",      value: `${dsj.value >= 0 ? "+" : ""}${dsj.value.toFixed(2)}%`, color: abs <= 3 ? C.success : abs <= 5 ? C.warning : C.destructive });
   return <GlassTooltip active label={label} payload={items} />;
 }
 
@@ -556,7 +552,7 @@ export default function Dashboard() {
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={340}>
-              <ComposedChart data={chartDisplayData} {...MARGIN}>
+              <ComposedChart data={chartDisplayData} margin={MARGIN}>
                 <CartesianGrid {...GRID} />
                 <XAxis dataKey="label" {...XAXIS} />
                 <YAxis

@@ -18,6 +18,7 @@ import {
   CheckCircle2, AlertTriangle, XCircle, TrendingUp, TrendingDown,
   FileText, Clock, User, AlertCircle,
 } from "lucide-react";
+import { appendAoaSheet, appendDictionarySheet, appendRowsSheet, createWorkbook, saveWorkbook } from "@/lib/exportWorkbook";
 import * as XLSX from "xlsx";
 
 const SEMAFORO_META: Record<string, { label: string; color: string; bg: string; border: string; dot: string; text: string }> = {
@@ -436,6 +437,82 @@ export default function CalendarioProduccion() {
       toast({ title: "No hay datos este mes", variant: "destructive" });
       return;
     }
+    const workbookRows = monthPartes.map((p) => ({
+      Fecha: p.date,
+      Dia: format(parseISO(p.date), "EEEE", { locale: es }),
+      Semana: format(startOfWeek(parseISO(p.date), { weekStartsOn: 1 }), "yyyy-MM-dd"),
+      Estado: SEMAFORO_META[p.cascade.semaforo]?.label ?? "-",
+      Semaforo: p.cascade.semaforo,
+      "Produccion real kg": Math.round(p.cascade.produccion_real || 0),
+      "Palets ajustados kg": Math.round(p.cascade.palets_ajustados || 0),
+      "Diferencia bruta kg": +(p.cascade.diferencia_bruta || 0).toFixed(2),
+      "Mermas kg": +(p.cascade.mermas_totales || 0).toFixed(2),
+      "DJPMN kg": +(p.cascade.dsj || 0).toFixed(2),
+      "DJPMN %": +(p.cascade.dsj_pct || 0).toFixed(3),
+      "Abs DJPMN %": +Math.abs(p.cascade.dsj_pct || 0).toFixed(3),
+      Observaciones: p.notas_generales ?? "",
+    }));
+    const workbook = createWorkbook("Lasarte SAT - Calendario de produccion", "Control mensual de partes");
+    const totalProdWorkbook = monthPartes.reduce((s, p) => s + (p.cascade.produccion_real || 0), 0);
+    const totalDsjWorkbook = monthPartes.reduce((s, p) => s + (p.cascade.dsj || 0), 0);
+    appendAoaSheet(workbook, "Portada", [
+      ["Lasarte SAT - Calendario de produccion"],
+      [`Mes: ${format(currentMonth, "MMMM yyyy", { locale: es })}`],
+      [`Generado: ${new Date().toLocaleString("es-ES")}`],
+      [],
+      ["Indicador", "Valor"],
+      ["Dias con parte", monthPartes.length],
+      ["Produccion real total (kg)", Math.round(totalProdWorkbook)],
+      ["DJPMN global (%)", totalProdWorkbook > 0 ? +((totalDsjWorkbook / totalProdWorkbook) * 100).toFixed(3) : 0],
+      ["Dias OK", monthPartes.filter((p) => p.cascade.semaforo === "verde").length],
+      ["Dias a revisar", monthPartes.filter((p) => p.cascade.semaforo === "amarillo").length],
+      ["Dias criticos", monthPartes.filter((p) => p.cascade.semaforo === "rojo").length],
+    ], [34, 24]);
+    appendRowsSheet(workbook, "Detalle diario", workbookRows, [14, 14, 14, 14, 14, 18, 18, 18, 14, 14, 12, 12, 42], { freezeHeader: true });
+
+    const semaforoRows = ["verde", "amarillo", "rojo"].map((key) => {
+      const items = monthPartes.filter((p) => p.cascade.semaforo === key);
+      const prod = items.reduce((s, p) => s + (p.cascade.produccion_real || 0), 0);
+      const dsj = items.reduce((s, p) => s + (p.cascade.dsj || 0), 0);
+      return {
+        Semaforo: SEMAFORO_META[key]?.label ?? key,
+        Dias: items.length,
+        "% dias": monthPartes.length > 0 ? +((items.length / monthPartes.length) * 100).toFixed(1) : 0,
+        "Produccion real kg": Math.round(prod),
+        "DJPMN kg": +dsj.toFixed(2),
+        "DJPMN % global": prod > 0 ? +((dsj / prod) * 100).toFixed(3) : 0,
+      };
+    });
+    appendRowsSheet(workbook, "Resumen semaforo", semaforoRows, [16, 10, 10, 18, 14, 16], { freezeHeader: true });
+
+    const weekMap = new Map<string, typeof monthPartes>();
+    for (const p of monthPartes) {
+      const week = format(startOfWeek(parseISO(p.date), { weekStartsOn: 1 }), "yyyy-MM-dd");
+      weekMap.set(week, [...(weekMap.get(week) ?? []), p]);
+    }
+    const semanaRows = Array.from(weekMap.entries()).map(([week, items]) => {
+      const prod = items.reduce((s, p) => s + (p.cascade.produccion_real || 0), 0);
+      const dsj = items.reduce((s, p) => s + (p.cascade.dsj || 0), 0);
+      return {
+        "Inicio semana": week,
+        Dias: items.length,
+        "Produccion real kg": Math.round(prod),
+        "DJPMN kg": +dsj.toFixed(2),
+        "DJPMN % global": prod > 0 ? +((dsj / prod) * 100).toFixed(3) : 0,
+        "Dias OK": items.filter((p) => p.cascade.semaforo === "verde").length,
+        "Dias revisar": items.filter((p) => p.cascade.semaforo === "amarillo").length,
+        "Dias criticos": items.filter((p) => p.cascade.semaforo === "rojo").length,
+      };
+    });
+    appendRowsSheet(workbook, "Resumen semanal", semanaRows, [16, 10, 18, 14, 16, 10, 12, 12], { freezeHeader: true });
+    appendDictionarySheet(workbook, [
+      { Hoja: "Detalle diario", Campo: "Abs DJPMN %", Descripcion: "Valor absoluto del descuadre porcentual.", Uso: "Ordenar por gravedad." },
+      { Hoja: "Resumen semaforo", Campo: "% dias", Descripcion: "Distribucion de dias por estado.", Uso: "Ver salud mensual." },
+      { Hoja: "Resumen semanal", Campo: "DJPMN % global", Descripcion: "DJPMN agregado de la semana entre produccion real semanal.", Uso: "Comparar semanas dentro del mes." },
+    ]);
+    saveWorkbook(workbook, `calendario-${format(currentMonth, "yyyy-MM")}.xlsx`);
+    toast({ title: `Exportado · ${monthPartes.length} dia(s)` });
+    return;
     const rows = monthPartes.map((p) => ({
       Fecha: p.date,
       Estado: SEMAFORO_META[p.cascade.semaforo]?.label ?? "—",

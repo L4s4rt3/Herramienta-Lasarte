@@ -1,7 +1,7 @@
-import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { PDF_THEME, drawExportHeader, drawExportFooter, drawKpiCard, pdfTableTheme } from "./exportTheme";
+import { appendAoaSheet, appendDictionarySheet, appendRowsSheet, createWorkbook, saveWorkbook } from "./exportWorkbook";
 
 interface DiaData {
   date: string;
@@ -16,27 +16,41 @@ interface SemanaData {
   days: Record<string, DiaData>;
 }
 
-const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+const DAYS = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"];
 const DAY_KEYS = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"];
+
+function weekStats(sem: SemanaData) {
+  const days = Object.values(sem.days);
+  const kg = days.reduce((s, d) => s + d.kg, 0);
+  const workers = days.reduce((s, d) => s + d.workers, 0);
+  const dias = days.length;
+  return {
+    kg,
+    workers,
+    dias,
+    personasDia: dias > 0 ? workers / dias : 0,
+    kgDia: dias > 0 ? kg / dias : 0,
+    kgPersona: workers > 0 ? kg / workers : 0,
+  };
+}
 
 export function exportEficienciaToExcel(data: SemanaData[], _optimo: string) {
   const resumenRows = data.map((sem) => {
-    const semKg = Object.values(sem.days).reduce((a, d) => a + d.kg, 0);
-    const semWorkers = Object.values(sem.days).reduce((a, d) => a + d.workers, 0);
-    const dias = Object.values(sem.days).length;
+    const stats = weekStats(sem);
     const row: Record<string, any> = {
       Semana: `Semana del ${sem.label}`,
-      "Kg total": Math.round(semKg),
-      "Personas acumuladas": semWorkers,
-      "Dias con datos": dias,
-      "Personas/dia": dias > 0 ? +(semWorkers / dias).toFixed(1) : "",
-      "Kg/dia": dias > 0 ? Math.round(semKg / dias) : "",
+      "Inicio semana": sem.weekStart,
+      "Kg total": Math.round(stats.kg),
+      "Personas acumuladas": stats.workers,
+      "Dias con datos": stats.dias,
+      "Personas/dia": +stats.personasDia.toFixed(1),
+      "Kg/dia": Math.round(stats.kgDia),
     };
     for (let i = 0; i < DAY_KEYS.length; i++) {
       const dia = sem.days[DAY_KEYS[i]];
       row[DAYS[i]] = dia ? Math.round(dia.kgPorPersona) : "";
     }
-    row["Kg/persona semana"] = semWorkers > 0 ? Math.round(semKg / semWorkers) : "";
+    row["Kg/persona semana"] = Math.round(stats.kgPersona);
     return row;
   });
 
@@ -46,28 +60,38 @@ export function exportEficienciaToExcel(data: SemanaData[], _optimo: string) {
       if (!dia) return null;
       return {
         Semana: `Semana del ${sem.label}`,
+        "Inicio semana": sem.weekStart,
         Dia: DAYS[i],
         Fecha: dia.date,
         "Kg producidos": Math.round(dia.kg),
         Personas: dia.workers,
         "Kg/persona": Math.round(dia.kgPorPersona),
       };
-    }).filter(Boolean)
+    }).filter(Boolean) as Record<string, any>[]
   );
 
   const allDias = data.flatMap((sem) => Object.values(sem.days));
   const totalKg = allDias.reduce((s, d) => s + d.kg, 0);
   const totalWorkers = allDias.reduce((s, d) => s + d.workers, 0);
   const bestDay = allDias.reduce<DiaData | null>((best, d) => (!best || d.kgPorPersona > best.kgPorPersona ? d : best), null);
+  const comparativaRows = data.map((sem, index) => {
+    const current = weekStats(sem);
+    const prev = index > 0 ? weekStats(data[index - 1]) : null;
+    return {
+      Semana: `Semana del ${sem.label}`,
+      "Kg/persona": Math.round(current.kgPersona),
+      "Kg/persona semana previa": prev ? Math.round(prev.kgPersona) : "",
+      "Dif kg/persona": prev ? Math.round(current.kgPersona - prev.kgPersona) : "",
+      "Dif kg/persona %": prev && prev.kgPersona > 0 ? +(((current.kgPersona - prev.kgPersona) / prev.kgPersona) * 100).toFixed(2) : "",
+      "Kg total": Math.round(current.kg),
+      "Dif kg total": prev ? Math.round(current.kg - prev.kg) : "",
+      "Personas/dia": +current.personasDia.toFixed(1),
+      "Dias con datos": current.dias,
+    };
+  });
 
-  const wb = XLSX.utils.book_new();
-  wb.Props = {
-    Title: "Lasarte SAT - Comparativa semanal",
-    Subject: "Rendimiento de produccion por asistencia",
-    Author: "Herramienta Lasarte SAT",
-  };
-
-  const wsIndicadores = XLSX.utils.aoa_to_sheet([
+  const wb = createWorkbook("Lasarte SAT - Comparativa semanal", "Rendimiento de produccion por asistencia");
+  appendAoaSheet(wb, "Portada", [
     ["Lasarte SAT - Comparativa semanal de asistencia y produccion"],
     [`Generado: ${new Date().toLocaleString("es-ES")}`],
     [],
@@ -78,25 +102,18 @@ export function exportEficienciaToExcel(data: SemanaData[], _optimo: string) {
     ["Personas acumuladas", totalWorkers],
     ["Kg/persona global", totalWorkers > 0 ? Math.round(totalKg / totalWorkers) : 0],
     ["Mejor dia", bestDay ? `${bestDay.date} (${Math.round(bestDay.kgPorPersona)} kg/persona)` : ""],
+  ], [46, 34]);
+
+  appendRowsSheet(wb, "Resumen semanal", resumenRows, [22, 14, 14, 20, 14, 14, 14, ...DAYS.map(() => 10), 18], { freezeHeader: true });
+  appendRowsSheet(wb, "Comparativa", comparativaRows, [22, 14, 24, 16, 16, 14, 14, 14, 14], { freezeHeader: true });
+  appendRowsSheet(wb, "Detalle diario", detalleRows, [22, 14, 10, 12, 14, 12, 14], { freezeHeader: true });
+  appendDictionarySheet(wb, [
+    { Hoja: "Resumen semanal", Campo: "Kg/persona semana", Descripcion: "Kg producidos entre personas acumuladas de la semana.", Uso: "KPI principal de rendimiento." },
+    { Hoja: "Comparativa", Campo: "Dif kg/persona", Descripcion: "Diferencia contra la semana anterior.", Uso: "Detectar mejora o caida semanal." },
+    { Hoja: "Detalle diario", Campo: "Kg/persona", Descripcion: "Kg producidos en el dia entre trabajadores presentes.", Uso: "Analisis por dia de la semana." },
   ]);
-  wsIndicadores["!cols"] = [{ wch: 42 }, { wch: 30 }];
-  XLSX.utils.book_append_sheet(wb, wsIndicadores, "Indicadores");
 
-  const ws = XLSX.utils.json_to_sheet(resumenRows);
-  ws["!cols"] = [
-    { wch: 22 }, { wch: 14 }, { wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
-    ...DAYS.map(() => ({ wch: 10 })),
-    { wch: 18 },
-  ];
-  ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: resumenRows.length, c: 13 } }) };
-  XLSX.utils.book_append_sheet(wb, ws, "Resumen semanal");
-
-  const wsDetalle = XLSX.utils.json_to_sheet(detalleRows);
-  wsDetalle["!cols"] = [{ wch: 22 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 14 }];
-  wsDetalle["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: detalleRows.length, c: 5 } }) };
-  XLSX.utils.book_append_sheet(wb, wsDetalle, "Detalle diario");
-
-  XLSX.writeFile(wb, `comparativa_semanal.xlsx`, { bookType: "xlsx", compression: true });
+  saveWorkbook(wb, "comparativa_semanal.xlsx");
 }
 
 function drawHeader(doc: jsPDF, pageIndex: number) {
@@ -125,42 +142,33 @@ export function exportEficienciaToPDF(data: SemanaData[], _optimo: string) {
   doc.setTextColor(...PDF_THEME.muted);
   doc.text(`${data.length} semana(s) de datos`, 148.5, 40, { align: "center" });
 
-  // Compute aggregate stats to fill space
   const allDias = data.flatMap((sem) => Object.values(sem.days));
   const totalKg = allDias.reduce((s, d) => s + d.kg, 0);
   const totalWorkers = allDias.reduce((s, d) => s + d.workers, 0);
   const globalEfic = totalWorkers > 0 ? Math.round(totalKg / totalWorkers) : 0;
 
-  // KPI cards row
-  const kpis = [
-    { label: "TOTAL KG", val: `${totalKg.toLocaleString("es-ES")} kg`, sub: `${allDias.length} día(s)` },
+  [
+    { label: "TOTAL KG", val: `${totalKg.toLocaleString("es-ES")} kg`, sub: `${allDias.length} dia(s)` },
     { label: "TOTAL TRABAJADORES", val: `${totalWorkers}`, sub: "suma diaria" },
     { label: "KG/PERSONA GLOBAL", val: `${globalEfic.toLocaleString("es-ES")}`, sub: "media global" },
-    { label: "SEMANAS", val: `${data.length}`, sub: "en período" },
-    { label: "DÍAS CON DATOS", val: `${allDias.length}`, sub: "de 7 posibles/sem" },
-  ];
-
-  kpis.forEach((k, i) => {
-    const x = 8 + i * 57;
-    drawKpiCard(doc, x, 48, 55, k.label, k.val, k.sub);
-  });
+    { label: "SEMANAS", val: `${data.length}`, sub: "en periodo" },
+    { label: "DIAS CON DATOS", val: `${allDias.length}`, sub: "de 7 posibles/sem" },
+  ].forEach((k, i) => drawKpiCard(doc, 8 + i * 57, 48, 55, k.label, k.val, k.sub));
 
   const head = ["Semana", "Kg total", "Personas", "Dias", ...DAYS, "Kg/persona"];
   const body = data.map((sem) => {
-    const semKg = Object.values(sem.days).reduce((a, d) => a + d.kg, 0);
-    const semWorkers = Object.values(sem.days).reduce((a, d) => a + d.workers, 0);
-    const semEfic = semWorkers > 0 ? Math.round(semKg / semWorkers) : 0;
+    const stats = weekStats(sem);
     const cells = [
       `Semana del ${sem.label}`,
-      new Intl.NumberFormat("es-ES").format(Math.round(semKg)),
-      new Intl.NumberFormat("es-ES").format(semWorkers),
-      String(Object.keys(sem.days).length),
+      new Intl.NumberFormat("es-ES").format(Math.round(stats.kg)),
+      new Intl.NumberFormat("es-ES").format(stats.workers),
+      String(stats.dias),
     ];
     for (const dk of DAY_KEYS) {
       const dia = sem.days[dk];
-      cells.push(dia ? new Intl.NumberFormat("es-ES").format(Math.round(dia.kgPorPersona)) : "—");
+      cells.push(dia ? new Intl.NumberFormat("es-ES").format(Math.round(dia.kgPorPersona)) : "-");
     }
-    cells.push(new Intl.NumberFormat("es-ES").format(semEfic));
+    cells.push(new Intl.NumberFormat("es-ES").format(Math.round(stats.kgPersona)));
     return cells;
   });
 

@@ -290,7 +290,7 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
           <CardContent className="px-4 pb-4 pt-1">
             <div className={CHART_PANEL_CLASS}>
             <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={serie_tph_por_lote} {...MARGIN}>
+              <BarChart data={serie_tph_por_lote} margin={MARGIN}>
                 <CartesianGrid {...GRID} />
                 <XAxis dataKey="lote" {...XAXIS} fontSize={9} />
                 <YAxis {...YAXIS} tickFormatter={v => `${v}T`} width={30} domain={["auto", "auto"]} />

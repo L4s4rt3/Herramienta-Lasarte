@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import {
-  GlassTooltip, legendStyle, C, SERIES_PALETTE, GRID, XAXIS, YAXIS, MARGIN,
+  GlassTooltip, legendStyle, WEEK_PALETTE, GRID, XAXIS, YAXIS, MARGIN,
   BAR_STYLE, CHART_CURSOR, CHART_PANEL_CLASS, barFill,
 } from "@/lib/chartTheme";
 import { useNavigate } from "react-router-dom";
@@ -335,14 +335,14 @@ export default function AsistenciaComparativa() {
             <CardContent className="px-4 pb-4 pt-1">
               <div className={CHART_PANEL_CLASS}>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={chartData} {...MARGIN}>
+                <BarChart data={chartData} margin={MARGIN}>
                   <CartesianGrid {...GRID} />
                   <XAxis dataKey="semana" {...XAXIS} />
                   <YAxis {...YAXIS} tickFormatter={(v) => `${v} kg/p`} width={52} />
                   <Tooltip cursor={CHART_CURSOR} content={<GlassTooltip formatter={(v) => v ? `${new Intl.NumberFormat("es-ES").format(Number(v))} kg/p` : "—"} />} />
                   <Legend wrapperStyle={legendStyle} />
                   {DAY_KEYS.map((dk, i) => {
-                    const c = SERIES_PALETTE[i % SERIES_PALETTE.length];
+                    const c = WEEK_PALETTE[i];
                     return (
                       <Bar key={dk} dataKey={dk} name={DAYS[i]} fill={barFill(c, 0.28)} stroke={c} {...BAR_STYLE} maxBarSize={20} connectNulls={false} />
                     );

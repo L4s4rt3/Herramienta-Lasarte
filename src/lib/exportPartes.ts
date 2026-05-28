@@ -4,6 +4,7 @@ import autoTable from "jspdf-autotable";
 import { computeCascade, CascadeInput, CascadeResult } from "./cascade";
 import { formatDate, formatKg } from "./format";
 import { PDF_THEME, drawExportHeader, drawExportFooter, drawKpiCard, pdfTableTheme } from "./exportTheme";
+import { appendDictionarySheet, createWorkbook, excelText, saveWorkbook, splitExcelText } from "./exportWorkbook";
 
 export interface ParteRow {
   id: string;
@@ -79,27 +80,9 @@ function semColor(s: "verde" | "amarillo" | "rojo"): [number, number, number] {
   return s === "verde" ? PDF_THEME.success : s === "amarillo" ? PDF_THEME.warning : PDF_THEME.destructive;
 }
 
-const EXCEL_CELL_MAX = 32000;
-
-function excelText(value: unknown): string {
-  const text = String(value ?? "");
-  if (text.length <= EXCEL_CELL_MAX) return text;
-  return `${text.slice(0, EXCEL_CELL_MAX - 80)}\n\n[Texto recortado por limite de Excel. Ver hoja IA fragmentos.]`;
-}
-
-function splitExcelText(value: unknown, chunkSize = 30000): string[] {
-  const text = String(value ?? "");
-  if (!text) return [];
-  const chunks: string[] = [];
-  for (let i = 0; i < text.length; i += chunkSize) {
-    chunks.push(text.slice(i, i + chunkSize));
-  }
-  return chunks;
-}
-
 function sanitizeRow(row: Record<string, any>) {
   return Object.fromEntries(
-    Object.entries(row).map(([key, value]) => [key, typeof value === "string" ? excelText(value) : value]),
+    Object.entries(row).map(([key, value]) => [key, typeof value === "string" ? excelText(value, "IA fragmentos") : value]),
   );
 }
 
@@ -151,12 +134,7 @@ function flattenPalets(partes: ParteRow[]) {
 
 export function exportPartesToExcel(partes: ParteRow[], from: string, to: string) {
   const enriched = partes.map((p) => ({ p, c: buildCascade(p) }));
-  const wb = XLSX.utils.book_new();
-  wb.Props = {
-    Title: "Lasarte SAT - Informe de partes",
-    Subject: "Control de produccion y DJPMN",
-    Author: "Herramienta Lasarte SAT",
-  };
+  const wb = createWorkbook("Lasarte SAT - Informe de partes", "Control de produccion y DJPMN");
 
   const totalProd = enriched.reduce((s, { c }) => s + c.produccion_real, 0);
   const totalPalets = enriched.reduce((s, { c }) => s + c.palets_ajustados, 0);
@@ -212,9 +190,11 @@ export function exportPartesToExcel(partes: ParteRow[], from: string, to: string
     "DJPMN %": +c.dsj_pct.toFixed(3),
     "Mermas % prod": +c.mermas_pct.toFixed(3),
     "Produccion vs palets kg": kg(c.produccion_real - c.palets_ajustados, 2),
+    "Produccion vs palets %": +pct(c.produccion_real - c.palets_ajustados, c.produccion_real, 3).toFixed(3),
+    "Abs DJPMN %": +Math.abs(c.dsj_pct).toFixed(3),
     "Notas generales": p.notas_generales ?? "",
   }));
-  XLSX.utils.book_append_sheet(wb, sheetFromRows(detalleRows, [14, 16, 14, 18, 18, 18, 18, 18, 18, 14, 12, 14, 20, 45]), "Detalle diario");
+  XLSX.utils.book_append_sheet(wb, sheetFromRows(detalleRows, [14, 16, 14, 18, 18, 18, 18, 18, 18, 14, 12, 14, 20, 18, 14, 45]), "Detalle diario");
 
   const cascadeRows = enriched.flatMap(({ p, c }) => [
     { Fecha: formatDate(p.date), Bloque: "Produccion real", Concepto: "Calibrador", Op: "=", "Kg": kg(c.produccion_calibrador, 2), "Resultado": "" },
@@ -277,7 +257,18 @@ export function exportPartesToExcel(partes: ParteRow[], from: string, to: string
     XLSX.utils.book_append_sheet(wb, sheetFromRows(iaFragmentRows, [14, 18, 12, 100]), "IA fragmentos");
   }
 
-  XLSX.writeFile(wb, `partes_${from}_${to}.xlsx`, { bookType: "xlsx", compression: true });
+  appendDictionarySheet(wb, [
+    { Hoja: "Portada", Campo: "Lectura ejecutiva", Descripcion: "KPIs globales del rango exportado.", Uso: "Revision rapida de direccion." },
+    { Hoja: "Detalle diario", Campo: "Una fila por parte", Descripcion: "Tabla principal para filtros, ordenaciones y tablas dinamicas.", Uso: "Trabajar con KPIs diarios." },
+    { Hoja: "Detalle diario", Campo: "Abs DJPMN %", Descripcion: "Valor absoluto del descuadre porcentual.", Uso: "Ordenar por gravedad sin importar signo." },
+    { Hoja: "Cascada DJPMN", Campo: "Bloque / Concepto / Op / Kg", Descripcion: "Cascada normalizada en formato largo.", Uso: "Crear pivots o auditar formula por parte." },
+    { Hoja: "Datos entrada", Campo: "Campos brutos", Descripcion: "Datos originales usados para calcular la cascada.", Uso: "Auditoria y trazabilidad." },
+    { Hoja: "Producto", Campo: "Producto, linea, grupo destino", Descripcion: "Detalle de producto cuando lo aporta el analisis.", Uso: "Cruzar produccion por producto y destino." },
+    { Hoja: "Palets", Campo: "Palet, cliente, destino, kg neto", Descripcion: "Detalle de palets cuando lo aporta el analisis.", Uso: "Analisis de altas y salidas." },
+    { Hoja: "Notas e IA", Campo: "Notas y resumen IA", Descripcion: "Texto operativo del parte. Los textos largos se fragmentan.", Uso: "Contexto de revision." },
+  ]);
+
+  saveWorkbook(wb, `partes_${from}_${to}.xlsx`);
 }
 
 function drawHeader(doc: jsPDF, pageIndex: number, from: string, to: string, title?: string) {
