@@ -1,6 +1,6 @@
 /**
- * chat — Edge Function para el asistente de producción Lasarte SAT.
- * Usa Groq (llama-3.1-8b-instant) — API compatible con OpenAI, free tier generoso.
+ * chat — Edge Function para Vadim, el asistente experto de Lasarte SAT.
+ * Usa OpenCode API (ring-2.6-1t-free) con capacidades RAG y debugging.
  * La API key vive como secreto de Supabase — nunca expuesta al cliente.
  */
 
@@ -21,10 +21,10 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const apiKey = Deno.env.get("GROQ_API_KEY");
+    const apiKey = Deno.env.get("OPENCODE_API_KEY");
     if (!apiKey) {
       return new Response(
-        JSON.stringify({ error: "GROQ_API_KEY no configurada en los secretos de Supabase" }),
+        JSON.stringify({ error: "OPENCODE_API_KEY no configurada en los secretos de Supabase" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -41,34 +41,34 @@ Deno.serve(async (req) => {
       { role: "user", content: message },
     ];
 
-    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const opencodeRes = await fetch("https://opencode.ai/zen/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
+        model: "ring-2.6-1t-free",
         messages,
         stream: true,
-        max_tokens: 600,
-        temperature: 0.6,
+        max_tokens: 2000,
+        temperature: 0.7,
       }),
     });
 
-    if (!groqRes.ok) {
-      const err = await groqRes.text();
+    if (!opencodeRes.ok) {
+      const err = await opencodeRes.text();
       return new Response(
-        JSON.stringify({ error: `Groq error ${groqRes.status}: ${err}` }),
+        JSON.stringify({ error: `OpenCode error ${opencodeRes.status}: ${err}` }),
         { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    // Parsear SSE de Groq y hacer streaming de texto plano al cliente
+    // Parsear SSE de OpenCode y hacer streaming de texto plano al cliente
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
-        const reader = groqRes.body!.getReader();
+        const reader = opencodeRes.body!.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
 

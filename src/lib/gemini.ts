@@ -271,10 +271,10 @@ export interface ChatContent {
   content: string;
 }
 
-// ─── Llamada directa a OpenCode API con streaming ─────────────────────────────
+// ─── Llamada a la Edge Function con streaming ─────────────────────────────────
 
-const OPENCODE_API_KEY = "sk-bAST0NfOL76AkI6WRLHRlgRLjQZ4QUMI2kerlYtXzsKDwYTJP4uvDwg56JUR8Hxo";
-const OPENCODE_API_URL = "https://opencode.ai/zen/v1/chat/completions";
+const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 export async function callChatFunction({
   message,
@@ -287,23 +287,14 @@ export async function callChatFunction({
   systemInstruction: string;
   onChunk: (text: string) => void;
 }): Promise<string> {
-  const messages = [
-    { role: "system", content: systemInstruction },
-    ...history,
-    { role: "user", content: message },
-  ];
-
-  const res = await fetch(OPENCODE_API_URL, {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${OPENCODE_API_KEY}`,
+      "Authorization": `Bearer ${SUPABASE_ANON}`,
+      "apikey": SUPABASE_ANON,
     },
-    body: JSON.stringify({
-      model: "ring-2.6-1t-free",
-      messages,
-      stream: true,
-    }),
+    body: JSON.stringify({ message, history, systemInstruction }),
   });
 
   if (!res.ok) {
@@ -311,36 +302,16 @@ export async function callChatFunction({
     throw new Error(err);
   }
 
-  const reader = res.body!.getReader();
+  const reader  = res.body!.getReader();
   const decoder = new TextDecoder();
   let full = "";
-  let buffer = "";
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
-
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        const data = line.slice(6).trim();
-        if (data === "[DONE]") continue;
-        
-        try {
-          const parsed = JSON.parse(data);
-          const content = parsed.choices?.[0]?.delta?.content || "";
-          if (content) {
-            full += content;
-            onChunk(full);
-          }
-        } catch {
-          // Ignore parse errors
-        }
-      }
-    }
+    const chunk = decoder.decode(value, { stream: true });
+    full += chunk;
+    onChunk(full);
   }
 
   return full;
