@@ -27,7 +27,7 @@ function mdToHtml(md: string): string {
 
   function flushTable() {
     if (tableRows.length === 0) return;
-    html.push('<div class="overflow-x-auto my-3"><table class="w-full text-xs border-collapse">');
+    html.push('<div class="overflow-auto my-3 rounded-xl border border-[var(--glass-border)]"><table class="text-xs border-collapse">');
 
     let rowIndex = 0;
     let inTbody = false;
@@ -51,7 +51,7 @@ function mdToHtml(md: string): string {
       }
 
       const rowClass = isHeader
-        ? 'class="bg-[var(--glass-bg-strong)] font-semibold"'
+        ? 'class="bg-[var(--glass-bg-strong)]"'
         : rowIndex % 2 === 0
           ? 'class="bg-[var(--glass-bg)]"'
           : "";
@@ -59,7 +59,11 @@ function mdToHtml(md: string): string {
       html.push(`<tr ${rowClass}>`);
       for (const cell of cells) {
         const styled = inlineStyle(cell);
-        html.push(`<${tag} class="px-2 py-1.5 border-b border-[var(--glass-border)] text-left">${styled}</${tag}>`);
+        if (isHeader) {
+          html.push(`<th class="sticky top-0 z-10 px-3 py-2 border-b border-r border-[var(--glass-border)] text-left font-semibold whitespace-nowrap bg-[var(--glass-bg-strong)]">${styled}</th>`);
+        } else {
+          html.push(`<td class="px-3 py-1.5 border-b border-r border-[var(--glass-border)] whitespace-nowrap">${styled}</td>`);
+        }
       }
       html.push("</tr>");
 
