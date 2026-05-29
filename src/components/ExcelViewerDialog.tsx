@@ -34,6 +34,15 @@ function formatSize(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatCell(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  if (typeof value === "boolean") return value ? "Sí" : "No";
+  if (value instanceof Date) return value.toLocaleDateString("es-ES");
+  return String(value);
+}
+
 export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDialogProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,9 +71,9 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
 
       const parsed: SheetData[] = wb.SheetNames.map((name) => {
         const ws = wb.Sheets[name];
-        const json = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: "" });
-        const headers = json.length > 0 ? json[0].map((h) => String(h)) : [];
-        const rows = json.slice(1).map((row) => row.map((c) => String(c)));
+        const json = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: "", raw: false });
+        const headers = json.length > 0 ? json[0].map((h) => formatCell(h)) : [];
+        const rows = json.slice(1).map((row) => row.map((c) => formatCell(c)));
         return { name, headers, rows };
       });
 
@@ -150,18 +159,18 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
 
               {sheets.map((s, i) => (
                 <TabsContent key={i} value={String(i)} className="flex-1 min-h-0 mt-2">
-                  <div className="rounded-xl border border-[var(--glass-border)] overflow-y-auto max-h-[60vh]">
-                    <table className="w-full text-xs border-collapse table-fixed">
+                  <div className="rounded-xl border border-[var(--glass-border)] overflow-auto max-h-[60vh]">
+                    <table className="text-xs border-collapse">
                       {s.headers.length > 0 && (
                         <thead className="sticky top-0 z-10">
                           <tr className="bg-[var(--glass-bg-strong)]">
-                            <th className="px-2 py-1.5 text-left font-semibold border-b border-[var(--glass-border)] text-muted-foreground w-12">
+                            <th className="sticky left-0 z-20 px-2 py-1.5 text-left font-semibold border-b border-r border-[var(--glass-border)] text-muted-foreground bg-[var(--glass-bg-strong)]">
                               #
                             </th>
                             {s.headers.map((h, ci) => (
                               <th
                                 key={ci}
-                                className="px-2 py-1.5 text-left font-semibold border-b border-[var(--glass-border)]"
+                                className="px-2 py-1.5 text-left font-semibold border-b border-[var(--glass-border)] whitespace-nowrap"
                               >
                                 {h}
                               </th>
@@ -172,13 +181,13 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
                       <tbody>
                         {s.rows.map((row, ri) => (
                           <tr key={ri} className={ri % 2 === 0 ? "" : "bg-[var(--glass-bg)]"}>
-                            <td className="px-2 py-1 border-b border-[var(--glass-border)] text-muted-foreground/50 font-mono text-[10px]">
+                            <td className="sticky left-0 z-[5] px-2 py-1 border-b border-r border-[var(--glass-border)] text-muted-foreground/50 font-mono text-[10px] bg-inherit">
                               {ri + 1}
                             </td>
                             {s.headers.map((_, ci) => (
                               <td
                                 key={ci}
-                                className="px-2 py-1 border-b border-[var(--glass-border)] break-words"
+                                className="px-2 py-1 border-b border-[var(--glass-border)] whitespace-nowrap"
                               >
                                 {row[ci] ?? ""}
                               </td>

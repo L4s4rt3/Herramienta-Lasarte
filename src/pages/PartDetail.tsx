@@ -77,7 +77,6 @@ export default function PartDetail() {
     const load = useCallback(async () => {
     if (!id) return;
     try {
-      // Forzar refresco sin cache de Supabase
       const [{ data: p, error }, { data: files }] = await Promise.all([
         supabase.from("partes_diarios").select("*").eq("id", id).maybeSingle(),
         supabase.from("partes_archivos").select("*").eq("part_id", id).order("uploaded_at", { ascending: false }),
@@ -92,7 +91,23 @@ export default function PartDetail() {
         return;
       }
 
-      // Forzar actualización creando una nueva referencia del objeto
+      if (!Number(p.kg_inventario_anterior_sin_alta)) {
+        const { data: prev } = await supabase
+          .from("partes_diarios")
+          .select("kg_inventario_sin_alta, date")
+          .eq("user_id", p.user_id)
+          .lt("date", p.date)
+          .order("date", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (prev && Number(prev.kg_inventario_sin_alta) > 0) {
+          await supabase.from("partes_diarios")
+            .update({ kg_inventario_anterior_sin_alta: Number(prev.kg_inventario_sin_alta) })
+            .eq("id", id);
+          p.kg_inventario_anterior_sin_alta = Number(prev.kg_inventario_sin_alta);
+        }
+      }
+
       setParte(p as Parte);
       setArchivos((files ?? []) as Archivo[]);
       loadingRef.current = false;
