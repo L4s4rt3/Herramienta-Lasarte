@@ -1,5 +1,5 @@
 /**
- * useChatBot — Hook para el asistente de producción Lasarte SAT.
+ * useChatBot — Hook para Vadim, el asistente de producción Lasarte SAT.
  * Al abrirse, carga datos de TODAS las secciones en paralelo y los inyecta
  * como contexto en el system prompt. El asistente sabe todo sin navegar.
  */
@@ -249,7 +249,7 @@ export function useChatBot() {
       setMessages([{
         id: "welcome",
         role: "assistant",
-        content: "¡Hola! Tengo acceso completo a los datos de producción, productores, consumos y asistencia. ¿En qué puedo ayudarte?",
+        content: "¡Hola! Soy Vadim, tu asistente de producción. Tengo acceso completo a los datos de producción, productores, consumos y asistencia. ¿En qué puedo ayudarte?",
         timestamp: new Date(),
       }]);
     } catch {

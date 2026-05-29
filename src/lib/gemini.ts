@@ -1,13 +1,12 @@
 /**
- * gemini.ts — Utilidades para el asistente de producción Lasarte SAT.
- * Las llamadas a Gemini se hacen a través de la Supabase Edge Function "chat",
- * donde la API key vive como secreto de servidor — nunca expuesta al cliente.
+ * gemini.ts — Utilidades para el asistente de producción Vadim.
+ * Las llamadas se hacen directamente a la API de OpenCode.
  */
 
 // ─── System prompt — conocimiento completo de la herramienta ─────────────────
 
 export const DOMAIN_PROMPT = `
-Eres el asistente inteligente de Herramienta Lasarte, el sistema de control de producción citrícola de Lasarte SAT.
+Eres Vadim, el asistente inteligente de Herramienta Lasarte, el sistema de control de producción citrícola de Lasarte SAT.
 Tienes conocimiento completo de cómo funciona la aplicación, sus secciones y los conceptos del negocio.
 
 ═══ SOBRE LA APLICACIÓN ═══
@@ -126,10 +125,10 @@ export interface ChatContent {
   content: string;
 }
 
-// ─── Llamada a la Edge Function con streaming ─────────────────────────────────
+// ─── Llamada directa a OpenCode API con streaming ─────────────────────────────
 
-const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL as string;
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+const OPENCODE_API_KEY = "sk-bAST0NfOL76AkI6WRLHRlgRLjQZ4QUMI2kerlYtXzsKDwYTJP4uvDwg56JUR8Hxo";
+const OPENCODE_API_URL = "https://opencode.ai/zen/v1/chat/completions";
 
 export async function callChatFunction({
   message,
@@ -142,14 +141,23 @@ export async function callChatFunction({
   systemInstruction: string;
   onChunk: (text: string) => void;
 }): Promise<string> {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
+  const messages = [
+    { role: "system", content: systemInstruction },
+    ...history,
+    { role: "user", content: message },
+  ];
+
+  const res = await fetch(OPENCODE_API_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${SUPABASE_ANON}`,
-      "apikey": SUPABASE_ANON,
+      "Authorization": `Bearer ${OPENCODE_API_KEY}`,
     },
-    body: JSON.stringify({ message, history, systemInstruction }),
+    body: JSON.stringify({
+      model: "ring-2.6-1t-free",
+      messages,
+      stream: true,
+    }),
   });
 
   if (!res.ok) {
@@ -157,16 +165,36 @@ export async function callChatFunction({
     throw new Error(err);
   }
 
-  const reader  = res.body!.getReader();
+  const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let full = "";
+  let buffer = "";
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    const chunk = decoder.decode(value, { stream: true });
-    full += chunk;
-    onChunk(full);
+    
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") continue;
+        
+        try {
+          const parsed = JSON.parse(data);
+          const content = parsed.choices?.[0]?.delta?.content || "";
+          if (content) {
+            full += content;
+            onChunk(full);
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      }
+    }
   }
 
   return full;

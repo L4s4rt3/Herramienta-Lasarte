@@ -1,5 +1,5 @@
 /**
- * ChatBot — Asistente de producción Lasarte SAT.
+ * ChatBot — Vadim, asistente de producción Lasarte SAT.
  * Panel lateral derecho, activado desde el TopBar.
  * Diseño glassmorphism integrado con el design system.
  */
@@ -135,10 +135,10 @@ export function ChatBot() {
               </div>
               <div>
                 <p className="text-sm font-semibold leading-none text-foreground">
-                  Asistente Lasarte
+                  Vadim
                 </p>
                 <p className="mt-1 text-[10px] text-muted-foreground">
-                  Groq · Llama 3.1 · acceso a datos en vivo
+                  OpenCode · Ring 2.6 · acceso a datos en vivo
                 </p>
               </div>
             </div>
