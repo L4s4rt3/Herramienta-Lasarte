@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
         "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "ring-2.6-1t-free",
+        model: "llama-3.1-8b-instant",
         messages,
         stream: true,
         max_tokens: 2000,
