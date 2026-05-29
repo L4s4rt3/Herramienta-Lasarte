@@ -118,29 +118,18 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
       const isValidContent = (sheets: SheetData[]): boolean => {
         if (sheets.length === 0) return false;
         
-        // Verificar que al menos una hoja tenga contenido válido
+        // Aceptar si ALGUNA celda tiene texto legible
         for (const sheet of sheets) {
-          const allContent = [
-            ...sheet.headers,
-            ...sheet.rows.flat()
-          ].join("");
-          
-          // Si el contenido tiene ALGÚN texto legible, considerarlo válido
-          // Ser más permisivo: solo rechazar si es 100% caracteres de control
-          const controlChars = (allContent.match(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g) || []).length;
-          const totalChars = allContent.length;
-          
-          // Si hay contenido y menos del 50% son caracteres de control, es válido
-          if (totalChars > 0 && controlChars / totalChars < 0.5) {
-            return true;
+          for (const h of sheet.headers) {
+            if (h && h.trim().length > 0) return true;
+          }
+          for (const row of sheet.rows) {
+            for (const cell of row) {
+              if (cell && cell.trim().length > 0) return true;
+            }
           }
         }
         return false;
-      };
-
-      // Función para limpiar caracteres de control del contenido
-      const cleanContent = (text: string): string => {
-        return text.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, "").trim();
       };
 
       // Función para parsear el workbook
@@ -148,8 +137,8 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
         return wb.SheetNames.map((name) => {
           const ws = wb.Sheets[name];
           const json = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: "", raw: false });
-          const headers = json.length > 0 ? json[0].map((h) => cleanContent(formatCell(h))) : [];
-          const rows = json.slice(1).map((row) => row.map((c) => cleanContent(formatCell(c))));
+          const headers = json.length > 0 ? json[0].map((h) => formatCell(h)) : [];
+          const rows = json.slice(1).map((row) => row.map((c) => formatCell(c)));
           return { name, headers, rows };
         });
       };
@@ -215,12 +204,33 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
         }
       }
 
+      // Intento 5: dense mode para hojas con muchas celdas vacías
+      if (!isValidContent(parsed)) {
+        console.log("Intento 5: dense mode...");
+        try {
+          const wb = XLSX.read(bytes, { type: "array", dense: true, cellDates: true, raw: true });
+          const denseParsed = parseWorkbook(wb);
+          
+          if (isValidContent(denseParsed)) {
+            parsed = denseParsed;
+            console.log("Intento 5 exitoso: dense mode funcionó");
+          }
+        } catch (e) {
+          console.warn("Error en quinto intento de parseo:", e);
+        }
+      }
+
       // Validación final
       if (!isValidContent(parsed)) {
         console.error("Todos los intentos de parseo fallaron");
         console.error("Tamaño del archivo:", bytes.length, "bytes");
         console.error("Primeros bytes:", Array.from(bytes.slice(0, 16)).map(b => b.toString(16)).join(" "));
-        throw new Error("No se pudo parsear el archivo Excel. El archivo puede estar corrupto o en un formato no soportado.");
+        throw new Error(
+          `No se pudo parsear "${archivo.file_name || "archivo"}" ` +
+          `(${formatSize(archivo.file_size || null)}). ` +
+          `El archivo puede estar corrupto o en un formato no soportado. ` +
+          `Si el problema persiste, descarga el archivo y verifica que sea un Excel válido.`
+        );
       }
 
       setSheets(parsed);
