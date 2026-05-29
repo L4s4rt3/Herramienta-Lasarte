@@ -54,7 +54,7 @@ Cuando un usuario reporte un error o problema técnico:
 - Estado: React Query + Context API
 - Autenticación: Supabase Auth
 - Storage: Supabase Storage (bucket: partes-archivos)
-- AI: OpenCode API (modelo: ring-2.6-1t-free)
+- AI: OpenCode API (modelo: deepseek-v4-flash-free)
 
 **Estructura de carpetas:**
 \`\`\`
