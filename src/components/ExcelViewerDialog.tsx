@@ -150,18 +150,18 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
 
               {sheets.map((s, i) => (
                 <TabsContent key={i} value={String(i)} className="flex-1 min-h-0 mt-2">
-                  <div className="rounded-xl border border-[var(--glass-border)] overflow-auto max-h-[60vh]">
-                    <table className="w-full text-xs border-collapse">
+                  <div className="rounded-xl border border-[var(--glass-border)] overflow-y-auto max-h-[60vh]">
+                    <table className="w-full text-xs border-collapse table-fixed">
                       {s.headers.length > 0 && (
                         <thead className="sticky top-0 z-10">
                           <tr className="bg-[var(--glass-bg-strong)]">
-                            <th className="px-2 py-1.5 text-left font-semibold border-b border-[var(--glass-border)] text-muted-foreground w-10">
+                            <th className="px-2 py-1.5 text-left font-semibold border-b border-[var(--glass-border)] text-muted-foreground w-12">
                               #
                             </th>
                             {s.headers.map((h, ci) => (
                               <th
                                 key={ci}
-                                className="px-2 py-1.5 text-left font-semibold border-b border-[var(--glass-border)] whitespace-nowrap"
+                                className="px-2 py-1.5 text-left font-semibold border-b border-[var(--glass-border)]"
                               >
                                 {h}
                               </th>
@@ -172,14 +172,13 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
                       <tbody>
                         {s.rows.map((row, ri) => (
                           <tr key={ri} className={ri % 2 === 0 ? "" : "bg-[var(--glass-bg)]"}>
-                            <td className="px-2 py-1 border-b border-[var(--glass-border)] text-muted-foreground/50 font-mono">
+                            <td className="px-2 py-1 border-b border-[var(--glass-border)] text-muted-foreground/50 font-mono text-[10px]">
                               {ri + 1}
                             </td>
                             {s.headers.map((_, ci) => (
                               <td
                                 key={ci}
-                                className="px-2 py-1 border-b border-[var(--glass-border)] whitespace-nowrap max-w-[300px] truncate"
-                                title={row[ci] ?? ""}
+                                className="px-2 py-1 border-b border-[var(--glass-border)] break-words"
                               >
                                 {row[ci] ?? ""}
                               </td>
