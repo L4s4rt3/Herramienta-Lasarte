@@ -271,10 +271,18 @@ export default function Productores() {
                     const tphOk = p.tph_promedio !== null && p.tph_promedio >= 14;
                     return (
                       <li key={p.productor}>
-                        <button
+                        <div
+                          role="button"
+                          tabIndex={0}
                           onClick={() => setSelected(isSelected ? null : p.productor)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              setSelected(isSelected ? null : p.productor);
+                            }
+                          }}
                           className={cn(
-                            "w-full text-left px-4 py-3 hover:bg-[var(--glass-bg-strong)] transition-colors",
+                            "w-full text-left px-4 py-3 hover:bg-[var(--glass-bg-strong)] transition-colors cursor-pointer",
                             isSelected && "bg-primary/5 border-l-2 border-l-primary"
                           )}
                         >
@@ -308,7 +316,7 @@ export default function Productores() {
                               </>
                             )}
                           </div>
-                        </button>
+                        </div>
                       </li>
                     );
                   })}

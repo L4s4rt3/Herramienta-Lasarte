@@ -29,8 +29,10 @@ function mdToHtml(md: string): string {
     if (tableRows.length === 0) return;
     html.push('<div class="overflow-x-auto my-3"><table class="w-full text-xs border-collapse">');
 
+    let rowIndex = 0;
+    let inTbody = false;
+
     for (let i = 0; i < tableRows.length; i++) {
-      // Skip separator row (|---|---|)
       if (/^\|[\s\-:|]+\|$/.test(tableRows[i].trim())) continue;
 
       const cells = tableRows[i]
@@ -38,10 +40,19 @@ function mdToHtml(md: string): string {
         .slice(1, -1)
         .map((c) => c.trim());
 
-      const tag = i === 0 ? "th" : "td";
-      const rowClass = i === 0
+      const isHeader = i === 0;
+      const tag = isHeader ? "th" : "td";
+
+      if (isHeader) {
+        html.push("<thead>");
+      } else if (!inTbody) {
+        html.push("<tbody>");
+        inTbody = true;
+      }
+
+      const rowClass = isHeader
         ? 'class="bg-[var(--glass-bg-strong)] font-semibold"'
-        : i % 2 === 0
+        : rowIndex % 2 === 0
           ? 'class="bg-[var(--glass-bg)]"'
           : "";
 
@@ -51,11 +62,24 @@ function mdToHtml(md: string): string {
         html.push(`<${tag} class="px-2 py-1.5 border-b border-[var(--glass-border)] text-left">${styled}</${tag}>`);
       }
       html.push("</tr>");
+
+      if (isHeader) html.push("</thead>");
+      rowIndex++;
     }
 
+    if (inTbody) html.push("</tbody>");
     html.push("</table></div>");
     tableRows = [];
     inTable = false;
+  }
+
+  let inList = false;
+
+  function closeList() {
+    if (inList) {
+      html.push("</ul>");
+      inList = false;
+    }
   }
 
   for (const line of lines) {
@@ -63,6 +87,7 @@ function mdToHtml(md: string): string {
 
     // Table detection
     if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+      closeList();
       inTable = true;
       tableRows.push(trimmed);
       continue;
@@ -72,44 +97,56 @@ function mdToHtml(md: string): string {
 
     // Headers
     if (trimmed.startsWith("# ")) {
+      closeList();
       html.push(`<h1 class="text-xl font-bold mt-6 mb-2 text-foreground">${inlineStyle(trimmed.slice(2))}</h1>`);
     } else if (trimmed.startsWith("## ")) {
+      closeList();
       html.push(`<h2 class="text-lg font-semibold mt-5 mb-2 text-foreground border-b border-[var(--glass-border)] pb-1">${inlineStyle(trimmed.slice(3))}</h2>`);
     } else if (trimmed.startsWith("### ")) {
+      closeList();
       html.push(`<h3 class="text-sm font-semibold mt-4 mb-1 text-foreground">${inlineStyle(trimmed.slice(4))}</h3>`);
     }
     // Blockquote
     else if (trimmed.startsWith(">")) {
+      closeList();
       const content = trimmed.slice(1).trim();
       html.push(`<blockquote class="border-l-3 border-primary/40 pl-3 py-1 my-2 text-xs text-muted-foreground italic">${inlineStyle(content)}</blockquote>`);
     }
     // List item
-    else if (trimmed.startsWith("- ")) {
-      html.push(`<li class="ml-4 text-xs text-foreground/90 my-0.5 list-disc">${inlineStyle(trimmed.slice(2))}</li>`);
-    }
-    // Indented list
-    else if (trimmed.startsWith("  - ")) {
-      html.push(`<li class="ml-8 text-xs text-muted-foreground my-0.5 list-circle">${inlineStyle(trimmed.slice(4))}</li>`);
+    else if (trimmed.startsWith("- ") || trimmed.startsWith("  - ")) {
+      if (!inList) {
+        html.push('<ul class="my-2 space-y-0.5">');
+        inList = true;
+      }
+      const isIndented = trimmed.startsWith("  - ");
+      const text = isIndented ? trimmed.slice(4) : trimmed.slice(2);
+      const cls = isIndented
+        ? 'class="ml-8 text-xs text-muted-foreground my-0.5 list-disc"'
+        : 'class="ml-4 text-xs text-foreground/90 my-0.5 list-disc"';
+      html.push(`<li ${cls}>${inlineStyle(text)}</li>`);
     }
     // Horizontal rule
     else if (trimmed === "---") {
+      closeList();
       html.push('<hr class="my-4 border-[var(--glass-border)]" />');
     }
     // Italic line (metadata)
     else if (trimmed.startsWith("_") && trimmed.endsWith("_")) {
+      closeList();
       html.push(`<p class="text-[10px] text-muted-foreground mt-3 text-right">${trimmed.slice(1, -1)}</p>`);
     }
     // Empty line
     else if (trimmed === "") {
-      // skip
+      closeList();
     }
     // Regular paragraph
     else {
+      closeList();
       html.push(`<p class="text-xs text-foreground/90 my-1">${inlineStyle(trimmed)}</p>`);
     }
   }
 
-  // Flush any remaining table
+  closeList();
   if (inTable) flushTable();
 
   return html.join("\n");

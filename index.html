@@ -15,6 +15,20 @@
   </head>
 
   <body>
+    <script>
+    (function(){
+      var r=Node.prototype.removeChild;
+      Node.prototype.removeChild=function(c){
+        if(c&&c.parentNode===this)return r.call(this,c);
+        return c;
+      };
+      var i=Node.prototype.insertBefore;
+      Node.prototype.insertBefore=function(n,ref){
+        if(ref&&ref.parentNode!==this)return i.call(this,n,null);
+        return i.call(this,n,ref);
+      };
+    })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
