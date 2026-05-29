@@ -44,19 +44,21 @@ function formatCell(value: unknown): string {
 }
 
 function repairXlsx(bytes: Uint8Array): Uint8Array {
-  let start = 0;
-  for (let i = 0; i < Math.min(bytes.length - 4, 65536); i++) {
-    if (bytes[i] === 0x50 && bytes[i + 1] === 0x4b && bytes[i + 2] === 0x03 && bytes[i + 3] === 0x04) {
-      start = i;
-      break;
-    }
+  // First check if file starts with ZIP magic bytes
+  if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b || bytes[2] !== 0x03 || bytes[3] !== 0x04) {
+    return bytes; // Not a ZIP file, return as-is
   }
-  const buf = start === 0 ? new Uint8Array(bytes) : new Uint8Array(bytes.slice(start));
 
+  // Make a copy to avoid mutating the original
+  const buf = new Uint8Array(bytes);
+  let needsRepair = false;
+
+  // Check local file headers (PK\x03\x04) for DEFLATE64 (method 9)
   for (let i = 0; i < buf.length - 30; i++) {
     if (buf[i] === 0x50 && buf[i + 1] === 0x4b && buf[i + 2] === 0x03 && buf[i + 3] === 0x04) {
       const method = buf[i + 8] | (buf[i + 9] << 8);
-      if (method !== 0 && method !== 8) {
+      if (method === 9) {
+        needsRepair = true;
         buf[i + 8] = 8;
         buf[i + 9] = 0;
       }
@@ -66,17 +68,20 @@ function repairXlsx(bytes: Uint8Array): Uint8Array {
     }
   }
 
-  for (let i = 0; i < buf.length - 46; i++) {
-    if (buf[i] === 0x50 && buf[i + 1] === 0x4b && buf[i + 2] === 0x01 && buf[i + 3] === 0x02) {
-      const method = buf[i + 10] | (buf[i + 11] << 8);
-      if (method !== 0 && method !== 8) {
-        buf[i + 10] = 8;
-        buf[i + 11] = 0;
+  // Only repair central directory if we found DEFLATE64
+  if (needsRepair) {
+    for (let i = 0; i < buf.length - 46; i++) {
+      if (buf[i] === 0x50 && buf[i + 1] === 0x4b && buf[i + 2] === 0x01 && buf[i + 3] === 0x02) {
+        const method = buf[i + 10] | (buf[i + 11] << 8);
+        if (method === 9) {
+          buf[i + 10] = 8;
+          buf[i + 11] = 0;
+        }
+        const fnLen = buf[i + 28] | (buf[i + 29] << 8);
+        const exLen = buf[i + 30] | (buf[i + 31] << 8);
+        const cmLen = buf[i + 32] | (buf[i + 33] << 8);
+        i += 46 + fnLen + exLen + cmLen - 1;
       }
-      const fnLen = buf[i + 28] | (buf[i + 29] << 8);
-      const exLen = buf[i + 30] | (buf[i + 31] << 8);
-      const cmLen = buf[i + 32] | (buf[i + 33] << 8);
-      i += 46 + fnLen + exLen + cmLen - 1;
     }
   }
 
@@ -108,8 +113,14 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
       setBlob(data);
       const buffer = await data.arrayBuffer();
       const bytes = new Uint8Array(buffer);
-      const repaired = repairXlsx(bytes);
-      const wb = XLSX.read(repaired, { type: "array" });
+
+      let wb: XLSX.WorkBook;
+      try {
+        wb = XLSX.read(bytes, { type: "array" });
+      } catch {
+        const repaired = repairXlsx(bytes);
+        wb = XLSX.read(repaired, { type: "array" });
+      }
 
       const parsed: SheetData[] = wb.SheetNames.map((name) => {
         const ws = wb.Sheets[name];
