@@ -2,11 +2,18 @@
  * useChatBot — Hook para Vadim, el asistente de producción Lasarte SAT.
  * Al abrirse, carga datos de TODAS las secciones en paralelo y los inyecta
  * como contexto en el system prompt. El asistente sabe todo sin navegar.
+ * 
+ * NUEVO: Sistema RAG (Retrieval Augmented Generation) para:
+ * - Búsqueda semántica en código fuente
+ * - Memoria persistente de conversaciones
+ * - Aprendizaje continuo
  */
 import { useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { callChatFunction, DOMAIN_PROMPT, ChatContent } from "@/lib/gemini";
 import { computeCascade } from "@/lib/cascade";
+import { getRAGContext, formatRAGContext, saveConversation } from "@/lib/rag";
+import { useAuth } from "@/contexts/AuthProvider";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -230,6 +237,7 @@ function normalizeGrupo(valor: string | null): string {
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useChatBot() {
+  const { user } = useAuth();
   const [isOpen, setIsOpen]         = useState(false);
   const [messages, setMessages]     = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading]   = useState(false);
@@ -281,12 +289,41 @@ export function useChatBot() {
     setStreaming("");
 
     try {
+      // Obtener contexto RAG (código relevante, conversaciones anteriores, conocimiento)
+      let ragContext = "";
+      if (user?.id) {
+        try {
+          const context = await getRAGContext(text.trim(), user.id);
+          ragContext = formatRAGContext(context);
+        } catch (error) {
+          console.warn("Error obteniendo contexto RAG:", error);
+        }
+      }
+
+      // Construir system prompt con contexto RAG
+      const enhancedSystemPrompt = ragContext
+        ? `${systemRef.current}\n\n${ragContext}`
+        : systemRef.current;
+
       const fullText = await callChatFunction({
         message: text.trim(),
         history: historyRef.current,
-        systemInstruction: systemRef.current,
+        systemInstruction: enhancedSystemPrompt,
         onChunk: (partial) => setStreaming(partial),
       });
+
+      // Guardar conversación en base de datos (para memoria persistente)
+      if (user?.id) {
+        try {
+          await Promise.all([
+            saveConversation(user.id, "user", text.trim()),
+            saveConversation(user.id, "assistant", fullText),
+          ]);
+        } catch (error) {
+          console.warn("Error guardando conversación:", error);
+        }
+      }
+
       historyRef.current = [
         ...historyRef.current,
         { role: "user",      content: text.trim() },
@@ -306,7 +343,7 @@ export function useChatBot() {
       setIsLoading(false);
       setStreaming("");
     }
-  }, [isLoading]);
+  }, [isLoading, user?.id]);
 
   const clearHistory = useCallback(() => {
     initializedRef.current = false;
