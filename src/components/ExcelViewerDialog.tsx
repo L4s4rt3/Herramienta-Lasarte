@@ -125,15 +125,22 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
             ...sheet.rows.flat()
           ].join("");
           
-          // Si el contenido contiene muchos caracteres de control o binarios, es inválido
+          // Si el contenido tiene ALGÚN texto legible, considerarlo válido
+          // Ser más permisivo: solo rechazar si es 100% caracteres de control
           const controlChars = (allContent.match(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g) || []).length;
           const totalChars = allContent.length;
           
-          if (totalChars > 0 && controlChars / totalChars < 0.1) {
-            return true; // Al menos una hoja tiene contenido válido
+          // Si hay contenido y menos del 50% son caracteres de control, es válido
+          if (totalChars > 0 && controlChars / totalChars < 0.5) {
+            return true;
           }
         }
         return false;
+      };
+
+      // Función para limpiar caracteres de control del contenido
+      const cleanContent = (text: string): string => {
+        return text.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, "").trim();
       };
 
       // Función para parsear el workbook
@@ -141,8 +148,8 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
         return wb.SheetNames.map((name) => {
           const ws = wb.Sheets[name];
           const json = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: "", raw: false });
-          const headers = json.length > 0 ? json[0].map((h) => formatCell(h)) : [];
-          const rows = json.slice(1).map((row) => row.map((c) => formatCell(c)));
+          const headers = json.length > 0 ? json[0].map((h) => cleanContent(formatCell(h))) : [];
+          const rows = json.slice(1).map((row) => row.map((c) => cleanContent(formatCell(c))));
           return { name, headers, rows };
         });
       };
@@ -151,15 +158,17 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
       
       // Intento 1: Parsear normalmente
       try {
+        console.log("Intento 1: Parseo normal");
         const wb = XLSX.read(bytes, { type: "array" });
         parsed = parseWorkbook(wb);
+        console.log("Intento 1 exitoso, hojas:", parsed.length);
       } catch (e) {
         console.warn("Error en primer intento de parseo:", e);
       }
 
       // Intento 2: Si el contenido no es válido, intentar con reparación
       if (!isValidContent(parsed)) {
-        console.log("Contenido inválido, intentando reparación...");
+        console.log("Intento 2: Contenido inválido, intentando reparación DEFLATE64...");
         try {
           const repaired = repairXlsx(bytes);
           const wb = XLSX.read(repaired, { type: "array" });
@@ -167,7 +176,7 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
           
           if (isValidContent(repairedParsed)) {
             parsed = repairedParsed;
-            console.log("Reparación exitosa");
+            console.log("Intento 2 exitoso: Reparación DEFLATE64 funcionó");
           }
         } catch (e) {
           console.warn("Error en segundo intento de parseo:", e);
@@ -176,22 +185,41 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
 
       // Intento 3: Si sigue sin funcionar, intentar con diferentes opciones de XLSX
       if (!isValidContent(parsed)) {
-        console.log("Intentando con opciones alternativas...");
+        console.log("Intento 3: Opciones alternativas (cellDates, cellNF)...");
         try {
           const wb = XLSX.read(bytes, { type: "array", cellDates: true, cellNF: false });
           const altParsed = parseWorkbook(wb);
           
           if (isValidContent(altParsed)) {
             parsed = altParsed;
-            console.log("Parseo alternativo exitoso");
+            console.log("Intento 3 exitoso: Opciones alternativas funcionaron");
           }
         } catch (e) {
           console.warn("Error en tercer intento de parseo:", e);
         }
       }
 
+      // Intento 4: Último recurso - parsear con raw: true para obtener valores crudos
+      if (!isValidContent(parsed)) {
+        console.log("Intento 4: Último recurso con raw: true...");
+        try {
+          const wb = XLSX.read(bytes, { type: "array", raw: true });
+          const rawParsed = parseWorkbook(wb);
+          
+          if (isValidContent(rawParsed)) {
+            parsed = rawParsed;
+            console.log("Intento 4 exitoso: Parseo crudo funcionó");
+          }
+        } catch (e) {
+          console.warn("Error en cuarto intento de parseo:", e);
+        }
+      }
+
       // Validación final
       if (!isValidContent(parsed)) {
+        console.error("Todos los intentos de parseo fallaron");
+        console.error("Tamaño del archivo:", bytes.length, "bytes");
+        console.error("Primeros bytes:", Array.from(bytes.slice(0, 16)).map(b => b.toString(16)).join(" "));
         throw new Error("No se pudo parsear el archivo Excel. El archivo puede estar corrupto o en un formato no soportado.");
       }
 
