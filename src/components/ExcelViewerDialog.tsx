@@ -114,21 +114,86 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
       const buffer = await data.arrayBuffer();
       const bytes = new Uint8Array(buffer);
 
-      let wb: XLSX.WorkBook;
+      // Función para verificar si el contenido parseado es válido
+      const isValidContent = (sheets: SheetData[]): boolean => {
+        if (sheets.length === 0) return false;
+        
+        // Verificar que al menos una hoja tenga contenido válido
+        for (const sheet of sheets) {
+          const allContent = [
+            ...sheet.headers,
+            ...sheet.rows.flat()
+          ].join("");
+          
+          // Si el contenido contiene muchos caracteres de control o binarios, es inválido
+          const controlChars = (allContent.match(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g) || []).length;
+          const totalChars = allContent.length;
+          
+          if (totalChars > 0 && controlChars / totalChars < 0.1) {
+            return true; // Al menos una hoja tiene contenido válido
+          }
+        }
+        return false;
+      };
+
+      // Función para parsear el workbook
+      const parseWorkbook = (wb: XLSX.WorkBook): SheetData[] => {
+        return wb.SheetNames.map((name) => {
+          const ws = wb.Sheets[name];
+          const json = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: "", raw: false });
+          const headers = json.length > 0 ? json[0].map((h) => formatCell(h)) : [];
+          const rows = json.slice(1).map((row) => row.map((c) => formatCell(c)));
+          return { name, headers, rows };
+        });
+      };
+
+      let parsed: SheetData[] = [];
+      
+      // Intento 1: Parsear normalmente
       try {
-        wb = XLSX.read(bytes, { type: "array" });
-      } catch {
-        const repaired = repairXlsx(bytes);
-        wb = XLSX.read(repaired, { type: "array" });
+        const wb = XLSX.read(bytes, { type: "array" });
+        parsed = parseWorkbook(wb);
+      } catch (e) {
+        console.warn("Error en primer intento de parseo:", e);
       }
 
-      const parsed: SheetData[] = wb.SheetNames.map((name) => {
-        const ws = wb.Sheets[name];
-        const json = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: "", raw: false });
-        const headers = json.length > 0 ? json[0].map((h) => formatCell(h)) : [];
-        const rows = json.slice(1).map((row) => row.map((c) => formatCell(c)));
-        return { name, headers, rows };
-      });
+      // Intento 2: Si el contenido no es válido, intentar con reparación
+      if (!isValidContent(parsed)) {
+        console.log("Contenido inválido, intentando reparación...");
+        try {
+          const repaired = repairXlsx(bytes);
+          const wb = XLSX.read(repaired, { type: "array" });
+          const repairedParsed = parseWorkbook(wb);
+          
+          if (isValidContent(repairedParsed)) {
+            parsed = repairedParsed;
+            console.log("Reparación exitosa");
+          }
+        } catch (e) {
+          console.warn("Error en segundo intento de parseo:", e);
+        }
+      }
+
+      // Intento 3: Si sigue sin funcionar, intentar con diferentes opciones de XLSX
+      if (!isValidContent(parsed)) {
+        console.log("Intentando con opciones alternativas...");
+        try {
+          const wb = XLSX.read(bytes, { type: "array", cellDates: true, cellNF: false });
+          const altParsed = parseWorkbook(wb);
+          
+          if (isValidContent(altParsed)) {
+            parsed = altParsed;
+            console.log("Parseo alternativo exitoso");
+          }
+        } catch (e) {
+          console.warn("Error en tercer intento de parseo:", e);
+        }
+      }
+
+      // Validación final
+      if (!isValidContent(parsed)) {
+        throw new Error("No se pudo parsear el archivo Excel. El archivo puede estar corrupto o en un formato no soportado.");
+      }
 
       setSheets(parsed);
     } catch (e) {
