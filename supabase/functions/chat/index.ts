@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
         "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
+        model: "deepseek-v4-flash-free",
         messages,
         stream: true,
         max_tokens: 2000,
