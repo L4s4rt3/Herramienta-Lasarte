@@ -31,10 +31,24 @@ function isNumericCell(value: string): boolean {
   return /^-?\d{1,3}([.,]\d{3})*([.,]\d+)?%?$|^-?\d+([.,]\d+)?%?$/.test(value.trim());
 }
 
+function isNumericColumn(rows: string[][], colIdx: number): boolean {
+  let numeric = 0;
+  let total = 0;
+  for (const row of rows) {
+    const cell = row[colIdx];
+    if (!cell || !cell.trim()) continue;
+    total++;
+    if (isNumericCell(cell)) numeric++;
+  }
+  return total > 0 && numeric / total > 0.5;
+}
+
 export default function ExcelPreviewer({ data }: ExcelPreviewerProps) {
   return (
-    <div className="w-full max-h-[60vh] overflow-y-auto scrollbar-midas pr-1 -mr-1 space-y-5">
-      {/* HEADER DEL ARCHIVO (glass) */}
+    // Sin scroll aquí: el TabsContent padre maneja el scroll vertical del
+    // dialog. Solo el wrapper de la tabla permite scroll horizontal.
+    <div className="w-full space-y-4">
+      {/* CABECERA DEL ARCHIVO (glass) */}
       <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-xl shadow-[var(--glass-shadow)] p-4">
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md font-bold text-[10px] uppercase tracking-wider bg-orange-500/10 text-orange-600 border border-orange-500/20">
@@ -58,39 +72,42 @@ export default function ExcelPreviewer({ data }: ExcelPreviewerProps) {
         )}
       </div>
 
-      {/* GRID DE MÉTRICAS (glass) */}
+      {/* METADATOS (lista glass: cada métrica en su fila) */}
       {data.metrics.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {data.metrics.map((metric, i) => (
-            <div
-              key={i}
-              className="relative overflow-hidden rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-xl shadow-[var(--glass-shadow)] hover:bg-[var(--glass-bg-strong)] transition-colors p-4"
-            >
-              <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-orange-500 to-orange-600" />
-              {metric.category && (
-                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                  {metric.category}
-                </p>
-              )}
-              <h3 className="text-xs font-medium text-foreground/80 mt-0.5">
-                {metric.label}
-              </h3>
-              <p className="text-2xl font-bold text-foreground mt-1.5 tracking-tight tabular-nums">
-                {metric.value}
-              </p>
-            </div>
-          ))}
+        <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-xl shadow-[var(--glass-shadow)] overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
+            <h2 className="text-xs font-bold text-foreground uppercase tracking-wider">
+              Resumen
+            </h2>
+          </div>
+          <ul className="divide-y divide-[var(--glass-border)]">
+            {data.metrics.map((m, i) => (
+              <li
+                key={i}
+                className="flex items-center justify-between gap-4 px-4 py-2.5 hover:bg-[var(--glass-bg-strong)] transition-colors"
+              >
+                <span className="text-xs text-foreground/80 font-medium">
+                  {m.category && (
+                    <span className="text-[10px] font-bold text-orange-600 uppercase tracking-widest mr-2">
+                      {m.category}
+                    </span>
+                  )}
+                  {m.label}
+                </span>
+                <span className="text-sm font-bold text-foreground tabular-nums shrink-0">
+                  {m.value}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
-      {/* TABLAS (glass, scroll lateral si hace falta) */}
+      {/* TABLAS (glass) — solo scroll horizontal en la tabla */}
       {data.tables.length > 0 &&
         data.tables.map((table, i) => {
-          // Detectar columnas numéricas para alinearlas a la derecha
           const numericCols = table.headers.map((_, ci) =>
-            isNumericCell(table.headers[ci])
-              ? true
-              : isNumericColumn(table.rows, ci)
+            isNumericCell(table.headers[ci]) || isNumericColumn(table.rows, ci)
           );
 
           return (
@@ -100,7 +117,7 @@ export default function ExcelPreviewer({ data }: ExcelPreviewerProps) {
             >
               {/* Encabezado de la sección */}
               {(table.section || table.description) && (
-                <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
+                <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
                   <div className="min-w-0">
                     {table.section && (
                       <h2 className="text-xs font-bold text-foreground uppercase tracking-wider truncate">
@@ -123,11 +140,9 @@ export default function ExcelPreviewer({ data }: ExcelPreviewerProps) {
               )}
 
               {table.headers.length > 0 && table.rows.length > 0 ? (
-                // Scroll lateral habilitado: el contenedor permite overflow-x
-                // cuando hay muchas columnas, y overflow-y para scroll vertical
-                // dentro de la tabla.
-                <div className="overflow-auto max-h-[40vh] scrollbar-midas">
-                  <table className="w-full min-w-full text-xs border-collapse">
+                // Solo scroll horizontal — el vertical lo hace el TabsContent padre
+                <div className="overflow-x-auto scrollbar-midas">
+                  <table className="w-full text-xs border-collapse">
                     <thead className="sticky top-0 z-20">
                       <tr className="bg-[var(--glass-bg-strong)]/90 backdrop-blur-xl backdrop-saturate-150 shadow-[0_2px_8px_rgba(0,0,0,0.08)]">
                         <th className="sticky left-0 z-30 px-2.5 py-2 text-left font-semibold border-b border-r border-[var(--glass-border)] text-muted-foreground bg-[var(--glass-bg-strong)]/90 backdrop-blur-xl w-10 min-w-[2.5rem]">
@@ -194,19 +209,4 @@ export default function ExcelPreviewer({ data }: ExcelPreviewerProps) {
       )}
     </div>
   );
-}
-
-// Detección de columna numérica para alineación a la derecha.
-// (Definida fuera del componente para que sea reutilizable y no se
-// re-evalúe en cada render.)
-function isNumericColumn(rows: string[][], colIdx: number): boolean {
-  let numeric = 0;
-  let total = 0;
-  for (const row of rows) {
-    const cell = row[colIdx];
-    if (!cell || !cell.trim()) continue;
-    total++;
-    if (isNumericCell(cell)) numeric++;
-  }
-  return total > 0 && numeric / total > 0.5;
 }
