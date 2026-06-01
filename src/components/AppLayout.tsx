@@ -33,6 +33,8 @@ import {
 import { TopBar } from "@/components/TopBar";
 import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
 import { ChatBot } from "@/components/ChatBot";
+import { useDataWarmup } from "@/hooks/useDataWarmup";
+import { preloadRoute } from "@/lib/routePreload";
 
 type NavItem = {
   to: string;
@@ -74,6 +76,7 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
 
 export default function AppLayout() {
   const { signOut, user } = useAuth();
+  useDataWarmup();
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -119,7 +122,12 @@ export default function AppLayout() {
                   return (
                     <SidebarMenuItem key={item.to}>
                       <SidebarMenuButton asChild isActive={active} tooltip={item.label}>
-                        <NavLink to={item.to} end={item.to === "/"}>
+                        <NavLink
+                          to={item.to}
+                          end={item.to === "/"}
+                          onFocus={() => preloadRoute(item.to)}
+                          onMouseEnter={() => preloadRoute(item.to)}
+                        >
                           <Icon />
                           <span>{item.label}</span>
                         </NavLink>

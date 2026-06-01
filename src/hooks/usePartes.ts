@@ -5,7 +5,8 @@
  * - Suscripción realtime: cualquier cambio en la tabla actualiza el estado.
  * - Expone helpers de filtrado y totales para PartesList y Dashboard.
  */
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo } from "react";
+import { QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { computeCascade, CascadeResult } from "@/lib/cascade";
 import { toast } from "@/hooks/use-toast";
@@ -82,45 +83,70 @@ function buildCascade(p: ParteRaw): Parte {
   return { ...p, cascade };
 }
 
-// ─── Hook principal ──────────────────────────────────────────────────────────
+export const PARTES_QUERY_KEY = ["partes"] as const;
 
-export function usePartes() {
-  const [partes, setPartes] = useState<Parte[]>([]);
-  const [loading, setLoading] = useState(true);
+export async function fetchPartes(): Promise<Parte[]> {
+  const { data, error } = await supabase
+    .from("partes_diarios")
+    .select("*")
+    .order("date", { ascending: false });
 
-  const fetchPartes = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("partes_diarios")
-      .select("*")
-      .order("date", { ascending: false });
+  if (error) throw error;
+  return ((data ?? []) as ParteRaw[]).map(buildCascade);
+}
 
-    if (error) {
-      toast({ title: "Error cargando partes", description: error.message, variant: "destructive" });
-      setLoading(false);
-      return;
-    }
-    setPartes(((data ?? []) as ParteRaw[]).map(buildCascade));
-    setLoading(false);
-  }, []);
+export const partesQueryOptions = {
+  queryKey: PARTES_QUERY_KEY,
+  queryFn: fetchPartes,
+};
 
-  useEffect(() => {
-    fetchPartes();
+let partesChannel: ReturnType<typeof supabase.channel> | null = null;
+let partesSubscribers = 0;
 
-    // Realtime: nombre único para evitar conflictos con múltiples hooks
-    const channelName = `partes_diarios_changes_${crypto.randomUUID()}`;
-    const channel = supabase
-      .channel(channelName)
+function subscribePartesRealtime(queryClient: QueryClient) {
+  partesSubscribers += 1;
+
+  if (!partesChannel) {
+    partesChannel = supabase
+      .channel("partes_diarios_changes_cache")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "partes_diarios" },
-        () => fetchPartes()
+        () => {
+          void queryClient.invalidateQueries({ queryKey: PARTES_QUERY_KEY });
+        }
       )
       .subscribe();
+  }
 
-    return () => { channel.unsubscribe(); };
-  }, [fetchPartes]);
+  return () => {
+    partesSubscribers = Math.max(0, partesSubscribers - 1);
+    if (partesSubscribers === 0 && partesChannel) {
+      void supabase.removeChannel(partesChannel);
+      partesChannel = null;
+    }
+  };
+}
 
-  return { partes, loading, refetch: fetchPartes };
+// ─── Hook principal ──────────────────────────────────────────────────────────
+
+export function usePartes() {
+  const queryClient = useQueryClient();
+  const query = useQuery(partesQueryOptions);
+
+  useEffect(() => {
+    return subscribePartesRealtime(queryClient);
+
+    // Realtime: nombre único para evitar conflictos con múltiples hooks
+  }, [queryClient]);
+
+  useEffect(() => {
+    if (query.error instanceof Error) {
+      toast({ title: "Error cargando partes", description: query.error.message, variant: "destructive" });
+    }
+  }, [query.error]);
+
+  return { partes: query.data ?? [], loading: query.isLoading, refetch: query.refetch };
 }
 
 // ─── Hook de partes filtrados (para PartesList) ──────────────────────────────

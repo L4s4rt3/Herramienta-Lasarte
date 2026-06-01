@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -10,21 +10,21 @@ import { I18nProvider } from "@/lib/i18n";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppLayout from "@/components/AppLayout";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { queryClient } from "@/lib/queryClient";
+import { pageLoaders } from "@/lib/routePreload";
 
-const Auth = lazy(() => import("./pages/Auth"));
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const PartesList = lazy(() => import("./pages/PartesList"));
-const PartDetail = lazy(() => import("./pages/PartDetail"));
-const DSJCalculator = lazy(() => import("./pages/DSJCalculator"));
-const ConsumoCostes = lazy(() => import("./pages/ConsumoCostes"));
-const Asistencia = lazy(() => import("./pages/Asistencia"));
-const AsistenciaComparativa = lazy(() => import("./pages/AsistenciaComparativa"));
-const NotFound = lazy(() => import("./pages/NotFound"));
-const Productores = lazy(() => import("./pages/Productores"));
-const AnalisisDiario = lazy(() => import("./pages/AnalisisDiario"));
-const Calendario = lazy(() => import("./pages/CalendarioProduccion"));
-
-const queryClient = new QueryClient();
+const Auth = lazy(pageLoaders.auth);
+const Dashboard = lazy(pageLoaders.dashboard);
+const PartesList = lazy(pageLoaders.partesList);
+const PartDetail = lazy(pageLoaders.partDetail);
+const DSJCalculator = lazy(pageLoaders.dsjCalculator);
+const ConsumoCostes = lazy(pageLoaders.consumoCostes);
+const Asistencia = lazy(pageLoaders.asistencia);
+const AsistenciaComparativa = lazy(pageLoaders.asistenciaComparativa);
+const NotFound = lazy(pageLoaders.notFound);
+const Productores = lazy(pageLoaders.productores);
+const AnalisisDiario = lazy(pageLoaders.analisisDiario);
+const Calendario = lazy(pageLoaders.calendario);
 
 const LoadingFallback = () => (
   <div className="flex min-h-screen items-center justify-center">

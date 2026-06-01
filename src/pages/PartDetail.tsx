@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthProvider";
+import { PARTES_QUERY_KEY, type Parte as CachedParte } from "@/hooks/usePartes";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -63,16 +65,49 @@ interface Archivo {
   uploaded_at: string;
 }
 
+function normalizeParte(raw: Partial<CachedParte> & { id: string; date: string; estado: string }): Parte {
+  return {
+    id: raw.id,
+    date: raw.date,
+    estado: raw.estado,
+    kg_industria_manual: Number(raw.kg_industria_manual) || 0,
+    kg_reciclado_malla_z1: Number(raw.kg_reciclado_malla_z1) || 0,
+    kg_reciclado_malla_z2: Number(raw.kg_reciclado_malla_z2) || 0,
+    kg_inventario_sin_alta: Number(raw.kg_inventario_sin_alta) || 0,
+    kg_podrido_bolsa_basura: Number(raw.kg_podrido_bolsa_basura) || 0,
+    kg_produccion_calibrador: Number(raw.kg_produccion_calibrador) || 0,
+    kg_mujeres_calibrador: Number(raw.kg_mujeres_calibrador) || 0,
+    kg_palets_brutos: Number(raw.kg_palets_brutos) || 0,
+    kg_palets_egipto: Number(raw.kg_palets_egipto) || 0,
+    kg_palets_campo: Number(raw.kg_palets_campo) || 0,
+    kg_podrido_calibrador_auto: Number(raw.kg_podrido_calibrador_auto) || 0,
+    kg_inventario_anterior_sin_alta: Number(raw.kg_inventario_anterior_sin_alta) || 0,
+    notas_generales: raw.notas_generales ?? null,
+    notas_inventario: raw.notas_inventario ?? null,
+  };
+}
+
 export default function PartDetail() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [parte, setParte] = useState<Parte | null>(null);
+  const queryClient = useQueryClient();
+  const cachedParte = id
+    ? queryClient.getQueryData<CachedParte[]>(PARTES_QUERY_KEY)?.find((p) => p.id === id)
+    : null;
+  const [parte, setParte] = useState<Parte | null>(() => (cachedParte ? normalizeParte(cachedParte) : null));
   const [archivos, setArchivos] = useState<Archivo[]>([]);
-  const loadingRef = useRef(true);
   const [saving, setSaving] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [uploadingCat, setUploadingCat] = useState<CategoryId | null>(null);
+
+  useEffect(() => {
+    const nextCachedParte = id
+      ? queryClient.getQueryData<CachedParte[]>(PARTES_QUERY_KEY)?.find((p) => p.id === id)
+      : null;
+    setParte(nextCachedParte ? normalizeParte(nextCachedParte) : null);
+    setArchivos([]);
+  }, [id, queryClient]);
 
     const load = useCallback(async () => {
     if (!id) return;
@@ -109,13 +144,13 @@ export default function PartDetail() {
         }
       }
 
-      setParte(p as Parte);
+      setParte(normalizeParte(p as CachedParte));
       setArchivos((files ?? []) as Archivo[]);
-      loadingRef.current = false;
+      void queryClient.invalidateQueries({ queryKey: PARTES_QUERY_KEY });
     } catch (e) {
       toast({ title: "Error", description: String(e), variant: "destructive" });
     }
-  }, [id, navigate]);
+  }, [id, navigate, queryClient]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -158,6 +193,7 @@ export default function PartDetail() {
     setSaving(false);
     if (error) return toast({ title: "Error", description: error.message, variant: "destructive" });
     toast({ title: "Guardado" });
+    void queryClient.invalidateQueries({ queryKey: PARTES_QUERY_KEY });
     if (payload.estado && payload.estado !== parte.estado) load();
   }
 
@@ -173,6 +209,7 @@ export default function PartDetail() {
     const { error } = await supabase.from("partes_diarios").update({ estado: next }).eq("id", parte.id);
     if (error) return toast({ title: "Error", description: error.message, variant: "destructive" });
     toast({ title: next === "Borrador" ? "Parte reabierto" : `Parte ${next.toLowerCase()}` });
+    void queryClient.invalidateQueries({ queryKey: PARTES_QUERY_KEY });
     load();
   }
 
