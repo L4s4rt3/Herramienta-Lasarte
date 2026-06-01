@@ -11,6 +11,11 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Download, Loader2, FileSpreadsheet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import ExcelPreviewer, {
+  type ParsedExcel,
+  type Metric,
+  type DataTable,
+} from "./ExcelPreviewer";
 
 interface Archivo {
   file_name: string | null;
@@ -32,6 +37,135 @@ function formatSize(bytes: number | null): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Convierte una hoja cruda en una estructura limpia { metrics, tables, title, subtitle }.
+// Pasos:
+//  1) Elimina filas completamente vacías.
+//  2) Elimina columnas completamente vacías (recortando la matriz).
+//  3) Detecta filas de metadatos ("Label: Value" o 1-2 celdas label+valor).
+//  4) Encuentra la fila de encabezados (primera con 3+ celdas no numéricas).
+//  5) Lo anterior a los headers puede contener título, subtítulo y nombre de sección.
+function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel {
+  const result: ParsedExcel = {
+    filename,
+    metrics: [],
+    tables: [],
+  };
+
+  // 1) Limpiar filas vacías
+  const nonEmptyRows = sheet.rows.filter((row) =>
+    row.some((c) => c && c.trim().length > 0)
+  );
+  if (nonEmptyRows.length === 0) return result;
+
+  // 2) Detectar columnas que tienen algún valor y recortar
+  const maxCols = Math.max(...nonEmptyRows.map((r) => r.length));
+  const usedCols: number[] = [];
+  for (let c = 0; c < maxCols; c++) {
+    const has = nonEmptyRows.some((r) => {
+      const v = r[c];
+      return v && v.trim().length > 0;
+    });
+    if (has) usedCols.push(c);
+  }
+  const trimmedRows = nonEmptyRows.map((row) => usedCols.map((c) => row[c] ?? ""));
+
+  // 3) Detectar métricas al inicio: filas con 1-2 celdas donde la primera es
+  //    un label y la segunda un valor, o un "Label: Value" en una sola celda.
+  const isMetricRow = (row: string[]): { label: string; value: string } | null => {
+    const cells = row.map((c) => c?.trim() ?? "").filter((c) => c.length > 0);
+    if (cells.length === 0) return null;
+    if (cells.length === 1) {
+      const m = cells[0].match(/^([^:]+?):\s*(.+)$/);
+      if (m) return { label: m[1].trim(), value: m[2].trim() };
+      return null;
+    }
+    if (cells.length <= 4 && cells.length >= 1) {
+      // primera celda corta tipo label, segunda tipo valor (numérico o texto corto)
+      const [label, value] = cells;
+      if (label.length > 0 && value !== undefined && label.length < 60) {
+        return { label, value };
+      }
+    }
+    return null;
+  };
+
+  let scanIdx = 0;
+  for (; scanIdx < Math.min(trimmedRows.length, 20); scanIdx++) {
+    const row = trimmedRows[scanIdx];
+    const m = isMetricRow(row);
+    if (m) {
+      result.metrics.push(m);
+    } else {
+      break;
+    }
+  }
+
+  // 4) Saltar filas vacías tras las métricas
+  while (scanIdx < trimmedRows.length && trimmedRows[scanIdx].every((c) => !c || !c.trim())) {
+    scanIdx++;
+  }
+
+  // 5) Buscar encabezado: primera fila con 3+ celdas de texto
+  let headerIdx = -1;
+  for (let i = scanIdx; i < Math.min(trimmedRows.length, scanIdx + 10); i++) {
+    const row = trimmedRows[i];
+    if (row.length < 3) continue;
+    const textCells = row.filter((c) => c && c.trim().length > 0 && isNaN(Number(c.trim()))).length;
+    if (textCells >= 3) {
+      headerIdx = i;
+      break;
+    }
+  }
+
+  if (headerIdx === -1) {
+    // No hay tabla clara; devolver lo que tengamos (solo métricas, si las hay)
+    return result;
+  }
+
+  // 6) Sección: texto entre las métricas y el header
+  let section = "Datos";
+  for (let i = scanIdx; i < headerIdx; i++) {
+    const row = trimmedRows[i];
+    const text = row
+      .map((c) => c?.trim() ?? "")
+      .filter((c) => c.length > 0)
+      .join(" ");
+    if (text.length > 3 && text.length < 120) {
+      section = text;
+    }
+  }
+
+  // 7) Extraer headers y filas de datos
+  const headers = trimmedRows[headerIdx]
+    .map((c) => c?.trim() ?? "")
+    .filter((c) => c.length > 0);
+  const dataRows: string[][] = [];
+  for (let i = headerIdx + 1; i < trimmedRows.length; i++) {
+    const row = trimmedRows[i];
+    if (row.every((c) => !c || !c.trim())) continue;
+    dataRows.push(headers.map((_, ci) => row[ci]?.trim() ?? ""));
+  }
+
+  // 8) Título/subtítulo: tomar las primeras filas de texto antes de las métricas
+  //    solo si no hemos extraído ya un section útil
+  const preHeader = trimmedRows
+    .slice(0, scanIdx)
+    .map((r) => r.map((c) => c?.trim() ?? "").filter((c) => c.length > 0).join(" "))
+    .filter((s) => s.length > 0);
+  if (preHeader.length >= 1) result.title = preHeader[0];
+  if (preHeader.length >= 2) result.subtitle = preHeader[1];
+
+  const table: DataTable = {
+    section,
+    description: `${dataRows.length} fila${dataRows.length !== 1 ? "s" : ""} · ${headers.length} columna${headers.length !== 1 ? "s" : ""}`,
+    headers,
+    rows: dataRows,
+  };
+  result.tables.push(table);
+
+  return result;
 }
 
 function formatCell(value: unknown): string {
@@ -637,51 +771,29 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
                 </TabsList>
               )}
 
-              {sheets.map((s, i) => (
-                <TabsContent key={i} value={String(i)} className="flex-1 min-h-0 mt-2">
-                  <div className="rounded-xl border border-[var(--glass-border)] overflow-auto max-h-[60vh] scrollbar-midas">
-                    <table className="text-xs border-collapse">
-                      {s.headers.length > 0 && (
-                        <thead className="sticky top-0 z-10">
-                          <tr className="bg-[var(--glass-bg-strong)]">
-                            <th className="sticky left-0 z-20 px-2 py-1.5 text-left font-semibold border-b border-r border-[var(--glass-border)] text-muted-foreground bg-[var(--glass-bg-strong)]">
-                              #
-                            </th>
-                            {s.headers.map((h, ci) => (
-                              <th
-                                key={ci}
-                                className="px-2 py-1.5 text-left font-semibold border-b border-[var(--glass-border)] whitespace-nowrap"
-                              >
-                                {h}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                      )}
-                      <tbody>
-                        {s.rows.map((row, ri) => (
-                          <tr key={ri} className={ri % 2 === 0 ? "" : "bg-[var(--glass-bg)]"}>
-                            <td className="sticky left-0 z-[5] px-2 py-1 border-b border-r border-[var(--glass-border)] text-muted-foreground/50 font-mono text-[10px] bg-inherit">
-                              {ri + 1}
-                            </td>
-                            {s.headers.map((_, ci) => (
-                              <td
-                                key={ci}
-                                className="px-2 py-1 border-b border-[var(--glass-border)] whitespace-nowrap"
-                              >
-                                {row[ci] ?? ""}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {s.rows.length === 0 && (
-                      <p className="text-center text-xs text-muted-foreground py-8">Hoja vacía</p>
-                    )}
-                  </div>
-                </TabsContent>
-              ))}
+              {sheets.map((s, i) => {
+                const parsed = parseSheetToStructured(
+                  s,
+                  archivo?.file_name ?? "archivo"
+                );
+                // Si la hoja tiene estructura muy simple (palets sin metadata),
+                // respetamos el nombre de la hoja como section
+                if (parsed.tables.length === 1 && s.name) {
+                  parsed.tables[0].section = s.name;
+                }
+                return (
+                  <TabsContent
+                    key={i}
+                    value={String(i)}
+                    className="flex-1 min-h-0 mt-2 overflow-y-auto scrollbar-midas pr-1"
+                  >
+                    <ExcelPreviewer
+                      data={parsed}
+                      onDownload={i === 0 ? handleDownload : undefined}
+                    />
+                  </TabsContent>
+                );
+              })}
             </Tabs>
           )}
 
