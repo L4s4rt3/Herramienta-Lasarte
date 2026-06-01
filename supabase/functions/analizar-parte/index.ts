@@ -66,19 +66,20 @@ Deno.serve(async (req) => {
       uid = parte.user_id;
     }
 
-    if (!Number(parte.kg_inventario_anterior_sin_alta)) {
-      const { data: prev } = await userClient
-        .from("partes_diarios")
-        .select("kg_inventario_sin_alta, date")
-        .eq("user_id", parte.user_id)
-        .lt("date", parte.date)
-        .order("date", { ascending: false })
-        .limit(1).maybeSingle();
-      if (prev && Number(prev.kg_inventario_sin_alta) > 0) {
+    const { data: prev } = await userClient
+      .from("partes_diarios")
+      .select("kg_inventario_sin_alta, date")
+      .eq("user_id", parte.user_id)
+      .lt("date", parte.date)
+      .order("date", { ascending: false })
+      .limit(1).maybeSingle();
+    if (prev) {
+      const prevInv = Number(prev.kg_inventario_sin_alta) || 0;
+      if (prevInv !== Number(parte.kg_inventario_anterior_sin_alta)) {
         await userClient.from("partes_diarios")
-          .update({ kg_inventario_anterior_sin_alta: Number(prev.kg_inventario_sin_alta) })
+          .update({ kg_inventario_anterior_sin_alta: prevInv })
           .eq("id", part_id);
-        parte.kg_inventario_anterior_sin_alta = Number(prev.kg_inventario_sin_alta);
+        parte.kg_inventario_anterior_sin_alta = prevInv;
       }
     }
 

@@ -91,20 +91,21 @@ export default function PartDetail() {
         return;
       }
 
-      if (!Number(p.kg_inventario_anterior_sin_alta)) {
-        const { data: prev } = await supabase
-          .from("partes_diarios")
-          .select("kg_inventario_sin_alta, date")
-          .eq("user_id", p.user_id)
-          .lt("date", p.date)
-          .order("date", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (prev && Number(prev.kg_inventario_sin_alta) > 0) {
+      const { data: prev } = await supabase
+        .from("partes_diarios")
+        .select("kg_inventario_sin_alta, date")
+        .eq("user_id", p.user_id)
+        .lt("date", p.date)
+        .order("date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (prev) {
+        const prevInv = Number(prev.kg_inventario_sin_alta) || 0;
+        if (prevInv !== Number(p.kg_inventario_anterior_sin_alta)) {
           await supabase.from("partes_diarios")
-            .update({ kg_inventario_anterior_sin_alta: Number(prev.kg_inventario_sin_alta) })
+            .update({ kg_inventario_anterior_sin_alta: prevInv })
             .eq("id", id);
-          p.kg_inventario_anterior_sin_alta = Number(prev.kg_inventario_sin_alta);
+          p.kg_inventario_anterior_sin_alta = prevInv;
         }
       }
 
