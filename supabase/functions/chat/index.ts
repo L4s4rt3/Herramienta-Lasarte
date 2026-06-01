@@ -15,10 +15,11 @@ interface ChatMessage {
   content: string;
 }
 
-const OPCODE_TIMEOUT_MS = 18_000;
-// big-pickle primero: el más estable y rápido en free tier.
-// Fallback a deepseek-v4-flash-free por si big-pickle está saturado.
-const OPCODE_MODELS = ["big-pickle", "deepseek-v4-flash-free"];
+const OPCODE_TIMEOUT_MS = 20_000;
+// Modelos free tier disponibles actualmente en OpenCode Zen.
+// deepseek-v4-flash-free primero: rápido + sin coste + buena calidad (Flash).
+// Fallback a mimo-v2-5-free si deepseek está saturado.
+const OPCODE_MODELS = ["deepseek-v4-flash-free", "mimo-v2-5-free"];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
