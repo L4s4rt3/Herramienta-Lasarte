@@ -232,15 +232,83 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
         }
       }
 
+      // Intento 6: Si todo falló, intentar como CSV (archivos mal etiquetados)
+      if (!isValidContent(parsed)) {
+        console.log("Intento 6: Probando como CSV...");
+        try {
+          const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+          if (!text.trim().startsWith("<") && (text.includes(",") || text.includes(";") || text.includes("\t"))) {
+            const sep = text.includes(";") ? ";" : text.includes("\t") ? "\t" : ",";
+            const lines = text.split(/\r?\n/).filter((l) => l.trim());
+            if (lines.length >= 2) {
+              const headers = lines[0].split(sep).map((h) => h.trim());
+              const rows = lines.slice(1).map((l) => l.split(sep).map((c) => c.trim()));
+              const csvParsed: SheetData[] = [{ name: "CSV", headers, rows }];
+              if (isValidContent(csvParsed)) {
+                parsed = csvParsed;
+                console.log("Intento 6 exitoso: parseado como CSV");
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Error en intento 6 (CSV):", e);
+        }
+      }
+
+      // Intento 7: Si todo falló, intentar como tabla HTML
+      if (!isValidContent(parsed)) {
+        console.log("Intento 7: Probando como tabla HTML...");
+        try {
+          const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+          if (text.includes("<table")) {
+            const doc = new DOMParser().parseFromString(text, "text/html");
+            const tables = doc.querySelectorAll("table");
+            if (tables.length) {
+              const htmlParsed: SheetData[] = Array.from(tables).map((table, idx) => {
+                const headerCells = Array.from(
+                  table.querySelectorAll("thead th, tr:first-child th, tr:first-child td")
+                );
+                const headers = headerCells.map((th) => th.textContent?.trim() ?? "");
+                const dataRows = Array.from(table.querySelectorAll("tbody tr, tr")).filter(
+                  (tr) => !tr.querySelector("th")
+                );
+                const rows = dataRows.map((tr) =>
+                  Array.from(tr.querySelectorAll("td")).map((td) => td.textContent?.trim() ?? "")
+                );
+                return { name: `Tabla ${idx + 1}`, headers, rows };
+              });
+              if (isValidContent(htmlParsed)) {
+                parsed = htmlParsed;
+                console.log("Intento 7 exitoso: parseado como HTML");
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Error en intento 7 (HTML):", e);
+        }
+      }
+
       // Validación final
       if (!isValidContent(parsed)) {
+        // Diagnóstico para ayudar a depurar
+        const firstBytes = Array.from(bytes.slice(0, 16)).map((b) => b.toString(16).padStart(2, "0")).join(" ");
+        const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes.slice(0, 200));
+        const looksLikeZip = bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
+        const looksLikeHtml = /<html|<table|<!DOCTYPE/i.test(text);
+        const looksLikeCsv = /^[\w\s,;:\t\-."']+$/m.test(text.split("\n")[0] ?? "");
         console.error("Todos los intentos de parseo fallaron");
-        console.error("Tamaño del archivo:", bytes.length, "bytes");
-        console.error("Primeros bytes:", Array.from(bytes.slice(0, 16)).map(b => b.toString(16)).join(" "));
+        console.error("Tamaño:", bytes.length, "bytes");
+        console.error("Primeros 16 bytes (hex):", firstBytes);
+        console.error("Primeros 200 chars:", text);
+        console.error("¿ZIP?:", looksLikeZip, "¿HTML?:", looksLikeHtml, "¿CSV?:", looksLikeCsv);
+        const hint = !looksLikeZip
+          ? ` Detectado: no es un archivo ZIP/XLSX válido${looksLikeHtml ? " (parece HTML)" : ""}${looksLikeCsv ? " (parece CSV/texto)" : ""}.`
+          : looksLikeHtml
+          ? " Detectado: parece HTML (no XLSX)."
+          : "";
         throw new Error(
           `No se pudo parsear "${archivo.file_name || "archivo"}" ` +
-          `(${formatSize(archivo.file_size || null)}). ` +
-          `El archivo puede estar corrupto o en un formato no soportado. ` +
+          `(${formatSize(archivo.file_size || null)}).${hint} ` +
           `Si el problema persiste, descarga el archivo y verifica que sea un Excel válido.`
         );
       }
