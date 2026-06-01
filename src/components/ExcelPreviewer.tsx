@@ -28,41 +28,38 @@ interface ExcelPreviewerProps {
 
 export default function ExcelPreviewer({ data }: ExcelPreviewerProps) {
   return (
-    // max-h-[60vh] + overflow-y-auto = scroll fiable (mismo enfoque que antes)
-    <div className="w-full max-h-[60vh] overflow-y-auto scrollbar-midas pr-1 -mr-1">
+    <div className="w-full max-h-[60vh] overflow-y-auto scrollbar-midas pr-1 -mr-1 space-y-5">
       {/* HEADER */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-[var(--glass-border)] pb-5 mb-6 gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md font-bold text-[10px] uppercase tracking-wider bg-orange-500/10 text-orange-600 border border-orange-500/20">
-              <FileSpreadsheet className="h-3 w-3" />
-              XLSX
-            </span>
-            <h1 className="text-lg font-bold text-foreground tracking-tight truncate">
-              {data.filename}
-            </h1>
-          </div>
-          {(data.title || data.subtitle) && (
-            <p className="text-sm text-muted-foreground mt-1">
-              {data.title && <span>{data.title}</span>}
-              {data.title && data.subtitle && (
-                <span className="mx-1.5 text-muted-foreground/50">•</span>
-              )}
-              {data.subtitle && (
-                <span className="font-semibold text-foreground/80">{data.subtitle}</span>
-              )}
-            </p>
-          )}
+      <div className="border-b border-[var(--glass-border)] pb-4">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md font-bold text-[10px] uppercase tracking-wider bg-orange-500/10 text-orange-600 border border-orange-500/20">
+            <FileSpreadsheet className="h-3 w-3" />
+            XLSX
+          </span>
+          <h1 className="text-lg font-bold text-foreground tracking-tight truncate">
+            {data.filename}
+          </h1>
         </div>
+        {(data.title || data.subtitle) && (
+          <p className="text-sm text-muted-foreground mt-1">
+            {data.title && <span>{data.title}</span>}
+            {data.title && data.subtitle && (
+              <span className="mx-1.5 text-muted-foreground/50">•</span>
+            )}
+            {data.subtitle && (
+              <span className="font-semibold text-foreground/80">{data.subtitle}</span>
+            )}
+          </p>
+        )}
       </div>
 
-      {/* GRID DE MÉTRICAS (glass) */}
+      {/* GRID DE MÉTRICAS (glassmorphism) */}
       {data.metrics.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {data.metrics.map((metric, i) => (
             <div
               key={i}
-              className="glass glass-hover relative overflow-hidden p-5"
+              className="relative overflow-hidden rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-xl shadow-[var(--glass-shadow)] hover:bg-[var(--glass-bg-strong)] transition-colors p-5"
             >
               <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-orange-500 to-orange-600" />
               {metric.category && (
@@ -81,71 +78,88 @@ export default function ExcelPreviewer({ data }: ExcelPreviewerProps) {
         </div>
       )}
 
-      {/* TABLA (glass) */}
+      {/* TABLAS (glassmorphism simple, como antes) */}
       {data.tables.length > 0 &&
         data.tables.map((table, i) => (
-          <div key={i} className="glass overflow-hidden mb-4">
-            <div className="px-5 py-4 border-b border-[var(--glass-border)] flex justify-between items-center gap-3 bg-[var(--glass-bg-strong)]">
-              <div className="min-w-0">
-                <h2 className="text-sm font-bold text-foreground uppercase tracking-wider truncate">
-                  {table.section}
-                </h2>
-                {table.description && (
-                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                    {table.description}
-                  </p>
+          <div key={i}>
+            {/* Etiqueta de sección (no rompe el glassmorphism del contenedor) */}
+            {(table.section || table.description) && (
+              <div className="flex items-center justify-between gap-3 mb-2 px-1">
+                <div className="min-w-0">
+                  {table.section && (
+                    <h2 className="text-xs font-bold text-foreground uppercase tracking-wider truncate">
+                      {table.section}
+                    </h2>
+                  )}
+                  {table.description && (
+                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                      {table.description}
+                    </p>
+                  )}
+                </div>
+                {table.rows.length > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0 bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                    <CheckCircle2 className="h-2.5 w-2.5" />
+                    Validado
+                  </span>
                 )}
               </div>
-              {table.rows.length > 0 && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                  <CheckCircle2 className="h-3 w-3" />
-                  Datos Validados
-                </span>
-              )}
-            </div>
+            )}
 
-            {table.headers.length > 0 && table.rows.length > 0 ? (
-              <div className="overflow-x-auto scrollbar-midas">
-                <table className="w-full min-w-full divide-y divide-[var(--glass-border)] text-left border-collapse">
-                  <thead className="bg-[var(--glass-bg)]">
-                    <tr>
-                      {table.headers.map((header, hIdx) => (
-                        <th
-                          key={hIdx}
-                          className="px-6 py-3.5 text-[11px] font-bold text-muted-foreground uppercase tracking-wider border-b border-[var(--glass-border)]"
-                        >
-                          {header}
+            {/* Contenedor glassmorphism simple: borde + scroll interno */}
+            <div className="rounded-xl border border-[var(--glass-border)] overflow-hidden">
+              {table.headers.length > 0 && table.rows.length > 0 ? (
+                <div className="overflow-auto max-h-[40vh] scrollbar-midas">
+                  <table className="w-full text-xs border-collapse">
+                    <thead className="sticky top-0 z-10">
+                      <tr className="bg-[var(--glass-bg-strong)]">
+                        <th className="sticky left-0 z-20 px-3 py-2 text-left font-semibold border-b border-r border-[var(--glass-border)] text-muted-foreground bg-[var(--glass-bg-strong)] w-10">
+                          #
                         </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--glass-border)]">
-                    {table.rows.map((row, rIdx) => (
-                      <tr key={rIdx} className="hover:bg-[var(--glass-bg)] transition-colors">
-                        {table.headers.map((_, cIdx) => (
-                          <td
-                            key={cIdx}
-                            className="px-6 py-3.5 text-sm text-foreground/80 font-medium border-b border-[var(--glass-border)] tabular-nums"
+                        {table.headers.map((h, ci) => (
+                          <th
+                            key={ci}
+                            className="px-3 py-2 text-left font-semibold border-b border-[var(--glass-border)] whitespace-nowrap text-foreground/80"
                           >
-                            {row[cIdx] ?? ""}
-                          </td>
+                            {h}
+                          </th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-center text-xs text-muted-foreground py-8">
-                Esta sección no contiene datos.
-              </p>
-            )}
+                    </thead>
+                    <tbody>
+                      {table.rows.map((row, ri) => (
+                        <tr
+                          key={ri}
+                          className={ri % 2 === 0 ? "" : "bg-[var(--glass-bg)]"}
+                        >
+                          <td className="sticky left-0 z-[5] px-3 py-1.5 border-b border-r border-[var(--glass-border)] text-muted-foreground/50 font-mono text-[10px] bg-inherit">
+                            {ri + 1}
+                          </td>
+                          {table.headers.map((_, ci) => (
+                            <td
+                              key={ci}
+                              className="px-3 py-1.5 border-b border-[var(--glass-border)] whitespace-nowrap tabular-nums"
+                            >
+                              {row[ci] ?? ""}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-center text-xs text-muted-foreground py-8">
+                  Esta sección no contiene datos.
+                </p>
+              )}
+            </div>
           </div>
         ))}
 
       {/* EMPTY STATE */}
       {data.metrics.length === 0 && data.tables.length === 0 && (
-        <div className="glass p-8 text-center text-sm text-muted-foreground">
+        <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-8 text-center text-sm text-muted-foreground backdrop-blur-xl">
           El archivo no contiene datos legibles.
         </div>
       )}
