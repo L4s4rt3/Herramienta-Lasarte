@@ -114,20 +114,30 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
       const buffer = await data.arrayBuffer();
       const bytes = new Uint8Array(buffer);
 
-      // Función para verificar si el contenido parseado es válido
+      // Función para verificar si el contenido parseado es válido.
+      // Requiere al menos 5 celdas con contenido por hoja y que
+      // menos del 30% parezcan "basura encriptada" (strings hex, base64, etc).
       const isValidContent = (sheets: SheetData[]): boolean => {
         if (sheets.length === 0) return false;
-        
-        // Aceptar si ALGUNA celda tiene texto legible
         for (const sheet of sheets) {
-          for (const h of sheet.headers) {
-            if (h && h.trim().length > 0) return true;
-          }
-          for (const row of sheet.rows) {
-            for (const cell of row) {
-              if (cell && cell.trim().length > 0) return true;
+          let cellsWithContent = 0;
+          let suspicious = 0;
+          const check = (c: string) => {
+            const t = c?.trim() ?? "";
+            if (!t) return;
+            cellsWithContent++;
+            // heurística de "basura encriptada"
+            if (
+              t.length > 80 ||
+              /^[A-F0-9]{16,}$/i.test(t) ||
+              /^[A-Za-z0-9+/=]{24,}$/.test(t)
+            ) {
+              suspicious++;
             }
-          }
+          };
+          for (const h of sheet.headers) check(h);
+          for (const row of sheet.rows) for (const cell of row) check(cell);
+          if (cellsWithContent >= 5 && suspicious / cellsWithContent < 0.3) return true;
         }
         return false;
       };
