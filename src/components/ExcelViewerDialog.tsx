@@ -132,16 +132,31 @@ function findNextZipSignature(bytes: Uint8Array, start: number): number {
 // Reconstruye el Central Directory y el EOCD a partir de los local headers.
 // Si el EOCD ya existe, devuelve los bytes sin tocar.
 function reconstructMissingEocd(bytes: Uint8Array): Uint8Array | null {
-  // 1. ¿Ya tiene EOCD? Buscar firma 50 4b 05 06 en los últimos 64 bytes.
-  const searchFrom = Math.max(0, bytes.length - 64);
-  for (let i = searchFrom; i < bytes.length - 3; i++) {
+  console.log(`reconstructMissingEocd: buf.length=${bytes.length}`);
+
+  // 1. ¿Ya tiene EOCD? Buscar la firma PK\x05\x06. Debe estar exactamente
+  // al final del archivo (modulo comentario). Si está en el medio, es un
+  // falso positivo (los datos pueden contener esos 4 bytes por casualidad).
+  const maxComment = 65535;
+  const searchStart = Math.max(0, bytes.length - 22 - maxComment);
+  let eocdStart = -1;
+  for (let i = bytes.length - 22; i >= searchStart; i--) {
     if (
       bytes[i] === 0x50 && bytes[i + 1] === 0x4b &&
       bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06
     ) {
-      return bytes; // ya está completo
+      const commentLen = bytes[i + 20] | (bytes[i + 21] << 8);
+      if (i + 22 + commentLen === bytes.length) {
+        eocdStart = i;
+        break;
+      }
     }
   }
+  if (eocdStart >= 0) {
+    console.log(`reconstructMissingEocd: EOCD válido en offset ${eocdStart}, nada que hacer`);
+    return bytes;
+  }
+  console.log(`reconstructMissingEocd: no se encontró EOCD válido, reconstruyendo...`);
 
   // 2. Recoger todos los local file headers (PK\x03\x04)
   type LH = {
