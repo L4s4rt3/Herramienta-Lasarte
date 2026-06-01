@@ -315,7 +315,7 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
 
               {sheets.map((s, i) => (
                 <TabsContent key={i} value={String(i)} className="flex-1 min-h-0 mt-2">
-                  <div className="rounded-xl border border-[var(--glass-border)] overflow-auto max-h-[60vh]">
+                  <div className="rounded-xl border border-[var(--glass-border)] overflow-auto max-h-[60vh] scrollbar-midas">
                     <table className="text-xs border-collapse">
                       {s.headers.length > 0 && (
                         <thead className="sticky top-0 z-10">

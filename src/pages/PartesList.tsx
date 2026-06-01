@@ -112,6 +112,7 @@ export default function PartesList() {
 
   const [newDate, setNewDate] = useState(today());
   const [creating, setCreating] = useState(false);
+  const [popoverOpen, setPopoverOpen] = useState(false);
 
   async function createParte() {
     if (!user) return;
@@ -161,7 +162,7 @@ export default function PartesList() {
         {/* Crear parte */}
         <div className="flex items-center gap-2">
           <Label className="text-sm font-medium whitespace-nowrap">Nuevo parte</Label>
-          <Popover>
+          <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
@@ -180,7 +181,12 @@ export default function PartesList() {
               <Calendar
                 mode="single"
                 selected={newDate ? parseISO(newDate) : undefined}
-                onSelect={(d) => d && setNewDate(format(d, "yyyy-MM-dd"))}
+                onSelect={(d) => {
+                  if (d) {
+                    setNewDate(format(d, "yyyy-MM-dd"));
+                    setPopoverOpen(false);
+                  }
+                }}
                 locale={es}
                 initialFocus
               />
