@@ -719,7 +719,7 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col">
+      <DialogContent className="max-w-6xl max-h-[85vh] flex flex-col">
         <DialogHeader className="shrink-0">
           <div className="flex items-center justify-between pr-8">
             <div className="flex items-center gap-2 min-w-0">
