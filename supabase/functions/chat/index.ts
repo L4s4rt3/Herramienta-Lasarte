@@ -16,7 +16,9 @@ interface ChatMessage {
 }
 
 const OPCODE_TIMEOUT_MS = 12_000;
-const OPCODE_MODELS = ["big-pickle", "deepseek-v4-flash-free", "mimo-v2-5-free", "nemotron-3-super-free"];
+// Modelo principal: DeepSeek V4 Flash Free (rápido + sin coste + buena calidad).
+// Fallback mínimo a big-pickle por si el principal falla/caduca.
+const OPCODE_MODELS = ["deepseek-v4-flash-free", "big-pickle"];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
