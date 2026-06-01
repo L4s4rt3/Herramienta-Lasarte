@@ -45,6 +45,17 @@ export function CascadeDisplay({ parte_id, class_name }: Props) {
         return;
       }
 
+      // Consultar dinámicamente el inventario del parte anterior
+      const { data: prev } = await supabase
+        .from("partes_diarios")
+        .select("kg_inventario_sin_alta")
+        .eq("user_id", parte.user_id)
+        .lt("date", parte.date)
+        .order("date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const inventario_anterior = prev ? (Number(prev.kg_inventario_sin_alta) || 0) : 0;
+
       // Calcular cascada
       const paletsCascada = (parte.kg_palets_brutos || 0) - (parte.kg_palets_egipto || 0);
       const result = computeCascade({
@@ -57,7 +68,7 @@ export function CascadeDisplay({ parte_id, class_name }: Props) {
         kg_reciclado_malla_z2: parte.kg_reciclado_malla_z2 || 0,
         kg_inventario_sin_alta: parte.kg_inventario_sin_alta || 0,
         kg_podrido_bolsa_basura: parte.kg_podrido_bolsa_basura || 0,
-        kg_inventario_anterior_sin_alta: parte.kg_inventario_anterior_sin_alta || 0,
+        kg_inventario_anterior_sin_alta: inventario_anterior,
         kg_exportacion: parte.kg_exportacion || 0,
         kg_mercado: parte.kg_mercado || 0,
         kg_industria_destino: parte.kg_industria_destino || 0,
