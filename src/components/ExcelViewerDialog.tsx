@@ -90,7 +90,7 @@ function repairXlsx(bytes: Uint8Array): Uint8Array {
     }
   }
 
-  // Only repair central directory if we found DEFLATE64
+      // Only repair central directory if we found DEFLATE64
   if (needsRepair) {
     for (let i = 0; i < buf.length - 46; i++) {
       if (buf[i] === 0x50 && buf[i + 1] === 0x4b && buf[i + 2] === 0x01 && buf[i + 3] === 0x02) {
@@ -107,7 +107,169 @@ function repairXlsx(bytes: Uint8Array): Uint8Array {
     }
   }
 
+  // Reconstruir EOCD si falta. El exportador de GSTOCK genera ZIPs sin
+  // End Of Central Directory, lo que hace que xlsx.js calcule offsets
+  // incorrectos y lea basura → "Compression method NaN".
+  const eocdFixed = reconstructMissingEocd(buf);
+  if (eocdFixed) {
+    return eocdFixed;
+  }
+
   return buf;
+}
+
+// Busca la siguiente firma ZIP (local header o central dir) desde `start`.
+function findNextZipSignature(bytes: Uint8Array, start: number): number {
+  for (let i = start; i < bytes.length - 3; i++) {
+    const a = bytes[i], b = bytes[i + 1], c = bytes[i + 2], d = bytes[i + 3];
+    if (a === 0x50 && b === 0x4b && (c === 0x03 || c === 0x01) && d === 0x04) {
+      return i;
+    }
+  }
+  return bytes.length;
+}
+
+// Reconstruye el Central Directory y el EOCD a partir de los local headers.
+// Si el EOCD ya existe, devuelve los bytes sin tocar.
+function reconstructMissingEocd(bytes: Uint8Array): Uint8Array | null {
+  // 1. ¿Ya tiene EOCD? Buscar firma 50 4b 05 06 en los últimos 64 bytes.
+  const searchFrom = Math.max(0, bytes.length - 64);
+  for (let i = searchFrom; i < bytes.length - 3; i++) {
+    if (
+      bytes[i] === 0x50 && bytes[i + 1] === 0x4b &&
+      bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06
+    ) {
+      return bytes; // ya está completo
+    }
+  }
+
+  // 2. Recoger todos los local file headers (PK\x03\x04)
+  type LH = {
+    offset: number; version: number; flags: number; method: number;
+    modTime: number; modDate: number; crc32: number;
+    compSize: number; uncompSize: number;
+    filenameLen: number; extraLen: number; dataStart: number; dataSize: number;
+  };
+  const headers: LH[] = [];
+  let i = 0;
+  while (i < bytes.length - 30) {
+    if (
+      bytes[i] === 0x50 && bytes[i + 1] === 0x4b &&
+      bytes[i + 2] === 0x03 && bytes[i + 3] === 0x04
+    ) {
+      const flags = bytes[i + 6] | (bytes[i + 7] << 8);
+      const compSize = bytes[i + 18] | (bytes[i + 19] << 8) | (bytes[i + 20] << 16) | (bytes[i + 21] << 24);
+      const uncompSize = bytes[i + 22] | (bytes[i + 23] << 8) | (bytes[i + 24] << 16) | (bytes[i + 25] << 24);
+      const filenameLen = bytes[i + 26] | (bytes[i + 27] << 8);
+      const extraLen = bytes[i + 28] | (bytes[i + 29] << 8);
+      const dataStart = i + 30 + filenameLen + extraLen;
+
+      // Determinar tamaño de los datos. Si compSize > 0, usarlo. Si es 0
+      // y no hay data descriptor, usar uncompSize. Si sigue siendo 0,
+      // escanear hasta la siguiente firma ZIP.
+      let dataSize = compSize;
+      if (dataSize === 0 && (flags & 0x08) === 0) {
+        dataSize = uncompSize;
+      }
+      if (dataSize === 0) {
+        const nextSig = findNextZipSignature(bytes, dataStart);
+        dataSize = nextSig - dataStart;
+      }
+
+      headers.push({
+        offset: i,
+        version: bytes[i + 4] | (bytes[i + 5] << 8),
+        flags,
+        method: bytes[i + 8] | (bytes[i + 9] << 8),
+        modTime: bytes[i + 10] | (bytes[i + 11] << 8),
+        modDate: bytes[i + 12] | (bytes[i + 13] << 8),
+        crc32: (bytes[i + 14] | (bytes[i + 15] << 8) | (bytes[i + 16] << 16) | (bytes[i + 17] << 24)) >>> 0,
+        compSize,
+        uncompSize,
+        filenameLen,
+        extraLen,
+        dataStart,
+        dataSize,
+      });
+      i = dataStart + dataSize;
+    } else {
+      i++;
+    }
+  }
+
+  if (headers.length === 0) return null;
+
+  // 3. Construir central directory entries (46 bytes + filename cada uno)
+  const cdEntries: Uint8Array[] = [];
+  for (const h of headers) {
+    const cd = new Uint8Array(46 + h.filenameLen);
+    cd[0] = 0x50; cd[1] = 0x4b; cd[2] = 0x01; cd[3] = 0x02; // CD signature
+    cd[4] = 0x14; cd[5] = 0x00;                              // version made by (2.0)
+    cd[6] = h.version & 0xff; cd[7] = (h.version >> 8) & 0xff;
+    cd[8] = h.flags & 0xff; cd[9] = (h.flags >> 8) & 0xff;
+    cd[10] = h.method & 0xff; cd[11] = (h.method >> 8) & 0xff;
+    cd[12] = h.modTime & 0xff; cd[13] = (h.modTime >> 8) & 0xff;
+    cd[14] = h.modDate & 0xff; cd[15] = (h.modDate >> 8) & 0xff;
+    cd[16] = h.crc32 & 0xff; cd[17] = (h.crc32 >> 8) & 0xff;
+    cd[18] = (h.crc32 >> 16) & 0xff; cd[19] = (h.crc32 >> 24) & 0xff;
+    cd[20] = h.compSize & 0xff; cd[21] = (h.compSize >> 8) & 0xff;
+    cd[22] = (h.compSize >> 16) & 0xff; cd[23] = (h.compSize >> 24) & 0xff;
+    cd[24] = h.uncompSize & 0xff; cd[25] = (h.uncompSize >> 8) & 0xff;
+    cd[26] = (h.uncompSize >> 16) & 0xff; cd[27] = (h.uncompSize >> 24) & 0xff;
+    cd[28] = h.filenameLen & 0xff; cd[29] = (h.filenameLen >> 8) & 0xff;
+    cd[30] = 0; cd[31] = 0; // extra len
+    cd[32] = 0; cd[33] = 0; // comment len
+    cd[34] = 0; cd[35] = 0; // disk
+    cd[36] = 0; cd[37] = 0; // internal attrs
+    cd[38] = 0; cd[39] = 0; cd[40] = 0; cd[41] = 0; // external attrs
+    cd[42] = h.offset & 0xff; cd[43] = (h.offset >> 8) & 0xff;
+    cd[44] = (h.offset >> 16) & 0xff; cd[45] = (h.offset >> 24) & 0xff;
+    cd.set(bytes.subarray(h.offset + 30, h.offset + 30 + h.filenameLen), 46);
+    cdEntries.push(cd);
+  }
+
+  // 4. Calcular offset del central directory
+  let cdOffset = 0;
+  for (const h of headers) {
+    cdOffset += 30 + h.filenameLen + h.extraLen + h.dataSize;
+  }
+  const cdSize = cdEntries.reduce((sum, cd) => sum + cd.length, 0);
+  const cdCount = cdEntries.length;
+
+  // 5. Construir EOCD (22 bytes)
+  const eocd = new Uint8Array(22);
+  eocd[0] = 0x50; eocd[1] = 0x4b; eocd[2] = 0x05; eocd[3] = 0x06;
+  eocd[4] = 0; eocd[5] = 0; // disk number
+  eocd[6] = 0; eocd[7] = 0; // disk where CD starts
+  eocd[8] = cdCount & 0xff; eocd[9] = (cdCount >> 8) & 0xff;
+  eocd[10] = cdCount & 0xff; eocd[11] = (cdCount >> 8) & 0xff;
+  eocd[12] = cdSize & 0xff; eocd[13] = (cdSize >> 8) & 0xff;
+  eocd[14] = (cdSize >> 16) & 0xff; eocd[15] = (cdSize >> 24) & 0xff;
+  eocd[16] = cdOffset & 0xff; eocd[17] = (cdOffset >> 8) & 0xff;
+  eocd[18] = (cdOffset >> 16) & 0xff; eocd[19] = (cdOffset >> 24) & 0xff;
+  eocd[20] = 0; eocd[21] = 0; // comment length
+
+  // 6. Concatenar: local headers + data + CD + EOCD
+  const totalSize = cdOffset + cdSize + 22;
+  const result = new Uint8Array(totalSize);
+  let pos = 0;
+  for (const h of headers) {
+    const localEnd = h.offset + 30 + h.filenameLen + h.extraLen;
+    result.set(bytes.subarray(h.offset, localEnd), pos);
+    pos += 30 + h.filenameLen + h.extraLen;
+    result.set(bytes.subarray(h.dataStart, h.dataStart + h.dataSize), pos);
+    pos += h.dataSize;
+  }
+  for (const cd of cdEntries) {
+    result.set(cd, pos);
+    pos += cd.length;
+  }
+  result.set(eocd, pos);
+
+  console.log(
+    `reconstructMissingEocd: ${headers.length} archivos, CD en ${cdOffset}, EOCD reconstruido`
+  );
+  return result;
 }
 
 export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDialogProps) {
