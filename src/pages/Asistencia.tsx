@@ -425,7 +425,7 @@ export default function Asistencia() {
   // Palabras que indican que el item NO debe contar como rendimiento
   // (es pérdida, industria o subproducto del calibrador)
   const EXCLUIDOS_RENDIMIENTO = [
-    "industria", "muestra", "podrido", "podrida", "prec-", "prec ",
+    "industria", "muestra", "podrido", "podrida", "prec",
     "industr",
   ];
   const esExcluidoRendimiento = (prod: string): boolean => {
@@ -438,11 +438,11 @@ export default function Asistencia() {
     if (esLineaTotal(prod)) return null;
     if (esExcluidoRendimiento(prod)) return null;
     const text = normalizarTexto(prod);
-    // MDNA (Mercadona) siempre va a Mallas, incluso si la palabra "GRANEL" aparece
-    // (en "MDNA GRANEL" el "GRANEL" se refiere al formato de la bolsa, no a la línea)
+    // GRANEL tiene prioridad sobre MDNA: "MDNA GRANEL ..." va a Graneleras
+    // (el "GRANEL" indica que es producto a granel aunque sea para Mercadona)
+    if (text.includes("granelera") || text.startsWith("granel") || /\bgranel\b/.test(text)) return "Graneleras";
     if (text.includes("mdna") || text.includes("mercadona")) return "Mallas";
     if (text.includes("malla") || text.includes("malladora")) return "Mallas";
-    if (text.includes("granelera") || text.startsWith("granel") || /\bgranel\b/.test(text)) return "Graneleras";
     if (text.includes("francia")) return "Envasadoras";
     if (text.includes("envas") || text.includes("encaj") || text.includes("caja") || text.includes("emp")) return "Envasadoras";
     // "EN BOX" / "A GRANEL" sin otra pista → granelera
