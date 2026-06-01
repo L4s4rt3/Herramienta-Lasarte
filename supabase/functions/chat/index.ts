@@ -1,6 +1,7 @@
 /**
- * chat — Edge Function para Vadim, el asistente experto de Lasarte SAT.
- * Usa OpenCode API con streaming y timeout. La API key vive como secreto.
+ * chat — Edge Function para Vadim. Llama a OpenCode API y devuelve texto plano.
+ * Se usa non-streaming para evitar problemas de formato SSE.
+ * Timeout de 30s y fallback entre modelos.
  */
 
 const corsHeaders = {
@@ -43,8 +44,8 @@ Deno.serve(async (req) => {
       { role: "user", content: message },
     ];
 
-    // Intentar con cada modelo hasta que uno funcione
     let lastError = "";
+
     for (const model of OPCODE_MODELS) {
       console.log(`[chat] intentando modelo: ${model}`);
 
@@ -61,7 +62,7 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             model,
             messages,
-            stream: true,
+            stream: false,
             max_tokens: 2000,
             temperature: 0.7,
           }),
@@ -73,53 +74,28 @@ Deno.serve(async (req) => {
 
         if (!opencodeRes.ok) {
           const errText = await opencodeRes.text().catch(() => "unknown");
-          const errorMsg = `OpenCode ${opencodeRes.status} para ${model}: ${errText}`;
-          console.error(`[chat] ${errorMsg}`);
-          lastError = errorMsg;
-          continue;
-        }
-
-        if (!opencodeRes.body) {
-          lastError = `OpenCode ${model}: body es null`;
+          lastError = `OpenCode ${opencodeRes.status} para ${model}: ${errText}`;
           console.error(`[chat] ${lastError}`);
           continue;
         }
 
-        // Streaming exitoso — devolver stream al cliente
+        const data = await opencodeRes.json();
+        const content: string = data?.choices?.[0]?.message?.content ?? "";
+
+        if (!content) {
+          lastError = `${model}: respuesta vacía`;
+          console.error(`[chat] ${lastError}`);
+          continue;
+        }
+
+        console.log(`[chat] ${model} OK, ${content.length} caracteres`);
+
+        // Devolver como stream de texto plano para compatibilidad con el cliente
         const encoder = new TextEncoder();
         const stream = new ReadableStream({
-          async start(streamController) {
-            try {
-              const reader = opencodeRes.body!.getReader();
-              const decoder = new TextDecoder();
-              let buffer = "";
-
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop() ?? "";
-
-                for (const line of lines) {
-                  if (!line.startsWith("data: ")) continue;
-                  const data = line.slice(6).trim();
-                  if (data === "[DONE]") continue;
-                  try {
-                    const json = JSON.parse(data);
-                    const text: string = json?.choices?.[0]?.delta?.content ?? "";
-                    if (text) streamController.enqueue(encoder.encode(text));
-                  } catch {
-                    // chunk malformado, ignorar
-                  }
-                }
-              }
-            } catch (streamErr) {
-              console.error(`[chat] error en stream: ${streamErr}`);
-            } finally {
-              streamController.close();
-            }
+          start(controller) {
+            controller.enqueue(encoder.encode(content));
+            controller.close();
           },
         });
 
@@ -136,10 +112,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Ningún modelo funcionó
     return new Response(
       JSON.stringify({
-        error: `No se pudo conectar con OpenCode tras intentar todos los modelos. Último error: ${lastError}`,
+        error: `No se pudo obtener respuesta de OpenCode. Último error: ${lastError}`,
       }),
       { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
