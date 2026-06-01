@@ -44,9 +44,31 @@ function formatCell(value: unknown): string {
 }
 
 function repairXlsx(bytes: Uint8Array): Uint8Array {
-  // First check if file starts with ZIP magic bytes
+  // Detectar y eliminar cualquier prefijo basura antes del header ZIP.
+  // Algunos exportadores añaden 4+ bytes (ej. "PK00") o BOMs (EF BB BF, FF FE, FE FF)
+  // antes del magic ZIP real (PK\x03\x04). Si el primer PK\x03\x04 no está en
+  // el offset 0, recortamos todo lo anterior.
+  let start = 0;
+  const scanLimit = Math.min(bytes.length - 4, 64);
+  for (let i = 0; i <= scanLimit; i++) {
+    if (
+      bytes[i] === 0x50 &&
+      bytes[i + 1] === 0x4b &&
+      bytes[i + 2] === 0x03 &&
+      bytes[i + 3] === 0x04
+    ) {
+      start = i;
+      break;
+    }
+  }
+  if (start > 0) {
+    console.log(`repairXlsx: stripped ${start} garbage prefix bytes`);
+    bytes = bytes.subarray(start);
+  }
+
+  // Now check the file starts with ZIP magic
   if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b || bytes[2] !== 0x03 || bytes[3] !== 0x04) {
-    return bytes; // Not a ZIP file, return as-is
+    return bytes;
   }
 
   // Make a copy to avoid mutating the original
@@ -156,11 +178,14 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
       };
 
       let parsed: SheetData[] = [];
-      
+
+      // Limpiar prefijo basura (PK00, BOM, etc.) UNA VEZ antes de los intentos XLSX
+      const cleanBytes = repairXlsx(bytes);
+
       // Intento 1: Parsear normalmente
       try {
         console.log("Intento 1: Parseo normal");
-        const wb = XLSX.read(bytes, { type: "array" });
+        const wb = XLSX.read(cleanBytes, { type: "array" });
         parsed = parseWorkbook(wb);
         console.log("Intento 1 exitoso, hojas:", parsed.length);
       } catch (e) {
@@ -171,10 +196,9 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
       if (!isValidContent(parsed)) {
         console.log("Intento 2: Contenido inválido, intentando reparación DEFLATE64...");
         try {
-          const repaired = repairXlsx(bytes);
-          const wb = XLSX.read(repaired, { type: "array" });
+          const wb = XLSX.read(cleanBytes, { type: "array" });
           const repairedParsed = parseWorkbook(wb);
-          
+
           if (isValidContent(repairedParsed)) {
             parsed = repairedParsed;
             console.log("Intento 2 exitoso: Reparación DEFLATE64 funcionó");
@@ -188,9 +212,9 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
       if (!isValidContent(parsed)) {
         console.log("Intento 3: Opciones alternativas (cellDates, cellNF)...");
         try {
-          const wb = XLSX.read(bytes, { type: "array", cellDates: true, cellNF: false });
+          const wb = XLSX.read(cleanBytes, { type: "array", cellDates: true, cellNF: false });
           const altParsed = parseWorkbook(wb);
-          
+
           if (isValidContent(altParsed)) {
             parsed = altParsed;
             console.log("Intento 3 exitoso: Opciones alternativas funcionaron");
@@ -204,9 +228,9 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
       if (!isValidContent(parsed)) {
         console.log("Intento 4: Último recurso con raw: true...");
         try {
-          const wb = XLSX.read(bytes, { type: "array", raw: true });
+          const wb = XLSX.read(cleanBytes, { type: "array", raw: true });
           const rawParsed = parseWorkbook(wb);
-          
+
           if (isValidContent(rawParsed)) {
             parsed = rawParsed;
             console.log("Intento 4 exitoso: Parseo crudo funcionó");
@@ -220,9 +244,9 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
       if (!isValidContent(parsed)) {
         console.log("Intento 5: dense mode...");
         try {
-          const wb = XLSX.read(bytes, { type: "array", dense: true, cellDates: true, raw: true });
+          const wb = XLSX.read(cleanBytes, { type: "array", dense: true, cellDates: true, raw: true });
           const denseParsed = parseWorkbook(wb);
-          
+
           if (isValidContent(denseParsed)) {
             parsed = denseParsed;
             console.log("Intento 5 exitoso: dense mode funcionó");
@@ -290,17 +314,18 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
 
       // Validación final
       if (!isValidContent(parsed)) {
-        // Diagnóstico para ayudar a depurar
-        const firstBytes = Array.from(bytes.slice(0, 16)).map((b) => b.toString(16).padStart(2, "0")).join(" ");
-        const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes.slice(0, 200));
-        const looksLikeZip = bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
+        // Diagnóstico para ayudar a depurar (usar cleanBytes ya procesados)
+        const firstBytes = Array.from(cleanBytes.slice(0, 16)).map((b) => b.toString(16).padStart(2, "0")).join(" ");
+        const text = new TextDecoder("utf-8", { fatal: false }).decode(cleanBytes.slice(0, 200));
+        const looksLikeZip = cleanBytes[0] === 0x50 && cleanBytes[1] === 0x4b && cleanBytes[2] === 0x03 && cleanBytes[3] === 0x04;
         const looksLikeHtml = /<html|<table|<!DOCTYPE/i.test(text);
         const looksLikeCsv = /^[\w\s,;:\t\-."']+$/m.test(text.split("\n")[0] ?? "");
+        const strippedPrefix = cleanBytes.length !== bytes.length;
         console.error("Todos los intentos de parseo fallaron");
-        console.error("Tamaño:", bytes.length, "bytes");
+        console.error("Tamaño original:", bytes.length, "bytes, tras strip:", cleanBytes.length);
         console.error("Primeros 16 bytes (hex):", firstBytes);
         console.error("Primeros 200 chars:", text);
-        console.error("¿ZIP?:", looksLikeZip, "¿HTML?:", looksLikeHtml, "¿CSV?:", looksLikeCsv);
+        console.error("¿ZIP?:", looksLikeZip, "¿HTML?:", looksLikeHtml, "¿CSV?:", looksLikeCsv, "Prefijo eliminado:", strippedPrefix);
         const hint = !looksLikeZip
           ? ` Detectado: no es un archivo ZIP/XLSX válido${looksLikeHtml ? " (parece HTML)" : ""}${looksLikeCsv ? " (parece CSV/texto)" : ""}.`
           : looksLikeHtml
