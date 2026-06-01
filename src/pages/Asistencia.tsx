@@ -426,7 +426,7 @@ export default function Asistencia() {
   // (es pérdida, industria o subproducto del calibrador)
   const EXCLUIDOS_RENDIMIENTO = [
     "industria", "muestra", "podrido", "podrida", "prec-", "prec ",
-    "francia", "lst ", "industr",
+    "industr",
   ];
   const esExcluidoRendimiento = (prod: string): boolean => {
     const text = normalizarTexto(prod);
@@ -443,6 +443,7 @@ export default function Asistencia() {
     if (text.includes("mdna") || text.includes("mercadona")) return "Mallas";
     if (text.includes("malla") || text.includes("malladora")) return "Mallas";
     if (text.includes("granelera") || text.startsWith("granel") || /\bgranel\b/.test(text)) return "Graneleras";
+    if (text.includes("francia")) return "Envasadoras";
     if (text.includes("envas") || text.includes("encaj") || text.includes("caja") || text.includes("emp")) return "Envasadoras";
     // "EN BOX" / "A GRANEL" sin otra pista → granelera
     if (text.includes("en box") || text.includes("a granel")) return "Graneleras";
