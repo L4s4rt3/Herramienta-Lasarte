@@ -776,8 +776,6 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
                   s,
                   archivo?.file_name ?? "archivo"
                 );
-                // Si la hoja tiene estructura muy simple (palets sin metadata),
-                // respetamos el nombre de la hoja como section
                 if (parsed.tables.length === 1 && s.name) {
                   parsed.tables[0].section = s.name;
                 }
@@ -785,12 +783,9 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
                   <TabsContent
                     key={i}
                     value={String(i)}
-                    className="flex-1 min-h-0 mt-2 overflow-y-auto scrollbar-midas pr-1"
+                    className="flex-1 min-h-0 mt-2 outline-none"
                   >
-                    <ExcelPreviewer
-                      data={parsed}
-                      onDownload={i === 0 ? handleDownload : undefined}
-                    />
+                    <ExcelPreviewer data={parsed} />
                   </TabsContent>
                 );
               })}
