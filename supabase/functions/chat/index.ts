@@ -15,10 +15,10 @@ interface ChatMessage {
   content: string;
 }
 
-const OPCODE_TIMEOUT_MS = 12_000;
-// Modelo principal: DeepSeek V4 Flash Free (rápido + sin coste + buena calidad).
-// Fallback mínimo a big-pickle por si el principal falla/caduca.
-const OPCODE_MODELS = ["deepseek-v4-flash-free", "big-pickle"];
+const OPCODE_TIMEOUT_MS = 18_000;
+// big-pickle primero: el más estable y rápido en free tier.
+// Fallback a deepseek-v4-flash-free por si big-pickle está saturado.
+const OPCODE_MODELS = ["big-pickle", "deepseek-v4-flash-free"];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
