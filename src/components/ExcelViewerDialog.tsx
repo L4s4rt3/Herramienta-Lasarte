@@ -321,16 +321,31 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
         const looksLikeHtml = /<html|<table|<!DOCTYPE/i.test(text);
         const looksLikeCsv = /^[\w\s,;:\t\-."']+$/m.test(text.split("\n")[0] ?? "");
         const strippedPrefix = cleanBytes.length !== bytes.length;
+        // Detectar EOCD (End Of Central Directory) - si no está, el ZIP está corrupto
+        const last4 = cleanBytes.subarray(cleanBytes.length - 22, cleanBytes.length - 18);
+        const hasEocd = last4[0] === 0x50 && last4[1] === 0x4b && last4[2] === 0x05 && last4[3] === 0x06;
+        // Buscar EOCD en los últimos 64 bytes
+        let eocdFound = false;
+        const searchStart = Math.max(0, cleanBytes.length - 64);
+        for (let i = searchStart; i < cleanBytes.length - 3; i++) {
+          if (cleanBytes[i] === 0x50 && cleanBytes[i+1] === 0x4b && cleanBytes[i+2] === 0x05 && cleanBytes[i+3] === 0x06) {
+            eocdFound = true;
+            break;
+          }
+        }
         console.error("Todos los intentos de parseo fallaron");
         console.error("Tamaño original:", bytes.length, "bytes, tras strip:", cleanBytes.length);
         console.error("Primeros 16 bytes (hex):", firstBytes);
         console.error("Primeros 200 chars:", text);
-        console.error("¿ZIP?:", looksLikeZip, "¿HTML?:", looksLikeHtml, "¿CSV?:", looksLikeCsv, "Prefijo eliminado:", strippedPrefix);
-        const hint = !looksLikeZip
-          ? ` Detectado: no es un archivo ZIP/XLSX válido${looksLikeHtml ? " (parece HTML)" : ""}${looksLikeCsv ? " (parece CSV/texto)" : ""}.`
-          : looksLikeHtml
-          ? " Detectado: parece HTML (no XLSX)."
-          : "";
+        console.error("¿ZIP?:", looksLikeZip, "¿HTML?:", looksLikeHtml, "¿CSV?:", looksLikeCsv, "Prefijo eliminado:", strippedPrefix, "EOCD presente:", eocdFound);
+        let hint = "";
+        if (looksLikeZip && !eocdFound) {
+          hint = " Detectado: el archivo ZIP no tiene un registro EOCD (End Of Central Directory) al final — el XLSX está estructuralmente corrupto. Solución: abre el archivo en Excel/LibreOffice y guárdalo de nuevo como .xlsx.";
+        } else if (!looksLikeZip) {
+          hint = ` Detectado: no es un archivo ZIP/XLSX válido${looksLikeHtml ? " (parece HTML)" : ""}${looksLikeCsv ? " (parece CSV/texto)" : ""}.`;
+        } else if (looksLikeHtml) {
+          hint = " Detectado: parece HTML (no XLSX).";
+        }
         throw new Error(
           `No se pudo parsear "${archivo.file_name || "archivo"}" ` +
           `(${formatSize(archivo.file_size || null)}).${hint} ` +
