@@ -134,9 +134,11 @@ function findNextZipSignature(bytes: Uint8Array, start: number): number {
 function reconstructMissingEocd(bytes: Uint8Array): Uint8Array | null {
   console.log(`reconstructMissingEocd: buf.length=${bytes.length}`);
 
-  // 1. ¿Ya tiene EOCD? Buscar la firma PK\x05\x06. Debe estar exactamente
-  // al final del archivo (modulo comentario). Si está en el medio, es un
-  // falso positivo (los datos pueden contener esos 4 bytes por casualidad).
+  // 1. ¿Ya tiene EOCD? Buscar la firma PK\x05\x06. Validación ESTRICTA:
+  // además de la firma y el commentLen, el número de entradas del CD debe
+  // ser > 0, y el offset+size del CD debe caer dentro del archivo y apuntar
+  // a una firma PK\x01\x02 real. Sin esto, basura al final del archivo
+  // (como "PK\x05\x06...00 00") pasa como EOCD falso positivo.
   const maxComment = 65535;
   const searchStart = Math.max(0, bytes.length - 22 - maxComment);
   let eocdStart = -1;
@@ -146,10 +148,23 @@ function reconstructMissingEocd(bytes: Uint8Array): Uint8Array | null {
       bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06
     ) {
       const commentLen = bytes[i + 20] | (bytes[i + 21] << 8);
-      if (i + 22 + commentLen === bytes.length) {
-        eocdStart = i;
-        break;
-      }
+      if (i + 22 + commentLen !== bytes.length) continue;
+      const cdEntries = bytes[i + 10] | (bytes[i + 11] << 8);
+      if (cdEntries === 0) continue;
+      const cdSize =
+        (bytes[i + 12] | (bytes[i + 13] << 8) |
+          (bytes[i + 14] << 16) | (bytes[i + 15] << 24)) >>> 0;
+      const cdOffset =
+        (bytes[i + 16] | (bytes[i + 17] << 8) |
+          (bytes[i + 18] << 16) | (bytes[i + 19] << 24)) >>> 0;
+      if (cdOffset === 0 || cdOffset + cdSize > bytes.length) continue;
+      // Verificar que el primer byte del CD sea PK\x01\x02
+      if (
+        bytes[cdOffset] !== 0x50 || bytes[cdOffset + 1] !== 0x4b ||
+        bytes[cdOffset + 2] !== 0x01 || bytes[cdOffset + 3] !== 0x02
+      ) continue;
+      eocdStart = i;
+      break;
     }
   }
   if (eocdStart >= 0) {
