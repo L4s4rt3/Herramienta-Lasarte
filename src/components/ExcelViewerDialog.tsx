@@ -269,6 +269,18 @@ function reconstructMissingEocd(bytes: Uint8Array): Uint8Array | null {
   console.log(
     `reconstructMissingEocd: ${headers.length} archivos, CD en ${cdOffset}, EOCD reconstruido`
   );
+  for (let idx = 0; idx < headers.length; idx++) {
+    const h = headers[idx];
+    const name = new TextDecoder("utf-8", { fatal: false }).decode(
+      bytes.subarray(h.offset + 30, h.offset + 30 + h.filenameLen)
+    );
+    console.log(
+      `  [${idx}] offset=${h.offset} name="${name}" method=${h.method} ` +
+      `compSize=${h.compSize} uncompSize=${h.uncompSize} ` +
+      `flags=${h.flags} dataStart=${h.dataStart} dataSize=${h.dataSize}`
+    );
+  }
+  console.log(`  CD total bytes: ${cdSize}, archivo nuevo: ${totalSize} bytes`);
   return result;
 }
 
