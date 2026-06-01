@@ -1,3 +1,7 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "installCommand": "npm ci --no-audit --no-fund --prefer-offline",
+  "outputDirectory": "dist",
+  "framework": "vite"
 }
