@@ -15,8 +15,8 @@ interface ChatMessage {
   content: string;
 }
 
-const OPCODE_TIMEOUT_MS = 30_000;
-const OPCODE_MODELS = ["deepseek-v4-flash-free", "nemotron-3-super-free", "mimo-v2-5-free", "big-pickle"];
+const OPCODE_TIMEOUT_MS = 12_000;
+const OPCODE_MODELS = ["big-pickle", "deepseek-v4-flash-free", "mimo-v2-5-free", "nemotron-3-super-free"];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
