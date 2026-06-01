@@ -28,13 +28,9 @@ interface ExcelPreviewerProps {
 
 export default function ExcelPreviewer({ data }: ExcelPreviewerProps) {
   return (
-    // El contenedor raíz gestiona el scroll. El padre del dialog ya no
-    // necesita overflow porque esto se encarga de su propio viewport.
-    <div
-      className="w-full h-full overflow-y-auto scrollbar-midas pr-1 -mr-1"
-      style={{ scrollbarGutter: "stable" }}
-    >
-      {/* HEADER DE ACCIÓN */}
+    // max-h-[60vh] + overflow-y-auto = scroll fiable (mismo enfoque que antes)
+    <div className="w-full max-h-[60vh] overflow-y-auto scrollbar-midas pr-1 -mr-1">
+      {/* HEADER */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-[var(--glass-border)] pb-5 mb-6 gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -49,14 +45,18 @@ export default function ExcelPreviewer({ data }: ExcelPreviewerProps) {
           {(data.title || data.subtitle) && (
             <p className="text-sm text-muted-foreground mt-1">
               {data.title && <span>{data.title}</span>}
-              {data.title && data.subtitle && <span className="mx-1.5 text-muted-foreground/50">•</span>}
-              {data.subtitle && <span className="font-semibold text-foreground/80">{data.subtitle}</span>}
+              {data.title && data.subtitle && (
+                <span className="mx-1.5 text-muted-foreground/50">•</span>
+              )}
+              {data.subtitle && (
+                <span className="font-semibold text-foreground/80">{data.subtitle}</span>
+              )}
             </p>
           )}
         </div>
       </div>
 
-      {/* DATOS AGREGADOS: GRID DE TARJETAS MODULARES (glass) */}
+      {/* GRID DE MÉTRICAS (glass) */}
       {data.metrics.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
           {data.metrics.map((metric, i) => (
@@ -70,7 +70,9 @@ export default function ExcelPreviewer({ data }: ExcelPreviewerProps) {
                   {metric.category}
                 </p>
               )}
-              <h3 className="text-sm font-medium text-foreground/80 mt-1">{metric.label}</h3>
+              <h3 className="text-sm font-medium text-foreground/80 mt-1">
+                {metric.label}
+              </h3>
               <p className="text-3xl font-bold text-foreground mt-2 tracking-tight tabular-nums">
                 {metric.value}
               </p>
@@ -79,14 +81,11 @@ export default function ExcelPreviewer({ data }: ExcelPreviewerProps) {
         </div>
       )}
 
-      {/* CONTENEDOR DE TABLA LIMPIA (glass) */}
+      {/* TABLA (glass) */}
       {data.tables.length > 0 &&
         data.tables.map((table, i) => (
-          <div
-            key={i}
-            className="glass overflow-hidden mb-4"
-          >
-            <div className="px-5 py-4 border-b border-[var(--glass-border)] flex justify-between items-center gap-3 bg-[var(--glass-bg)]">
+          <div key={i} className="glass overflow-hidden mb-4">
+            <div className="px-5 py-4 border-b border-[var(--glass-border)] flex justify-between items-center gap-3 bg-[var(--glass-bg-strong)]">
               <div className="min-w-0">
                 <h2 className="text-sm font-bold text-foreground uppercase tracking-wider truncate">
                   {table.section}
@@ -108,7 +107,7 @@ export default function ExcelPreviewer({ data }: ExcelPreviewerProps) {
             {table.headers.length > 0 && table.rows.length > 0 ? (
               <div className="overflow-x-auto scrollbar-midas">
                 <table className="w-full min-w-full divide-y divide-[var(--glass-border)] text-left border-collapse">
-                  <thead className="bg-[var(--glass-bg-strong)]">
+                  <thead className="bg-[var(--glass-bg)]">
                     <tr>
                       {table.headers.map((header, hIdx) => (
                         <th

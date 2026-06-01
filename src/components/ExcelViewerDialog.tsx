@@ -783,7 +783,7 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
                   <TabsContent
                     key={i}
                     value={String(i)}
-                    className="flex-1 min-h-0 mt-2 outline-none"
+                    className="mt-2 outline-none"
                   >
                     <ExcelPreviewer data={parsed} />
                   </TabsContent>
