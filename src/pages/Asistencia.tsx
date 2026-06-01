@@ -422,14 +422,38 @@ export default function Asistencia() {
     return null;
   }
 
+  // Palabras que indican que el item NO debe contar como rendimiento
+  // (es pérdida, industria o subproducto del calibrador)
+  const EXCLUIDOS_RENDIMIENTO = [
+    "industria", "muestra", "podrido", "podrida", "prec-", "prec ",
+    "francia", "lst ", "industr",
+  ];
+  const esExcluidoRendimiento = (prod: string): boolean => {
+    const text = normalizarTexto(prod);
+    if (!text) return true; // producto vacío = sospechoso
+    return EXCLUIDOS_RENDIMIENTO.some((k) => text.includes(k));
+  };
+
   function prodToGrupo(prod: string): RendimientoGrupoKey | null {
     if (esLineaTotal(prod)) return null;
+    if (esExcluidoRendimiento(prod)) return null;
     const text = normalizarTexto(prod);
-    if (text.includes("granel")) return "Graneleras";
-    if (text.includes("malla")) return "Mallas";
-    if (text.includes("mercadona")) return text.includes("granel") ? "Graneleras" : "Mallas";
-    if (/envas|encaj|caja/.test(text)) return "Envasadoras";
-    return "Envasadoras";
+    // MDNA (Mercadona) siempre va a Mallas, incluso si la palabra "GRANEL" aparece
+    // (en "MDNA GRANEL" el "GRANEL" se refiere al formato de la bolsa, no a la línea)
+    if (text.includes("mdna") || text.includes("mercadona")) return "Mallas";
+    if (text.includes("malla") || text.includes("malladora")) return "Mallas";
+    if (text.includes("granelera") || text.startsWith("granel") || /\bgranel\b/.test(text)) return "Graneleras";
+    if (text.includes("envas") || text.includes("encaj") || text.includes("caja") || text.includes("emp")) return "Envasadoras";
+    // "EN BOX" / "A GRANEL" sin otra pista → granelera
+    if (text.includes("en box") || text.includes("a granel")) return "Graneleras";
+    return null;
+  }
+
+  function clienteToGrupo(cliente: string): RendimientoGrupoKey | null {
+    const text = normalizarTexto(cliente);
+    if (!text) return null;
+    if (text.includes("mercadona") || text.includes("mdna")) return "Mallas";
+    return null;
   }
 
   function grupoDeLineaProducto(item: any): RendimientoGrupoKey | null {
@@ -441,6 +465,7 @@ export default function Asistencia() {
       normalizarGrupoRendimiento(item.grupo_rendimiento) ??
       normalizarGrupoRendimiento(item.grupo_destino) ??
       normalizarGrupoRendimiento(item.destino) ??
+      clienteToGrupo(item.cliente) ??
       prodToGrupo(item.producto ?? "")
     );
   }
@@ -484,6 +509,7 @@ export default function Asistencia() {
             normalizarGrupoRendimiento(item.grupo_destino) ??
             normalizarGrupoRendimiento(item.destino) ??
             normalizarGrupoRendimiento(item.situacion) ??
+            clienteToGrupo(item.cliente) ??
             prodToGrupo(item.producto ?? "");
           addKg(grupo, num(item.kg_neto));
         }
