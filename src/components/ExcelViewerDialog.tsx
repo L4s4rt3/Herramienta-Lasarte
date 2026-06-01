@@ -115,7 +115,7 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
       const bytes = new Uint8Array(buffer);
 
       // Función para verificar si el contenido parseado es válido.
-      // Requiere al menos 5 celdas con contenido por hoja y que
+      // Requiere al menos 3 celdas con contenido por hoja y que
       // menos del 30% parezcan "basura encriptada" (strings hex, base64, etc).
       const isValidContent = (sheets: SheetData[]): boolean => {
         if (sheets.length === 0) return false;
@@ -137,16 +137,18 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
           };
           for (const h of sheet.headers) check(h);
           for (const row of sheet.rows) for (const cell of row) check(cell);
-          if (cellsWithContent >= 5 && suspicious / cellsWithContent < 0.3) return true;
+          if (cellsWithContent >= 3 && suspicious / cellsWithContent < 0.3) return true;
         }
         return false;
       };
 
-      // Función para parsear el workbook
+      // Función para parsear el workbook. Usa raw: true para evitar
+      // que xlsx aplique formatos raros a celdas corruptas (que es lo
+      // que producía el efecto "encriptado").
       const parseWorkbook = (wb: XLSX.WorkBook): SheetData[] => {
         return wb.SheetNames.map((name) => {
           const ws = wb.Sheets[name];
-          const json = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: "", raw: false });
+          const json = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "", raw: true });
           const headers = json.length > 0 ? json[0].map((h) => formatCell(h)) : [];
           const rows = json.slice(1).map((row) => row.map((c) => formatCell(c)));
           return { name, headers, rows };
