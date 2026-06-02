@@ -59,6 +59,67 @@ function isNumericColumn(rows: string[][], colIdx: number): boolean {
 // Detecta si una fila es un control de UI de Excel (filtros, fechas, etc.)
 const UI_CONTROL_RE = /filtros?|fecha de lote/i;
 
+// Cabeceras por variante de módulo (fallback cuando el archivo no tiene fila de cabecera).
+// Detectamos la variante por nombre de archivo o por la primera celda de cada fila de datos.
+const MODULE_VARIANT_HEADERS: Record<string, string[]> = {
+  palets: [
+    "Tipo Palet",
+    "N.º Palet",
+    "Fecha",
+    "Cliente",
+    "Producto",
+    "Lote",
+    "Cajas",
+    "Tipo caja",
+    "Netos (kg)",
+    "Facturación",
+    "Situación",
+  ],
+  produccion: [
+    "Lote",
+    "Productor",
+    "Variedad",
+    "Inicio",
+    "Hora máquina",
+    "Peso (kg)",
+    "T/h",
+    "Peso medio fruta",
+    "Estado",
+  ],
+  producto: [
+    "Producto",
+    "Empaque",
+    "Empaques",
+    "Peso (kg)",
+    "Fruta",
+    "Peso medio empaque",
+    "Conteo medio",
+    "Estado",
+  ],
+  tamanos: [
+    "Grupo",
+    "Tamaño",
+    "Piezas",
+    "Peso (kg)",
+    "Cartons",
+    "% total",
+    "Estado",
+  ],
+};
+
+function detectModuleVariant(filename: string, firstRow?: string[]): keyof typeof MODULE_VARIANT_HEADERS | null {
+  const f = filename.toLowerCase();
+  if (/(palets?|palet)\b/.test(f)) return "palets";
+  if (/(producci[oó]n|partes?)\b/.test(f)) return "produccion";
+  if (/(productos?)\b/.test(f)) return "producto";
+  if (/(tamaños?|calibres?)\b/.test(f)) return "tamanos";
+  if (firstRow && firstRow.length > 0) {
+    const c0 = firstRow[0].toLowerCase();
+    if (c0.startsWith("palet ")) return "palets";
+  }
+  return null;
+}
+
 // Convierte una hoja cruda en una estructura limpia { metrics, tables, title, subtitle }.
 // Estrategia:
 //  1) Recortar filas/columnas vacías.
@@ -208,13 +269,21 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
     headers = rows[headerIdx].filter((c) => c.length > 0);
     actualDataStartIdx = dataStartIdx;
   } else {
-    // Sin cabecera detectada: generar cabeceras genéricas a partir de la primera fila con datos
+    // Sin cabecera detectada: intentar usar cabeceras del módulo variant detectado
     const firstDataRowIdx = rows.findIndex((r) => r.some((c) => c.length > 0));
     if (firstDataRowIdx < 0) return result;
     const maxColsInData = Math.max(...rows.slice(firstDataRowIdx).map((r) => r.length));
-    headers = Array.from({ length: maxColsInData }, (_, i) => `Col ${i + 1}`);
+    const variant = detectModuleVariant(filename, rows[firstDataRowIdx]);
+    if (variant && MODULE_VARIANT_HEADERS[variant].length >= maxColsInData - 1) {
+      // Usar cabeceras del variant, ajustando al número de columnas real
+      const variantHeaders = MODULE_VARIANT_HEADERS[variant];
+      headers = Array.from({ length: maxColsInData }, (_, i) => variantHeaders[i] ?? `Col ${i + 1}`);
+      console.log(`[DEBUG] using module variant headers (${variant}): [${headers.slice(0, 5).join(", ")}${headers.length > 5 ? "..." : ""}] starting at row ${firstDataRowIdx}`);
+    } else {
+      headers = Array.from({ length: maxColsInData }, (_, i) => `Col ${i + 1}`);
+      console.log(`[DEBUG] using generic headers: [${headers.slice(0, 5).join(", ")}${headers.length > 5 ? "..." : ""}] starting at row ${firstDataRowIdx}`);
+    }
     actualDataStartIdx = firstDataRowIdx;
-    console.log(`[DEBUG] using generic headers: [${headers.slice(0, 5).join(", ")}${headers.length > 5 ? "..." : ""}] starting at row ${firstDataRowIdx}`);
   }
 
   if (headers.length > 0) {
