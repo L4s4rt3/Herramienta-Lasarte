@@ -109,7 +109,11 @@ const MODULE_VARIANT_HEADERS: Record<string, string[]> = {
 
 function detectModuleVariant(filename: string, firstRow?: string[]): keyof typeof MODULE_VARIANT_HEADERS | null {
   const f = filename.toLowerCase();
-  if (/(palets?|palet)\b/.test(f)) return "palets";
+  console.log(`[DEBUG] detectModuleVariant: filename="${f}"`);
+  if (/(palets?|palet)\b/.test(f)) {
+    console.log(`[DEBUG] detectModuleVariant: matched "palets" in filename`);
+    return "palets";
+  }
   if (/(producci[oó]n|partes?)\b/.test(f)) return "produccion";
   if (/(productos?)\b/.test(f)) return "producto";
   if (/(tamaños?|calibres?)\b/.test(f)) return "tamanos";
@@ -117,6 +121,7 @@ function detectModuleVariant(filename: string, firstRow?: string[]): keyof typeo
     const c0 = firstRow[0].toLowerCase();
     if (c0.startsWith("palet ")) return "palets";
   }
+  console.log(`[DEBUG] detectModuleVariant: no variant matched, returning null`);
   return null;
 }
 
