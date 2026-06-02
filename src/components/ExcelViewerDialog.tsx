@@ -279,7 +279,8 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
     if (firstDataRowIdx < 0) return result;
     const maxColsInData = Math.max(...rows.slice(firstDataRowIdx).map((r) => r.length));
     const variant = detectModuleVariant(filename, rows[firstDataRowIdx]);
-    if (variant && MODULE_VARIANT_HEADERS[variant].length >= maxColsInData - 1) {
+    console.log(`[DEBUG] maxColsInData=${maxColsInData}, variant=${variant}, variantHeaders.length=${variant ? MODULE_VARIANT_HEADERS[variant].length : 0}, condition=${variant && MODULE_VARIANT_HEADERS[variant].length >= maxColsInData - 1}`);
+    if (variant) {
       // Usar cabeceras del variant, ajustando al número de columnas real
       const variantHeaders = MODULE_VARIANT_HEADERS[variant];
       headers = Array.from({ length: maxColsInData }, (_, i) => variantHeaders[i] ?? `Col ${i + 1}`);
