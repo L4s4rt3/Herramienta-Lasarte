@@ -84,11 +84,13 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
   }
   const rows = clean.map((r) => usedCols.map((c) => r[c] ?? ""));
 
-  // 3) Localizar fila de encabezados (escanear TODO el archivo, no solo 30 filas,
-  // porque algunos exportadores de GSTOCK tienen muchos metadatos arriba)
+  // 3) Localizar fila de encabezados
+  // Primero escanear TODO el archivo para cabecera real (texto, no numérica, no UI).
+  // Si no hay, hacer fallback solo en las primeras 50 filas y validar que parezca cabecera.
   let headerIdx = -1;
   let fallbackIdx = -1;
   let fallbackScore = -1;
+  const MAX_FALLBACK_SCAN = 50;
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const cells = row.filter((c) => c.length > 0);
@@ -101,17 +103,27 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
     const numericCount = cells.filter((c) => /^-?\d+([.,]\d+)?%?$/.test(c)).length;
     if (numericCount < cells.length / 2) {
       headerIdx = i;
+      console.log(`[DEBUG] header found at row ${i}: [${cells.slice(0, 5).join(", ")}${cells.length > 5 ? "..." : ""}]`);
       break;
     }
-    // Fallback: guardar la fila con más celdas de texto (menos numéricas) por si no hay header claro
-    const textCount = cells.length - numericCount;
-    if (textCount > fallbackScore) {
-      fallbackScore = textCount;
-      fallbackIdx = i;
+    // Fallback: solo en las primeras 50 filas, y debe parecer cabecera real
+    if (i < MAX_FALLBACK_SCAN) {
+      const textCount = cells.length - numericCount;
+      // Validación: al menos 2 celdas con <25 chars (cabeceras son cortas)
+      const shortCells = cells.filter((c) => c.length < 25).length;
+      if (shortCells >= 2 && textCount > fallbackScore) {
+        fallbackScore = textCount;
+        fallbackIdx = i;
+      }
     }
   }
   if (headerIdx === -1 && fallbackIdx >= 0) {
+    const fallbackRow = rows[fallbackIdx];
+    const fallbackCells = fallbackRow.filter((c) => c.length > 0);
+    console.log(`[DEBUG] fallback header at row ${fallbackIdx}: [${fallbackCells.slice(0, 5).join(", ")}${fallbackCells.length > 5 ? "..." : ""}]`);
     headerIdx = fallbackIdx;
+  } else if (headerIdx === -1) {
+    console.log(`[DEBUG] no header found, will use generic headers`);
   }
 
   // 4) Clasificar filas previas al header
@@ -164,56 +176,68 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
   if (lastSingleCellText.length >= 2) result.subtitle = formatTitleText(lastSingleCellText[1]);
 
   // 5) Extraer tabla
+  let headers: string[];
+  let actualDataStartIdx: number;
   if (headerIdx >= 0) {
-    const headers = rows[headerIdx].filter((c) => c.length > 0);
-    if (headers.length > 0) {
-      const dataRows: string[][] = [];
-      for (let i = dataStartIdx; i < rows.length; i++) {
-        const row = rows[i];
-        if (row.every((c) => !c)) continue;
-        dataRows.push(headers.map((_, ci) => row[ci] ?? ""));
-      }
+    headers = rows[headerIdx].filter((c) => c.length > 0);
+    actualDataStartIdx = dataStartIdx;
+  } else {
+    // Sin cabecera detectada: generar cabeceras genéricas a partir de la primera fila con datos
+    const firstDataRowIdx = rows.findIndex((r) => r.some((c) => c.length > 0));
+    if (firstDataRowIdx < 0) return result;
+    const maxColsInData = Math.max(...rows.slice(firstDataRowIdx).map((r) => r.length));
+    headers = Array.from({ length: maxColsInData }, (_, i) => `Col ${i + 1}`);
+    actualDataStartIdx = firstDataRowIdx;
+    console.log(`[DEBUG] using generic headers: [${headers.slice(0, 5).join(", ")}${headers.length > 5 ? "..." : ""}] starting at row ${firstDataRowIdx}`);
+  }
 
-      // Sección: la última fila de texto de una sola celda antes del header
-      // que no sea el título ni el subtítulo.
-      let section = "";
-      for (let i = lastSingleCellText.length - 1; i >= 0; i--) {
-        const t = lastSingleCellText[i];
-        if (t !== result.title && t !== result.subtitle) {
-          section = t;
-          break;
-        }
-      }
-
-      // Filtrar filas que son puramente pares etiqueta-valor (metadatos)
-      const filteredRows = dataRows.filter((row) => {
-        const nonEmpty = row.filter((c) => c.length > 0);
-        if (nonEmpty.length === 0) return false;
-        const labelCount = nonEmpty.filter((c) => c.endsWith(":")).length;
-        return labelCount / nonEmpty.length < 0.5;
-      });
-
-      // Mejorar nombre de sección: evitar "Datos" genérico, derivar del filename si es posible
-      let finalSection = section;
-      if (!finalSection || finalSection === "Datos") {
-        // Intentar extraer módulo del nombre de archivo, ej: "Informe 0106 tamaños.xlsx" → "Tamaños"
-        const match = filename.match(/informe.*\b(tamaños?|productos?|producciones?|palets?)\b/i);
-        if (match) {
-          finalSection = match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase();
-        } else if (sheet.name && !/^hoja\s*\d+$/i.test(sheet.name)) {
-          finalSection = sheet.name;
-        } else {
-          finalSection = "Datos";
-        }
-      }
-
-      result.tables.push({
-        section: finalSection,
-        description: `${filteredRows.length} fila${filteredRows.length !== 1 ? "s" : ""} · ${headers.length} columna${headers.length !== 1 ? "s" : ""}`,
-        headers,
-        rows: filteredRows,
-      });
+  if (headers.length > 0) {
+    const dataRows: string[][] = [];
+    for (let i = actualDataStartIdx; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.every((c) => !c)) continue;
+      dataRows.push(headers.map((_, ci) => row[ci] ?? ""));
     }
+
+    // Sección: la última fila de texto de una sola celda antes del header
+    // que no sea el título ni el subtítulo.
+    let section = "";
+    for (let i = lastSingleCellText.length - 1; i >= 0; i--) {
+      const t = lastSingleCellText[i];
+      if (t !== result.title && t !== result.subtitle) {
+        section = t;
+        break;
+      }
+    }
+
+    // Filtrar filas que son puramente pares etiqueta-valor (metadatos)
+    const filteredRows = dataRows.filter((row) => {
+      const nonEmpty = row.filter((c) => c.length > 0);
+      if (nonEmpty.length === 0) return false;
+      const labelCount = nonEmpty.filter((c) => c.endsWith(":")).length;
+      return labelCount / nonEmpty.length < 0.5;
+    });
+
+    // Mejorar nombre de sección: evitar "Datos" genérico, derivar del filename si es posible
+    let finalSection = section;
+    if (!finalSection || finalSection === "Datos") {
+      // Intentar extraer módulo del nombre de archivo, ej: "Informe 0106 tamaños.xlsx" → "Tamaños"
+      const match = filename.match(/informe.*\b(tamaños?|productos?|producciones?|palets?)\b/i);
+      if (match) {
+        finalSection = match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase();
+      } else if (sheet.name && !/^hoja\s*\d+$/i.test(sheet.name)) {
+        finalSection = sheet.name;
+      } else {
+        finalSection = "Datos";
+      }
+    }
+
+    result.tables.push({
+      section: finalSection,
+      description: `${filteredRows.length} fila${filteredRows.length !== 1 ? "s" : ""} · ${headers.length} columna${headers.length !== 1 ? "s" : ""}`,
+      headers,
+      rows: filteredRows,
+    });
   }
 
   return result;
