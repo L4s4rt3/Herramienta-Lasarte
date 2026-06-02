@@ -76,6 +76,13 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
     .filter((r) => r.some((c) => c.length > 0));
   if (clean.length === 0) return result;
 
+  // DEBUG: Dump de las primeras 20 filas para diagnosticar estructura del archivo
+  console.log(`[DEBUG] First 20 rows of ${filename}:`);
+  for (let i = 0; i < Math.min(20, clean.length); i++) {
+    const cells = clean[i].filter((c) => c.length > 0);
+    console.log(`  row ${i}: [${cells.slice(0, 8).map((c) => `"${c.slice(0, 30)}${c.length > 30 ? "..." : ""}"`).join(", ")}]${cells.length > 8 ? ` (+${cells.length - 8} more)` : ""}`);
+  }
+
   // 2) Detectar columnas con datos y recortar
   const maxCols = Math.max(...clean.map((r) => r.length));
   const usedCols: number[] = [];
@@ -96,17 +103,30 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const cells = row.filter((c) => c.length > 0);
-    if (cells.length < 2) continue;
+    if (cells.length < 2) {
+      if (i < 20) console.log(`[DEBUG] row ${i} SKIPPED: <2 cells (${cells.length})`);
+      continue;
+    }
     // Saltar controles de UI de Excel (filtros, fecha de lote...)
-    if (row.some((c) => UI_CONTROL_RE.test(c))) continue;
+    if (row.some((c) => UI_CONTROL_RE.test(c))) {
+      if (i < 20) console.log(`[DEBUG] row ${i} SKIPPED: UI control (cells: [${cells.slice(0, 4).join(", ")}])`);
+      continue;
+    }
     // Una fila NO es header si tiene ":" (sería "Label: Value" de métrica)
-    if (row.some((c) => c.includes(":"))) continue;
+    if (row.some((c) => c.includes(":"))) {
+      if (i < 20) console.log(`[DEBUG] row ${i} SKIPPED: has ":" (cells: [${cells.slice(0, 4).map((c) => c.slice(0, 25)).join(", ")}])`);
+      continue;
+    }
     // La mayoría de celdas deben ser texto, no números
     const numericCount = cells.filter((c) => /^-?\d+([.,]\d+)?%?$/.test(c)).length;
-    if (numericCount >= cells.length / 2) continue;
+    if (numericCount >= cells.length / 2) {
+      if (i < 20) console.log(`[DEBUG] row ${i} SKIPPED: ≥50% numeric (${numericCount}/${cells.length}) (cells: [${cells.slice(0, 4).join(", ")}])`);
+      continue;
+    }
     // TODAS las celdas deben ser cortas (cabeceras reales son cortas: "Producto", "Fecha"...)
     const longCells = cells.filter((c) => c.length > MAX_HEADER_CELL_LEN).length;
     if (longCells > 0) {
+      if (i < 20) console.log(`[DEBUG] row ${i} SKIPPED: ${longCells} cell(s) >30 chars (longest: "${cells.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 40)}...")`);
       // Si es en las primeras 50 filas, guardar como fallback
       if (i < MAX_FALLBACK_SCAN) {
         const textCount = cells.length - numericCount;
