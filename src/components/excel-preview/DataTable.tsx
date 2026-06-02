@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback } from "react";
-import { ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { ArrowUp, ArrowDown, ArrowUpDown, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { StatusBadge } from "./StatusBadge";
@@ -112,6 +112,29 @@ export function DataTable({
 
   return (
     <div className="flex-1 min-h-0 rounded-xl border border-slate-200/60 bg-white/60 backdrop-blur-sm shadow-[0_4px_16px_rgba(15,23,42,0.06)] overflow-hidden flex flex-col">
+      {(table.section || table.description) && (
+        <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-2 border-b border-slate-200/80 bg-slate-50/70">
+          <div className="min-w-0">
+            {table.section && (
+              <h3 className="text-[10px] font-bold text-slate-700 uppercase tracking-widest truncate">
+                {table.section}
+              </h3>
+            )}
+            {table.description && (
+              <p className="text-[10px] text-slate-500 mt-0.5 truncate">
+                {table.description}
+              </p>
+            )}
+          </div>
+          {table.rows.length > 0 && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-semibold shrink-0 bg-emerald-500/10 text-emerald-700 border border-emerald-500/25">
+              <CheckCircle2 className="h-2.5 w-2.5" />
+              Validado
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="flex-1 min-h-0 overflow-auto scrollbar-midas">
         <table className="w-full text-xs border-collapse">
           <thead className="sticky top-0 z-20">
@@ -164,9 +187,10 @@ export function DataTable({
                   onClick={() => onRowSelect?.(originalIndex, row)}
                   className={cn(
                     "transition-colors cursor-pointer",
+                    ri % 2 === 1 && "bg-slate-50/40",
                     isSelected
-                      ? "bg-orange-50/70 border-l-2 border-l-orange-500"
-                      : "border-l-2 border-l-transparent hover:bg-orange-50/40"
+                      ? "!bg-orange-50/70 border-l-2 border-l-orange-500"
+                      : "border-l-2 border-l-transparent hover:!bg-orange-50/40"
                   )}
                 >
                   {columns.map((col) => {
