@@ -3,6 +3,15 @@ import type { StatusKey } from "./types";
 const NUMERIC_RE = /^-?\d{1,3}([.,]\d{3})*([.,]\d+)?%?$|^-?\d+([.,]\d+)?%?$/;
 const STATUS_HEADER_KEYWORDS = ["estado", "status", "situacion", "situación", "sit."];
 
+const NUMERIC_HEADER_HINTS = [
+  "kg", "peso", "kilo", "kilos", "cantidad", "cajas", "piezas", "palets",
+  "neto", "bruto", "total", "subtotal", "importe", "€", "eur", "euro",
+  "%", "precio", "valor", "media", "medio", "promedio", "ratio",
+  "t/h", "kg/h", "th", "horas", "min", "minutos", "seg", "segundos",
+  "fact", "facturad", "cobr", "pago", "cost", "gast",
+  "lote", "nº", "num", "nro", "id", "código", "codigo", "ref",
+];
+
 const STATUS_KEYWORDS: Array<[string[], StatusKey]> = [
   [["activo", "validado", "aprobado", "ok", "completado"], "success"],
   [["cerrado", "finalizado", "hecho"], "info"],
@@ -24,7 +33,32 @@ export function isNumericColumn(rows: string[][], colIdx: number): boolean {
     total++;
     if (isNumericCell(cell)) numeric++;
   }
-  return total > 0 && numeric / total > 0.5;
+  if (total > 0 && numeric / total > 0.5) return true;
+  return false;
+}
+
+export function numericHeaderHint(header: string): boolean {
+  const normalized = header.trim().toLowerCase();
+  if (!normalized) return false;
+  return NUMERIC_HEADER_HINTS.some((hint) => normalized.includes(hint));
+}
+
+export function columnMaxWidth(
+  header: string,
+  rows: string[][],
+  colIdx: number,
+  cap = 18
+): string {
+  let maxLen = header.length;
+  for (const row of rows) {
+    const cell = row[colIdx];
+    if (!cell) continue;
+    const len = cell.length;
+    if (len > maxLen) maxLen = len;
+    if (maxLen >= cap) break;
+  }
+  const remBased = Math.min(maxLen * 0.6 + 2, cap);
+  return `${remBased}rem`;
 }
 
 interface FormatNumberOptions {

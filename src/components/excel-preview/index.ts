@@ -12,6 +12,8 @@ export {
   formatCell,
   isStatusColumn,
   matchStatus,
+  numericHeaderHint,
+  columnMaxWidth,
 } from "./formatters";
 export type {
   Metric,

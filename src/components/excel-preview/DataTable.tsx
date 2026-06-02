@@ -1,13 +1,22 @@
 import { useMemo, useState, useCallback } from "react";
-import { ArrowUp, ArrowDown, ArrowUpDown, CheckCircle2 } from "lucide-react";
+import {
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { StatusBadge } from "./StatusBadge";
 import {
+  columnMaxWidth,
   formatCell,
   isNumericColumn,
   isStatusColumn,
   matchStatus,
+  numericHeaderHint,
 } from "./formatters";
 import type { DataTable as DataTableType } from "./types";
 
@@ -24,7 +33,9 @@ interface ColumnMeta {
   header: string;
   numeric: boolean;
   status: boolean;
-  width?: string;
+  width: string;
+  populated: number;
+  hideable: boolean;
 }
 
 function compareValues(a: string, b: string, numeric: boolean): number {
@@ -36,6 +47,15 @@ function compareValues(a: string, b: string, numeric: boolean): number {
   return a.localeCompare(b, "es", { numeric: true, sensitivity: "base" });
 }
 
+function colPopulated(rows: string[][], colIdx: number): number {
+  let count = 0;
+  for (const row of rows) {
+    const cell = row[colIdx];
+    if (cell && cell.trim()) count++;
+  }
+  return count;
+}
+
 export function DataTable({
   table,
   selectedRowIndex = null,
@@ -43,21 +63,30 @@ export function DataTable({
 }: DataTableProps) {
   const [sortCol, setSortCol] = useState<number | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>(null);
+  const [hideEmpty, setHideEmpty] = useState(false);
 
-  const columns: ColumnMeta[] = useMemo(
+  const allColumns: ColumnMeta[] = useMemo(
     () =>
       table.headers.map((h, i) => ({
         index: i,
         header: h,
-        numeric: isNumericColumn(table.rows, i),
+        numeric: isNumericColumn(table.rows, i) || numericHeaderHint(h),
         status: isStatusColumn(h),
+        width: columnMaxWidth(h, table.rows, i),
+        populated: colPopulated(table.rows, i),
+        hideable: colPopulated(table.rows, i) < table.rows.length * 0.5,
       })),
     [table.headers, table.rows]
   );
 
+  const columns = useMemo(
+    () => (hideEmpty ? allColumns.filter((c) => c.populated > 0) : allColumns),
+    [allColumns, hideEmpty]
+  );
+
   const sortedRows = useMemo(() => {
     if (sortCol === null || sortDir === null) return table.rows;
-    const col = columns[sortCol];
+    const col = allColumns.find((c) => c.index === sortCol);
     if (!col) return table.rows;
     const indexed = table.rows.map((r, i) => ({ row: r, originalIndex: i }));
     indexed.sort((a, b) => {
@@ -67,7 +96,7 @@ export function DataTable({
       return sortDir === "asc" ? cmp : -cmp;
     });
     return indexed.map((x) => x.row);
-  }, [table.rows, columns, sortCol, sortDir]);
+  }, [table.rows, allColumns, sortCol, sortDir]);
 
   const handleHeaderClick = useCallback(
     (colIndex: number) => {
@@ -86,21 +115,18 @@ export function DataTable({
     [sortCol, sortDir]
   );
 
-  const handleCellClick = useCallback(
-    async (value: string) => {
-      if (!value) return;
-      try {
-        await navigator.clipboard.writeText(value);
-        toast.success("Copiado al portapapeles", {
-          description: value.length > 60 ? value.slice(0, 60) + "…" : value,
-          duration: 1800,
-        });
-      } catch {
-        toast.error("No se pudo copiar");
-      }
-    },
-    []
-  );
+  const handleCellClick = useCallback(async (value: string) => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success("Copiado al portapapeles", {
+        description: value.length > 60 ? value.slice(0, 60) + "…" : value,
+        duration: 1800,
+      });
+    } catch {
+      toast.error("No se pudo copiar");
+    }
+  }, []);
 
   if (table.headers.length === 0 || table.rows.length === 0) {
     return (
@@ -110,6 +136,8 @@ export function DataTable({
     );
   }
 
+  const hiddenCount = allColumns.length - columns.length;
+
   return (
     <section
       className={cn(
@@ -118,31 +146,61 @@ export function DataTable({
         "overflow-hidden flex flex-col"
       )}
     >
-      {(table.section || table.description) && (
-        <header className="shrink-0 flex items-center justify-between gap-3 px-4 py-2 border-b border-slate-200/80 bg-slate-50/70">
-          <div className="min-w-0">
-            {table.section && (
-              <h3 className="text-[10px] font-bold text-slate-700 uppercase tracking-widest truncate">
-                {table.section}
-              </h3>
-            )}
-            {table.description && (
-              <p className="text-[10px] text-slate-500 mt-0.5 truncate">
-                {table.description}
-              </p>
-            )}
-          </div>
+      <header className="shrink-0 flex items-center justify-between gap-3 px-4 py-2 border-b border-slate-200/80 bg-slate-50/70">
+        <div className="min-w-0 flex items-center gap-3">
+          {table.section && (
+            <h3 className="text-[10px] font-bold text-slate-700 uppercase tracking-widest truncate">
+              {table.section}
+            </h3>
+          )}
+          {table.description && (
+            <p className="text-[10px] text-slate-500 truncate">
+              {table.description}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {allColumns.some((c) => c.hideable) && (
+            <button
+              onClick={() => setHideEmpty((v) => !v)}
+              className={cn(
+                "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-semibold border transition-colors",
+                hideEmpty
+                  ? "bg-orange-500/10 text-orange-700 border-orange-500/30"
+                  : "bg-slate-100 text-slate-600 border-slate-200/60 hover:bg-slate-200/60"
+              )}
+              title={
+                hideEmpty
+                  ? "Mostrar todas las columnas"
+                  : "Ocultar columnas con menos del 50% de datos"
+              }
+            >
+              {hideEmpty ? (
+                <EyeOff className="h-2.5 w-2.5" />
+              ) : (
+                <Eye className="h-2.5 w-2.5" />
+              )}
+              {hideEmpty ? `${columns.length} cols` : `${allColumns.length} cols`}
+            </button>
+          )}
           {table.rows.length > 0 && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-semibold shrink-0 bg-emerald-500/10 text-emerald-700 border border-emerald-500/25">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/10 text-emerald-700 border border-emerald-500/25">
               <CheckCircle2 className="h-2.5 w-2.5" />
               Validado
             </span>
           )}
-        </header>
+        </div>
+      </header>
+
+      {hiddenCount > 0 && (
+        <div className="shrink-0 px-4 py-1 text-[10px] text-slate-500 bg-amber-50/60 border-b border-amber-200/40">
+          {hiddenCount} columna{hiddenCount !== 1 ? "s" : ""} con poca
+          información ocultada{hiddenCount !== 1 ? "s" : ""}.
+        </div>
       )}
 
       <div className="overflow-x-auto scrollbar-midas">
-        <table className="w-full text-xs border-collapse">
+        <table className="text-xs border-collapse" style={{ minWidth: "100%" }}>
           <thead className="sticky top-0 z-20">
             <tr className="bg-slate-50/95 backdrop-blur-sm shadow-[0_2px_6px_rgba(15,23,42,0.06)]">
               {columns.map((col) => {
@@ -157,6 +215,7 @@ export function DataTable({
                   <th
                     key={col.index}
                     onClick={() => handleHeaderClick(col.index)}
+                    style={{ minWidth: col.width }}
                     className={cn(
                       "px-3 py-2.5 font-semibold border-b border-slate-200/80",
                       "text-slate-700 cursor-pointer select-none whitespace-nowrap",
@@ -209,28 +268,19 @@ export function DataTable({
                           e.stopPropagation();
                           handleCellClick(raw);
                         }}
+                        style={{ minWidth: col.width }}
                         className={cn(
                           "px-3 py-2.5 border-b border-slate-200/60",
                           "whitespace-nowrap",
                           isEmpty ? "select-none" : "text-slate-800",
-                          col.numeric && !isEmpty ? "text-right tabular-nums" : "",
-                          isEmpty
-                            ? col.numeric
-                              ? "text-right"
-                              : "text-left"
-                            : col.numeric
-                            ? "text-right tabular-nums"
-                            : "text-left"
+                          col.numeric ? "text-right tabular-nums" : "text-left"
                         )}
                         title={isEmpty ? "vacío" : raw}
                       >
                         {isEmpty ? (
                           <span className="text-slate-200 text-base leading-none">·</span>
                         ) : col.status ? (
-                          <StatusBadge
-                            value={raw}
-                            status={matchStatus(raw)}
-                          />
+                          <StatusBadge value={raw} status={matchStatus(raw)} />
                         ) : (
                           formatCell(raw)
                         )}

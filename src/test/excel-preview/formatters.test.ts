@@ -7,6 +7,8 @@ import {
   formatCell,
   isStatusColumn,
   matchStatus,
+  numericHeaderHint,
+  columnMaxWidth,
 } from "../../components/excel-preview/formatters";
 
 describe("isNumericCell", () => {
@@ -183,5 +185,39 @@ describe("matchStatus", () => {
     ["", "muted"],
   ])("matches %s to %s", (input, expected) => {
     expect(matchStatus(input)).toBe(expected);
+  });
+});
+
+describe("numericHeaderHint", () => {
+  it.each([
+    ["kg", true],
+    ["Peso (kg)", true],
+    ["Cajas", true],
+    ["Piezas", true],
+    ["Importe €", true],
+    ["%", true],
+    ["Total", true],
+    ["Precio medio", true],
+    ["T/h", true],
+    ["Lote", true],
+    ["Cliente", false],
+    ["Nombre", false],
+    ["Fecha", false],
+    ["", false],
+  ])("returns %s for %s", (input, expected) => {
+    expect(numericHeaderHint(input)).toBe(expected);
+  });
+});
+
+describe("columnMaxWidth", () => {
+  it("respects header length as minimum", () => {
+    const w = columnMaxWidth("Lote", [], 0, 18);
+    expect(w).toMatch(/^\d+(\.\d+)?rem$/);
+  });
+
+  it("caps at the limit when content is longer", () => {
+    const w = columnMaxWidth("Lote", [["x".repeat(200)]], 0, 18);
+    const rem = parseFloat(w);
+    expect(rem).toBeLessThanOrEqual(18);
   });
 });
