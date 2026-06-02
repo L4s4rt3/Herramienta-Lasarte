@@ -56,11 +56,15 @@ function isNumericColumn(rows: string[][], colIdx: number): boolean {
   return total > 0 && numeric / total > 0.5;
 }
 
+// Detecta si una fila es un control de UI de Excel (filtros, fechas, etc.)
+const UI_CONTROL_RE = /filtros?|fecha de lote/i;
+
 // Convierte una hoja cruda en una estructura limpia { metrics, tables, title, subtitle }.
 // Estrategia:
 //  1) Recortar filas/columnas vacías.
 //  2) Localizar la fila de encabezados: primera fila con 2+ celdas de texto
 //     (no numéricas) y sin ":" en ninguna celda (excluye filas de métrica).
+//     También se saltan filas con controles de UI de Excel (filtros, etc.).
 //  3) Las filas anteriores se clasifican como title/subtitle/métricas/sección.
 //  4) Las filas posteriores son datos de la tabla.
 function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel {
@@ -86,6 +90,8 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
     const row = rows[i];
     const cells = row.filter((c) => c.length > 0);
     if (cells.length < 2) continue;
+    // Saltar controles de UI de Excel (filtros, fecha de lote...)
+    if (row.some((c) => UI_CONTROL_RE.test(c))) continue;
     // Una fila NO es header si tiene ":" (sería "Label: Value" de métrica)
     if (row.some((c) => c.includes(":"))) continue;
     // La mayoría de celdas deben ser texto, no números
@@ -128,8 +134,19 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
 
   // Asignar título/subtítulo (primeras dos filas de texto) y descartar el resto
   // (que probablemente son nombres de sección que mostraremos en la tabla)
-  if (lastSingleCellText.length >= 1) result.title = lastSingleCellText[0];
-  if (lastSingleCellText.length >= 2) result.subtitle = lastSingleCellText[1];
+  // También intenta formatear números de serie de fecha de Excel.
+  function formatTitleText(text: string): string {
+    const num = parseFloat(text);
+    if (!isNaN(num) && num > 30000 && num < 60000) {
+      const date = new Date(Math.round((num - 25569) * 86400 * 1000));
+      if (!isNaN(date.getTime()) && date.getFullYear() > 1990 && date.getFullYear() < 2100) {
+        return date.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
+      }
+    }
+    return text;
+  }
+  if (lastSingleCellText.length >= 1) result.title = formatTitleText(lastSingleCellText[0]);
+  if (lastSingleCellText.length >= 2) result.subtitle = formatTitleText(lastSingleCellText[1]);
 
   // 5) Extraer tabla
   if (headerIdx >= 0) {
@@ -153,11 +170,19 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
         }
       }
 
+      // Filtrar filas que son puramente pares etiqueta-valor (metadatos)
+      const filteredRows = dataRows.filter((row) => {
+        const nonEmpty = row.filter((c) => c.length > 0);
+        if (nonEmpty.length === 0) return false;
+        const labelCount = nonEmpty.filter((c) => c.endsWith(":")).length;
+        return labelCount / nonEmpty.length < 0.5;
+      });
+
       result.tables.push({
         section: section || "Datos",
-        description: `${dataRows.length} fila${dataRows.length !== 1 ? "s" : ""} · ${headers.length} columna${headers.length !== 1 ? "s" : ""}`,
+        description: `${filteredRows.length} fila${filteredRows.length !== 1 ? "s" : ""} · ${headers.length} columna${headers.length !== 1 ? "s" : ""}`,
         headers,
-        rows: dataRows,
+        rows: filteredRows,
       });
     }
   }
@@ -168,7 +193,16 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
 function formatCell(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
-  if (typeof value === "number") return String(value);
+  if (typeof value === "number") {
+    // Detectar serial de fecha de Excel (típicamente 30000-60000, con o sin decimal de hora)
+    if (value > 30000 && value < 60000) {
+      const date = new Date(Math.round((value - 25569) * 86400 * 1000));
+      if (!isNaN(date.getTime()) && date.getFullYear() > 1990 && date.getFullYear() < 2100) {
+        return date.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
+      }
+    }
+    return String(value);
+  }
   if (typeof value === "boolean") return value ? "Sí" : "No";
   if (value instanceof Date) return value.toLocaleDateString("es-ES");
   return String(value);

@@ -9,7 +9,6 @@ const NUMERIC_HEADER_HINTS = [
   "%", "precio", "valor", "media", "medio", "promedio", "ratio",
   "t/h", "kg/h", "th", "horas", "min", "minutos", "seg", "segundos",
   "fact", "facturad", "cobr", "pago", "cost", "gast",
-  "lote", "nº", "num", "nro", "id", "código", "codigo", "ref",
 ];
 
 const STATUS_KEYWORDS: Array<[string[], StatusKey]> = [

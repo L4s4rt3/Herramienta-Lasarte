@@ -199,7 +199,7 @@ describe("numericHeaderHint", () => {
     ["Total", true],
     ["Precio medio", true],
     ["T/h", true],
-    ["Lote", true],
+    ["Lote", false],
     ["Cliente", false],
     ["Nombre", false],
     ["Fecha", false],
