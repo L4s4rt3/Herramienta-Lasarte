@@ -74,11 +74,7 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
   const clean = sheet.rows
     .map((r) => r.map((c) => (c ?? "").trim()))
     .filter((r) => r.some((c) => c.length > 0));
-  console.log(`[DEBUG parseSheetToStructured] ${filename}: clean rows=${clean.length}, cols=${clean.length > 0 ? Math.max(...clean.map((r) => r.length)) : 0}`);
-  if (clean.length === 0) {
-    console.log(`[DEBUG parseSheetToStructured] ${filename}: no clean rows, returning empty`);
-    return result;
-  }
+  if (clean.length === 0) return result;
 
   // 2) Detectar columnas con datos y recortar
   const maxCols = Math.max(...clean.map((r) => r.length));
@@ -115,7 +111,6 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
     }
   }
   if (headerIdx === -1 && fallbackIdx >= 0) {
-    console.log(`[DEBUG parseSheetToStructured] ${filename}: using fallback header at row ${fallbackIdx}`);
     headerIdx = fallbackIdx;
   }
 
@@ -168,7 +163,6 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
   // 5) Extraer tabla
   if (headerIdx >= 0) {
     const headers = rows[headerIdx].filter((c) => c.length > 0);
-    console.log(`[DEBUG parseSheetToStructured] ${filename}: headerIdx=${headerIdx}, headers=[${headers.join(", ")}]`);
     if (headers.length > 0) {
       const dataRows: string[][] = [];
       for (let i = dataStartIdx; i < rows.length; i++) {
@@ -176,7 +170,6 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
         if (row.every((c) => !c)) continue;
         dataRows.push(headers.map((_, ci) => row[ci] ?? ""));
       }
-      console.log(`[DEBUG parseSheetToStructured] ${filename}: raw dataRows=${dataRows.length}`);
 
       // Sección: la última fila de texto de una sola celda antes del header
       // que no sea el título ni el subtítulo.
@@ -196,7 +189,6 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
         const labelCount = nonEmpty.filter((c) => c.endsWith(":")).length;
         return labelCount / nonEmpty.length < 0.5;
       });
-      console.log(`[DEBUG parseSheetToStructured] ${filename}: filteredRows=${filteredRows.length} (removed ${dataRows.length - filteredRows.length})`);
 
       result.tables.push({
         section: section || "Datos",
@@ -205,11 +197,8 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
         rows: filteredRows,
       });
     }
-  } else {
-    console.log(`[DEBUG parseSheetToStructured] ${filename}: NO header detected (headerIdx=-1)`);
   }
 
-  console.log(`[DEBUG parseSheetToStructured] ${filename}: final metrics=${result.metrics.length}, tables=${result.tables.length}`);
   return result;
 }
 
@@ -773,7 +762,7 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col">
+      <DialogContent className="max-w-6xl max-h-[95vh] flex flex-col">
         <DialogHeader className="shrink-0">
           <div className="flex items-center justify-between pr-8">
             <div className="flex items-center gap-2 min-w-0">

@@ -63,7 +63,7 @@ export function DataTable({
 }: DataTableProps) {
   const [sortCol, setSortCol] = useState<number | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>(null);
-  const [hideEmpty, setHideEmpty] = useState(false);
+  const [hideEmpty, setHideEmpty] = useState(true);
 
   const allColumns: ColumnMeta[] = useMemo(
     () =>
@@ -74,15 +74,17 @@ export function DataTable({
         status: isStatusColumn(h),
         width: columnMaxWidth(h, table.rows, i),
         populated: colPopulated(table.rows, i),
-        hideable: colPopulated(table.rows, i) < table.rows.length * 0.5,
+        hideable: colPopulated(table.rows, i) < table.rows.length * 0.2,
       })),
     [table.headers, table.rows]
   );
 
-  const columns = useMemo(
-    () => (hideEmpty ? allColumns.filter((c) => c.populated > 0) : allColumns),
-    [allColumns, hideEmpty]
-  );
+  const columns = useMemo(() => {
+    if (!hideEmpty) return allColumns;
+    const visible = allColumns.filter((c) => c.populated > 0);
+    // Fallback: si todas las columnas estarían ocultas, mostrar todas
+    return visible.length > 0 ? visible : allColumns;
+  }, [allColumns, hideEmpty]);
 
   const sortedRows = useMemo(() => {
     if (sortCol === null || sortDir === null) return table.rows;
@@ -199,7 +201,7 @@ export function DataTable({
         </div>
       )}
 
-      <div className="overflow-x-auto scrollbar-midas">
+      <div className="overflow-auto scrollbar-midas max-h-[50vh]">
         <table className="text-xs border-collapse" style={{ minWidth: "100%" }}>
           <thead className="sticky top-0 z-20">
             <tr className="bg-slate-50/95 backdrop-blur-sm shadow-[0_2px_6px_rgba(15,23,42,0.06)]">

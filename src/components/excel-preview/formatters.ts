@@ -46,7 +46,7 @@ export function columnMaxWidth(
   header: string,
   rows: string[][],
   colIdx: number,
-  cap = 18
+  cap = 14
 ): string {
   let maxLen = header.length;
   for (const row of rows) {
@@ -54,9 +54,9 @@ export function columnMaxWidth(
     if (!cell) continue;
     const len = cell.length;
     if (len > maxLen) maxLen = len;
-    if (maxLen >= cap) break;
+    if (maxLen >= cap * 3) break; // early exit if way over cap
   }
-  const remBased = Math.min(maxLen * 0.6 + 2, cap);
+  const remBased = Math.min(maxLen * 0.45 + 1.5, cap);
   return `${remBased}rem`;
 }
 
