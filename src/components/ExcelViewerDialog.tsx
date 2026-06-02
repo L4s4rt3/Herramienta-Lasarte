@@ -88,9 +88,12 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
   }
   const rows = clean.map((r) => usedCols.map((c) => r[c] ?? ""));
 
-  // 3) Localizar fila de encabezados
+  // 3) Localizar fila de encabezados (escanear TODO el archivo, no solo 30 filas,
+  // porque algunos exportadores de GSTOCK tienen muchos metadatos arriba)
   let headerIdx = -1;
-  for (let i = 0; i < Math.min(rows.length, 30); i++) {
+  let fallbackIdx = -1;
+  let fallbackScore = -1;
+  for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const cells = row.filter((c) => c.length > 0);
     if (cells.length < 2) continue;
@@ -104,6 +107,16 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
       headerIdx = i;
       break;
     }
+    // Fallback: guardar la fila con más celdas de texto (menos numéricas) por si no hay header claro
+    const textCount = cells.length - numericCount;
+    if (textCount > fallbackScore) {
+      fallbackScore = textCount;
+      fallbackIdx = i;
+    }
+  }
+  if (headerIdx === -1 && fallbackIdx >= 0) {
+    console.log(`[DEBUG parseSheetToStructured] ${filename}: using fallback header at row ${fallbackIdx}`);
+    headerIdx = fallbackIdx;
   }
 
   // 4) Clasificar filas previas al header
