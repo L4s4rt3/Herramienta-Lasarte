@@ -85,11 +85,13 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
   const rows = clean.map((r) => usedCols.map((c) => r[c] ?? ""));
 
   // 3) Localizar fila de encabezados
-  // Primero escanear TODO el archivo para cabecera real (texto, no numérica, no UI).
-  // Si no hay, hacer fallback solo en las primeras 50 filas y validar que parezca cabecera.
+  // Estrategia: la cabecera real tiene celdas CORTAS (<30 chars), mayoría texto,
+  // no tiene ":", y no es un control de UI. Si no se encuentra en las primeras
+  // 50 filas, escanear todo el archivo. Evitar falsos positivos con filas de datos.
   let headerIdx = -1;
   let fallbackIdx = -1;
   let fallbackScore = -1;
+  const MAX_HEADER_CELL_LEN = 30;
   const MAX_FALLBACK_SCAN = 50;
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -101,26 +103,30 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
     if (row.some((c) => c.includes(":"))) continue;
     // La mayoría de celdas deben ser texto, no números
     const numericCount = cells.filter((c) => /^-?\d+([.,]\d+)?%?$/.test(c)).length;
-    if (numericCount < cells.length / 2) {
-      headerIdx = i;
-      console.log(`[DEBUG] header found at row ${i}: [${cells.slice(0, 5).join(", ")}${cells.length > 5 ? "..." : ""}]`);
-      break;
-    }
-    // Fallback: solo en las primeras 50 filas, y debe parecer cabecera real
-    if (i < MAX_FALLBACK_SCAN) {
-      const textCount = cells.length - numericCount;
-      // Validación: al menos 2 celdas con <25 chars (cabeceras son cortas)
-      const shortCells = cells.filter((c) => c.length < 25).length;
-      if (shortCells >= 2 && textCount > fallbackScore) {
-        fallbackScore = textCount;
-        fallbackIdx = i;
+    if (numericCount >= cells.length / 2) continue;
+    // TODAS las celdas deben ser cortas (cabeceras reales son cortas: "Producto", "Fecha"...)
+    const longCells = cells.filter((c) => c.length > MAX_HEADER_CELL_LEN).length;
+    if (longCells > 0) {
+      // Si es en las primeras 50 filas, guardar como fallback
+      if (i < MAX_FALLBACK_SCAN) {
+        const textCount = cells.length - numericCount;
+        const shortCells = cells.filter((c) => c.length < 25).length;
+        if (shortCells >= 2 && textCount > fallbackScore) {
+          fallbackScore = textCount;
+          fallbackIdx = i;
+        }
       }
+      continue;
     }
+    // Cabecera válida encontrada
+    headerIdx = i;
+    console.log(`[DEBUG] header found at row ${i}: [${cells.slice(0, 6).join(", ")}${cells.length > 6 ? "..." : ""}]`);
+    break;
   }
   if (headerIdx === -1 && fallbackIdx >= 0) {
     const fallbackRow = rows[fallbackIdx];
     const fallbackCells = fallbackRow.filter((c) => c.length > 0);
-    console.log(`[DEBUG] fallback header at row ${fallbackIdx}: [${fallbackCells.slice(0, 5).join(", ")}${fallbackCells.length > 5 ? "..." : ""}]`);
+    console.log(`[DEBUG] fallback header at row ${fallbackIdx}: [${fallbackCells.slice(0, 6).join(", ")}${fallbackCells.length > 6 ? "..." : ""}]`);
     headerIdx = fallbackIdx;
   } else if (headerIdx === -1) {
     console.log(`[DEBUG] no header found, will use generic headers`);
