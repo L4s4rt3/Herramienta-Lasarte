@@ -48,15 +48,18 @@ export function columnMaxWidth(
   colIdx: number,
   cap = 14
 ): string {
-  let maxLen = header.length;
+  const lengths: number[] = [header.length];
   for (const row of rows) {
     const cell = row[colIdx];
     if (!cell) continue;
-    const len = cell.length;
-    if (len > maxLen) maxLen = len;
-    if (maxLen >= cap * 3) break; // early exit if way over cap
+    lengths.push(cell.length);
   }
-  const remBased = Math.min(maxLen * 0.45 + 1.5, cap);
+  if (lengths.length === 0) return `${Math.min(header.length * 0.45 + 1.5, cap)}rem`;
+  lengths.sort((a, b) => a - b);
+  // Usar percentil 90 en vez de máximo para evitar que un outlier estire la columna
+  const p90Idx = Math.floor(lengths.length * 0.9);
+  const p90Len = lengths[Math.min(p90Idx, lengths.length - 1)];
+  const remBased = Math.min(p90Len * 0.45 + 1.5, cap);
   return `${remBased}rem`;
 }
 

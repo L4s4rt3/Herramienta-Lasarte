@@ -123,6 +123,9 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
     const cells = row.filter((c) => c.length > 0);
     if (cells.length === 0) continue;
 
+    // Saltar controles de UI de Excel en cualquier parte del pre-header
+    if (cells.some((c) => UI_CONTROL_RE.test(c))) continue;
+
     // Métrica "Label: Value" en una celda
     if (cells.length === 1 && cells[0].includes(":")) {
       const idx = cells[0].indexOf(":");
@@ -190,8 +193,22 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
         return labelCount / nonEmpty.length < 0.5;
       });
 
+      // Mejorar nombre de sección: evitar "Datos" genérico, derivar del filename si es posible
+      let finalSection = section;
+      if (!finalSection || finalSection === "Datos") {
+        // Intentar extraer módulo del nombre de archivo, ej: "Informe 0106 tamaños.xlsx" → "Tamaños"
+        const match = filename.match(/informe.*\b(tamaños?|productos?|producciones?|palets?)\b/i);
+        if (match) {
+          finalSection = match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase();
+        } else if (sheet.name && !/^hoja\s*\d+$/i.test(sheet.name)) {
+          finalSection = sheet.name;
+        } else {
+          finalSection = "Datos";
+        }
+      }
+
       result.tables.push({
-        section: section || "Datos",
+        section: finalSection,
         description: `${filteredRows.length} fila${filteredRows.length !== 1 ? "s" : ""} · ${headers.length} columna${headers.length !== 1 ? "s" : ""}`,
         headers,
         rows: filteredRows,

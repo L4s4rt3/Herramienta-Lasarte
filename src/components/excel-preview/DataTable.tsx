@@ -47,6 +47,18 @@ function compareValues(a: string, b: string, numeric: boolean): number {
   return a.localeCompare(b, "es", { numeric: true, sensitivity: "base" });
 }
 
+// Detecta filas de resumen/total/subcategoría para darles estilo distinto
+function isSummaryRow(row: string[]): "total" | "subcategory" | null {
+  const nonEmpty = row.filter((c) => c && c.trim());
+  if (nonEmpty.length === 0) return null;
+  const first = nonEmpty[0].trim();
+  if (/^total(es)?\b/i.test(first)) return "total";
+  if (/^-\s/.test(first)) return "subcategory";
+  // Si solo hay una celda con texto y el resto vacío, puede ser una subcategoría
+  if (nonEmpty.length === 1 && first.length > 2 && !/^\d/.test(first)) return "subcategory";
+  return null;
+}
+
 function colPopulated(rows: string[][], colIdx: number): number {
   let count = 0;
   for (const row of rows) {
@@ -202,7 +214,7 @@ export function DataTable({
       )}
 
       <div className="overflow-auto scrollbar-midas max-h-[50vh]">
-        <table className="text-xs border-collapse" style={{ minWidth: "100%" }}>
+        <table className="text-xs border-collapse w-auto">
           <thead className="sticky top-0 z-20">
             <tr className="bg-slate-50/95 backdrop-blur-sm shadow-[0_2px_6px_rgba(15,23,42,0.06)]">
               {columns.map((col) => {
@@ -248,13 +260,16 @@ export function DataTable({
             {sortedRows.map((row, ri) => {
               const originalIndex = table.rows.indexOf(row);
               const isSelected = selectedRowIndex === originalIndex;
+              const summaryType = isSummaryRow(row);
               return (
                 <tr
                   key={ri}
                   onClick={() => onRowSelect?.(originalIndex, row)}
                   className={cn(
                     "transition-colors cursor-pointer",
-                    ri % 2 === 1 && "bg-slate-50/40",
+                    ri % 2 === 1 && !summaryType && "bg-slate-50/40",
+                    summaryType === "total" && "bg-slate-100/80 font-semibold",
+                    summaryType === "subcategory" && "bg-slate-50/60 pl-6",
                     isSelected
                       ? "!bg-orange-50/70 border-l-2 border-l-orange-500"
                       : "border-l-2 border-l-transparent hover:!bg-orange-50/40"
