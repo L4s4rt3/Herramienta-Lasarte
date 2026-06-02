@@ -69,7 +69,12 @@ export default function ExcelPreviewer({
           <p>El archivo no contiene datos legibles.</p>
         </div>
       ) : (
-        <div className="flex-1 min-h-0 flex flex-col gap-3">
+        <div
+          className={cn(
+            "flex-1 min-h-0 overflow-y-auto scrollbar-midas",
+            "flex flex-col gap-3 pr-1"
+          )}
+        >
           {data.tables.map((table, i) => {
             const isSelectedTable = selectedRow?.tableIndex === i;
             return (

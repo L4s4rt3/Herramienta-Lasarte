@@ -111,9 +111,15 @@ export function DataTable({
   }
 
   return (
-    <div className="flex-1 min-h-0 rounded-xl border border-slate-200/60 bg-white/60 backdrop-blur-sm shadow-[0_4px_16px_rgba(15,23,42,0.06)] overflow-hidden flex flex-col">
+    <section
+      className={cn(
+        "shrink-0 w-full rounded-xl border border-slate-200/60",
+        "bg-white/60 backdrop-blur-sm shadow-[0_4px_16px_rgba(15,23,42,0.06)]",
+        "overflow-hidden flex flex-col"
+      )}
+    >
       {(table.section || table.description) && (
-        <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-2 border-b border-slate-200/80 bg-slate-50/70">
+        <header className="shrink-0 flex items-center justify-between gap-3 px-4 py-2 border-b border-slate-200/80 bg-slate-50/70">
           <div className="min-w-0">
             {table.section && (
               <h3 className="text-[10px] font-bold text-slate-700 uppercase tracking-widest truncate">
@@ -132,10 +138,10 @@ export function DataTable({
               Validado
             </span>
           )}
-        </div>
+        </header>
       )}
 
-      <div className="flex-1 min-h-0 overflow-auto scrollbar-midas">
+      <div className="overflow-x-auto scrollbar-midas">
         <table className="w-full text-xs border-collapse">
           <thead className="sticky top-0 z-20">
             <tr className="bg-slate-50/95 backdrop-blur-sm shadow-[0_2px_6px_rgba(15,23,42,0.06)]">
@@ -195,6 +201,7 @@ export function DataTable({
                 >
                   {columns.map((col) => {
                     const raw = row[col.index] ?? "";
+                    const isEmpty = !raw || !raw.trim();
                     return (
                       <td
                         key={col.index}
@@ -204,12 +211,22 @@ export function DataTable({
                         }}
                         className={cn(
                           "px-3 py-2.5 border-b border-slate-200/60",
-                          "text-slate-800 whitespace-nowrap",
-                          col.numeric ? "text-right tabular-nums" : "text-left"
+                          "whitespace-nowrap",
+                          isEmpty ? "select-none" : "text-slate-800",
+                          col.numeric && !isEmpty ? "text-right tabular-nums" : "",
+                          isEmpty
+                            ? col.numeric
+                              ? "text-right"
+                              : "text-left"
+                            : col.numeric
+                            ? "text-right tabular-nums"
+                            : "text-left"
                         )}
-                        title={raw}
+                        title={isEmpty ? "vacío" : raw}
                       >
-                        {col.status ? (
+                        {isEmpty ? (
+                          <span className="text-slate-200 text-base leading-none">·</span>
+                        ) : col.status ? (
                           <StatusBadge
                             value={raw}
                             status={matchStatus(raw)}
@@ -226,6 +243,6 @@ export function DataTable({
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
   );
 }
