@@ -3,5 +3,8 @@
   "buildCommand": "npm run build",
   "installCommand": "npm ci --no-audit --no-fund --prefer-offline",
   "outputDirectory": "dist",
-  "framework": "vite"
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
