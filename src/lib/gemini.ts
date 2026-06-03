@@ -1,7 +1,8 @@
 /**
  * gemini.ts — Utilidades para el asistente de producción Vadim.
- * Las llamadas se hacen directamente a la API de OpenCode.
+ * Usa Puter.js para acceso gratuito a modelos Qwen sin API keys.
  */
+import { puter } from "@heyputer/puter.js";
 
 // ─── System prompt — conocimiento completo de la herramienta ─────────────────
 
@@ -54,7 +55,7 @@ Cuando un usuario reporte un error o problema técnico:
 - Estado: React Query + Context API
 - Autenticación: Supabase Auth
 - Storage: Supabase Storage (bucket: partes-archivos)
-- AI: OpenCode API (modelo: deepseek-v4-flash-free)
+- AI: Puter.js + Qwen 3.6 Plus (gratuito, sin API keys)
 
 **Estructura de carpetas:**
 \`\`\`
@@ -264,17 +265,16 @@ ESTADOS DE UN PARTE:
 - Usa los datos actuales del sistema cuando estén disponibles en el contexto
 `.trim();
 
-// ─── Formato de historial compatible con OpenAI / Groq ───────────────────────
+// ─── Formato de historial compatible con Puter.js ────────────────────────────
 
 export interface ChatContent {
   role: "user" | "assistant";
   content: string;
 }
 
-// ─── Llamada a la Edge Function con streaming ─────────────────────────────────
+// ─── Llamada a Puter.js con streaming ─────────────────────────────────────────
 
-const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL as string;
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+const MODEL = "qwen/qwen3.6-plus";
 
 export async function callChatFunction({
   message,
@@ -287,31 +287,23 @@ export async function callChatFunction({
   systemInstruction: string;
   onChunk: (text: string) => void;
 }): Promise<string> {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${SUPABASE_ANON}`,
-      "apikey": SUPABASE_ANON,
-    },
-    body: JSON.stringify({ message, history, systemInstruction }),
+  const messages = [
+    { role: "system", content: systemInstruction },
+    ...(history ?? []),
+    { role: "user", content: message },
+  ];
+
+  const response = await puter.ai.chat(messages, {
+    model: MODEL,
+    stream: true,
   });
 
-  if (!res.ok) {
-    const err = await res.text().catch(() => `HTTP ${res.status}`);
-    throw new Error(err);
-  }
-
-  const reader  = res.body!.getReader();
-  const decoder = new TextDecoder();
   let full = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const chunk = decoder.decode(value, { stream: true });
-    full += chunk;
-    onChunk(full);
+  for await (const part of response) {
+    if (part?.text) {
+      full += part.text;
+      onChunk(full);
+    }
   }
 
   return full;
