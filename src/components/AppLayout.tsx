@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   FileText,
+  ClipboardCheck,
   LogOut,
   Citrus,
   Calculator,
@@ -53,6 +54,7 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
   {
     label: "Operaciones diarias",
     items: [
+      { to: "/calidad", label: "Calidad", icon: ClipboardCheck },
       { to: "/partes", label: "Partes", icon: FileText, match: (path) => path.startsWith("/partes") },
       { to: "/dsj", label: "Calculadora DJPMN", icon: Calculator },
     ],
@@ -176,9 +178,9 @@ export default function AppLayout() {
         <SidebarRail />
       </Sidebar>
 
-      <SidebarInset>
+      <SidebarInset className="min-w-0">
         <TopBar />
-        <div className="flex flex-1 flex-col px-4 py-5 animate-slideIn sm:px-6 lg:px-8">
+        <div className="flex min-w-0 flex-1 flex-col px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 animate-slideIn sm:px-5 sm:py-5 lg:px-8">
           <Outlet />
         </div>
       </SidebarInset>

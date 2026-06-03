@@ -23,6 +23,12 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/",
     parentLabel: "Operaciones diarias",
   },
+  "/calidad": {
+    label: "Calidad",
+    subtitle: "Notas diarias de lotes y control de calidad",
+    parent: "/",
+    parentLabel: "Operaciones diarias",
+  },
   "/dsj": {
     label: "Calculadora DJPMN",
     subtitle: "Simulación y validación de diferencias sin justificar",
@@ -71,8 +77,8 @@ function TopBar() {
   const meta = baseRoute ? ROUTE_META[baseRoute] : null;
 
   return (
-    <header className="sticky top-0 z-20 flex min-h-16 shrink-0 items-center gap-3 border-b border-primary/10 bg-[var(--glass-bg-strong)] px-4 py-3 shadow-[var(--glass-shadow)] backdrop-blur-xl sm:px-6 lg:px-8">
-      <SidebarTrigger className="-ml-1 size-8 rounded-xl border bg-[var(--glass-bg)] shadow-[var(--glass-shadow)]" />
+    <header className="sticky top-0 z-20 flex min-h-14 shrink-0 items-center gap-2 border-b border-primary/10 bg-[var(--glass-bg-strong)] px-3 py-2.5 shadow-[var(--glass-shadow)] backdrop-blur-xl sm:min-h-16 sm:gap-3 sm:px-5 sm:py-3 lg:px-8">
+      <SidebarTrigger className="-ml-1 size-9 shrink-0 rounded-xl border bg-[var(--glass-bg)] shadow-[var(--glass-shadow)] sm:size-8" />
       <Separator orientation="vertical" className="hidden h-6 sm:block" />
 
       <div className="min-w-0 flex-1">
@@ -93,7 +99,10 @@ function TopBar() {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+        <p className="truncate text-sm font-semibold leading-tight text-foreground sm:hidden">
+          {meta?.label ?? "Dashboard"}
+        </p>
+        <p className="mt-0.5 line-clamp-1 text-[11px] leading-snug text-muted-foreground sm:text-xs">
           {meta?.subtitle ?? "Dashboard"}
         </p>
       </div>

@@ -17,13 +17,18 @@ import {
 } from "@/components/ui/select";
 import {
   Plus, Trash2, Upload, ChevronLeft, ChevronRight, UserCheck, UserX,
-  Users, AlertCircle, Calendar, Search, BarChart3,
+  Users, AlertCircle, Calendar, CalendarDays, Search, BarChart3, Eraser,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { today } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import type { TrabajadorRow } from "@/lib/types";
+import {
+  buildAttendanceRecords,
+  extractDailyAttendanceNames,
+  extractWeeklyAttendance,
+} from "@/lib/asistenciaImport";
 
 const GRUPOS = ["Encargadas", "Produccion", "Aereo", "Tria podrido", "Punta", "Volcador", "Mecanica", "Envasadoras", "Mallas", "Carretilla", "Graneleras", "Mozos", "Carga y descarga"];
 
@@ -98,7 +103,7 @@ export default function Asistencia() {
   const [newWorkerName, setNewWorkerName] = useState("");
   const [newWorkerZona, setNewWorkerZona] = useState("");
   const [showWorkerList, setShowWorkerList] = useState(false);
-  const [importing, setImporting] = useState(false);
+  const [importingMode, setImportingMode] = useState<"daily" | "weekly" | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [parteDelDia, setParteDelDia] = useState<any>(null);
   const [loadingParte, setLoadingParte] = useState(false);
@@ -122,11 +127,13 @@ export default function Asistencia() {
   // ─── Load asistencia for date ──────────────────────────────────────────
 
   async function loadAsistencia(date: string) {
+    if (!user) return;
     setLoadingAsistencia(true);
     const { data, error } = await supabase
       .from("asistencia_detalle")
       .select("trabajador_id, presente")
-      .eq("date", date);
+      .eq("date", date)
+      .eq("user_id", user.id);
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } else {
@@ -160,7 +167,7 @@ export default function Asistencia() {
   }
 
   useEffect(() => { loadTrabajadores(); loadEficiencia(); }, []);
-  useEffect(() => { loadAsistencia(selectedDate); }, [selectedDate]);
+  useEffect(() => { loadAsistencia(selectedDate); }, [selectedDate, user]);
   useEffect(() => { loadParteDelDia(selectedDate); }, [selectedDate]);
 
   // ─── Worker CRUD ───────────────────────────────────────────────────────
@@ -220,13 +227,35 @@ export default function Asistencia() {
           trabajador_id: trabajadorId,
           presente,
         },
-        { onConflict: "date, trabajador_id" }
+        { onConflict: "user_id,date,trabajador_id" }
       );
 
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
       loadAsistencia(selectedDate);
     }
+  }
+
+  async function limpiarAsistenciaDia() {
+    if (!user) return;
+
+    const previous = asistencia;
+    setAsistencia({});
+
+    const { error } = await supabase
+      .from("asistencia_detalle")
+      .delete()
+      .eq("user_id", user.id)
+      .eq("date", selectedDate);
+
+    if (error) {
+      setAsistencia(previous);
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      loadAsistencia(selectedDate);
+      return;
+    }
+
+    toast({ title: "Asistencia del día limpiada" });
   }
 
   async function marcarTodosPresentes() {
@@ -240,7 +269,7 @@ export default function Asistencia() {
     }));
     const { error } = await supabase
       .from("asistencia_detalle")
-      .upsert(records, { onConflict: "date, trabajador_id" });
+      .upsert(records, { onConflict: "user_id,date,trabajador_id" });
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
       return;
@@ -253,10 +282,12 @@ export default function Asistencia() {
 
   // ─── XLSX Import ──────────────────────────────────────────────────────
 
-  const handleImportXLSX = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const importing = importingMode !== null;
+
+  const handleDailyImportXLSX = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setImporting(true);
+    setImportingMode("daily");
 
     try {
       const buffer = await file.arrayBuffer();
@@ -266,85 +297,28 @@ export default function Asistencia() {
 
       if (rowsAll.length < 2) {
         toast({ title: "Excel vacío o sin datos", variant: "destructive" });
-        setImporting(false); e.target.value = ""; return;
+        setImportingMode(null); e.target.value = ""; return;
       }
 
-      const header = rowsAll[0] ?? [];
-      let colIdx: number | null = null;
-      for (let i = 0; i < header.length; i++) {
-        const h = String(header[i] ?? "").toLowerCase().trim();
-        if (/productor|nombre/.test(h)) { colIdx = i; break; }
-      }
-      if (colIdx === null) {
-        toast({ title: "No se encontró columna 'Productor' o 'Nombre' en el Excel", variant: "destructive" });
-        setImporting(false); e.target.value = ""; return;
-      }
-
-      const nombresImport: string[] = [];
-      for (let i = 1; i < rowsAll.length; i++) {
-        const cell = rowsAll[i]?.[colIdx];
-        const nombre = String(cell ?? "").trim();
-        if (nombre && !nombresImport.includes(nombre)) nombresImport.push(nombre);
-      }
-
+      const nombresImport = extractDailyAttendanceNames(rowsAll);
       if (nombresImport.length === 0) {
-        toast({ title: "El archivo no contiene nombres", variant: "destructive" });
-        setImporting(false);
+        toast({ title: "No se encontró columna 'Productor' o 'Nombre' en el Excel", variant: "destructive" });
+        setImportingMode(null);
         e.target.value = "";
         return;
       }
 
       const activos = trabajadores.filter((t) => t.activo);
-      if (!user) return;
+      if (!user) {
+        setImportingMode(null);
+        return;
+      }
 
-      const cleanName = (s: string) => {
-        const corruptMap: Record<string, string> = {
-          '\u01ed': 'A', '\u01ec': 'A',
-          '\u01f8': 'E', '\u01f9': 'E',
-          '\u01d0': 'I', '\u01cf': 'I',
-        };
-        let r = s;
-        for (const [k, v] of Object.entries(corruptMap)) r = r.split(k).join(v);
-        return r.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-          .replace(/[,\u00ad]/g, "").toUpperCase().replace(/\s+/g, " ").trim();
-      };
-      const wordSet = (s: string) => cleanName(s).split(" ").filter(w => w.length >= 2).sort();
-      const wordsMatch = (a: string, b: string) => {
-        if (a === b || a.includes(b) || b.includes(a)) return true;
-        let prefixLen = 0;
-        const minLen = Math.min(a.length, b.length);
-        for (let i = 0; i < minLen; i++) { if (a[i] === b[i]) prefixLen++; else break; }
-        return prefixLen >= 4;
-      };
-      const matchScore = (excelName: string, dbName: string) => {
-        const eWords = wordSet(excelName);
-        const dWords = wordSet(dbName);
-        if (!eWords.length || !dWords.length) return 0;
-        let hits = 0;
-        for (const dw of dWords) {
-          if (eWords.some(ew => wordsMatch(ew, dw))) hits++;
-        }
-        return hits / dWords.length;
-      };
-
-      const records = activos.map((t) => {
-        const matched = nombresImport.some((n) => {
-          const score = matchScore(n, t.nombre);
-          const eWords = wordSet(n);
-          const need = Math.min(eWords.length, 2) / Math.max(eWords.length, 1);
-          return score >= Math.max(0.5, need);
-        });
-        return {
-          user_id: user.id,
-          date: selectedDate,
-          trabajador_id: t.id,
-          presente: matched,
-        };
-      });
+      const records = buildAttendanceRecords(nombresImport, activos, user.id, selectedDate);
 
       const { error } = await supabase
         .from("asistencia_detalle")
-        .upsert(records, { onConflict: "date, trabajador_id" });
+        .upsert(records, { onConflict: "user_id,date,trabajador_id" });
 
       if (error) throw error;
 
@@ -352,13 +326,69 @@ export default function Asistencia() {
 
       const presentes = records.filter((r) => r.presente).length;
       toast({
-        title: `Importado — ${presentes} presentes de ${records.length} trabajadores`,
+        title: `Diario importado — ${presentes} presentes de ${records.length} trabajadores`,
       });
     } catch (err: any) {
       toast({ title: "Error al importar", description: err.message, variant: "destructive" });
     }
 
-    setImporting(false);
+    setImportingMode(null);
+    e.target.value = "";
+  }, [trabajadores, selectedDate, user]);
+
+  const handleWeeklyImportXLSX = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingMode("weekly");
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+      const rowsBySheet = workbook.SheetNames.flatMap((sheetName) => {
+        const sheet = workbook.Sheets[sheetName];
+        return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null }) as any[][];
+      });
+
+      const defaultYear = Number(selectedDate.slice(0, 4)) || new Date().getFullYear();
+      const days = extractWeeklyAttendance(rowsBySheet, defaultYear);
+      if (days.length === 0) {
+        toast({ title: "No se encontraron fechas en el Excel", description: "Para importar semanal, el archivo debe incluir fechas visibles en cabeceras o bloques.", variant: "destructive" });
+        setImportingMode(null);
+        e.target.value = "";
+        return;
+      }
+
+      const activos = trabajadores.filter((t) => t.activo);
+      if (!user) {
+        setImportingMode(null);
+        return;
+      }
+
+      const records = days.flatMap((day) => buildAttendanceRecords(day.names, activos, user.id, day.date));
+      if (records.length === 0) {
+        toast({ title: "No hay registros para importar", variant: "destructive" });
+        setImportingMode(null);
+        e.target.value = "";
+        return;
+      }
+
+      const { error } = await supabase
+        .from("asistencia_detalle")
+        .upsert(records, { onConflict: "user_id,date,trabajador_id" });
+      if (error) throw error;
+
+      if (days.some((day) => day.date === selectedDate)) await loadAsistencia(selectedDate);
+
+      const presentes = records.filter((record) => record.presente).length;
+      toast({
+        title: `Semanal importado — ${days.length} día(s) detectado(s)`,
+        description: `${presentes} presentes guardados sobre ${records.length} registros.`,
+      });
+    } catch (err: any) {
+      toast({ title: "Error al importar semanal", description: err.message, variant: "destructive" });
+    }
+
+    setImportingMode(null);
     e.target.value = "";
   }, [trabajadores, selectedDate, user]);
 
@@ -811,12 +841,24 @@ export default function Asistencia() {
                 <Button variant="outline" size="sm" disabled={!user} onClick={marcarTodosPresentes} className="glass glass-hover">
                   <UserCheck className="h-4 w-4 mr-1.5" /> Todos presentes
                 </Button>
+                <Button variant="outline" size="sm" disabled={!user || sinRegistro === totalActivos} onClick={limpiarAsistenciaDia} className="glass glass-hover">
+                  <Eraser className="h-4 w-4 mr-1.5" /> Limpiar día
+                </Button>
                 <label className="relative">
-                  <input type="file" accept=".xlsx,.xls" className="absolute inset-0 opacity-0 cursor-pointer peer" onChange={handleImportXLSX} disabled={importing} />
+                  <input type="file" accept=".xlsx,.xls" className="absolute inset-0 opacity-0 cursor-pointer peer" onChange={handleDailyImportXLSX} disabled={importing} />
                   <Button variant="outline" size="sm" disabled={importing} asChild className="glass transition-shadow duration-300 peer-hover:shadow-[var(--glass-shadow),var(--glass-glow)]">
                     <span className="cursor-pointer">
                       <Upload className="h-4 w-4 mr-1.5" />
-                      {importing ? "Importando…" : "Importar XLSX"}
+                      {importingMode === "daily" ? "Importando…" : "Importar diario"}
+                    </span>
+                  </Button>
+                </label>
+                <label className="relative">
+                  <input type="file" accept=".xlsx,.xls" className="absolute inset-0 opacity-0 cursor-pointer peer" onChange={handleWeeklyImportXLSX} disabled={importing} />
+                  <Button variant="outline" size="sm" disabled={importing} asChild className="glass transition-shadow duration-300 peer-hover:shadow-[var(--glass-shadow),var(--glass-glow)]">
+                    <span className="cursor-pointer">
+                      <CalendarDays className="h-4 w-4 mr-1.5" />
+                      {importingMode === "weekly" ? "Importando…" : "Importar semanal"}
                     </span>
                   </Button>
                 </label>
@@ -886,21 +928,21 @@ export default function Asistencia() {
                               <UserCheck className="h-3.5 w-3.5 mr-1" />Todos
                             </Button>
                           </div>
-                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3">
                             {workers.map((t) => {
                               const presente = asistencia[t.id];
                               return (
                                 <div
                                   key={t.id}
                                   className={cn(
-                                    "flex items-center justify-between gap-2 rounded-xl border border-[var(--glass-border)] px-4 py-3 transition-colors shadow-[var(--glass-shadow)] bg-[var(--glass-bg)]",
+                                    "flex min-h-[74px] items-center justify-between gap-3 rounded-xl border border-[var(--glass-border)] px-4 py-3 transition-colors shadow-[var(--glass-shadow)] bg-[var(--glass-bg)]",
                                     presente === true && "bg-success/10 border-success/30",
                                     presente === false && "bg-destructive/10 border-destructive/30",
                                     presente === undefined && "border-[var(--glass-border)] bg-[var(--glass-bg)]",
                                   )}
                                 >
                                   <div className="min-w-0 flex-1">
-                                    <p className="text-sm font-semibold truncate">{t.nombre}</p>
+                                    <p className="line-clamp-2 text-base font-semibold leading-snug">{t.nombre}</p>
                                     {t.zona && (
                                       <p className="text-xs text-muted-foreground truncate mt-0.5">{t.zona}</p>
                                     )}

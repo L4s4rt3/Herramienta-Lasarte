@@ -1,6 +1,7 @@
 export const pageLoaders = {
   auth: () => import("@/pages/Auth"),
   dashboard: () => import("@/pages/Dashboard"),
+  calidad: () => import("@/pages/CalidadJornada"),
   partesList: () => import("@/pages/PartesList"),
   partDetail: () => import("@/pages/PartDetail"),
   dsjCalculator: () => import("@/pages/DSJCalculator"),
@@ -15,6 +16,7 @@ export const pageLoaders = {
 
 const preloadByPath: Record<string, () => Promise<unknown>> = {
   "/": pageLoaders.dashboard,
+  "/calidad": pageLoaders.calidad,
   "/partes": pageLoaders.partesList,
   "/dsj": pageLoaders.dsjCalculator,
   "/costes/consumos": pageLoaders.consumoCostes,

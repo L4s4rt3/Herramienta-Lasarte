@@ -15,6 +15,7 @@ import { pageLoaders } from "@/lib/routePreload";
 
 const Auth = lazy(pageLoaders.auth);
 const Dashboard = lazy(pageLoaders.dashboard);
+const CalidadJornada = lazy(pageLoaders.calidad);
 const PartesList = lazy(pageLoaders.partesList);
 const PartDetail = lazy(pageLoaders.partDetail);
 const DSJCalculator = lazy(pageLoaders.dsjCalculator);
@@ -57,6 +58,7 @@ const App = () => (
                     }
                   >
                     <Route path="/" element={<Dashboard />} />
+                    <Route path="/calidad" element={<CalidadJornada />} />
                     <Route path="/partes" element={<PartesList />} />
                     <Route path="/partes/:id" element={<PartDetail />} />
                     <Route path="/dsj" element={<DSJCalculator />} />

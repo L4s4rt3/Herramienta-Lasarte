@@ -16,7 +16,7 @@ export function useDataWarmup() {
   useEffect(() => {
     const warmup = () => {
       void queryClient.prefetchQuery(partesQueryOptions);
-      ["/partes", "/analisis/diario", "/calendario", "/productores", "/costes/consumos"].forEach(preloadRoute);
+      ["/calidad", "/partes", "/analisis/diario", "/calendario", "/productores", "/costes/consumos"].forEach(preloadRoute);
     };
 
     if (window.requestIdleCallback) {

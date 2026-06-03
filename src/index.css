@@ -207,23 +207,35 @@
   }
 
   .page-shell {
-    @apply mx-auto w-full max-w-[1500px] space-y-6;
+    @apply mx-auto w-full max-w-[1500px] space-y-4 sm:space-y-5 lg:space-y-6;
   }
 
   .page-header {
-    @apply flex flex-wrap items-start justify-between gap-4 rounded-xl glass-accented p-5;
+    @apply flex flex-col items-stretch gap-4 rounded-xl glass-accented p-4 sm:p-5 lg:flex-row lg:items-start lg:justify-between;
+  }
+
+  .page-header > * {
+    min-width: 0;
+  }
+
+  .page-header > :first-child {
+    @apply flex-1;
+  }
+
+  .page-header > :last-child {
+    @apply w-full lg:w-auto;
   }
 
   .page-title {
-    @apply text-2xl font-semibold tracking-tight text-foreground md:text-3xl;
+    @apply text-xl font-semibold leading-tight tracking-tight text-foreground sm:text-2xl md:text-3xl;
   }
 
   .page-subtitle {
-    @apply mt-1 text-sm text-muted-foreground;
+    @apply mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground;
   }
 
   .section-toolbar {
-    @apply flex flex-col gap-3 rounded-xl glass-accented p-3 sm:flex-row sm:flex-wrap sm:items-center;
+    @apply flex flex-col gap-3 rounded-xl glass-accented p-3 sm:flex-row sm:flex-wrap sm:items-center sm:p-4;
   }
 
   .content-panel {
@@ -276,15 +288,15 @@
   }
 
   .section-card-header {
-    @apply border-b border-[var(--glass-border)] px-5 py-4;
+    @apply border-b border-[var(--glass-border)] px-4 py-3 sm:px-5 sm:py-4;
   }
 
   .section-card-body {
-    @apply p-5;
+    @apply p-4 sm:p-5;
   }
 
   .empty-state {
-    @apply flex flex-col items-center justify-center rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-10 text-center text-sm text-muted-foreground backdrop-blur-xl;
+    @apply flex flex-col items-center justify-center rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-6 text-center text-sm text-muted-foreground backdrop-blur-xl sm:p-10;
   }
 
   .panel-title {
@@ -296,7 +308,7 @@
   }
 
   .metric-strip {
-    @apply grid gap-3 sm:grid-cols-2 xl:grid-cols-4;
+    @apply grid grid-cols-2 gap-3 xl:grid-cols-4;
   }
 
   .data-table {
@@ -308,11 +320,11 @@
   }
 
   .data-table th {
-    @apply px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground;
+    @apply px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:px-4 sm:py-3;
   }
 
   .data-table td {
-    @apply px-4 py-3 align-middle;
+    @apply px-3 py-2.5 align-middle sm:px-4 sm:py-3;
   }
 
   .data-table tbody tr {
@@ -330,6 +342,31 @@
     border-radius: 4px;
     padding: 2px 4px;
     transition: opacity 0.15s;
+  }
+
+  @media (max-width: 640px) {
+    .page-header .button-row,
+    .section-toolbar .button-row {
+      width: 100%;
+    }
+
+    .page-header button,
+    .page-header a[role="button"],
+    .section-toolbar button,
+    .section-toolbar a[role="button"] {
+      min-height: 2.75rem;
+    }
+
+    .page-header > :last-child button,
+    .page-header > :last-child a[role="button"] {
+      flex: 1 1 9rem;
+    }
+
+    .section-toolbar input,
+    .section-toolbar button,
+    .section-toolbar [role="combobox"] {
+      width: 100%;
+    }
   }
   input[type="date"]::-webkit-calendar-picker-indicator:hover {
     opacity: 0.9;

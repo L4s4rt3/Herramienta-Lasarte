@@ -16,6 +16,7 @@ import { ArrowLeft, Save, Lock, Unlock, Sparkles, Loader2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExportPartesDialog } from "@/components/ExportPartesDialog";
 import PartDetailArchivos from "@/components/PartDetailArchivos";
+import PartDetailCalidad from "@/components/PartDetailCalidad";
 import PartDetailManual from "@/components/PartDetailManual";
 import PartDetailNotas from "@/components/PartDetailNotas";
 
@@ -354,10 +355,11 @@ export default function PartDetail() {
       </Card>
 
       <Tabs defaultValue="archivos" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 sm:w-auto sm:inline-flex">
+        <TabsList className="grid w-full grid-cols-4 sm:w-auto sm:inline-flex">
           <TabsTrigger value="archivos">Archivos</TabsTrigger>
           <TabsTrigger value="manual">Datos manuales</TabsTrigger>
           <TabsTrigger value="notas">Notas</TabsTrigger>
+          <TabsTrigger value="calidad">Calidad</TabsTrigger>
         </TabsList>
 
         {/* ── TAB: Archivos ───────────────────────────────────────────────── */}
@@ -388,6 +390,10 @@ export default function PartDetail() {
             readOnly={readOnly}
             update={update}
           />
+        </TabsContent>
+
+        <TabsContent value="calidad" className="mt-4">
+          <PartDetailCalidad date={parte.date} />
         </TabsContent>
       </Tabs>
     </div>

@@ -12,6 +12,7 @@ import {
 import {
   LayoutDashboard,
   FileText,
+  ClipboardCheck,
   Calculator,
   BarChart3,
   Sprout,
@@ -26,6 +27,7 @@ import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 
 const PAGES = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, keywords: "panel inicio dashboard" },
+  { to: "/calidad", label: "Jornada de Calidad", icon: ClipboardCheck, keywords: "calidad lotes notas aerobotics finca productor" },
   { to: "/partes", label: "Partes diarios", icon: FileText, keywords: "partes produccion diario" },
   { to: "/dsj", label: "Calculadora DJPMN", icon: Calculator, keywords: "dsj calculadora descuadre calculo" },
   { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3, keywords: "analisis diario lotes calibres" },
@@ -36,6 +38,7 @@ const PAGES = [
 ];
 
 const ACTIONS = [
+  { id: "nueva-calidad", label: "Crear notas de calidad", icon: ClipboardCheck, to: "/calidad" },
   { id: "nuevo-parte", label: "Crear nuevo parte", icon: Plus, to: "/partes" },
   { id: "ir-hoy", label: "Ir al día de hoy", icon: ArrowRight, to: "/calendario" },
 ];
