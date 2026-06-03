@@ -16,7 +16,7 @@ interface ChatMessage {
 
 const PUTER_TIMEOUT_MS = 25_000;
 const PUTER_API_URL = "https://api.puter.com/puterai/openai/v1/chat/completions";
-const MODEL = "qwen/qwen3.6-plus";
+const MODEL = "qwen/qwen3.6-flash";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
