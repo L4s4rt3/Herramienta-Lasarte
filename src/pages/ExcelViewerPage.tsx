@@ -161,12 +161,12 @@ export default function ExcelViewerPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-10 border-b border-[var(--glass-border)] bg-[var(--glass-bg-strong)] backdrop-blur-xl">
-        <div className="flex items-center justify-between px-4 py-3 max-w-7xl mx-auto">
+      <header className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/75 backdrop-blur-xl shadow-[0_1px_18px_rgba(15,23,42,0.06)]">
+        <div className="flex items-center justify-between px-4 py-3 max-w-[1600px] mx-auto">
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => navigate(-1)}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-[var(--glass-bg)] hover:text-foreground transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-slate-100 hover:text-foreground transition-colors"
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
@@ -192,7 +192,7 @@ export default function ExcelViewerPage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto p-4">
+      <main className="max-w-[1600px] mx-auto p-4 lg:p-6">
         {loading && (
           <div className="flex items-center justify-center py-24">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -207,15 +207,15 @@ export default function ExcelViewerPage() {
         )}
 
         {!loading && !error && sheets.length > 1 && (
-          <div className="flex gap-1 mb-4 overflow-x-auto">
+          <div className="flex gap-1.5 mb-4 overflow-x-auto scrollbar-midas">
             {sheets.map((s, i) => (
               <button
                 key={i}
                 onClick={() => setActiveSheet(String(i))}
-                className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                className={`shrink-0 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
                   activeSheet === String(i)
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-[var(--glass-bg)] text-muted-foreground hover:text-foreground border border-[var(--glass-border)]"
+                    ? "border-orange-500/35 bg-orange-500/10 text-orange-700 shadow-sm"
+                    : "border-slate-200 bg-white/75 text-muted-foreground hover:text-foreground hover:bg-white"
                 }`}
               >
                 {s.name}
@@ -225,12 +225,12 @@ export default function ExcelViewerPage() {
         )}
 
         {!loading && !error && sheets.length > 0 && (
-          <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)]">
+          <div className="rounded-xl border border-slate-200/70 bg-white/55 p-2 shadow-[0_14px_38px_rgba(15,23,42,0.08)] backdrop-blur-sm">
             {sheets.map((s, i) => {
               if (String(i) !== activeSheet) return null;
               const parsed = parseSheetToStructured(s, fileName);
               return (
-                <div key={i} className="p-4">
+                <div key={i} className="p-2 lg:p-3">
                   <ExcelPreviewer data={parsed} />
                 </div>
               );

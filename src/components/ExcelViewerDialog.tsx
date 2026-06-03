@@ -136,8 +136,13 @@ function detectModuleVariant(filename: string, firstRow?: string[]): keyof typeo
 export function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel {
   const result: ParsedExcel = { filename, metrics: [], tables: [] };
 
+  const sourceRows =
+    sheet.headers.some((c) => c && c.trim())
+      ? [sheet.headers, ...sheet.rows]
+      : sheet.rows;
+
   // 1) Trim + drop filas vacías
-  const clean = sheet.rows
+  const clean = sourceRows
     .map((r) => r.map((c) => (c ?? "").trim()))
     .filter((r) => r.some((c) => c.length > 0));
   if (clean.length === 0) return result;
@@ -904,8 +909,8 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[95vh] flex flex-col">
-        <DialogHeader className="shrink-0">
+      <DialogContent className="max-w-[min(1500px,96vw)] max-h-[95vh] flex flex-col border-slate-200/70 bg-white/90 p-0 backdrop-blur-xl">
+        <DialogHeader className="shrink-0 border-b border-slate-200/70 px-5 py-4">
           <div className="flex items-center justify-between pr-8">
             <div className="flex items-center gap-2 min-w-0">
               <FileSpreadsheet className="h-5 w-5 text-primary shrink-0" />
@@ -930,7 +935,7 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
           </div>
         </DialogHeader>
 
-        <div className="flex-1 min-h-0 overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-hidden px-4 pb-4 pt-3">
           {loading && (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -947,7 +952,7 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
           {!loading && !error && sheets.length > 0 && (
             <Tabs value={activeSheet} onValueChange={setActiveSheet} className="flex flex-col h-full">
               {sheets.length > 1 && (
-                <TabsList className="shrink-0 self-start">
+                <TabsList className="shrink-0 self-start bg-slate-100/80">
                   {sheets.map((s, i) => (
                     <TabsTrigger key={i} value={String(i)} className="text-xs">
                       {s.name}
@@ -968,7 +973,7 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
                   <TabsContent
                     key={i}
                     value={String(i)}
-                    className="mt-2 flex-1 min-h-0 outline-none"
+                    className="mt-3 flex-1 min-h-0 outline-none"
                   >
                     <ExcelPreviewer data={parsed} />
                   </TabsContent>

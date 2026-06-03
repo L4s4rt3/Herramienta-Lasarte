@@ -34,29 +34,29 @@ export function PreviewHeader({
   return (
     <header
       className={cn(
-        "shrink-0 rounded-xl border border-slate-200/60",
-        "bg-white/70 backdrop-blur-sm shadow-[0_4px_16px_rgba(15,23,42,0.06)]",
+        "shrink-0 rounded-xl border border-slate-200/70",
+        "bg-white/85 backdrop-blur-sm shadow-[0_10px_28px_rgba(15,23,42,0.08)]",
         "p-4 space-y-3"
       )}
     >
       <div className="flex items-center gap-3 min-w-0">
         <span
           className={cn(
-            "inline-flex items-center gap-1.5 px-2 py-1 rounded-md shrink-0",
+            "inline-flex h-8 items-center gap-1.5 px-2.5 rounded-lg shrink-0",
             "font-bold text-[10px] uppercase tracking-wider",
-            "bg-orange-500/10 text-orange-700 border border-orange-500/25"
+            "bg-orange-500/10 text-orange-700 border border-orange-500/30 shadow-sm"
           )}
         >
           <Icon className="h-3 w-3" />
           {ext}
         </span>
-        <h1 className="text-base font-bold text-slate-900 tracking-tight truncate min-w-0">
+        <h1 className="text-lg font-bold text-slate-950 tracking-tight truncate min-w-0">
           {filename}
         </h1>
       </div>
 
       {(title || subtitle) && (
-        <div className="flex items-baseline gap-2 flex-wrap text-sm">
+        <div className="flex items-baseline gap-2 flex-wrap rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2 text-sm">
           {title && (
             <span className="font-semibold text-slate-900">{title}</span>
           )}
@@ -78,11 +78,11 @@ export function PreviewHeader({
                 key={sheet.index}
                 onClick={() => onSheetChange?.(sheet.index)}
                 className={cn(
-                  "shrink-0 px-3 py-1 rounded-md text-xs font-medium transition-colors",
+                  "shrink-0 h-8 px-3 rounded-lg text-xs font-semibold transition-colors",
                   "border",
                   active
-                    ? "bg-orange-500/10 text-orange-700 border-orange-500/30"
-                    : "bg-white/40 text-slate-600 border-slate-200/60 hover:bg-slate-50"
+                    ? "bg-orange-500/10 text-orange-700 border-orange-500/30 shadow-sm"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
                 )}
               >
                 {sheet.name}

@@ -21,8 +21,8 @@ function MetricCard({ metric }: MetricCardProps) {
   return (
     <div
       className={cn(
-        "rounded-lg border border-slate-200/60 bg-white/60 backdrop-blur-sm",
-        "p-2.5 flex flex-col gap-0.5 min-w-0"
+        "rounded-xl border border-slate-200/70 bg-white/85 backdrop-blur-sm",
+        "p-3 flex flex-col gap-1 min-w-0 shadow-[0_6px_18px_rgba(15,23,42,0.06)]"
       )}
     >
       <div className="flex items-center gap-1.5 min-w-0">
@@ -31,7 +31,7 @@ function MetricCard({ metric }: MetricCardProps) {
             {metric.category}
           </span>
         )}
-        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate">
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate">
           {metric.label}
         </span>
       </div>
@@ -40,7 +40,7 @@ function MetricCard({ metric }: MetricCardProps) {
           <StatusBadge value={String(metric.value)} status={status} />
         </div>
       ) : (
-        <span className="text-base font-bold text-slate-900 tabular-nums truncate">
+        <span className="text-xl font-bold text-slate-950 tabular-nums truncate leading-tight">
           {metric.value}
         </span>
       )}

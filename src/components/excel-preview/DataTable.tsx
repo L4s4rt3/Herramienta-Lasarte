@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
+  Rows3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -155,20 +156,23 @@ export function DataTable({
   return (
     <section
       className={cn(
-        "shrink-0 w-full rounded-xl border border-slate-200/60",
-        "bg-white/60 backdrop-blur-sm shadow-[0_4px_16px_rgba(15,23,42,0.06)]",
+        "shrink-0 w-full rounded-xl border border-slate-200/70",
+        "bg-white/85 backdrop-blur-sm shadow-[0_10px_28px_rgba(15,23,42,0.08)]",
         "overflow-hidden flex flex-col"
       )}
     >
-      <header className="shrink-0 flex items-center justify-between gap-3 px-4 py-2 border-b border-slate-200/80 bg-slate-50/70">
+      <header className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-200/80 bg-gradient-to-r from-slate-50 via-white to-emerald-50/45">
         <div className="min-w-0 flex items-center gap-3">
+          <span className="hidden sm:inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm">
+            <Rows3 className="h-4 w-4" />
+          </span>
           {table.section && (
-            <h3 className="text-[10px] font-bold text-slate-700 uppercase tracking-widest truncate">
+            <h3 className="text-[11px] font-bold text-slate-800 uppercase tracking-widest truncate">
               {table.section}
             </h3>
           )}
           {table.description && (
-            <p className="text-[10px] text-slate-500 truncate">
+            <p className="text-[11px] text-slate-500 truncate">
               {table.description}
             </p>
           )}
@@ -178,10 +182,10 @@ export function DataTable({
             <button
               onClick={() => setHideEmpty((v) => !v)}
               className={cn(
-                "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-semibold border transition-colors",
+                "inline-flex h-7 items-center gap-1.5 px-2.5 rounded-lg text-[10px] font-semibold border transition-colors",
                 hideEmpty
                   ? "bg-orange-500/10 text-orange-700 border-orange-500/30"
-                  : "bg-slate-100 text-slate-600 border-slate-200/60 hover:bg-slate-200/60"
+                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
               )}
               title={
                 hideEmpty
@@ -190,16 +194,16 @@ export function DataTable({
               }
             >
               {hideEmpty ? (
-                <EyeOff className="h-2.5 w-2.5" />
+                <EyeOff className="h-3 w-3" />
               ) : (
-                <Eye className="h-2.5 w-2.5" />
+                <Eye className="h-3 w-3" />
               )}
               {hideEmpty ? `${columns.length} cols` : `${allColumns.length} cols`}
             </button>
           )}
           {table.rows.length > 0 && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/10 text-emerald-700 border border-emerald-500/25">
-              <CheckCircle2 className="h-2.5 w-2.5" />
+            <span className="inline-flex h-7 items-center gap-1.5 px-2.5 rounded-lg text-[10px] font-semibold bg-emerald-500/10 text-emerald-700 border border-emerald-500/25">
+              <CheckCircle2 className="h-3 w-3" />
               Validado
             </span>
           )}
@@ -213,10 +217,15 @@ export function DataTable({
         </div>
       )}
 
-      <div className="overflow-auto scrollbar-midas max-h-[50vh]">
-        <table className="text-xs border-collapse w-auto">
+      <div className="overflow-auto scrollbar-midas max-h-[62vh] bg-white">
+        <table className="min-w-full w-max table-fixed border-collapse text-[12px]">
+          <colgroup>
+            {columns.map((col) => (
+              <col key={col.index} style={{ width: col.width }} />
+            ))}
+          </colgroup>
           <thead className="sticky top-0 z-20">
-            <tr className="bg-slate-50/95 backdrop-blur-sm shadow-[0_2px_6px_rgba(15,23,42,0.06)]">
+            <tr className="bg-slate-100/95 backdrop-blur-sm shadow-[0_2px_8px_rgba(15,23,42,0.09)]">
               {columns.map((col) => {
                 const isSorted = sortCol === col.index;
                 const SortIcon =
@@ -229,21 +238,21 @@ export function DataTable({
                   <th
                     key={col.index}
                     onClick={() => handleHeaderClick(col.index)}
-                    style={{ minWidth: col.width }}
                     className={cn(
-                      "px-3 py-2.5 font-semibold border-b border-slate-200/80",
+                      "px-3 py-3 font-bold border-b border-slate-300/80",
                       "text-slate-700 cursor-pointer select-none whitespace-nowrap",
-                      "hover:bg-slate-100/60 transition-colors group",
+                      "hover:bg-white transition-colors group",
+                      col.index === 0 && "sticky left-0 z-30 bg-slate-100/95 shadow-[1px_0_0_rgba(148,163,184,0.35)]",
                       col.numeric ? "text-right" : "text-left"
                     )}
                   >
                     <span
                       className={cn(
-                        "inline-flex items-center gap-1",
+                        "inline-flex max-w-full items-center gap-1.5",
                         col.numeric && "flex-row-reverse"
                       )}
                     >
-                      {col.header}
+                      <span className="truncate">{col.header}</span>
                       <SortIcon
                         className={cn(
                           "h-3 w-3 shrink-0",
@@ -265,9 +274,9 @@ export function DataTable({
                 <tr
                   key={ri}
                   onClick={() => onRowSelect?.(originalIndex, row)}
-                  className={cn(
-                    "transition-colors cursor-pointer",
-                    ri % 2 === 1 && !summaryType && "bg-slate-50/40",
+                    className={cn(
+                      "transition-colors cursor-pointer",
+                    ri % 2 === 1 && !summaryType && "bg-slate-50/55",
                     summaryType === "total" && "bg-slate-100/80 font-semibold",
                     summaryType === "subcategory" && "bg-slate-50/60 pl-6",
                     isSelected
@@ -285,11 +294,15 @@ export function DataTable({
                           e.stopPropagation();
                           handleCellClick(raw);
                         }}
-                        style={{ minWidth: col.width }}
                         className={cn(
-                          "px-3 py-2.5 border-b border-slate-200/60",
-                          "whitespace-nowrap",
+                          "px-3 py-2.5 border-b border-slate-200/70 align-middle",
+                          "whitespace-nowrap overflow-hidden text-ellipsis",
                           isEmpty ? "select-none" : "text-slate-800",
+                          col.index === 0 && cn(
+                            "sticky left-0 z-10 shadow-[1px_0_0_rgba(226,232,240,0.9)]",
+                            summaryType === "total" ? "bg-slate-100" : ri % 2 === 1 ? "bg-slate-50" : "bg-white"
+                          ),
+                          isSelected && col.index === 0 && "!bg-orange-50",
                           col.numeric ? "text-right tabular-nums" : "text-left"
                         )}
                         title={isEmpty ? "vacío" : raw}

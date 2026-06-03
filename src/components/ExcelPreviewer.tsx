@@ -44,7 +44,7 @@ export default function ExcelPreviewer({
   const hasAnyData = data.metrics.length > 0 || data.tables.length > 0;
 
   return (
-    <div className="h-full flex flex-col gap-3 min-h-0">
+    <div className="h-full flex flex-col gap-4 min-h-0">
       <PreviewHeader
         filename={data.filename}
         mimeType={mimeType}
@@ -61,7 +61,8 @@ export default function ExcelPreviewer({
         <div
           className={cn(
             "flex-1 min-h-0 flex flex-col items-center justify-center gap-2",
-            "rounded-xl border border-slate-200/60 bg-white/60 backdrop-blur-sm p-8",
+            "rounded-xl border border-slate-200/70 bg-white/85 backdrop-blur-sm p-10",
+            "shadow-[0_10px_28px_rgba(15,23,42,0.08)]",
             "text-sm text-slate-500"
           )}
         >
@@ -72,7 +73,7 @@ export default function ExcelPreviewer({
         <div
           className={cn(
             "flex-1 min-h-0 overflow-y-auto scrollbar-midas",
-            "flex flex-col gap-3 pr-1"
+            "flex flex-col gap-4 pr-1"
           )}
         >
           {data.tables.map((table, i) => {
