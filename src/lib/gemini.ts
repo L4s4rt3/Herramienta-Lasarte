@@ -1,8 +1,7 @@
 /**
  * gemini.ts — Utilidades para el asistente de producción Vadim.
- * Usa Puter.js para acceso gratuito a modelos Qwen sin API keys.
+ * Las llamadas van a la Edge Function de Supabase, que usa Puter como backend.
  */
-import { puter } from "@heyputer/puter.js";
 
 // ─── System prompt — conocimiento completo de la herramienta ─────────────────
 
@@ -272,9 +271,10 @@ export interface ChatContent {
   content: string;
 }
 
-// ─── Llamada a Puter.js con streaming ─────────────────────────────────────────
+// ─── Llamada a la Edge Function con streaming ─────────────────────────────────
 
-const MODEL = "qwen/qwen3.6-plus";
+const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 export async function callChatFunction({
   message,
@@ -287,23 +287,31 @@ export async function callChatFunction({
   systemInstruction: string;
   onChunk: (text: string) => void;
 }): Promise<string> {
-  const messages = [
-    { role: "system", content: systemInstruction },
-    ...(history ?? []),
-    { role: "user", content: message },
-  ];
-
-  const response = await puter.ai.chat(messages, {
-    model: MODEL,
-    stream: true,
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${SUPABASE_ANON}`,
+      "apikey": SUPABASE_ANON,
+    },
+    body: JSON.stringify({ message, history, systemInstruction }),
   });
 
+  if (!res.ok) {
+    const err = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(err);
+  }
+
+  const reader  = res.body!.getReader();
+  const decoder = new TextDecoder();
   let full = "";
-  for await (const part of response) {
-    if (part?.text) {
-      full += part.text;
-      onChunk(full);
-    }
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    full += chunk;
+    onChunk(full);
   }
 
   return full;

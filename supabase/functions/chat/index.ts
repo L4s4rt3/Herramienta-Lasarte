@@ -1,7 +1,6 @@
 /**
- * chat — Edge Function para Vadim. Llama a OpenCode API y devuelve texto plano.
- * Se usa non-streaming para evitar problemas de formato SSE.
- * Timeout de 30s y fallback entre modelos.
+ * chat — Edge Function para Vadim. Llama a Puter (OpenAI-compatible) y devuelve texto plano.
+ * Usa el modelo Qwen 3.6 Plus (gratuito, sin límites).
  */
 
 const corsHeaders = {
@@ -15,11 +14,9 @@ interface ChatMessage {
   content: string;
 }
 
-const OPCODE_TIMEOUT_MS = 20_000;
-// Modelos free tier disponibles actualmente en OpenCode Zen.
-// deepseek-v4-flash-free primero: rápido + sin coste + buena calidad (Flash).
-// Fallback a mimo-v2-5-free si deepseek está saturado.
-const OPCODE_MODELS = ["deepseek-v4-flash-free", "mimo-v2-5-free"];
+const PUTER_TIMEOUT_MS = 25_000;
+const PUTER_API_URL = "https://api.puter.com/puterai/openai/v1/chat/completions";
+const MODEL = "qwen/qwen3.6-plus";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -27,10 +24,10 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const apiKey = Deno.env.get("OPENCODE_API_KEY");
-    if (!apiKey) {
+    const puterToken = Deno.env.get("PUTER_AUTH_TOKEN");
+    if (!puterToken) {
       return new Response(
-        JSON.stringify({ error: "OPENCODE_API_KEY no configurada en los secretos de Supabase" }),
+        JSON.stringify({ error: "PUTER_AUTH_TOKEN no configurado en los secretos de Supabase" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -47,83 +44,57 @@ Deno.serve(async (req) => {
       { role: "user", content: message },
     ];
 
-    let lastError = "";
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), PUTER_TIMEOUT_MS);
 
-    for (const model of OPCODE_MODELS) {
-      console.log(`[chat] intentando modelo: ${model}`);
+    const puterRes = await fetch(PUTER_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${puterToken}`,
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages,
+        stream: false,
+        max_tokens: 2000,
+        temperature: 0.7,
+      }),
+      signal: controller.signal,
+    });
 
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), OPCODE_TIMEOUT_MS);
+    clearTimeout(timeout);
 
-        const opencodeRes = await fetch("https://opencode.ai/zen/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model,
-            messages,
-            stream: false,
-            max_tokens: 2000,
-            temperature: 0.7,
-          }),
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeout);
-        console.log(`[chat] ${model} status: ${opencodeRes.status}`);
-
-        if (!opencodeRes.ok) {
-          const errText = await opencodeRes.text().catch(() => "unknown");
-          lastError = `OpenCode ${opencodeRes.status} para ${model}: ${errText}`;
-          console.error(`[chat] ${lastError}`);
-          continue;
-        }
-
-        const data = await opencodeRes.json();
-        const content: string = data?.choices?.[0]?.message?.content ?? "";
-
-        if (!content) {
-          lastError = `${model}: respuesta vacía`;
-          console.error(`[chat] ${lastError}`);
-          continue;
-        }
-
-        console.log(`[chat] ${model} OK, ${content.length} caracteres`);
-
-        // Devolver como stream de texto plano para compatibilidad con el cliente
-        const encoder = new TextEncoder();
-        const stream = new ReadableStream({
-          start(controller) {
-            controller.enqueue(encoder.encode(content));
-            controller.close();
-          },
-        });
-
-        return new Response(stream, {
-          headers: {
-            ...corsHeaders,
-            "Content-Type": "text/plain; charset=utf-8",
-          },
-        });
-      } catch (fetchErr) {
-        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-        console.error(`[chat] error con modelo ${model}: ${msg}`);
-        lastError = msg;
-      }
+    if (!puterRes.ok) {
+      const errText = await puterRes.text().catch(() => "unknown");
+      throw new Error(`Puter ${puterRes.status}: ${errText}`);
     }
 
-    return new Response(
-      JSON.stringify({
-        error: `No se pudo obtener respuesta de OpenCode. Último error: ${lastError}`,
-      }),
-      { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    const data = await puterRes.json();
+    const content: string = data?.choices?.[0]?.message?.content ?? "";
+
+    if (!content) {
+      throw new Error("Puter: respuesta vacía");
+    }
+
+    // Devolver como stream de texto plano para compatibilidad con el cliente
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(content));
+        controller.close();
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "text/plain; charset=utf-8",
+      },
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[chat] error fatal: ${msg}`);
+    console.error(`[chat] error: ${msg}`);
     return new Response(
       JSON.stringify({ error: msg }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
