@@ -271,7 +271,7 @@ export function parseSheetToStructured(sheet: SheetData, filename: string): Pars
   let headers: string[];
   let actualDataStartIdx: number;
   if (headerIdx >= 0) {
-    headers = rows[headerIdx].filter((c) => c.length > 0);
+    headers = rows[headerIdx];
     actualDataStartIdx = dataStartIdx;
   } else {
     // Sin cabecera detectada: intentar usar cabeceras del módulo variant detectado
