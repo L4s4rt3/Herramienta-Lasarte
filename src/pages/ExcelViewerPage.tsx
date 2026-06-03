@@ -1,17 +1,21 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, FileSpreadsheet, Download, Loader2 } from "lucide-react";
-import ExcelPreviewer from "@/components/ExcelPreviewer";
-import {
-  type SheetData,
-  formatSize,
-  repairXlsx,
-  parseWorkbookToSheets,
-  isValidContent,
-  parseSheetToStructured,
-} from "@/lib/excel-parser";
 import * as XLSX from "xlsx";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft, Download, Loader2, FileSpreadsheet } from "lucide-react";
+import ExcelPreviewer from "@/components/ExcelPreviewer";
+import { parseSheetToStructured, formatSize, formatCell } from "@/components/ExcelViewerDialog";
+
+interface SheetData { name: string; headers: string[]; rows: string[][] }
 
 export default function ExcelViewerPage() {
   const { fileId } = useParams();
@@ -53,44 +57,64 @@ export default function ExcelViewerPage() {
       setBlob(data);
       const buffer = await data.arrayBuffer();
       const bytes = new Uint8Array(buffer);
-      const cleanBytes = repairXlsx(bytes);
-      let parsed: SheetData[] = [];
 
-      for (const opts of [
-        { type: "array" } as const,
-        { type: "array", cellDates: true, cellNF: false } as const,
-        { type: "array", raw: true } as const,
-        { type: "array", dense: true, cellDates: true, raw: true } as const,
-      ]) {
-        if (isValidContent(parsed)) break;
-        try {
-          const wb = XLSX.read(cleanBytes, opts);
-          const result = parseWorkbookToSheets(wb);
-          if (isValidContent(result)) parsed = result;
-        } catch { /* next */ }
+      // Limpiar prefijo basura
+      let start = 0;
+      while (start < bytes.length - 4) {
+        const b0 = bytes[start], b1 = bytes[start + 1], b2 = bytes[start + 2], b3 = bytes[start + 3];
+        if (b0 === 0x50 && b1 === 0x4b && b2 === 0x03 && b3 === 0x04) break;
+        start++;
       }
+      const cleaned = start > 0 ? bytes.slice(start) : bytes;
+      const cleanBytes = new Uint8Array(cleaned);
 
-      if (!isValidContent(parsed)) {
-        const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-        if (text.includes(",") || text.includes(";") || text.includes("\t")) {
-          const sep = text.includes(";") ? ";" : text.includes("\t") ? "\t" : ",";
-          const lines = text.split(/\r?\n/).filter((l) => l.trim());
-          if (lines.length >= 2) {
-            const headers = lines[0].split(sep).map((h) => h.trim());
-            const dataRows = lines.slice(1).map((l) => l.split(sep).map((c) => c.trim()));
-            parsed = [{ name: "CSV", headers, rows: dataRows }];
-          }
+      // Convertir DEFLATE64 → DEFLATE
+      for (let i = 0; i < cleanBytes.length - 30; i++) {
+        if (cleanBytes[i] === 0x50 && cleanBytes[i + 1] === 0x4b && (cleanBytes[i + 2] === 0x03 || cleanBytes[i + 2] === 0x01) && cleanBytes[i + 3] === 0x04) {
+          const method = cleanBytes[i + 8] | (cleanBytes[i + 9] << 8);
+          if (method === 9) { cleanBytes[i + 8] = 8; cleanBytes[i + 9] = 0; }
         }
       }
 
-      if (!isValidContent(parsed)) {
-        const looksLikeZip = bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
-        throw new Error(
-          `No se pudo leer el archivo.` +
-          (looksLikeZip
-            ? " El XLSX está corrupto. Ábrelo en Excel y guárdalo de nuevo."
-            : " No parece un Excel válido.")
-        );
+      // Buscar EOCD
+      let eocdPos = -1;
+      const searchStart = Math.max(0, cleanBytes.length - 66000);
+      for (let i = cleanBytes.length - 22; i >= searchStart; i--) {
+        if (cleanBytes[i] === 0x50 && cleanBytes[i + 1] === 0x4b && cleanBytes[i + 2] === 0x05 && cleanBytes[i + 3] === 0x06) {
+          eocdPos = i; break;
+        }
+      }
+      if (eocdPos < 0) {
+        const eocd = new Uint8Array(22);
+        eocd[0] = 0x50; eocd[1] = 0x4b; eocd[2] = 0x05; eocd[3] = 0x06;
+        const out = new Uint8Array(cleanBytes.length + 22);
+        out.set(cleanBytes); out.set(eocd, cleanBytes.length);
+        // fall through, xlsx puede manejar esto
+      }
+
+      let parsed: SheetData[] = [];
+
+      const parseWorkbook = (wb: XLSX.WorkBook): SheetData[] => {
+        return wb.SheetNames.map((name) => {
+          const ws = wb.Sheets[name];
+          const json = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "", raw: true });
+          const headers = json.length > 0 ? json[0].map((h) => formatCell(h)) : [];
+          const rows = json.slice(1).map((row) => row.map((c) => formatCell(c)));
+          return { name, headers, rows };
+        });
+      };
+
+      for (const opts of [
+        { type: "array" },
+        { type: "array", cellDates: true, cellNF: false },
+        { type: "array", raw: true },
+        { type: "array", dense: true, cellDates: true, raw: true },
+      ] as const) {
+        if (parsed.length > 0 && parsed.some((s) => s.rows.length > 0 || s.headers.some((h) => h))) break;
+        try {
+          const wb = XLSX.read(cleanBytes, opts);
+          parsed = parseWorkbook(wb);
+        } catch { /* next */ }
       }
 
       setSheets(parsed);

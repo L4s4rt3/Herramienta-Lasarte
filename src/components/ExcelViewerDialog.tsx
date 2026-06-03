@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import * as XLSX from "xlsx";
 import {
   Dialog,
   DialogContent,
@@ -10,17 +11,11 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Download, Loader2, FileSpreadsheet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import ExcelPreviewer from "./ExcelPreviewer";
-import {
-  type SheetData,
-  formatSize,
-  formatCell,
-  repairXlsx,
-  parseWorkbookToSheets,
-  isValidContent,
-  parseSheetToStructured,
-} from "@/lib/excel-parser";
-import * as XLSX from "xlsx";
+import ExcelPreviewer, {
+  type ParsedExcel,
+  type Metric,
+  type DataTable,
+} from "./ExcelPreviewer";
 
 interface Archivo {
   file_name: string | null;
@@ -35,15 +30,9 @@ interface ExcelViewerDialogProps {
   archivo: Archivo | null;
 }
 
-interface ExcelViewerDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  archivo: Archivo | null;
-}
-
 type SheetData = { name: string; headers: string[]; rows: string[][] };
 
-function formatSize(bytes: number | null): string {
+export function formatSize(bytes: number | null): string {
   if (!bytes) return "";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -144,7 +133,7 @@ function detectModuleVariant(filename: string, firstRow?: string[]): keyof typeo
 //     También se saltan filas con controles de UI de Excel (filtros, etc.).
 //  3) Las filas anteriores se clasifican como title/subtitle/métricas/sección.
 //  4) Las filas posteriores son datos de la tabla.
-function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel {
+export function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel {
   const result: ParsedExcel = { filename, metrics: [], tables: [] };
 
   // 1) Trim + drop filas vacías
@@ -355,7 +344,7 @@ function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel
   return result;
 }
 
-function formatCell(value: unknown): string {
+export function formatCell(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
   if (typeof value === "number") {
@@ -669,43 +658,221 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
       setBlob(data);
       const buffer = await data.arrayBuffer();
       const bytes = new Uint8Array(buffer);
-      const cleanBytes = repairXlsx(bytes);
+
+      // Función para verificar si el contenido parseado es válido.
+      // Requiere al menos 3 celdas con contenido por hoja y que
+      // menos del 30% parezcan "basura encriptada" (strings hex, base64, etc).
+      const isValidContent = (sheets: SheetData[]): boolean => {
+        if (sheets.length === 0) return false;
+        for (const sheet of sheets) {
+          let cellsWithContent = 0;
+          let suspicious = 0;
+          const check = (c: string) => {
+            const t = c?.trim() ?? "";
+            if (!t) return;
+            cellsWithContent++;
+            // heurística de "basura encriptada"
+            if (
+              t.length > 80 ||
+              /^[A-F0-9]{16,}$/i.test(t) ||
+              /^[A-Za-z0-9+/=]{24,}$/.test(t)
+            ) {
+              suspicious++;
+            }
+          };
+          for (const h of sheet.headers) check(h);
+          for (const row of sheet.rows) for (const cell of row) check(cell);
+          if (cellsWithContent >= 3 && suspicious / cellsWithContent < 0.3) return true;
+        }
+        return false;
+      };
+
+      // Función para parsear el workbook. Usa raw: true para evitar
+      // que xlsx aplique formatos raros a celdas corruptas (que es lo
+      // que producía el efecto "encriptado").
+      const parseWorkbook = (wb: XLSX.WorkBook): SheetData[] => {
+        return wb.SheetNames.map((name) => {
+          const ws = wb.Sheets[name];
+          const json = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "", raw: true });
+          const headers = json.length > 0 ? json[0].map((h) => formatCell(h)) : [];
+          const rows = json.slice(1).map((row) => row.map((c) => formatCell(c)));
+          return { name, headers, rows };
+        });
+      };
+
       let parsed: SheetData[] = [];
 
-      for (const opts of [
-        { type: "array" } as const,
-        { type: "array", cellDates: true, cellNF: false } as const,
-        { type: "array", raw: true } as const,
-        { type: "array", dense: true, cellDates: true, raw: true } as const,
-      ]) {
-        if (isValidContent(parsed)) break;
-        try {
-          const wb = XLSX.read(cleanBytes, opts);
-          const result = parseWorkbookToSheets(wb);
-          if (isValidContent(result)) parsed = result;
-        } catch { /* next */ }
+      // Limpiar prefijo basura (PK00, BOM, etc.) UNA VEZ antes de los intentos XLSX
+      const cleanBytes = repairXlsx(bytes);
+
+      // Intento 1: Parsear normalmente
+      try {
+        console.log("Intento 1: Parseo normal");
+        const wb = XLSX.read(cleanBytes, { type: "array" });
+        parsed = parseWorkbook(wb);
+        console.log("Intento 1 exitoso, hojas:", parsed.length);
+      } catch (e) {
+        console.warn("Error en primer intento de parseo:", e);
       }
 
+      // Intento 2: Si el contenido no es válido, intentar con reparación
       if (!isValidContent(parsed)) {
-        const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-        if (text.includes(",") || text.includes(";") || text.includes("\t")) {
-          const sep = text.includes(";") ? ";" : text.includes("\t") ? "\t" : ",";
-          const lines = text.split(/\r?\n/).filter((l) => l.trim());
-          if (lines.length >= 2) {
-            const headers = lines[0].split(sep).map((h) => h.trim());
-            const dataRows = lines.slice(1).map((l) => l.split(sep).map((c) => c.trim()));
-            parsed = [{ name: "CSV", headers, rows: dataRows }];
+        console.log("Intento 2: Contenido inválido, intentando reparación DEFLATE64...");
+        try {
+          const wb = XLSX.read(cleanBytes, { type: "array" });
+          const repairedParsed = parseWorkbook(wb);
+
+          if (isValidContent(repairedParsed)) {
+            parsed = repairedParsed;
+            console.log("Intento 2 exitoso: Reparación DEFLATE64 funcionó");
           }
+        } catch (e) {
+          console.warn("Error en segundo intento de parseo:", e);
         }
       }
 
+      // Intento 3: Si sigue sin funcionar, intentar con diferentes opciones de XLSX
       if (!isValidContent(parsed)) {
-        const looksLikeZip = bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
+        console.log("Intento 3: Opciones alternativas (cellDates, cellNF)...");
+        try {
+          const wb = XLSX.read(cleanBytes, { type: "array", cellDates: true, cellNF: false });
+          const altParsed = parseWorkbook(wb);
+
+          if (isValidContent(altParsed)) {
+            parsed = altParsed;
+            console.log("Intento 3 exitoso: Opciones alternativas funcionaron");
+          }
+        } catch (e) {
+          console.warn("Error en tercer intento de parseo:", e);
+        }
+      }
+
+      // Intento 4: Último recurso - parsear con raw: true para obtener valores crudos
+      if (!isValidContent(parsed)) {
+        console.log("Intento 4: Último recurso con raw: true...");
+        try {
+          const wb = XLSX.read(cleanBytes, { type: "array", raw: true });
+          const rawParsed = parseWorkbook(wb);
+
+          if (isValidContent(rawParsed)) {
+            parsed = rawParsed;
+            console.log("Intento 4 exitoso: Parseo crudo funcionó");
+          }
+        } catch (e) {
+          console.warn("Error en cuarto intento de parseo:", e);
+        }
+      }
+
+      // Intento 5: dense mode para hojas con muchas celdas vacías
+      if (!isValidContent(parsed)) {
+        console.log("Intento 5: dense mode...");
+        try {
+          const wb = XLSX.read(cleanBytes, { type: "array", dense: true, cellDates: true, raw: true });
+          const denseParsed = parseWorkbook(wb);
+
+          if (isValidContent(denseParsed)) {
+            parsed = denseParsed;
+            console.log("Intento 5 exitoso: dense mode funcionó");
+          }
+        } catch (e) {
+          console.warn("Error en quinto intento de parseo:", e);
+        }
+      }
+
+      // Intento 6: Si todo falló, intentar como CSV (archivos mal etiquetados)
+      if (!isValidContent(parsed)) {
+        console.log("Intento 6: Probando como CSV...");
+        try {
+          const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+          if (!text.trim().startsWith("<") && (text.includes(",") || text.includes(";") || text.includes("\t"))) {
+            const sep = text.includes(";") ? ";" : text.includes("\t") ? "\t" : ",";
+            const lines = text.split(/\r?\n/).filter((l) => l.trim());
+            if (lines.length >= 2) {
+              const headers = lines[0].split(sep).map((h) => h.trim());
+              const rows = lines.slice(1).map((l) => l.split(sep).map((c) => c.trim()));
+              const csvParsed: SheetData[] = [{ name: "CSV", headers, rows }];
+              if (isValidContent(csvParsed)) {
+                parsed = csvParsed;
+                console.log("Intento 6 exitoso: parseado como CSV");
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Error en intento 6 (CSV):", e);
+        }
+      }
+
+      // Intento 7: Si todo falló, intentar como tabla HTML
+      if (!isValidContent(parsed)) {
+        console.log("Intento 7: Probando como tabla HTML...");
+        try {
+          const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+          if (text.includes("<table")) {
+            const doc = new DOMParser().parseFromString(text, "text/html");
+            const tables = doc.querySelectorAll("table");
+            if (tables.length) {
+              const htmlParsed: SheetData[] = Array.from(tables).map((table, idx) => {
+                const headerCells = Array.from(
+                  table.querySelectorAll("thead th, tr:first-child th, tr:first-child td")
+                );
+                const headers = headerCells.map((th) => th.textContent?.trim() ?? "");
+                const dataRows = Array.from(table.querySelectorAll("tbody tr, tr")).filter(
+                  (tr) => !tr.querySelector("th")
+                );
+                const rows = dataRows.map((tr) =>
+                  Array.from(tr.querySelectorAll("td")).map((td) => td.textContent?.trim() ?? "")
+                );
+                return { name: `Tabla ${idx + 1}`, headers, rows };
+              });
+              if (isValidContent(htmlParsed)) {
+                parsed = htmlParsed;
+                console.log("Intento 7 exitoso: parseado como HTML");
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Error en intento 7 (HTML):", e);
+        }
+      }
+
+      // Validación final
+      if (!isValidContent(parsed)) {
+        // Diagnóstico para ayudar a depurar (usar cleanBytes ya procesados)
+        const firstBytes = Array.from(cleanBytes.slice(0, 16)).map((b) => b.toString(16).padStart(2, "0")).join(" ");
+        const text = new TextDecoder("utf-8", { fatal: false }).decode(cleanBytes.slice(0, 200));
+        const looksLikeZip = cleanBytes[0] === 0x50 && cleanBytes[1] === 0x4b && cleanBytes[2] === 0x03 && cleanBytes[3] === 0x04;
+        const looksLikeHtml = /<html|<table|<!DOCTYPE/i.test(text);
+        const looksLikeCsv = /^[\w\s,;:\t\-."']+$/m.test(text.split("\n")[0] ?? "");
+        const strippedPrefix = cleanBytes.length !== bytes.length;
+        // Detectar EOCD (End Of Central Directory) - si no está, el ZIP está corrupto
+        const last4 = cleanBytes.subarray(cleanBytes.length - 22, cleanBytes.length - 18);
+        const hasEocd = last4[0] === 0x50 && last4[1] === 0x4b && last4[2] === 0x05 && last4[3] === 0x06;
+        // Buscar EOCD en los últimos 64 bytes
+        let eocdFound = false;
+        const searchStart = Math.max(0, cleanBytes.length - 64);
+        for (let i = searchStart; i < cleanBytes.length - 3; i++) {
+          if (cleanBytes[i] === 0x50 && cleanBytes[i+1] === 0x4b && cleanBytes[i+2] === 0x05 && cleanBytes[i+3] === 0x06) {
+            eocdFound = true;
+            break;
+          }
+        }
+        console.error("Todos los intentos de parseo fallaron");
+        console.error("Tamaño original:", bytes.length, "bytes, tras strip:", cleanBytes.length);
+        console.error("Primeros 16 bytes (hex):", firstBytes);
+        console.error("Primeros 200 chars:", text);
+        console.error("¿ZIP?:", looksLikeZip, "¿HTML?:", looksLikeHtml, "¿CSV?:", looksLikeCsv, "Prefijo eliminado:", strippedPrefix, "EOCD presente:", eocdFound);
+        let hint = "";
+        if (looksLikeZip && !eocdFound) {
+          hint = " Detectado: el archivo ZIP no tiene un registro EOCD (End Of Central Directory) al final — el XLSX está estructuralmente corrupto. Solución: abre el archivo en Excel/LibreOffice y guárdalo de nuevo como .xlsx.";
+        } else if (!looksLikeZip) {
+          hint = ` Detectado: no es un archivo ZIP/XLSX válido${looksLikeHtml ? " (parece HTML)" : ""}${looksLikeCsv ? " (parece CSV/texto)" : ""}.`;
+        } else if (looksLikeHtml) {
+          hint = " Detectado: parece HTML (no XLSX).";
+        }
         throw new Error(
-          `No se pudo leer "${archivo.file_name || "archivo"}"` +
-          (looksLikeZip
-            ? ". El archivo XLSX está corrupto. Ábrelo en Excel y guárdalo de nuevo."
-            : ". El archivo no parece un Excel válido.")
+          `No se pudo parsear "${archivo.file_name || "archivo"}" ` +
+          `(${formatSize(archivo.file_size || null)}).${hint} ` +
+          `Si el problema persiste, descarga el archivo y verifica que sea un Excel válido.`
         );
       }
 
