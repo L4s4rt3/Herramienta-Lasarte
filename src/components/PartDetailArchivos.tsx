@@ -1,8 +1,6 @@
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, Trash2, Upload } from "lucide-react";
-import { ExcelViewerDialog } from "@/components/ExcelViewerDialog";
+import { FileText, Trash2, Upload, ExternalLink } from "lucide-react";
 
 interface Archivo {
   id: string;
@@ -52,8 +50,6 @@ export default function PartDetailArchivos({
   handleUpload,
   handleDeleteFile,
 }: PartDetailArchivosProps) {
-  const [viewFile, setViewFile] = useState<Archivo | null>(null);
-
   return (
     <Card className="glass-accented">
       <CardHeader>
@@ -94,13 +90,16 @@ export default function PartDetailArchivos({
                       <li key={a.id} className="flex items-center gap-2 text-xs">
                         <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
                         {previewable ? (
-                          <button
-                            onClick={() => setViewFile(a)}
-                            className="truncate flex-1 text-left text-primary/80 hover:text-primary hover:underline cursor-pointer"
+                          <a
+                            href={`/ver-excel/${a.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="truncate flex-1 text-left text-primary/80 hover:text-primary hover:underline cursor-pointer inline-flex items-center gap-1"
                             title={`Ver ${a.file_name}`}
                           >
                             {a.file_name}
-                          </button>
+                            <ExternalLink className="h-2.5 w-2.5 shrink-0 opacity-60" />
+                          </a>
                         ) : (
                           <span className="truncate flex-1" title={a.file_name ?? ""}>{a.file_name}</span>
                         )}
@@ -121,12 +120,6 @@ export default function PartDetailArchivos({
           Sube los informes Excel y fotos en su categoría. Luego pulsa <strong>Analizar con IA</strong> para extraer los datos automáticamente.
         </div>
       </CardContent>
-
-      <ExcelViewerDialog
-        open={!!viewFile}
-        onOpenChange={(open) => { if (!open) setViewFile(null); }}
-        archivo={viewFile}
-      />
     </Card>
   );
 }

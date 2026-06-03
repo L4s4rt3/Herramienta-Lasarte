@@ -25,6 +25,7 @@ const NotFound = lazy(pageLoaders.notFound);
 const Productores = lazy(pageLoaders.productores);
 const AnalisisDiario = lazy(pageLoaders.analisisDiario);
 const Calendario = lazy(pageLoaders.calendario);
+const ExcelViewerPage = lazy(() => import("@/pages/ExcelViewerPage"));
 
 const LoadingFallback = () => (
   <div className="flex min-h-screen items-center justify-center">
@@ -66,6 +67,7 @@ const App = () => (
                     <Route path="/analisis/diario" element={<AnalisisDiario />} />
                     <Route path="/calendario" element={<Calendario />} />
                   </Route>
+                  <Route path="/ver-excel/:fileId" element={<ExcelViewerPage />} />
                   <Route path="/index" element={<Navigate to="/" replace />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
