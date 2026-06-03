@@ -2,18 +2,9 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
 import { ArrowLeft, Download, Loader2, FileSpreadsheet } from "lucide-react";
 import ExcelPreviewer from "@/components/ExcelPreviewer";
-import { parseSheetToStructured, formatSize, formatCell } from "@/components/ExcelViewerDialog";
+import { parseSheetToStructured, formatSize, formatCell, repairXlsx } from "@/components/ExcelViewerDialog";
 
 interface SheetData { name: string; headers: string[]; rows: string[][] }
 
@@ -57,42 +48,27 @@ export default function ExcelViewerPage() {
       setBlob(data);
       const buffer = await data.arrayBuffer();
       const bytes = new Uint8Array(buffer);
+      const cleanBytes = repairXlsx(bytes);
 
-      // Limpiar prefijo basura
-      let start = 0;
-      while (start < bytes.length - 4) {
-        const b0 = bytes[start], b1 = bytes[start + 1], b2 = bytes[start + 2], b3 = bytes[start + 3];
-        if (b0 === 0x50 && b1 === 0x4b && b2 === 0x03 && b3 === 0x04) break;
-        start++;
-      }
-      const cleaned = start > 0 ? bytes.slice(start) : bytes;
-      const cleanBytes = new Uint8Array(cleaned);
-
-      // Convertir DEFLATE64 → DEFLATE
-      for (let i = 0; i < cleanBytes.length - 30; i++) {
-        if (cleanBytes[i] === 0x50 && cleanBytes[i + 1] === 0x4b && (cleanBytes[i + 2] === 0x03 || cleanBytes[i + 2] === 0x01) && cleanBytes[i + 3] === 0x04) {
-          const method = cleanBytes[i + 8] | (cleanBytes[i + 9] << 8);
-          if (method === 9) { cleanBytes[i + 8] = 8; cleanBytes[i + 9] = 0; }
+      const isValidContent = (sheets: SheetData[]): boolean => {
+        if (sheets.length === 0) return false;
+        for (const sheet of sheets) {
+          let cellsWithContent = 0;
+          let suspicious = 0;
+          const check = (c: string) => {
+            const t = c?.trim() ?? "";
+            if (!t) return;
+            cellsWithContent++;
+            if (t.length > 80 || /^[A-F0-9]{16,}$/i.test(t) || /^[A-Za-z0-9+/=]{24,}$/.test(t)) {
+              suspicious++;
+            }
+          };
+          for (const h of sheet.headers) check(h);
+          for (const row of sheet.rows) for (const cell of row) check(cell);
+          if (cellsWithContent >= 3 && suspicious / cellsWithContent < 0.3) return true;
         }
-      }
-
-      // Buscar EOCD
-      let eocdPos = -1;
-      const searchStart = Math.max(0, cleanBytes.length - 66000);
-      for (let i = cleanBytes.length - 22; i >= searchStart; i--) {
-        if (cleanBytes[i] === 0x50 && cleanBytes[i + 1] === 0x4b && cleanBytes[i + 2] === 0x05 && cleanBytes[i + 3] === 0x06) {
-          eocdPos = i; break;
-        }
-      }
-      if (eocdPos < 0) {
-        const eocd = new Uint8Array(22);
-        eocd[0] = 0x50; eocd[1] = 0x4b; eocd[2] = 0x05; eocd[3] = 0x06;
-        const out = new Uint8Array(cleanBytes.length + 22);
-        out.set(cleanBytes); out.set(eocd, cleanBytes.length);
-        // fall through, xlsx puede manejar esto
-      }
-
-      let parsed: SheetData[] = [];
+        return false;
+      };
 
       const parseWorkbook = (wb: XLSX.WorkBook): SheetData[] => {
         return wb.SheetNames.map((name) => {
@@ -104,17 +80,59 @@ export default function ExcelViewerPage() {
         });
       };
 
-      for (const opts of [
-        { type: "array" },
-        { type: "array", cellDates: true, cellNF: false },
-        { type: "array", raw: true },
-        { type: "array", dense: true, cellDates: true, raw: true },
-      ] as const) {
-        if (parsed.length > 0 && parsed.some((s) => s.rows.length > 0 || s.headers.some((h) => h))) break;
+      let parsed: SheetData[] = [];
+
+      for (const [attempt, opts] of [
+        ["Normal", { type: "array" }] as const,
+        ["DEFLATE64 repair", { type: "array" }] as const,
+        ["cellDates", { type: "array", cellDates: true, cellNF: false }] as const,
+        ["raw mode", { type: "array", raw: true }] as const,
+        ["dense mode", { type: "array", dense: true, cellDates: true, raw: true }] as const,
+      ]) {
+        if (isValidContent(parsed)) break;
         try {
-          const wb = XLSX.read(cleanBytes, opts);
-          parsed = parseWorkbook(wb);
+          const wb = XLSX.read(cleanBytes, opts[1]);
+          const result = parseWorkbook(wb);
+          if (isValidContent(result)) parsed = result;
         } catch { /* next */ }
+      }
+
+      if (!isValidContent(parsed)) {
+        const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+        if (!text.trim().startsWith("<") && (text.includes(",") || text.includes(";") || text.includes("\t"))) {
+          const sep = text.includes(";") ? ";" : text.includes("\t") ? "\t" : ",";
+          const lines = text.split(/\r?\n/).filter((l) => l.trim());
+          if (lines.length >= 2) {
+            const headers = lines[0].split(sep).map((h) => h.trim());
+            const dataRows = lines.slice(1).map((l) => l.split(sep).map((c) => c.trim()));
+            parsed = [{ name: "CSV", headers, rows: dataRows }];
+          }
+        }
+      }
+
+      if (!isValidContent(parsed)) {
+        const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+        if (text.includes("<table")) {
+          const doc = new DOMParser().parseFromString(text, "text/html");
+          const tables = doc.querySelectorAll("table");
+          if (tables.length) {
+            parsed = Array.from(tables).map((table, idx) => {
+              const headerCells = Array.from(table.querySelectorAll("thead th, tr:first-child th, tr:first-child td"));
+              const headers = headerCells.map((th) => th.textContent?.trim() ?? "");
+              const dataRows = Array.from(table.querySelectorAll("tbody tr, tr")).filter((tr) => !tr.querySelector("th"));
+              const rows = dataRows.map((tr) => Array.from(tr.querySelectorAll("td")).map((td) => td.textContent?.trim() ?? ""));
+              return { name: `Tabla ${idx + 1}`, headers, rows };
+            });
+          }
+        }
+      }
+
+      if (!isValidContent(parsed)) {
+        const looksLikeZip = bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
+        throw new Error(
+          `No se pudo leer "${fileName}"` +
+          (looksLikeZip ? ". El archivo XLSX está corrupto. Ábrelo en Excel y guárdalo de nuevo." : ". No parece un Excel válido.")
+        );
       }
 
       setSheets(parsed);
@@ -123,7 +141,7 @@ export default function ExcelViewerPage() {
     } finally {
       setLoading(false);
     }
-  }, [fileId]);
+  }, [fileId, fileName]);
 
   useEffect(() => {
     loadFile();

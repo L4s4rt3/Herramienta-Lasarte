@@ -362,7 +362,7 @@ export function formatCell(value: unknown): string {
   return String(value);
 }
 
-function repairXlsx(bytes: Uint8Array): Uint8Array {
+export function repairXlsx(bytes: Uint8Array): Uint8Array {
   // Detectar y eliminar cualquier prefijo basura antes del header ZIP.
   // Algunos exportadores añaden 4+ bytes (ej. "PK00") o BOMs (EF BB BF, FF FE, FE FF)
   // antes del magic ZIP real (PK\x03\x04). Si el primer PK\x03\x04 no está en
