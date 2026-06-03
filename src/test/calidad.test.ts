@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCalidadAttachmentRows,
   buildCalidadExcelRows,
+  buildCalidadIncidentRows,
   calidadSummary,
   formatCalidadDate,
   normalizeCalidadName,
@@ -76,6 +78,35 @@ describe("calidad helpers", () => {
       Calidad: "Regular",
       Defectos: "Rameado",
       Fotos: 2,
+    });
+  });
+
+  it("builds an incidents sheet with only lots that need follow up", () => {
+    const rows = buildCalidadIncidentRows(lotes, { "1": 2, "2": 0 });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      Prioridad: "Seguimiento",
+      Lote: "26041704",
+      "Productor/Finca": "Los Corrales",
+      Calidad: "Regular",
+      Fotos: 2,
+    });
+  });
+
+  it("builds attachment rows with lot traceability fields", () => {
+    const rows = buildCalidadAttachmentRows(
+      { id: "j1", fecha: "2026-06-03", responsable: "Eusebio", estado: "guardada" },
+      lotes,
+      [{ id: "a1", lote_id: "1", file_name: "foto.jpg", file_path: "u/calidad/foto.jpg", mime_type: "image/jpeg", file_size: 123 }],
+    );
+
+    expect(rows[0]).toMatchObject({
+      Fecha: "03 jun 2026",
+      Lote: "26041704",
+      "Productor/Finca": "Los Corrales",
+      Calidad: "Regular",
+      Archivo: "foto.jpg",
     });
   });
 

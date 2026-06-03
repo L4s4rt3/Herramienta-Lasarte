@@ -30,6 +30,7 @@ import {
   SidebarMenuItem,
   SidebarProvider,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { TopBar } from "@/components/TopBar";
 import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
@@ -77,7 +78,16 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
 ];
 
 export default function AppLayout() {
+  return (
+    <SidebarProvider>
+      <AppLayoutContent />
+    </SidebarProvider>
+  );
+}
+
+function AppLayoutContent() {
   const { signOut, user } = useAuth();
+  const { isMobile, setOpenMobile } = useSidebar();
   useDataWarmup();
 
   const navigate = useNavigate();
@@ -89,14 +99,18 @@ export default function AppLayout() {
     ? user.email.slice(0, 2).toUpperCase()
     : "??";
 
+  function closeMobileSidebar() {
+    if (isMobile) setOpenMobile(false);
+  }
+
   return (
-    <SidebarProvider>
+    <>
       <Sidebar collapsible="icon">
         <SidebarHeader>
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton size="lg" asChild className="h-14">
-                <NavLink to="/">
+                <NavLink to="/" onClick={closeMobileSidebar}>
                   <div className="flex aspect-square size-10 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground shadow-[var(--glass-shadow-lg)]">
                     <Citrus className="size-5" />
                   </div>
@@ -127,6 +141,7 @@ export default function AppLayout() {
                         <NavLink
                           to={item.to}
                           end={item.to === "/"}
+                          onClick={closeMobileSidebar}
                           onFocus={() => preloadRoute(item.to)}
                           onMouseEnter={() => preloadRoute(item.to)}
                         >
@@ -163,6 +178,7 @@ export default function AppLayout() {
                     className="size-7 shrink-0 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     title="Cerrar sesión"
                     onClick={async () => {
+                      closeMobileSidebar();
                       await signOut();
                       navigate("/auth");
                     }}
@@ -186,6 +202,6 @@ export default function AppLayout() {
       </SidebarInset>
       <CommandPalette open={cmd.open} onOpenChange={cmd.setOpen} />
       <ChatBot />
-    </SidebarProvider>
+    </>
   );
 }

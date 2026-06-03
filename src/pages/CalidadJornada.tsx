@@ -79,6 +79,14 @@ function glassInputClassName(extra?: string) {
   );
 }
 
+function isHistoricalProductorId(id: string | null | undefined) {
+  return Boolean(id?.startsWith("db-"));
+}
+
+function productorIdForDatabase(id: string | null | undefined) {
+  return id && !isHistoricalProductorId(id) ? id : null;
+}
+
 function DateGlassPicker({ id, value, onChange }: { id: string; value: string; onChange: (value: string) => void }) {
   return (
     <Popover>
@@ -297,7 +305,11 @@ export default function CalidadJornadaPage() {
     for (const productor of productores) {
       const normalized = normalizeCalidadName(productor.nombre);
       if (!normalized) continue;
-      byName.set(normalized.toLocaleLowerCase("es"), { ...productor, nombre: normalized });
+      const key = normalized.toLocaleLowerCase("es");
+      const existing = byName.get(key);
+      if (!existing || isHistoricalProductorId(existing.id) || !isHistoricalProductorId(productor.id)) {
+        byName.set(key, { ...productor, nombre: normalized });
+      }
     }
     return [...byName.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, [productores]);
@@ -392,7 +404,7 @@ export default function CalidadJornadaPage() {
     if (!user) return null;
     const trimmed = normalizeCalidadName(nombre);
     if (!trimmed) return null;
-    const existing = productores.find((productor) => sameCalidadName(productor.nombre, trimmed));
+    const existing = productores.find((productor) => !isHistoricalProductorId(productor.id) && sameCalidadName(productor.nombre, trimmed));
     if (existing) return existing;
 
     const { data, error } = await supabase
@@ -410,7 +422,7 @@ export default function CalidadJornadaPage() {
     try {
       const productor = await ensureProductor(nombre);
       if (!productor) return;
-      patchSelected({ productor_finca_id: productor.id, productor_finca_nombre: productor.nombre });
+      patchSelected({ productor_finca_id: productorIdForDatabase(productor.id), productor_finca_nombre: productor.nombre });
       setProductorSearch("");
       setProductorPickerOpen(false);
       toast({ title: "Productor/Finca guardado", description: productor.nombre });
@@ -420,13 +432,13 @@ export default function CalidadJornadaPage() {
   }
 
   function selectProductor(productor: CalidadProductor) {
-    patchSelected({ productor_finca_id: productor.id.startsWith("db-") ? null : productor.id, productor_finca_nombre: productor.nombre });
+    patchSelected({ productor_finca_id: productorIdForDatabase(productor.id), productor_finca_nombre: productor.nombre });
     setProductorSearch("");
     setProductorPickerOpen(false);
   }
 
   async function deleteProductor(productor: CalidadProductor) {
-    if (productor.id.startsWith("db-")) {
+    if (isHistoricalProductorId(productor.id)) {
       toast({ title: "Nombre historico", description: "Este nombre viene de lotes ya importados y no se puede borrar desde Calidad." });
       return;
     }
@@ -489,7 +501,7 @@ export default function CalidadJornadaPage() {
       const productor = await ensureProductor(selected.productor_finca_nombre);
       const payload = {
         numero_lote: selected.numero_lote.trim(),
-        productor_finca_id: productor?.id ?? null,
+        productor_finca_id: productorIdForDatabase(productor?.id ?? selected.productor_finca_id),
         productor_finca_nombre: selected.productor_finca_nombre.trim(),
         producto: selected.producto.trim(),
         variedad: selected.variedad.trim(),
@@ -839,7 +851,7 @@ export default function CalidadJornadaPage() {
                                     <Check className={cn("mr-2 h-4 w-4", sameCalidadName(selected.productor_finca_nombre, productor.nombre) ? "opacity-100" : "opacity-0")} />
                                     <span className="truncate">{productor.nombre}</span>
                                   </CommandItem>
-                                  {!productor.id.startsWith("db-") && (
+                                  {!isHistoricalProductorId(productor.id) && (
                                     <Button
                                       type="button"
                                       variant="ghost"
