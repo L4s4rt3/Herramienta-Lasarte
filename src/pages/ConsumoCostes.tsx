@@ -10,14 +10,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { KPICard } from "@/components/KPICard";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Trash2, Save, History, BarChart3, Settings, Droplet, Zap, Fuel, FlaskConical, Download, FileText, FileSpreadsheet } from "lucide-react";
+import { Plus, Trash2, Save, History, BarChart3, Settings, Droplet, Zap, Fuel, FlaskConical, Download, FileText, FileSpreadsheet, CalendarDays } from "lucide-react";
 import { today, formatNumber, formatDate } from "@/lib/format";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
 import {
   BarChart, Bar, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
@@ -39,6 +43,38 @@ function daysAgo(n: number) {
   const d = new Date();
   d.setDate(d.getDate() - n);
   return d.toISOString().slice(0, 10);
+}
+
+function ConsumoDatePicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const selected = value ? new Date(`${value}T12:00:00`) : undefined;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className="glass glass-hover h-10 w-full justify-start gap-2 rounded-xl border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] px-3 font-semibold"
+        >
+          <CalendarDays className="h-4 w-4 shrink-0 text-primary/75" />
+          <span className="tabular-nums">
+            {selected ? format(selected, "dd MMM yyyy", { locale: es }) : "Seleccionar..."}
+          </span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0 glass-accented" align="start">
+        <Calendar
+          mode="single"
+          selected={selected}
+          onSelect={(date) => {
+            if (date) onChange(format(date, "yyyy-MM-dd"));
+          }}
+          locale={es}
+          initialFocus
+        />
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export default function ConsumoCostes() {
@@ -324,11 +360,11 @@ export default function ConsumoCostes() {
               <CardContent className="grid gap-5 md:grid-cols-3">
                 <div className="glass p-4 space-y-2">
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fecha inicio</Label>
-                  <Input type="date" value={fInicio} onChange={(e) => setFInicio(e.target.value)} />
+                  <ConsumoDatePicker value={fInicio} onChange={setFInicio} />
                 </div>
                 <div className="glass p-4 space-y-2">
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fecha fin</Label>
-                  <Input type="date" value={fFin} onChange={(e) => setFFin(e.target.value)} />
+                  <ConsumoDatePicker value={fFin} onChange={setFFin} />
                 </div>
                 <div className="glass p-4 space-y-2">
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kg procesados *</Label>

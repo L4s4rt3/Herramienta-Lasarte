@@ -15,13 +15,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Calendar as DatePickerCalendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Plus, Trash2, Upload, ChevronLeft, ChevronRight, UserCheck, UserX,
-  Users, AlertCircle, Calendar, CalendarDays, Search, BarChart3, Eraser,
+  Users, AlertCircle, Calendar as CalendarIcon, CalendarDays, Search, BarChart3, Eraser,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { today } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
 import * as XLSX from "xlsx";
 import type { TrabajadorRow } from "@/lib/types";
 import {
@@ -91,6 +95,38 @@ function KPIStatCards({ presentes, ausentes, bajas, total, asistenciaPct }: {
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
+
+function AsistenciaDatePicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const selected = value ? new Date(`${value}T12:00:00`) : undefined;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className="glass glass-hover h-9 min-w-[154px] justify-start gap-2 rounded-xl border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] px-3 text-sm font-semibold"
+        >
+          <CalendarDays className="h-4 w-4 shrink-0 text-primary/75" />
+          <span className="tabular-nums">
+            {selected ? format(selected, "dd MMM yyyy", { locale: es }) : "Seleccionar..."}
+          </span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0 glass-accented" align="end">
+        <DatePickerCalendar
+          mode="single"
+          selected={selected}
+          onSelect={(date) => {
+            if (date) onChange(format(date, "yyyy-MM-dd"));
+          }}
+          locale={es}
+          initialFocus
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export default function Asistencia() {
   const { user } = useAuth();
@@ -395,9 +431,9 @@ export default function Asistencia() {
   // ─── Date navigation ──────────────────────────────────────────────────
 
   function shiftDate(delta: number) {
-    const d = new Date(selectedDate);
+    const d = new Date(`${selectedDate}T12:00:00`);
     d.setDate(d.getDate() + delta);
-    setSelectedDate(d.toISOString().slice(0, 10));
+    setSelectedDate(format(d, "yyyy-MM-dd"));
   }
 
   // ─── Computed ─────────────────────────────────────────────────────────
@@ -676,7 +712,7 @@ export default function Asistencia() {
         <div>
           <h1 className="page-title">Asistencia</h1>
           <p className="page-subtitle flex items-center gap-1.5">
-            <Calendar className="h-4 w-4" />
+            <CalendarIcon className="h-4 w-4" />
             <span className="capitalize">{fechaDisplay}</span>
           </p>
         </div>
@@ -800,12 +836,7 @@ export default function Asistencia() {
           <Button variant="outline" size="sm" onClick={() => shiftDate(-1)} className="glass glass-hover">
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <Input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="w-36 h-9 text-sm text-center"
-          />
+          <AsistenciaDatePicker value={selectedDate} onChange={setSelectedDate} />
           <Button variant="outline" size="sm" onClick={() => shiftDate(1)} className="glass glass-hover">
             <ChevronRight className="h-4 w-4" />
           </Button>
