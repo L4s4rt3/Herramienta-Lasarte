@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { usePartesDashboard, usePartes } from "@/hooks/usePartes";
+import { usePartesDashboard } from "@/hooks/usePartes";
 import { KPICard } from "@/components/KPICard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -79,8 +79,7 @@ function ChartTooltip({ active, payload, label }: any) {
 export default function Dashboard() {
   const [trendPeriod, setTrendPeriod] = useState<"30d" | "90d">("30d");
   const days = trendPeriod === "90d" ? 90 : 30;
-  const { partes, loading, totals, chartSeries } = usePartesDashboard(days);
-  const { partes: allPartes } = usePartes();
+  const { partes, allPartes, loading, totals, chartSeries } = usePartesDashboard(days);
 
   const [weeklyView, setWeeklyView] = useState(false);
   type CompareMode = "week" | "month" | "year";

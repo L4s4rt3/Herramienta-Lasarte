@@ -10,6 +10,7 @@ import { QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { computeCascade, CascadeResult } from "@/lib/cascade";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthProvider";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -132,21 +133,27 @@ function subscribePartesRealtime(queryClient: QueryClient) {
 
 export function usePartes() {
   const queryClient = useQueryClient();
-  const query = useQuery(partesQueryOptions);
+  const { user, loading: authLoading } = useAuth();
+  const canLoadPartes = !authLoading && Boolean(user);
+  const query = useQuery({
+    ...partesQueryOptions,
+    enabled: canLoadPartes,
+  });
 
   useEffect(() => {
+    if (!canLoadPartes) return;
     return subscribePartesRealtime(queryClient);
 
     // Realtime: nombre único para evitar conflictos con múltiples hooks
-  }, [queryClient]);
+  }, [canLoadPartes, queryClient]);
 
   useEffect(() => {
-    if (query.error instanceof Error) {
+    if (canLoadPartes && query.error instanceof Error && !query.isFetching) {
       toast({ title: "Error cargando partes", description: query.error.message, variant: "destructive" });
     }
-  }, [query.error]);
+  }, [canLoadPartes, query.error, query.isFetching]);
 
-  return { partes: query.data ?? [], loading: query.isLoading, refetch: query.refetch };
+  return { partes: query.data ?? [], loading: authLoading || query.isLoading, refetch: query.refetch };
 }
 
 // ─── Hook de partes filtrados (para PartesList) ──────────────────────────────
@@ -235,5 +242,5 @@ export function usePartesDashboard(days = 30) {
     [recent]
   );
 
-  return { partes: recent, loading, totals, chartSeries };
+  return { partes: recent, allPartes: partes, loading, totals, chartSeries };
 }
