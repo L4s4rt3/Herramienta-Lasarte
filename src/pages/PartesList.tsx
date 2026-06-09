@@ -1,8 +1,9 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
-import { usePartesFiltered, EstadoFiltro, PartesFilter } from "@/hooks/usePartes";
+import { usePartesFiltered, EstadoFiltro, PartesFilter, upsertParteInCache, type ParteRaw } from "@/hooks/usePartes";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -79,6 +80,7 @@ export default function PartesList() {
   const { user } = useAuth();
   const { t } = useI18n();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const [filter, setFilter] = useState<PartesFilter>({
     search: "", estado: "todos", soloAlertas: false,
@@ -120,9 +122,10 @@ export default function PartesList() {
     const { data, error } = await supabase
       .from("partes_diarios")
       .insert({ date: newDate, user_id: user.id, estado: "Borrador" })
-      .select("id").single();
+      .select("*").single();
     setCreating(false);
     if (error) { toast({ title: "Error", description: error.message, variant: "destructive" }); return; }
+    upsertParteInCache(queryClient, data as ParteRaw);
     navigate(`/partes/${data.id}`);
   }
 

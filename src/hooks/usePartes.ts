@@ -99,7 +99,19 @@ export async function fetchPartes(): Promise<Parte[]> {
 export const partesQueryOptions = {
   queryKey: PARTES_QUERY_KEY,
   queryFn: fetchPartes,
+  refetchOnMount: "always" as const,
 };
+
+export function upsertParteInCache(queryClient: QueryClient, raw: ParteRaw): Parte {
+  const parte = buildCascade(raw);
+
+  queryClient.setQueryData<Parte[]>(PARTES_QUERY_KEY, (current = []) => {
+    const withoutCurrent = current.filter((cachedParte) => cachedParte.id !== parte.id);
+    return [parte, ...withoutCurrent].sort((a, b) => b.date.localeCompare(a.date));
+  });
+
+  return parte;
+}
 
 let partesChannel: ReturnType<typeof supabase.channel> | null = null;
 let partesSubscribers = 0;
