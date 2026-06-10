@@ -48,10 +48,11 @@ describe("calcularRendimientoGrupos", () => {
     expect(totalKgRendimiento(result)).toBeCloseTo(250, 4);
   });
 
-  it("anchors the Informe 0806 group split to 96,779 kg of real production", () => {
+  it("anchors the Informe 0806 group split to the stored cascade production", () => {
     const result = calcularRendimientoGrupos({
       parte: {
-        kg_produccion_calibrador: 96779,
+        resumen_ia: { cascada: { produccion_real: 96779 } },
+        kg_produccion_calibrador: 107818.3753,
         producto_dia: [
           { producto: "ENVASADO GENERICO", kg: 35952.8126 },
           { producto: "MDNA 5KG D-PACK", kg: 33459.2399 },

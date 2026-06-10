@@ -105,7 +105,7 @@ export default function AsistenciaComparativa() {
 
     const { data: production } = await supabase
       .from("partes_diarios")
-      .select("date, kg_produccion_calibrador, kg_industria_manual, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
+      .select("date, resumen_ia, kg_produccion_calibrador, kg_industria_manual, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
       .gte("date", from)
       .lte("date", until);
 

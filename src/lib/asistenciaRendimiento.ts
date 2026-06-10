@@ -26,6 +26,13 @@ function num(value: unknown): number {
 
 export function produccionRealParte(parte: any): number {
   if (!parte) return 0;
+  const produccionCascada = num(
+    parte?.resumen_ia?.cascada?.produccion_real ??
+      parte?.cascade?.produccion_real ??
+      parte?.cascada?.produccion_real
+  );
+  if (produccionCascada > 0) return produccionCascada;
+
   return Math.max(
     0,
     num(parte.kg_produccion_calibrador) -
