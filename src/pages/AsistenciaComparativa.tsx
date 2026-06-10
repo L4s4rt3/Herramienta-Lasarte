@@ -14,6 +14,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { exportEficienciaToExcel, exportEficienciaToPDF } from "@/lib/exportEficiencia";
+import { produccionRealParte } from "@/lib/asistenciaRendimiento";
 
 interface DiaData {
   date: string;
@@ -39,16 +40,6 @@ const RANGE_DAYS = 60;
 
 function num(value: unknown): number {
   return Number(value) || 0;
-}
-
-function produccionReal(row: any): number {
-  return (
-    num(row.kg_produccion_calibrador) +
-    num(row.kg_industria_manual) -
-    num(row.kg_mujeres_calibrador) -
-    num(row.kg_reciclado_malla_z1) -
-    num(row.kg_reciclado_malla_z2)
-  );
 }
 
 function getWeekStart(dateStr: string) {
@@ -120,7 +111,7 @@ export default function AsistenciaComparativa() {
 
     const kgByDay: Record<string, number> = {};
     for (const r of production ?? []) {
-      const kg = produccionReal(r) || num(r.kg_produccion_calibrador);
+      const kg = produccionRealParte(r) || num(r.kg_produccion_calibrador);
       if (kg > 0) kgByDay[r.date] = (kgByDay[r.date] ?? 0) + kg;
     }
 

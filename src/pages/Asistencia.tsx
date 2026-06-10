@@ -33,26 +33,14 @@ import {
   extractDailyAttendanceNames,
   extractWeeklyAttendance,
 } from "@/lib/asistenciaImport";
+import {
+  calcularRendimientoGrupos,
+  produccionRealParte,
+  totalKgRendimiento,
+  totalPersonasRendimiento,
+} from "@/lib/asistenciaRendimiento";
 
 const GRUPOS = ["Encargadas", "Produccion", "Aereo", "Tria podrido", "Punta", "Volcador", "Mecanica", "Envasadoras", "Mallas", "Carretilla", "Graneleras", "Mozos", "Carga y descarga"];
-
-const RENDIMIENTO_GRUPOS = ["Envasadoras", "Mallas", "Graneleras"] as const;
-type RendimientoGrupoKey = typeof RENDIMIENTO_GRUPOS[number];
-
-function num(value: unknown): number {
-  return Number(value) || 0;
-}
-
-function produccionRealParte(parte: any): number {
-  if (!parte) return 0;
-  return (
-    num(parte.kg_produccion_calibrador) +
-    num(parte.kg_industria_manual) -
-    num(parte.kg_mujeres_calibrador) -
-    num(parte.kg_reciclado_malla_z1) -
-    num(parte.kg_reciclado_malla_z2)
-  );
-}
 
 // ─── KPI Stat Cards ───────────────────────────────────────────────────────────
 
@@ -450,159 +438,14 @@ export default function Asistencia() {
 
   // ─── Rendimiento por grupo (producto_detalle) ────────────────────────────
 
-    interface GrupoRendimiento {
-    kg: number;
-    personas: number;
-  }
+  const rendimientoGrupos = useMemo(
+    () => calcularRendimientoGrupos({ parte: parteDelDia, trabajadores: activos, asistencia }),
+    [parteDelDia, activos, asistencia]
+  );
 
-  function normalizarTexto(value: unknown): string {
-    return String(value ?? "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .trim();
-  }
-
-  function esLineaTotal(value: unknown): boolean {
-    const text = normalizarTexto(value);
-    return /\b(total|totales|subtotal|suma|gran total)\b/.test(text);
-  }
-
-  function esFilaTotal(item: any): boolean {
-    return [
-      item?.producto,
-      item?.linea,
-      item?.grupo_destino,
-      item?.destino,
-      item?.formato_caja,
-      item?.situacion,
-    ].some(esLineaTotal);
-  }
-
-  function normalizarGrupoRendimiento(value: unknown): RendimientoGrupoKey | null {
-    const text = normalizarTexto(value);
-    if (!text) return null;
-    if (/\bgranel|graneler|bulk/.test(text)) return "Graneleras";
-    if (/malla|malladora|mercadona/.test(text)) return "Mallas";
-    if (/envas|encaj|caja|linea\s*1|linea\s*2|linea\s*3/.test(text)) return "Envasadoras";
-    return null;
-  }
-
-  // Palabras que indican que el item NO debe contar como rendimiento
-  // (es pérdida, industria o subproducto del calibrador)
-  const EXCLUIDOS_RENDIMIENTO = [
-    "industria", "muestra", "podrido", "podrida", "prec",
-    "industr",
-  ];
-  const esExcluidoRendimiento = (prod: string): boolean => {
-    const text = normalizarTexto(prod);
-    if (!text) return true; // producto vacío = sospechoso
-    return EXCLUIDOS_RENDIMIENTO.some((k) => text.includes(k));
-  };
-
-  function prodToGrupo(prod: string): RendimientoGrupoKey | null {
-    if (esLineaTotal(prod)) return null;
-    if (esExcluidoRendimiento(prod)) return null;
-    const text = normalizarTexto(prod);
-    // GRANEL tiene prioridad sobre MDNA: "MDNA GRANEL ..." va a Graneleras
-    // (el "GRANEL" indica que es producto a granel aunque sea para Mercadona)
-    if (text.includes("granelera") || text.startsWith("granel") || /\bgranel\b/.test(text)) return "Graneleras";
-    if (text.includes("mdna") || text.includes("mercadona")) return "Mallas";
-    if (text.includes("malla") || text.includes("malladora")) return "Mallas";
-    if (text.includes("francia")) return "Envasadoras";
-    if (text.includes("envas") || text.includes("encaj") || text.includes("caja") || text.includes("emp")) return "Envasadoras";
-    // "EN BOX" / "A GRANEL" sin otra pista → granelera
-    if (text.includes("en box") || text.includes("a granel")) return "Graneleras";
-    return null;
-  }
-
-  function clienteToGrupo(cliente: string): RendimientoGrupoKey | null {
-    const text = normalizarTexto(cliente);
-    if (!text) return null;
-    if (text.includes("mercadona") || text.includes("mdna")) return "Mallas";
-    return null;
-  }
-
-  function grupoDeLineaProducto(item: any): RendimientoGrupoKey | null {
-    return (
-      normalizarGrupoRendimiento(item.linea) ??
-      normalizarGrupoRendimiento(item.zona) ??
-      normalizarGrupoRendimiento(item.seccion) ??
-      normalizarGrupoRendimiento(item.maquina) ??
-      normalizarGrupoRendimiento(item.grupo_rendimiento) ??
-      normalizarGrupoRendimiento(item.grupo_destino) ??
-      normalizarGrupoRendimiento(item.destino) ??
-      clienteToGrupo(item.cliente) ??
-      prodToGrupo(item.producto ?? "")
-    );
-  }
-
-  const rendimientoGrupos = useMemo<Record<string, GrupoRendimiento>>(() => {
-    const grupos: Record<RendimientoGrupoKey, GrupoRendimiento> = {
-      Envasadoras: { kg: 0, personas: 0 },
-      Mallas: { kg: 0, personas: 0 },
-      Graneleras: { kg: 0, personas: 0 },
-    };
-    const gruposValidos = new Set<string>(RENDIMIENTO_GRUPOS);
-
-    const addKg = (grupo: string | null, kg: number) => {
-      if (grupo && gruposValidos.has(grupo) && kg > 0) {
-        grupos[grupo as RendimientoGrupoKey].kg += kg;
-      }
-    };
-
-    // Fuente prioritaria: tabla normalizada producto_dia. Su campo "linea"
-    // es mas fiable para asignar kg a Envasadoras/Mallas/Graneleras que el nombre del producto.
-    const detalleDb = (parteDelDia as any)?.producto_dia;
-    const detalleIa = (parteDelDia as any)?.resumen_ia?.producto_detalle;
-    const detalle = Array.isArray(detalleDb) && detalleDb.length > 0 ? detalleDb : detalleIa;
-    if (Array.isArray(detalle) && detalle.length > 0) {
-      for (const item of detalle) {
-        if (esFilaTotal(item)) continue;
-        const grupo = grupoDeLineaProducto(item);
-        addKg(grupo, num(item.kg));
-      }
-    }
-
-    // Fallback: palets_detalle cuando no existe detalle de producto.
-    const kgFromDetalle = RENDIMIENTO_GRUPOS.reduce((s, g) => s + grupos[g].kg, 0);
-    if (kgFromDetalle === 0) {
-      const palets = (parteDelDia as any)?.resumen_ia?.palets_detalle;
-      if (Array.isArray(palets)) {
-        for (const item of palets) {
-          if (esFilaTotal(item)) continue;
-          const grupo =
-            normalizarGrupoRendimiento(item.linea) ??
-            normalizarGrupoRendimiento(item.grupo_destino) ??
-            normalizarGrupoRendimiento(item.destino) ??
-            normalizarGrupoRendimiento(item.situacion) ??
-            clienteToGrupo(item.cliente) ??
-            prodToGrupo(item.producto ?? "");
-          addKg(grupo, num(item.kg_neto));
-        }
-      }
-    }
-
-    const kgObjetivo = produccionRealParte(parteDelDia) || num((parteDelDia as any)?.kg_produccion_calibrador);
-    const kgClasificados = RENDIMIENTO_GRUPOS.reduce((s, g) => s + grupos[g].kg, 0);
-    if (kgObjetivo > 0 && kgClasificados > kgObjetivo * 1.02) {
-      const factor = kgObjetivo / kgClasificados;
-      for (const grupo of RENDIMIENTO_GRUPOS) {
-        grupos[grupo].kg *= factor;
-      }
-    }
-
-    for (const t of activos) {
-      if (asistencia[t.id] === true && t.zona && grupos[t.zona]) {
-        grupos[t.zona as RendimientoGrupoKey].personas++;
-      }
-    }
-    return grupos;
-  }, [parteDelDia, activos, asistencia]);
-
-  const totalKg = rendimientoGrupos.Envasadoras.kg + rendimientoGrupos.Mallas.kg + rendimientoGrupos.Graneleras.kg;
+  const totalKg = totalKgRendimiento(rendimientoGrupos);
   const kgCalibrador = produccionRealParte(parteDelDia) || ((parteDelDia as any)?.kg_produccion_calibrador ?? 0);
-  const totalPersonas = rendimientoGrupos.Envasadoras.personas + rendimientoGrupos.Mallas.personas + rendimientoGrupos.Graneleras.personas;
+  const totalPersonas = totalPersonasRendimiento(rendimientoGrupos);
 
   // ─── Eficiencia histórica ──────────────────────────────────────────────
 
@@ -640,7 +483,7 @@ export default function Asistencia() {
 
     const kgByDay: Record<string, number> = {};
     for (const r of production ?? []) {
-      const kg = produccionRealParte(r) || num(r.kg_produccion_calibrador);
+      const kg = produccionRealParte(r) || Number(r.kg_produccion_calibrador) || 0;
       if (kg > 0) kgByDay[r.date] = (kgByDay[r.date] ?? 0) + kg;
     }
 
