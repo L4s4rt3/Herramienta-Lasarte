@@ -14,7 +14,12 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { exportEficienciaToExcel, exportEficienciaToPDF } from "@/lib/exportEficiencia";
-import { produccionRealParte } from "@/lib/asistenciaRendimiento";
+import {
+  calcularRendimientoGrupos,
+  grupoRendimientoTrabajador,
+  produccionRealParte,
+  totalKgRendimiento,
+} from "@/lib/asistenciaRendimiento";
 
 interface DiaData {
   date: string;
@@ -94,24 +99,55 @@ export default function AsistenciaComparativa() {
 
     const { data: attendance } = await supabase
       .from("asistencia_detalle")
-      .select("date, presente")
+      .select("date, presente, trabajador_id")
       .gte("date", from)
       .lte("date", until);
 
+    const { data: trabajadores } = await supabase
+      .from("trabajadores")
+      .select("id, zona");
+
+    const trabajadoresRendimiento = new Set(
+      (trabajadores ?? [])
+        .filter((t) => grupoRendimientoTrabajador(t))
+        .map((t) => t.id)
+    );
+
     const dayWorkers: Record<string, number> = {};
     for (const r of attendance ?? []) {
-      if (r.presente) dayWorkers[r.date] = (dayWorkers[r.date] ?? 0) + 1;
+      if (r.presente && trabajadoresRendimiento.has(r.trabajador_id)) {
+        dayWorkers[r.date] = (dayWorkers[r.date] ?? 0) + 1;
+      }
     }
 
     const { data: production } = await supabase
       .from("partes_diarios")
-      .select("date, resumen_ia, kg_produccion_calibrador, kg_industria_manual, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
+      .select("id, date, resumen_ia, kg_produccion_calibrador, kg_industria_manual, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
       .gte("date", from)
       .lte("date", until);
 
+    const partIds = (production ?? []).map((p) => p.id).filter(Boolean);
+    const { data: productos } = partIds.length > 0
+      ? await supabase
+          .from("producto_dia")
+          .select("part_id, linea, producto, formato_caja, kg, n_cajas, grupo_destino")
+          .in("part_id", partIds)
+      : { data: [] as any[] };
+
+    const productoByPart: Record<string, any[]> = {};
+    for (const row of productos ?? []) {
+      if (!productoByPart[row.part_id]) productoByPart[row.part_id] = [];
+      productoByPart[row.part_id].push(row);
+    }
+
     const kgByDay: Record<string, number> = {};
     for (const r of production ?? []) {
-      const kg = produccionRealParte(r) || num(r.kg_produccion_calibrador);
+      const grupos = calcularRendimientoGrupos({
+        parte: { ...r, producto_dia: productoByPart[r.id] ?? [] },
+        trabajadores: [],
+        asistencia: {},
+      });
+      const kg = totalKgRendimiento(grupos) || produccionRealParte(r) || num(r.kg_produccion_calibrador);
       if (kg > 0) kgByDay[r.date] = (kgByDay[r.date] ?? 0) + kg;
     }
 

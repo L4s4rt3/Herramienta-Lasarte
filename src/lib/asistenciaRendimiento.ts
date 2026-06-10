@@ -97,6 +97,10 @@ function normalizarGrupoConfeccion(value: unknown): RendimientoGrupoKey | null {
   return null;
 }
 
+export function grupoRendimientoTrabajador(trabajador: TrabajadorRendimiento): RendimientoGrupoKey | null {
+  return normalizarGrupoConfeccion(trabajador.zona);
+}
+
 function grupoProductoNombre(producto: unknown): RendimientoGrupoKey | null {
   const text = normalizarTexto(producto);
   if (!text) return null;
@@ -181,7 +185,7 @@ export function calcularRendimientoGrupos({
   }
 
   for (const trabajador of trabajadores) {
-    const grupo = normalizarGrupoConfeccion(trabajador.zona);
+    const grupo = grupoRendimientoTrabajador(trabajador);
     if (grupo && asistencia[trabajador.id] === true) grupos[grupo].personas++;
   }
 
