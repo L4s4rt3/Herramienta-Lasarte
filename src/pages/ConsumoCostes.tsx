@@ -451,7 +451,7 @@ export default function ConsumoCostes() {
               </CardContent>
             </Card>
           </TabsContent>
-          <TabsContent value="resultados" className="space-y-6">
+          <TabsContent value="resumen" className="space-y-6">
             {!resultados || sesiones.length === 0 ? (
               <Card className="glass-accented"><CardContent className="p-12 text-center text-muted-foreground">Aún no hay sesiones registradas.</CardContent></Card>
             ) : (
@@ -587,6 +587,18 @@ export default function ConsumoCostes() {
           </TabsContent>
 
           {/* ════════ MÁQUINAS ════════ */}
+          <TabsContent value="validacion" className="space-y-6">
+            <Card className="glass-accented">
+              <CardHeader>
+                <p className="panel-kicker">Validacion de consumos</p>
+                <CardTitle>Revision pendiente</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">La revision de periodos incompletos se anadira en el siguiente bloque.</p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="maquinas" className="space-y-6">
             <Card className="glass-accented">
               <CardHeader>
