@@ -17,6 +17,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useConsumosFisicos } from "@/hooks/useConsumosFisicos";
 import { toast } from "@/hooks/use-toast";
 import { Plus, Trash2, Save, History, BarChart3, Settings, Droplet, Zap, Fuel, FlaskConical, Download, FileText, FileSpreadsheet, CalendarDays } from "lucide-react";
 import { today, formatNumber, formatDate } from "@/lib/format";
@@ -81,6 +82,7 @@ export default function ConsumoCostes() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [tab, setTab] = useState("sesion");
+  const { isLoading: loadingConsumosFisicos } = useConsumosFisicos();
 
   // ─── Queries ──────────────────────────────────────────────────────────────
   const { data: maquinas = [], isLoading: loadingMaquinas } = useQuery({
@@ -315,7 +317,7 @@ export default function ConsumoCostes() {
 
   const pct = (a: number, b: number) => (b > 0 ? ((a - b) / b) * 100 : 0);
 
-  const loading = loadingMaquinas || loadingSesiones;
+  const loading = loadingMaquinas || loadingSesiones || loadingConsumosFisicos;
 
   return (
     <div className="page-shell">
