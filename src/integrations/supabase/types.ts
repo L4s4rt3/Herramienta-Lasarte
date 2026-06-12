@@ -654,6 +654,84 @@ export type Database = {
           },
         ]
       }
+      consumos_fisicos: {
+        Row: {
+          cantidad: number
+          created_at: string
+          fecha_fin: string
+          fecha_inicio: string
+          fuente: "contador" | "factura_detallada" | "albaran" | "estimacion_manual"
+          id: string
+          notas: string | null
+          recurso: "agua" | "electricidad" | "gasoil" | "quimicos"
+          referencia: string | null
+          unidad: "l" | "m3" | "kwh"
+          user_id: string
+        }
+        Insert: {
+          cantidad?: number
+          created_at?: string
+          fecha_fin: string
+          fecha_inicio: string
+          fuente: "contador" | "factura_detallada" | "albaran" | "estimacion_manual"
+          id?: string
+          notas?: string | null
+          recurso: "agua" | "electricidad" | "gasoil" | "quimicos"
+          referencia?: string | null
+          unidad: "l" | "m3" | "kwh"
+          user_id: string
+        }
+        Update: {
+          cantidad?: number
+          created_at?: string
+          fecha_fin?: string
+          fecha_inicio?: string
+          fuente?: "contador" | "factura_detallada" | "albaran" | "estimacion_manual"
+          id?: string
+          notas?: string | null
+          recurso?: "agua" | "electricidad" | "gasoil" | "quimicos"
+          referencia?: string | null
+          unidad?: "l" | "m3" | "kwh"
+          user_id?: string
+        }
+        Relationships: []
+      }
+      consumos_bases_kg: {
+        Row: {
+          created_at: string
+          fecha_fin: string
+          fecha_inicio: string
+          id: string
+          kg: number
+          notas: string | null
+          referencia: string | null
+          tipo_base: "ventas" | "manual"
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          fecha_fin: string
+          fecha_inicio: string
+          id?: string
+          kg?: number
+          notas?: string | null
+          referencia?: string | null
+          tipo_base: "ventas" | "manual"
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          fecha_fin?: string
+          fecha_inicio?: string
+          id?: string
+          kg?: number
+          notas?: string | null
+          referencia?: string | null
+          tipo_base?: "ventas" | "manual"
+          user_id?: string
+        }
+        Relationships: []
+      }
       maquinas: {
         Row: {
           created_at: string

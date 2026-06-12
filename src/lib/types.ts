@@ -31,6 +31,32 @@ export interface ConsumoMaquinaRow {
   created_at: string;
 }
 
+export interface ConsumoFisicoRow {
+  id: string;
+  user_id: string;
+  recurso: "agua" | "electricidad" | "gasoil" | "quimicos";
+  fecha_inicio: string;
+  fecha_fin: string;
+  cantidad: number;
+  unidad: "l" | "m3" | "kwh";
+  fuente: "contador" | "factura_detallada" | "albaran" | "estimacion_manual";
+  referencia: string | null;
+  notas: string | null;
+  created_at: string;
+}
+
+export interface ConsumoBaseKgRow {
+  id: string;
+  user_id: string;
+  tipo_base: "ventas" | "manual";
+  fecha_inicio: string;
+  fecha_fin: string;
+  kg: number;
+  referencia: string | null;
+  notas: string | null;
+  created_at: string;
+}
+
 export interface ParteRow {
   id: string;
   user_id: string;
