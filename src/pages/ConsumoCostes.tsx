@@ -19,7 +19,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useConsumosFisicos } from "@/hooks/useConsumosFisicos";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Trash2, Save, History, BarChart3, Settings, Droplet, Zap, Fuel, FlaskConical, Download, FileText, FileSpreadsheet, CalendarDays } from "lucide-react";
+import { Plus, Trash2, Save, History, BarChart3, Settings, Droplet, Zap, Fuel, FlaskConical, FileText, FileSpreadsheet, CalendarDays } from "lucide-react";
 import { today, formatNumber, formatDate } from "@/lib/format";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -81,8 +81,72 @@ function ConsumoDatePicker({ value, onChange }: { value: string; onChange: (valu
 export default function ConsumoCostes() {
   const { user } = useAuth();
   const qc = useQueryClient();
-  const [tab, setTab] = useState("sesion");
-  useConsumosFisicos();
+  const [tab, setTab] = useState("resumen");
+  const consumosFisicos = useConsumosFisicos();
+  const [cfRecurso, setCfRecurso] = useState<"agua" | "electricidad" | "gasoil" | "quimicos">("gasoil");
+  const [cfInicio, setCfInicio] = useState("2025-09-01");
+  const [cfFin, setCfFin] = useState(today());
+  const [cfCantidad, setCfCantidad] = useState("");
+  const [cfUnidad, setCfUnidad] = useState<"l" | "m3" | "kwh">("l");
+  const [cfFuente, setCfFuente] = useState<"contador" | "factura_detallada" | "albaran" | "estimacion_manual">("albaran");
+  const [cfReferencia, setCfReferencia] = useState("");
+  const [cfNotas, setCfNotas] = useState("");
+  const [baseTipo, setBaseTipo] = useState<"ventas" | "manual">("ventas");
+  const [baseInicio, setBaseInicio] = useState("2025-09-01");
+  const [baseFin, setBaseFin] = useState(today());
+  const [baseKg, setBaseKg] = useState("");
+  const [baseReferencia, setBaseReferencia] = useState("");
+  const [baseNotas, setBaseNotas] = useState("");
+
+  const guardarConsumoFisico = () => {
+    const cantidad = Number(cfCantidad) || 0;
+    if (cantidad <= 0) {
+      toast({ title: "Cantidad requerida", description: "Introduce una cantidad fisica mayor que cero.", variant: "destructive" });
+      return;
+    }
+    consumosFisicos.addConsumo.mutate({
+      recurso: cfRecurso,
+      fecha_inicio: cfInicio,
+      fecha_fin: cfFin,
+      cantidad,
+      unidad: cfUnidad,
+      fuente: cfFuente,
+      referencia: cfReferencia || null,
+      notas: cfNotas || null,
+    }, {
+      onSuccess: () => {
+        toast({ title: "Consumo guardado" });
+        setCfCantidad("");
+        setCfReferencia("");
+        setCfNotas("");
+      },
+      onError: (e) => toast({ title: "Error", description: e instanceof Error ? e.message : String(e), variant: "destructive" }),
+    });
+  };
+
+  const guardarBaseKg = () => {
+    const kg = Number(baseKg) || 0;
+    if (kg <= 0) {
+      toast({ title: "Kg requeridos", description: "Introduce kg vendidos o manuales mayores que cero.", variant: "destructive" });
+      return;
+    }
+    consumosFisicos.addBaseKg.mutate({
+      tipo_base: baseTipo,
+      fecha_inicio: baseInicio,
+      fecha_fin: baseFin,
+      kg,
+      referencia: baseReferencia || null,
+      notas: baseNotas || null,
+    }, {
+      onSuccess: () => {
+        toast({ title: "Base kg guardada" });
+        setBaseKg("");
+        setBaseReferencia("");
+        setBaseNotas("");
+      },
+      onError: (e) => toast({ title: "Error", description: e instanceof Error ? e.message : String(e), variant: "destructive" }),
+    });
+  };
 
   // ─── Queries ──────────────────────────────────────────────────────────────
   const { data: maquinas = [], isLoading: loadingMaquinas } = useQuery({
@@ -110,87 +174,6 @@ export default function ConsumoCostes() {
       const { data } = await supabase.from("consumo_maquinas").select("*");
       return (data ?? []) as ConsumoMaquinaRow[];
     },
-  });
-
-  // ─── Calcular kg desde partes ──────────────────────────────────────────────
-  const [calculandoKg, setCalculandoKg] = useState(false);
-
-  const calcularKgDesdePartes = async () => {
-    setCalculandoKg(true);
-    try {
-      const { data, error } = await supabase
-        .from("partes_diarios")
-        .select("kg_produccion_calibrador, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
-        .gte("date", fInicio)
-        .lte("date", fFin);
-      if (error) throw error;
-      const total = (data ?? []).reduce((s, r) =>
-        s + (r.kg_produccion_calibrador || 0)
-          - (r.kg_mujeres_calibrador || 0)
-          - (r.kg_reciclado_malla_z1 || 0)
-          - (r.kg_reciclado_malla_z2 || 0)
-      , 0);
-      setFKg(String(total));
-      toast({ title: "Kg calculados", description: `${total.toFixed(0)} kg en ${data?.length ?? 0} partes` });
-    } catch (e) {
-      toast({ title: "Error", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
-    } finally {
-      setCalculandoKg(false);
-    }
-  };
-
-  // ─── Formulario sesión ────────────────────────────────────────────────────
-  const [fInicio, setFInicio] = useState(today());
-  const [fFin, setFFin] = useState(today());
-  const [fKg, setFKg] = useState("");
-  const [fAguaLinea, setFAguaLinea] = useState("");
-  const [fAguaDrencher, setFAguaDrencher] = useState("");
-  const [fQuimicos, setFQuimicos] = useState("");
-  const [fGasoil, setFGasoil] = useState("");
-  const [fElectricidad, setFElectricidad] = useState("");
-  const [fNotas, setFNotas] = useState("");
-  const [fMaquinaKwh, setFMaquinaKwh] = useState<Record<string, string>>({});
-
-  const sessionMut = useMutation({
-    mutationFn: async () => {
-      if (!user) throw new Error("No auth");
-      const kg = Number(fKg) || 0;
-      if (kg <= 0) throw new Error("Kg procesados requerido");
-      const { data, error } = await supabase.from("sesiones_consumo").insert({
-        user_id: user.id,
-        fecha_inicio: fInicio,
-        fecha_fin: fFin,
-        kg_procesados: kg,
-        agua_linea_l: Number(fAguaLinea) || 0,
-        agua_drencher_l: Number(fAguaDrencher) || 0,
-        quimicos_drencher_l: Number(fQuimicos) || 0,
-        gasoil_l: Number(fGasoil) || 0,
-        electricidad_total_kwh: Number(fElectricidad) || 0,
-        notas: fNotas || null,
-      }).select("id").single();
-      if (error) throw error;
-
-      const cmRows = maquinas
-        .filter((m) => (Number(fMaquinaKwh[m.id]) || 0) > 0)
-        .map((m) => ({
-          sesion_id: data.id,
-          maquina_id: m.id,
-          kwh: Number(fMaquinaKwh[m.id]) || 0,
-        }));
-      if (cmRows.length > 0) {
-        const { error: cmErr } = await supabase.from("consumo_maquinas").insert(cmRows);
-        if (cmErr) throw cmErr;
-      }
-    },
-    onSuccess: () => {
-      toast({ title: "Sesión guardada" });
-      setFKg(""); setFAguaLinea(""); setFAguaDrencher("");
-      setFQuimicos(""); setFGasoil(""); setFElectricidad(""); setFNotas("");
-      setFMaquinaKwh({});
-      qc.invalidateQueries({ queryKey: ["sesiones_consumo"] });
-      qc.invalidateQueries({ queryKey: ["consumo_maquinas"] });
-    },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   // ─── Formulario máquina ───────────────────────────────────────────────────
@@ -344,100 +327,130 @@ export default function ConsumoCostes() {
       ) : (
         <Tabs value={tab} onValueChange={setTab} className="space-y-6">
           <div className="glass-accented p-1.5 rounded-xl">
-          <TabsList className="grid w-full grid-cols-2 md:w-auto md:grid-cols-4">
-            <TabsTrigger value="sesion"><Save className="h-4 w-4 mr-1.5" />Sesión</TabsTrigger>
-            <TabsTrigger value="resultados"><BarChart3 className="h-4 w-4 mr-1.5" />Resultados</TabsTrigger>
-            <TabsTrigger value="maquinas"><Settings className="h-4 w-4 mr-1.5" />Máquinas</TabsTrigger>
-            <TabsTrigger value="historico"><History className="h-4 w-4 mr-1.5" />Histórico</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-2 md:w-auto md:grid-cols-5">
+            <TabsTrigger value="resumen"><BarChart3 className="h-4 w-4 mr-1.5" />Resumen</TabsTrigger>
+            <TabsTrigger value="registrar"><Save className="h-4 w-4 mr-1.5" />Registrar</TabsTrigger>
+            <TabsTrigger value="historico"><History className="h-4 w-4 mr-1.5" />Historico</TabsTrigger>
+            <TabsTrigger value="validacion"><FileText className="h-4 w-4 mr-1.5" />Validacion</TabsTrigger>
+            <TabsTrigger value="maquinas"><Settings className="h-4 w-4 mr-1.5" />Maquinas</TabsTrigger>
           </TabsList>
           </div>
 
-          {/* ════════ SESIÓN ════════ */}
-          <TabsContent value="sesion" className="space-y-4">
+          {/* REGISTRAR */}
+          <TabsContent value="registrar" className="space-y-6">
             <Card className="glass-accented">
               <CardHeader>
-                <p className="panel-kicker">Registro</p>
-                <CardTitle>Nueva sesión</CardTitle>
+                <p className="panel-kicker">Consumo fisico</p>
+                <CardTitle>Registrar recurso medido</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-5 md:grid-cols-3">
                 <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recurso</Label>
+                  <Select value={cfRecurso} onValueChange={(value) => setCfRecurso(value as typeof cfRecurso)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="agua">Agua</SelectItem>
+                      <SelectItem value="electricidad">Electricidad</SelectItem>
+                      <SelectItem value="gasoil">Gasoil</SelectItem>
+                      <SelectItem value="quimicos">Quimicos</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="glass p-4 space-y-2">
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fecha inicio</Label>
-                  <ConsumoDatePicker value={fInicio} onChange={setFInicio} />
+                  <ConsumoDatePicker value={cfInicio} onChange={setCfInicio} />
                 </div>
                 <div className="glass p-4 space-y-2">
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fecha fin</Label>
-                  <ConsumoDatePicker value={fFin} onChange={setFFin} />
+                  <ConsumoDatePicker value={cfFin} onChange={setCfFin} />
                 </div>
                 <div className="glass p-4 space-y-2">
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kg procesados *</Label>
-                  <div className="flex gap-2">
-                    <Input type="number" step="0.1" min="0" value={fKg} onChange={(e) => setFKg(e.target.value)} placeholder="0" className="flex-1" />
-                    <Button type="button" variant="outline" size="sm" onClick={calcularKgDesdePartes} disabled={calculandoKg} className="glass glass-hover shrink-0">
-                      {calculandoKg ? "..." : "Desde partes"}
-                    </Button>
-                  </div>
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Cantidad fisica</Label>
+                  <Input type="number" step="0.1" min="0" value={cfCantidad} onChange={(e) => setCfCantidad(e.target.value)} placeholder="0" />
                 </div>
-                <div className="glass p-4 space-y-2 relative overflow-hidden">
-                  <div className="absolute inset-x-3 top-0 h-px bg-info/30" />
-                  <Label className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-info"><Droplet className="h-3.5 w-3.5" /> Agua línea (L)</Label>
-                  <Input type="number" step="0.1" min="0" value={fAguaLinea} onChange={(e) => setFAguaLinea(e.target.value)} placeholder="0" />
+                <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Unidad</Label>
+                  <Select value={cfUnidad} onValueChange={(value) => setCfUnidad(value as typeof cfUnidad)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="l">l</SelectItem>
+                      <SelectItem value="m3">m3</SelectItem>
+                      <SelectItem value="kwh">kwh</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-                <div className="glass p-4 space-y-2 relative overflow-hidden">
-                  <div className="absolute inset-x-3 top-0 h-px bg-info/25" />
-                  <Label className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-info"><Droplet className="h-3.5 w-3.5" /> Agua drencher (L)</Label>
-                  <Input type="number" step="0.1" min="0" value={fAguaDrencher} onChange={(e) => setFAguaDrencher(e.target.value)} placeholder="0" />
+                <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fuente</Label>
+                  <Select value={cfFuente} onValueChange={(value) => setCfFuente(value as typeof cfFuente)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="contador">Contador</SelectItem>
+                      <SelectItem value="factura_detallada">Factura detallada</SelectItem>
+                      <SelectItem value="albaran">Albaran</SelectItem>
+                      <SelectItem value="estimacion_manual">Estimacion manual</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-                <div className="glass p-4 space-y-2 relative overflow-hidden">
-                  <div className="absolute inset-x-3 top-0 h-px bg-info/30" />
-                  <Label className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-info"><FlaskConical className="h-3.5 w-3.5" /> Químicos drencher (L)</Label>
-                  <Input type="number" step="0.01" min="0" value={fQuimicos} onChange={(e) => setFQuimicos(e.target.value)} placeholder="0" />
+                <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Referencia</Label>
+                  <Input value={cfReferencia} onChange={(e) => setCfReferencia(e.target.value)} placeholder="Opcional" />
                 </div>
-                <div className="glass p-4 space-y-2 relative overflow-hidden">
-                  <div className="absolute inset-x-3 top-0 h-px bg-primary/30" />
-                  <Label className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-warning"><Fuel className="h-3.5 w-3.5" /> Gasoil (L)</Label>
-                  <Input type="number" step="0.1" min="0" value={fGasoil} onChange={(e) => setFGasoil(e.target.value)} placeholder="0" />
-                </div>
-                <div className="glass p-4 space-y-2 relative overflow-hidden">
-                  <div className="absolute inset-x-3 top-0 h-px bg-warning/30" />
-                  <Label className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-warning"><Zap className="h-3.5 w-3.5" /> Electricidad total (kWh)</Label>
-                  <Input type="number" step="0.1" min="0" value={fElectricidad} onChange={(e) => setFElectricidad(e.target.value)} placeholder="0" />
-                </div>
-                <div className="glass p-4 space-y-2 md:col-span-3">
+                <div className="glass p-4 space-y-2 md:col-span-2">
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Notas</Label>
-                  <Input value={fNotas} onChange={(e) => setFNotas(e.target.value)} placeholder="Opcional" />
+                  <Input value={cfNotas} onChange={(e) => setCfNotas(e.target.value)} placeholder="Opcional" />
+                </div>
+                <div className="md:col-span-3 flex justify-end">
+                  <Button onClick={guardarConsumoFisico} disabled={consumosFisicos.addConsumo.isPending} className="glass glass-hover px-8">
+                    <Save className="h-4 w-4 mr-2" /> Guardar consumo
+                  </Button>
                 </div>
               </CardContent>
             </Card>
 
-            {/* kWh por máquina */}
-            {maquinas.length > 0 && (
-              <Card className="glass-accented">
-                <CardHeader>
-                  <p className="panel-kicker">Detalle energético</p>
-                  <CardTitle>Consumo por máquina (kWh)</CardTitle>
-                </CardHeader>
-                <CardContent className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {maquinas.map((m) => (
-                    <div key={m.id} className="glass p-4 space-y-2">
-                      <Label className="text-sm font-semibold">{m.nombre} <span className="text-muted-foreground font-normal text-xs">({ZONAS.find((z) => z.value === m.zona)?.label})</span></Label>
-                      <Input type="number" step="0.1" min="0"
-                        value={fMaquinaKwh[m.id] ?? ""}
-                        onChange={(e) => setFMaquinaKwh((prev) => ({ ...prev, [m.id]: e.target.value }))}
-                        placeholder="kWh" />
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
-
-            <div className="flex justify-end">
-              <Button onClick={() => sessionMut.mutate()} disabled={sessionMut.isPending || !fKg} className="glass glass-hover px-8">
-                <Save className="h-4 w-4 mr-2" /> Guardar sesión
-              </Button>
-            </div>
+            <Card className="glass-accented">
+              <CardHeader>
+                <p className="panel-kicker">Base kg</p>
+                <CardTitle>Registrar kg vendidos o manuales</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-5 md:grid-cols-3">
+                <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tipo</Label>
+                  <Select value={baseTipo} onValueChange={(value) => setBaseTipo(value as typeof baseTipo)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ventas">Ventas</SelectItem>
+                      <SelectItem value="manual">Manual</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fecha inicio</Label>
+                  <ConsumoDatePicker value={baseInicio} onChange={setBaseInicio} />
+                </div>
+                <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fecha fin</Label>
+                  <ConsumoDatePicker value={baseFin} onChange={setBaseFin} />
+                </div>
+                <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kg</Label>
+                  <Input type="number" step="0.1" min="0" value={baseKg} onChange={(e) => setBaseKg(e.target.value)} placeholder="0" />
+                </div>
+                <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Referencia</Label>
+                  <Input value={baseReferencia} onChange={(e) => setBaseReferencia(e.target.value)} placeholder="Opcional" />
+                </div>
+                <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Notas</Label>
+                  <Input value={baseNotas} onChange={(e) => setBaseNotas(e.target.value)} placeholder="Opcional" />
+                </div>
+                <div className="md:col-span-3 flex justify-end">
+                  <Button onClick={guardarBaseKg} disabled={consumosFisicos.addBaseKg.isPending} className="glass glass-hover px-8">
+                    <Save className="h-4 w-4 mr-2" /> Guardar base kg
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
-
-          {/* ════════ RESULTADOS ════════ */}
           <TabsContent value="resultados" className="space-y-6">
             {!resultados || sesiones.length === 0 ? (
               <Card className="glass-accented"><CardContent className="p-12 text-center text-muted-foreground">Aún no hay sesiones registradas.</CardContent></Card>
