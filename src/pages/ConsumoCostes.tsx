@@ -17,6 +17,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import { useConsumosFisicos } from "@/hooks/useConsumosFisicos";
 import { toast } from "@/hooks/use-toast";
 import { Plus, Trash2, Save, History, BarChart3, Settings, Droplet, Zap, Fuel, FlaskConical, FileText, FileSpreadsheet, CalendarDays } from "lucide-react";
@@ -24,11 +25,11 @@ import { today, formatNumber, formatDate } from "@/lib/format";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import {
-  BarChart, Bar, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
+  LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 import {
   GlassTooltip, legendStyle, C, GRID, XAXIS, YAXIS, MARGIN,
-  BAR_STYLE, CHART_CURSOR, CHART_LINE_CURSOR, CHART_PANEL_CLASS, barFill, lineStyle,
+  CHART_LINE_CURSOR, CHART_PANEL_CLASS, lineStyle,
 } from "@/lib/chartTheme";
 import { MaquinaRow, SesionConsumoRow, ConsumoMaquinaRow } from "@/lib/types";
 import { exportConsumoToExcel, exportConsumoToPDF } from "@/lib/exportConsumo";
@@ -55,6 +56,32 @@ const UNIDAD_LABEL: Record<ConsumoUnidad, string> = {
   m3: "m3",
   kwh: "kWh",
 };
+
+type ConsumoConfianza = "real" | "estimado" | "mixto" | "incompleto";
+
+const CONFIDENCE_LABEL: Record<ConsumoConfianza, string> = {
+  real: "Real",
+  estimado: "Estimado",
+  mixto: "Mixto",
+  incompleto: "Incompleto",
+};
+
+const CONFIDENCE_CLASS: Record<ConsumoConfianza, string> = {
+  real: "border-success/30 bg-success/10 text-success",
+  estimado: "border-warning/30 bg-warning/10 text-warning",
+  mixto: "border-info/30 bg-info/10 text-info",
+  incompleto: "border-destructive/30 bg-destructive/10 text-destructive",
+};
+
+function ratioValue(cantidad: number, kgBase: number) {
+  return kgBase > 0 ? cantidad / kgBase : null;
+}
+
+function ratioText(value: number | null | undefined, digits: number, unit = "") {
+  if (value == null || !Number.isFinite(value)) return "Sin base";
+  const formatted = formatNumber(value, digits);
+  return unit ? `${formatted} ${unit}` : formatted;
+}
 
 function daysAgo(n: number) {
   const d = new Date();
@@ -181,7 +208,7 @@ export default function ConsumoCostes() {
     },
   });
 
-  const { data: sesiones = [], isLoading: loadingSesiones } = useQuery({
+  const { data: sesiones = [] } = useQuery({
     queryKey: ["sesiones_consumo"],
     queryFn: async () => {
       const { data } = await supabase
@@ -233,98 +260,77 @@ export default function ConsumoCostes() {
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  // ─── Eliminar sesión ──────────────────────────────────────────────────────
-  const delSesionMut = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("sesiones_consumo").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast({ title: "Sesión eliminada" });
-      qc.invalidateQueries({ queryKey: ["sesiones_consumo"] });
-      qc.invalidateQueries({ queryKey: ["consumo_maquinas"] });
-    },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
-
   // ─── Métricas calculadas ──────────────────────────────────────────────────
-  const resultados = useMemo(() => {
-    if (sesiones.length === 0) return null;
-    const totalKg = sesiones.reduce((s, r) => s + (r.kg_procesados || 0), 0);
-    if (totalKg === 0) return null;
-    const totalAguaLinea = sesiones.reduce((s, r) => s + (r.agua_linea_l || 0), 0);
-    const totalAguaDrencher = sesiones.reduce((s, r) => s + (r.agua_drencher_l || 0), 0);
-    const totalQuimicos = sesiones.reduce((s, r) => s + (r.quimicos_drencher_l || 0), 0);
-    const totalGasoil = sesiones.reduce((s, r) => s + (r.gasoil_l || 0), 0);
-    const totalElectricidad = sesiones.reduce((s, r) => s + (r.electricidad_total_kwh || 0), 0);
+  const rows = useMemo(() => consumosFisicos.monthlyRows, [consumosFisicos.monthlyRows]);
 
-    const cmKg: Record<string, number> = {};
-    consumosMaquinas.forEach((cm) => {
-      const ses = sesiones.find((s) => s.id === cm.sesion_id);
-      if (ses) cmKg[cm.maquina_id] = (cmKg[cm.maquina_id] || 0) + (cm.kwh || 0);
-    });
+  const selectedRows = useMemo(
+    () => rows.filter((row) => (
+      row.kgBase > 0
+      || row.aguaL > 0
+      || row.electricidadKwh > 0
+      || row.gasoilL > 0
+      || row.quimicosL > 0
+    )),
+    [rows],
+  );
 
-    return {
-      totalKg,
-      agua_linea_l_kg: totalAguaLinea / totalKg,
-      agua_drencher_l_kg: totalAguaDrencher / totalKg,
-      agua_total_l_kg: (totalAguaLinea + totalAguaDrencher) / totalKg,
-      quimicos_ml_kg: (totalQuimicos * 1000) / totalKg,
-      gasoil_ml_kg: (totalGasoil * 1000) / totalKg,
-      electricidad_kwh_kg: totalElectricidad / totalKg,
-      maquinas: maquinas.map((m) => ({
-        ...m,
-        totalKwh: cmKg[m.id] || 0,
-        kwhKg: totalKg > 0 ? ((cmKg[m.id] || 0) / totalKg) : 0,
-      })),
-    };
-  }, [sesiones, consumosMaquinas, maquinas]);
+  const selectedTotals = useMemo(
+    () => selectedRows.reduce(
+      (acc, row) => {
+        acc.kgBase += row.kgBase;
+        acc.kgPartes += row.kgPartes;
+        acc.kgVentas += row.kgVentas;
+        acc.kgManual += row.kgManual;
+        acc.aguaL += row.aguaL;
+        acc.electricidadKwh += row.electricidadKwh;
+        acc.gasoilL += row.gasoilL;
+        acc.quimicosL += row.quimicosL;
+        return acc;
+      },
+      {
+        kgBase: 0,
+        kgPartes: 0,
+        kgVentas: 0,
+        kgManual: 0,
+        aguaL: 0,
+        electricidadKwh: 0,
+        gasoilL: 0,
+        quimicosL: 0,
+      },
+    ),
+    [selectedRows],
+  );
 
-  // ─── Gráfico histórico ────────────────────────────────────────────────────
-  const historicoChart = useMemo(() => {
-    return [...sesiones].reverse().map((s) => {
-      const kg = s.kg_procesados || 1;
-      return {
-        periodo: s.fecha_inicio.slice(5) + (s.fecha_fin !== s.fecha_inicio ? " — " + s.fecha_fin.slice(5) : ""),
-        "Agua L/kg": ((s.agua_linea_l || 0) + (s.agua_drencher_l || 0)) / kg,
-        "Electricidad kWh/kg": (s.electricidad_total_kwh || 0) / kg,
-        "Gasoil mL/kg": ((s.gasoil_l || 0) * 1000) / kg,
-        "Químicos mL/kg": ((s.quimicos_drencher_l || 0) * 1000) / kg,
-      };
-    });
-  }, [sesiones]);
+  const totalKg = selectedTotals.kgBase;
+  const totalKgPartes = selectedTotals.kgPartes;
+  const totalKgVentas = selectedTotals.kgVentas;
+  const totalKgManual = selectedTotals.kgManual;
+  const totalAguaL = selectedTotals.aguaL;
+  const totalElectricidadKwh = selectedTotals.electricidadKwh;
+  const totalGasoilL = selectedTotals.gasoilL;
+  const totalQuimicosL = selectedTotals.quimicosL;
 
-  // ─── Última sesión para KPIs ──────────────────────────────────────────────
-  const ultimaSesion = sesiones.length > 0 ? sesiones[0] : null;
-  const penultimaSesion = sesiones.length > 1 ? sesiones[1] : null;
+  const resumenRatios = useMemo(() => ({
+    aguaLKg: ratioValue(totalAguaL, totalKg),
+    electricidadKwhKg: ratioValue(totalElectricidadKwh, totalKg),
+    gasoilMlKg: ratioValue(totalGasoilL * 1000, totalKg),
+    quimicosMlKg: ratioValue(totalQuimicosL * 1000, totalKg),
+  }), [totalAguaL, totalElectricidadKwh, totalGasoilL, totalKg, totalQuimicosL]);
 
-  const kpisUltima = useMemo(() => {
-    if (!ultimaSesion) return null;
-    const kg = ultimaSesion.kg_procesados || 1;
-    const aguaTotal = (ultimaSesion.agua_linea_l || 0) + (ultimaSesion.agua_drencher_l || 0);
-    return {
-      aguaTotal_l_kg: aguaTotal / kg,
-      electricidad_kwh_kg: (ultimaSesion.electricidad_total_kwh || 0) / kg,
-      gasoil_ml_kg: ((ultimaSesion.gasoil_l || 0) * 1000) / kg,
-      quimicos_ml_kg: ((ultimaSesion.quimicos_drencher_l || 0) * 1000) / kg,
-    };
-  }, [ultimaSesion]);
+  const monthlyEvolution = useMemo(
+    () => selectedRows.map((row) => ({
+      periodo: row.periodo,
+      "Agua L/kg": row.aguaLKg,
+      "Electricidad kWh/kg": row.electricidadKwhKg,
+      "Gasoil mL/kg": row.gasoilMlKg,
+      "Quimicos mL/kg": row.quimicosMlKg,
+    })),
+    [selectedRows],
+  );
 
-  const kpisPenultima = useMemo(() => {
-    if (!penultimaSesion) return null;
-    const kg = penultimaSesion.kg_procesados || 1;
-    const aguaTotal = (penultimaSesion.agua_linea_l || 0) + (penultimaSesion.agua_drencher_l || 0);
-    return {
-      aguaTotal_l_kg: aguaTotal / kg,
-      electricidad_kwh_kg: (penultimaSesion.electricidad_total_kwh || 0) / kg,
-      gasoil_ml_kg: ((penultimaSesion.gasoil_l || 0) * 1000) / kg,
-      quimicos_ml_kg: ((penultimaSesion.quimicos_drencher_l || 0) * 1000) / kg,
-    };
-  }, [penultimaSesion]);
+  const issueRows = useMemo(() => rows.filter((row) => row.issues.length > 0), [rows]);
 
-  const pct = (a: number, b: number) => (b > 0 ? ((a - b) / b) * 100 : 0);
-
-  const loading = loadingMaquinas || loadingSesiones;
+  const loading = loadingMaquinas || consumosFisicos.isLoading;
 
   return (
     <div className="page-shell">
@@ -483,132 +489,121 @@ export default function ConsumoCostes() {
             </Card>
           </TabsContent>
           <TabsContent value="resumen" className="space-y-6">
-            {!resultados || sesiones.length === 0 ? (
-              <Card className="glass-accented"><CardContent className="p-12 text-center text-muted-foreground">Aún no hay sesiones registradas.</CardContent></Card>
+            {selectedRows.length === 0 ? (
+              <Card className="glass-accented">
+                <CardContent className="p-12 text-center text-muted-foreground">
+                  Aun no hay consumos fisicos o kg base para resumir la campana.
+                </CardContent>
+              </Card>
             ) : (
               <>
-                {/* KPIs última sesión */}
-                {kpisUltima && (
-                  <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                    <KPICard label="Agua total" value={`${formatNumber(kpisUltima.aguaTotal_l_kg, 2)} L/kg`}
-                      hint={kpisPenultima ? `${pct(kpisUltima.aguaTotal_l_kg, kpisPenultima.aguaTotal_l_kg) > 0 ? "+" : ""}${pct(kpisUltima.aguaTotal_l_kg, kpisPenultima.aguaTotal_l_kg).toFixed(1)}% vs anterior` : "—"}
-                      trend={kpisPenultima ? (kpisUltima.aguaTotal_l_kg > kpisPenultima.aguaTotal_l_kg ? "up" : "down") : "neutral"}
-                      icon={Droplet} className="glass-accented" />
-                    <KPICard label="Electricidad" value={`${formatNumber(kpisUltima.electricidad_kwh_kg, 3)} kWh/kg`}
-                      hint={kpisPenultima ? `${pct(kpisUltima.electricidad_kwh_kg, kpisPenultima.electricidad_kwh_kg) > 0 ? "+" : ""}${pct(kpisUltima.electricidad_kwh_kg, kpisPenultima.electricidad_kwh_kg).toFixed(1)}% vs anterior` : "—"}
-                      trend={kpisPenultima ? (kpisUltima.electricidad_kwh_kg > kpisPenultima.electricidad_kwh_kg ? "up" : "down") : "neutral"}
-                      icon={Zap} className="glass-accented" />
-                    <KPICard label="Gasoil" value={`${formatNumber(kpisUltima.gasoil_ml_kg, 1)} mL/kg`}
-                      hint={kpisPenultima ? `${pct(kpisUltima.gasoil_ml_kg, kpisPenultima.gasoil_ml_kg) > 0 ? "+" : ""}${pct(kpisUltima.gasoil_ml_kg, kpisPenultima.gasoil_ml_kg).toFixed(1)}% vs anterior` : "—"}
-                      trend={kpisPenultima ? (kpisUltima.gasoil_ml_kg > kpisPenultima.gasoil_ml_kg ? "up" : "down") : "neutral"}
-                      icon={Fuel} className="glass-accented" />
-                    <KPICard label="Químicos" value={`${formatNumber(kpisUltima.quimicos_ml_kg, 1)} mL/kg`}
-                      hint={kpisPenultima ? `${pct(kpisUltima.quimicos_ml_kg, kpisPenultima.quimicos_ml_kg) > 0 ? "+" : ""}${pct(kpisUltima.quimicos_ml_kg, kpisPenultima.quimicos_ml_kg).toFixed(1)}% vs anterior` : "—"}
-                      trend={kpisPenultima ? (kpisUltima.quimicos_ml_kg > kpisPenultima.quimicos_ml_kg ? "up" : "down") : "neutral"}
-                      icon={FlaskConical} className="glass-accented" />
-                  </section>
-                )}
+                <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <KPICard
+                    label="Agua L/kg"
+                    value={ratioText(resumenRatios.aguaLKg, 2, "L/kg")}
+                    hint={`${formatNumber(totalAguaL)} L / ${formatNumber(totalKg)} kg`}
+                    icon={Droplet}
+                    className="glass-accented"
+                  />
+                  <KPICard
+                    label="Electricidad kWh/kg"
+                    value={ratioText(resumenRatios.electricidadKwhKg, 3, "kWh/kg")}
+                    hint={`${formatNumber(totalElectricidadKwh, 1)} kWh / ${formatNumber(totalKg)} kg`}
+                    icon={Zap}
+                    className="glass-accented"
+                  />
+                  <KPICard
+                    label="Gasoil mL/kg"
+                    value={ratioText(resumenRatios.gasoilMlKg, 1, "mL/kg")}
+                    hint={`${formatNumber(totalGasoilL, 1)} L / ${formatNumber(totalKg)} kg`}
+                    icon={Fuel}
+                    className="glass-accented"
+                  />
+                  <KPICard
+                    label="Quimicos mL/kg"
+                    value={ratioText(resumenRatios.quimicosMlKg, 1, "mL/kg")}
+                    hint={`${formatNumber(totalQuimicosL, 1)} L / ${formatNumber(totalKg)} kg`}
+                    icon={FlaskConical}
+                    className="glass-accented"
+                  />
+                </section>
 
-                {/* Métricas acumuladas */}
                 <Card className="glass-accented">
                   <CardHeader>
-                    <p className="panel-kicker">Acumulado</p>
-                    <CardTitle>Resumen ({sesiones.length} sesiones, {formatNumber(resultados.totalKg)} kg)</CardTitle>
+                    <p className="panel-kicker">Campana</p>
+                    <CardTitle>Totales ({selectedRows.length} meses con datos)</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                      <div className="glass p-5 relative overflow-hidden">
+                        <div className="absolute inset-x-4 top-0 h-0.5 bg-success/40 rounded-full" />
+                        <p className="text-xs font-semibold text-success uppercase tracking-wider">Kg base</p>
+                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(totalKg)} <span className="text-sm font-normal text-muted-foreground">kg</span></p>
+                        <p className="mt-2 text-xs text-muted-foreground">Partes: {formatNumber(totalKgPartes)} - Ventas: {formatNumber(totalKgVentas)} - Manual: {formatNumber(totalKgManual)}</p>
+                      </div>
                       <div className="glass p-5 relative overflow-hidden">
                         <div className="absolute inset-x-4 top-0 h-0.5 bg-info/40 rounded-full" />
-                        <p className="text-xs font-semibold text-info uppercase tracking-wider">Agua total</p>
-                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(resultados.agua_total_l_kg, 2)} <span className="text-sm font-normal text-muted-foreground">L/kg</span></p>
-                        <p className="mt-2 text-xs text-muted-foreground">Línea: {formatNumber(resultados.agua_linea_l_kg, 2)} · Drencher: {formatNumber(resultados.agua_drencher_l_kg, 2)} L/kg</p>
+                        <p className="text-xs font-semibold text-info uppercase tracking-wider">Agua</p>
+                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(totalAguaL)} <span className="text-sm font-normal text-muted-foreground">L</span></p>
                       </div>
                       <div className="glass p-5 relative overflow-hidden">
                         <div className="absolute inset-x-4 top-0 h-0.5 bg-warning/40 rounded-full" />
                         <p className="text-xs font-semibold text-warning uppercase tracking-wider">Electricidad</p>
-                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(resultados.electricidad_kwh_kg, 3)} <span className="text-sm font-normal text-muted-foreground">kWh/kg</span></p>
-                        <p className="mt-2 text-xs text-muted-foreground">{formatNumber(resultados.totalKg > 0 ? (resultados.totalKg / (sesiones.reduce((s, r) => s + (r.electricidad_total_kwh || 0), 0) || 1)) : 0, 1)} kg/kWh</p>
+                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(totalElectricidadKwh, 1)} <span className="text-sm font-normal text-muted-foreground">kWh</span></p>
                       </div>
                       <div className="glass p-5 relative overflow-hidden">
                         <div className="absolute inset-x-4 top-0 h-0.5 bg-primary/40 rounded-full" />
-                        <p className="text-xs font-semibold text-warning uppercase tracking-wider">Gasoil</p>
-                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(resultados.gasoil_ml_kg, 1)} <span className="text-sm font-normal text-muted-foreground">mL/kg</span></p>
+                        <p className="text-xs font-semibold text-primary uppercase tracking-wider">Gasoil</p>
+                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(totalGasoilL, 1)} <span className="text-sm font-normal text-muted-foreground">L</span></p>
                       </div>
                       <div className="glass p-5 relative overflow-hidden">
-                        <div className="absolute inset-x-4 top-0 h-0.5 bg-info/40 rounded-full" />
-                        <p className="text-xs font-semibold text-info uppercase tracking-wider">Químicos drencher</p>
-                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(resultados.quimicos_ml_kg, 1)} <span className="text-sm font-normal text-muted-foreground">mL/kg</span></p>
-                      </div>
-                      <div className="glass p-5 relative overflow-hidden">
-                        <div className="absolute inset-x-4 top-0 h-0.5 bg-success/40 rounded-full" />
-                        <p className="text-xs font-semibold text-success uppercase tracking-wider">Agua línea</p>
-                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(resultados.agua_linea_l_kg, 2)} <span className="text-sm font-normal text-muted-foreground">L/kg</span></p>
-                      </div>
-                      <div className="glass p-5 relative overflow-hidden">
-                        <div className="absolute inset-x-4 top-0 h-0.5 bg-info/40 rounded-full" />
-                        <p className="text-xs font-semibold text-info uppercase tracking-wider">Agua drencher</p>
-                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(resultados.agua_drencher_l_kg, 2)} <span className="text-sm font-normal text-muted-foreground">L/kg</span></p>
+                        <div className="absolute inset-x-4 top-0 h-0.5 bg-destructive/40 rounded-full" />
+                        <p className="text-xs font-semibold text-destructive uppercase tracking-wider">Quimicos</p>
+                        <p className="mt-2 text-2xl font-bold text-foreground">{formatNumber(totalQuimicosL, 1)} <span className="text-sm font-normal text-muted-foreground">L</span></p>
                       </div>
                     </div>
                   </CardContent>
                 </Card>
 
-                {/* Desglose por máquina */}
-                {resultados.maquinas.some((m) => m.totalKwh > 0) && (
-                  <Card className="glass-accented">
-                    <CardHeader><CardTitle className="text-lg">Desglose por máquina</CardTitle></CardHeader>
-                    <CardContent className="p-0">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Máquina</TableHead>
-                            <TableHead>Zona</TableHead>
-                            <TableHead className="text-right">kWh total</TableHead>
-                            <TableHead className="text-right">kWh/kg</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {resultados.maquinas.filter((m) => m.totalKwh > 0).map((m) => (
-                            <TableRow key={m.id}>
-                              <TableCell className="font-medium">{m.nombre}</TableCell>
-                              <TableCell>{ZONAS.find((z) => z.value === m.zona)?.label}</TableCell>
-                              <TableCell className="text-right tabular-nums">{formatNumber(m.totalKwh, 1)}</TableCell>
-                              <TableCell className="text-right tabular-nums">{formatNumber(m.kwhKg, 4)}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Gráfico comparativo histórico */}
-                {historicoChart.length > 1 && (
+                {monthlyEvolution.length > 1 && (
                   <Card className="glass-accented">
                     <CardHeader className="pb-3 px-5 pt-4">
                       <div className="flex items-center gap-3">
                         <div className="h-7 w-1 rounded-full bg-primary" />
                         <div>
-                          <CardTitle className="text-lg font-semibold">Evolución por sesión</CardTitle>
-                          <p className="text-xs text-muted-foreground mt-0.5">Ratios de consumo por sesión registrada</p>
+                          <CardTitle className="text-lg font-semibold">Evolucion mensual</CardTitle>
+                          <p className="text-xs text-muted-foreground mt-0.5">Ratios fisicos calculados con kg base mensual</p>
                         </div>
                       </div>
                     </CardHeader>
                     <CardContent className="px-4 pb-4 pt-1">
                       <div className={CHART_PANEL_CLASS}>
-                      <ResponsiveContainer width="100%" height={320}>
-                        <BarChart data={historicoChart} margin={MARGIN}>
-                          <CartesianGrid {...GRID} />
-                          <XAxis dataKey="periodo" {...XAXIS} />
-                          <YAxis {...YAXIS} />
-                          <Tooltip cursor={CHART_CURSOR} content={<GlassTooltip formatter={(v, n) => `${Number(v).toFixed(3)} ${n.split(" ")[1] ?? ""}`} />} />
-                          <Legend wrapperStyle={legendStyle} />
-                          <Bar dataKey="Agua L/kg"           fill={barFill(C.info, 0.25)}   stroke={C.info}   {...BAR_STYLE} />
-                          <Bar dataKey="Electricidad kWh/kg" fill={barFill(C.warning, 0.25)}  stroke={C.warning}  {...BAR_STYLE} />
-                          <Bar dataKey="Gasoil mL/kg"        fill={barFill(C.primary, 0.25)} stroke={C.primary} {...BAR_STYLE} />
-                          <Bar dataKey="Químicos mL/kg"      fill={barFill(C.destructive, 0.25)} stroke={C.destructive} {...BAR_STYLE} />
-                        </BarChart>
-                      </ResponsiveContainer>
+                        <ResponsiveContainer width="100%" height={320}>
+                          <LineChart data={monthlyEvolution} margin={MARGIN}>
+                            <CartesianGrid {...GRID} />
+                            <XAxis dataKey="periodo" {...XAXIS} />
+                            <YAxis {...YAXIS} />
+                            <Tooltip
+                              cursor={CHART_LINE_CURSOR}
+                              content={(
+                                <GlassTooltip
+                                  formatter={(value, name) => {
+                                    const label = String(name);
+                                    const numericValue = typeof value === "number" ? value : Number(value);
+                                    const unit = label.includes("kWh") ? "kWh/kg" : label.includes("L/kg") ? "L/kg" : "mL/kg";
+                                    const digits = label.includes("Electricidad") ? 3 : label.includes("Agua") ? 2 : 1;
+                                    return ratioText(Number.isFinite(numericValue) ? numericValue : null, digits, unit);
+                                  }}
+                                />
+                              )}
+                            />
+                            <Legend wrapperStyle={legendStyle} />
+                            <Line dataKey="Agua L/kg" {...lineStyle(C.info)} />
+                            <Line dataKey="Electricidad kWh/kg" {...lineStyle(C.warning)} />
+                            <Line dataKey="Gasoil mL/kg" {...lineStyle(C.primary)} />
+                            <Line dataKey="Quimicos mL/kg" {...lineStyle(C.destructive)} />
+                          </LineChart>
+                        </ResponsiveContainer>
                       </div>
                     </CardContent>
                   </Card>
@@ -617,19 +612,68 @@ export default function ConsumoCostes() {
             )}
           </TabsContent>
 
-          {/* ════════ MÁQUINAS ════════ */}
+          {/* ════════ VALIDACION ════════ */}
           <TabsContent value="validacion" className="space-y-6">
-            <Card className="glass-accented">
-              <CardHeader>
-                <p className="panel-kicker">Validacion de consumos</p>
-                <CardTitle>Revision pendiente</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">La revision de periodos incompletos se anadira en el siguiente bloque.</p>
-              </CardContent>
-            </Card>
+            {issueRows.length === 0 ? (
+              <Card className="glass-accented">
+                <CardContent className="p-12 text-center">
+                  <FileText className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">No hay incidencias de validacion en los meses calculados.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="glass-accented">
+                <CardHeader>
+                  <p className="panel-kicker">Validacion de consumos</p>
+                  <CardTitle>Meses con incidencias ({issueRows.length})</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Periodo</TableHead>
+                        <TableHead>Confianza</TableHead>
+                        <TableHead>Incidencias</TableHead>
+                        <TableHead className="text-right">Kg base</TableHead>
+                        <TableHead className="text-right">Agua</TableHead>
+                        <TableHead className="text-right">Electricidad</TableHead>
+                        <TableHead className="text-right">Gasoil</TableHead>
+                        <TableHead className="text-right">Quimicos</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {issueRows.map((row) => (
+                        <TableRow key={row.periodo}>
+                          <TableCell className="whitespace-nowrap font-medium">{row.periodo}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={`text-xs ${CONFIDENCE_CLASS[row.confianza]}`}>
+                              {CONFIDENCE_LABEL[row.confianza]}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="min-w-[240px]">
+                            <div className="flex flex-wrap gap-1.5">
+                              {row.issues.map((issue) => (
+                                <span key={issue} className="rounded-full border border-destructive/20 bg-destructive/10 px-2 py-0.5 text-xs text-destructive">
+                                  {issue}
+                                </span>
+                              ))}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">{formatNumber(row.kgBase)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{formatNumber(row.aguaL)} L</TableCell>
+                          <TableCell className="text-right tabular-nums">{formatNumber(row.electricidadKwh, 1)} kWh</TableCell>
+                          <TableCell className="text-right tabular-nums">{formatNumber(row.gasoilL, 1)} L</TableCell>
+                          <TableCell className="text-right tabular-nums">{formatNumber(row.quimicosL, 1)} L</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
+          {/* ════════ MÁQUINAS ════════ */}
           <TabsContent value="maquinas" className="space-y-6">
             <Card className="glass-accented">
               <CardHeader>
@@ -701,95 +745,63 @@ export default function ConsumoCostes() {
 
           {/* ════════ HISTÓRICO ════════ */}
           <TabsContent value="historico" className="space-y-6">
-            {sesiones.length === 0 ? (
+            {rows.length === 0 ? (
               <Card className="glass-accented">
                 <CardContent className="p-12 text-center">
                   <History className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
-                  <p className="text-sm text-muted-foreground">No hay sesiones registradas.</p>
+                  <p className="text-sm text-muted-foreground">No hay meses de consumo calculados.</p>
                 </CardContent>
               </Card>
             ) : (
-              <>
-                {/* Tabla de sesiones */}
-                <Card className="glass-accented">
-                  <CardHeader>
-                    <p className="panel-kicker">Historial</p>
-                    <CardTitle>Sesiones anteriores</CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-0">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Período</TableHead>
-                          <TableHead className="text-right">Kg</TableHead>
-                          <TableHead className="text-right">Agua L/kg</TableHead>
-                          <TableHead className="text-right">kWh/kg</TableHead>
-                          <TableHead className="text-right">Gasoil mL/kg</TableHead>
-                          <TableHead className="text-right">Químicos mL/kg</TableHead>
-                          <TableHead>Notas</TableHead>
-                          <TableHead></TableHead>
+              <Card className="glass-accented">
+                <CardHeader>
+                  <p className="panel-kicker">Mensual</p>
+                  <CardTitle>Historico fisico ({rows.length} meses)</CardTitle>
+                </CardHeader>
+                <CardContent className="overflow-x-auto p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Periodo</TableHead>
+                        <TableHead>Confianza</TableHead>
+                        <TableHead className="text-right">Kg partes</TableHead>
+                        <TableHead className="text-right">Kg ventas</TableHead>
+                        <TableHead className="text-right">Kg manual</TableHead>
+                        <TableHead className="text-right">Kg base</TableHead>
+                        <TableHead className="text-right">Agua L/kg</TableHead>
+                        <TableHead className="text-right">kWh/kg</TableHead>
+                        <TableHead className="text-right">Gasoil mL/kg</TableHead>
+                        <TableHead className="text-right">Quimicos mL/kg</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {rows.map((row) => (
+                        <TableRow key={row.periodo}>
+                          <TableCell className="whitespace-nowrap">
+                            <div className="font-medium">{row.periodo}</div>
+                            <div className="text-[11px] text-muted-foreground">
+                              {formatDate(row.fechaInicio)} - {formatDate(row.fechaFin)}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={`text-xs ${CONFIDENCE_CLASS[row.confianza]}`}>
+                              {CONFIDENCE_LABEL[row.confianza]}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">{formatNumber(row.kgPartes)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{formatNumber(row.kgVentas)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{formatNumber(row.kgManual)}</TableCell>
+                          <TableCell className="text-right tabular-nums font-medium">{formatNumber(row.kgBase)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{ratioText(row.aguaLKg, 2)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{ratioText(row.electricidadKwhKg, 3)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{ratioText(row.gasoilMlKg, 1)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{ratioText(row.quimicosMlKg, 1)}</TableCell>
                         </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {sesiones.map((s) => {
-                          const kg = s.kg_procesados || 1;
-                          const aguaTotal = (s.agua_linea_l || 0) + (s.agua_drencher_l || 0);
-                          return (
-                            <TableRow key={s.id}>
-                              <TableCell className="whitespace-nowrap text-xs">
-                                {s.fecha_inicio === s.fecha_fin
-                                  ? formatDate(s.fecha_inicio)
-                                  : `${formatDate(s.fecha_inicio)} — ${formatDate(s.fecha_fin)}`}
-                              </TableCell>
-                              <TableCell className="text-right tabular-nums">{formatNumber(kg, 0)}</TableCell>
-                              <TableCell className="text-right tabular-nums">{formatNumber(aguaTotal / kg, 2)}</TableCell>
-                              <TableCell className="text-right tabular-nums">{formatNumber((s.electricidad_total_kwh || 0) / kg, 3)}</TableCell>
-                              <TableCell className="text-right tabular-nums">{formatNumber(((s.gasoil_l || 0) * 1000) / kg, 1)}</TableCell>
-                              <TableCell className="text-right tabular-nums">{formatNumber(((s.quimicos_drencher_l || 0) * 1000) / kg, 1)}</TableCell>
-                              <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate">{s.notas}</TableCell>
-                              <TableCell className="text-right">
-                                <Button variant="ghost" size="icon" className="hover:bg-destructive/10 hover:text-destructive" onClick={() => delSesionMut.mutate(s.id)}>
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-
-                {/* Evolución histórica */}
-                {historicoChart.length > 1 && (
-                  <Card className="glass-accented">
-                    <CardHeader className="pb-3 px-5 pt-4">
-                      <div className="flex items-center gap-3">
-                        <div className="h-7 w-1 rounded-full bg-primary" />
-                        <div>
-                          <CardTitle className="text-lg font-semibold">Evolución de ratios</CardTitle>
-                          <p className="text-xs text-muted-foreground mt-0.5">Tendencia de consumo por kg procesado</p>
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="px-4 pb-4 pt-1">
-                      <div className={CHART_PANEL_CLASS}>
-                      <ResponsiveContainer width="100%" height={320}>
-                        <LineChart data={historicoChart} margin={MARGIN}>
-                          <CartesianGrid {...GRID} />
-                          <XAxis dataKey="periodo" {...XAXIS} />
-                          <YAxis {...YAXIS} />
-                          <Tooltip cursor={CHART_LINE_CURSOR} content={<GlassTooltip formatter={(v, n) => `${Number(v).toFixed(3)} ${n.split(" ")[1] ?? ""}`} />} />
-                          <Legend wrapperStyle={legendStyle} />
-                          <Line dataKey="Agua L/kg" {...lineStyle(C.info)} />
-                          <Line dataKey="Electricidad kWh/kg" {...lineStyle(C.warning)} />
-                        </LineChart>
-                      </ResponsiveContainer>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
         </Tabs>
