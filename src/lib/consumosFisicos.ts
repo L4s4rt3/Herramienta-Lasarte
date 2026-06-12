@@ -75,7 +75,7 @@ interface MonthPeriod {
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export function normalizeConsumoCantidad(input: Pick<ConsumoFisicoInput, "recurso" | "cantidad" | "unidad">): NormalizedConsumo {
-  const cantidad = input.cantidad ?? 0;
+  const cantidad = finiteOrZero(input.cantidad);
 
   if (input.recurso === "electricidad") {
     return {
@@ -92,10 +92,10 @@ export function normalizeConsumoCantidad(input: Pick<ConsumoFisicoInput, "recurs
 
 export function kgProducidosParte(parte: ParteKgInput): number {
   return (
-    (parte.kg_produccion_calibrador ?? 0)
-    - (parte.kg_mujeres_calibrador ?? 0)
-    - (parte.kg_reciclado_malla_z1 ?? 0)
-    - (parte.kg_reciclado_malla_z2 ?? 0)
+    finiteOrZero(parte.kg_produccion_calibrador)
+    - finiteOrZero(parte.kg_mujeres_calibrador)
+    - finiteOrZero(parte.kg_reciclado_malla_z1)
+    - finiteOrZero(parte.kg_reciclado_malla_z2)
   );
 }
 
@@ -149,6 +149,7 @@ export function buildMonthlyConsumptionRows(input: BuildMonthlyConsumptionRowsIn
       aguaLKg: ratio(totals.aguaL, kgBase),
       electricidadKwhKg: ratio(totals.electricidadKwh, kgBase),
       gasoilMlKg: ratio(totals.gasoilL * 1000, kgBase),
+      // L/t is numerically equal to mL/kg because both scale numerator and denominator by 1000.
       gasoilLT: ratio(totals.gasoilL * 1000, kgBase),
       quimicosMlKg: ratio(totals.quimicosL * 1000, kgBase),
     };
@@ -225,8 +226,12 @@ function totalBasesForMonth(basesKg: BaseKgInput[], month: MonthPeriod, tipoBase
       return total;
     }
 
-    return total + ((base.kg ?? 0) * overlapFactor(base.fecha_inicio, base.fecha_fin, month));
+    return total + (finiteOrZero(base.kg) * overlapFactor(base.fecha_inicio, base.fecha_fin, month));
   }, 0);
+}
+
+function finiteOrZero(value: number | null | undefined): number {
+  return Number.isFinite(value) ? value : 0;
 }
 
 function buildMonthPeriods(rangeStart: string, rangeEnd: string): MonthPeriod[] {

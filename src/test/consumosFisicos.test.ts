@@ -49,6 +49,57 @@ describe("consumos fisicos helpers", () => {
     expect(rows[0].aguaLKg).toBeCloseTo(0.2);
     expect(rows[0].electricidadKwhKg).toBeCloseTo(0.1);
     expect(rows[0].gasoilMlKg).toBeCloseTo(30);
+    expect(rows[0].gasoilLT).toBeCloseTo(30);
+  });
+
+  it("prorates consumption and kg bases across overlapping month days", () => {
+    const rows = buildMonthlyConsumptionRows({
+      rangeStart: "2026-03-15",
+      rangeEnd: "2026-04-15",
+      consumos: [
+        { id: "agua-bimensual", recurso: "agua", fecha_inicio: "2026-03-15", fecha_fin: "2026-04-15", cantidad: 3200, unidad: "l", fuente: "contador" },
+      ],
+      partes: [],
+      basesKg: [
+        { id: "ventas-bimensual", tipo_base: "ventas", fecha_inicio: "2026-03-15", fecha_fin: "2026-04-15", kg: 32000 },
+      ],
+    });
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0].periodo).toBe("2026-03");
+    expect(rows[0].aguaL).toBeCloseTo(1700);
+    expect(rows[0].kgBase).toBeCloseTo(17000);
+    expect(rows[0].aguaLKg).toBeCloseTo(0.1);
+    expect(rows[0].confianza).toBe("estimado");
+    expect(rows[1].periodo).toBe("2026-04");
+    expect(rows[1].aguaL).toBeCloseTo(1500);
+    expect(rows[1].kgBase).toBeCloseTo(15000);
+    expect(rows[1].aguaLKg).toBeCloseTo(0.1);
+    expect(rows[1].confianza).toBe("estimado");
+  });
+
+  it("treats non-finite input numbers as zero", () => {
+    const rows = buildMonthlyConsumptionRows({
+      rangeStart: "2026-05-01",
+      rangeEnd: "2026-05-31",
+      consumos: [
+        { id: "agua-nan", recurso: "agua", fecha_inicio: "2026-05-01", fecha_fin: "2026-05-31", cantidad: Number.NaN, unidad: "l", fuente: "contador" },
+        { id: "luz-infinita", recurso: "electricidad", fecha_inicio: "2026-05-01", fecha_fin: "2026-05-31", cantidad: Number.POSITIVE_INFINITY, unidad: "kwh", fuente: "contador" },
+      ],
+      partes: [
+        { date: "2026-05-10", kg_produccion_calibrador: Number.NaN, kg_mujeres_calibrador: Number.POSITIVE_INFINITY, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+      ],
+      basesKg: [
+        { id: "ventas-nan", tipo_base: "ventas", fecha_inicio: "2026-05-01", fecha_fin: "2026-05-31", kg: Number.NaN },
+      ],
+    });
+
+    expect(Number.isNaN(rows[0].aguaL)).toBe(false);
+    expect(Number.isNaN(rows[0].electricidadKwh)).toBe(false);
+    expect(Number.isNaN(rows[0].kgBase)).toBe(false);
+    expect(rows[0].aguaL).toBe(0);
+    expect(rows[0].electricidadKwh).toBe(0);
+    expect(rows[0].kgBase).toBe(0);
   });
 
   it("uses kg sold as estimated base when no partes exist", () => {
