@@ -40,6 +40,22 @@ const ZONAS = [
   { value: "compresor", label: "Compresor" },
 ];
 
+type ConsumoRecurso = "agua" | "electricidad" | "gasoil" | "quimicos";
+type ConsumoUnidad = "l" | "m3" | "kwh";
+
+const UNIDADES_POR_RECURSO: Record<ConsumoRecurso, ConsumoUnidad[]> = {
+  agua: ["l", "m3"],
+  electricidad: ["kwh"],
+  gasoil: ["l"],
+  quimicos: ["l"],
+};
+
+const UNIDAD_LABEL: Record<ConsumoUnidad, string> = {
+  l: "l",
+  m3: "m3",
+  kwh: "kWh",
+};
+
 function daysAgo(n: number) {
   const d = new Date();
   d.setDate(d.getDate() - n);
@@ -83,11 +99,11 @@ export default function ConsumoCostes() {
   const qc = useQueryClient();
   const [tab, setTab] = useState("resumen");
   const consumosFisicos = useConsumosFisicos();
-  const [cfRecurso, setCfRecurso] = useState<"agua" | "electricidad" | "gasoil" | "quimicos">("gasoil");
+  const [cfRecurso, setCfRecurso] = useState<ConsumoRecurso>("gasoil");
   const [cfInicio, setCfInicio] = useState("2025-09-01");
   const [cfFin, setCfFin] = useState(today());
   const [cfCantidad, setCfCantidad] = useState("");
-  const [cfUnidad, setCfUnidad] = useState<"l" | "m3" | "kwh">("l");
+  const [cfUnidad, setCfUnidad] = useState<ConsumoUnidad>("l");
   const [cfFuente, setCfFuente] = useState<"contador" | "factura_detallada" | "albaran" | "estimacion_manual">("albaran");
   const [cfReferencia, setCfReferencia] = useState("");
   const [cfNotas, setCfNotas] = useState("");
@@ -102,6 +118,10 @@ export default function ConsumoCostes() {
     const cantidad = Number(cfCantidad) || 0;
     if (cantidad <= 0) {
       toast({ title: "Cantidad requerida", description: "Introduce una cantidad fisica mayor que cero.", variant: "destructive" });
+      return;
+    }
+    if (cfFin < cfInicio) {
+      toast({ title: "Fechas no validas", description: "La fecha fin debe ser igual o posterior a la fecha inicio.", variant: "destructive" });
       return;
     }
     consumosFisicos.addConsumo.mutate({
@@ -128,6 +148,10 @@ export default function ConsumoCostes() {
     const kg = Number(baseKg) || 0;
     if (kg <= 0) {
       toast({ title: "Kg requeridos", description: "Introduce kg vendidos o manuales mayores que cero.", variant: "destructive" });
+      return;
+    }
+    if (baseFin < baseInicio) {
+      toast({ title: "Fechas no validas", description: "La fecha fin debe ser igual o posterior a la fecha inicio.", variant: "destructive" });
       return;
     }
     consumosFisicos.addBaseKg.mutate({
@@ -346,7 +370,14 @@ export default function ConsumoCostes() {
               <CardContent className="grid gap-5 md:grid-cols-3">
                 <div className="glass p-4 space-y-2">
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recurso</Label>
-                  <Select value={cfRecurso} onValueChange={(value) => setCfRecurso(value as typeof cfRecurso)}>
+                  <Select
+                    value={cfRecurso}
+                    onValueChange={(value) => {
+                      const recurso = value as ConsumoRecurso;
+                      setCfRecurso(recurso);
+                      setCfUnidad(UNIDADES_POR_RECURSO[recurso][0]);
+                    }}
+                  >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="agua">Agua</SelectItem>
@@ -370,12 +401,12 @@ export default function ConsumoCostes() {
                 </div>
                 <div className="glass p-4 space-y-2">
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Unidad</Label>
-                  <Select value={cfUnidad} onValueChange={(value) => setCfUnidad(value as typeof cfUnidad)}>
+                  <Select value={cfUnidad} onValueChange={(value) => setCfUnidad(value as ConsumoUnidad)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="l">l</SelectItem>
-                      <SelectItem value="m3">m3</SelectItem>
-                      <SelectItem value="kwh">kwh</SelectItem>
+                      {UNIDADES_POR_RECURSO[cfRecurso].map((unidad) => (
+                        <SelectItem key={unidad} value={unidad}>{UNIDAD_LABEL[unidad]}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
