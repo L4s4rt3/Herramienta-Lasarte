@@ -340,10 +340,36 @@ export default function ConsumoCostes() {
           <p className="page-subtitle">Agua · Electricidad · Gasoil · Químicos por kg de naranja</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled={sesiones.length === 0} onClick={() => exportConsumoToExcel({ sesiones, maquinas, consumosMaquinas })} className="glass glass-hover">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={rows.length === 0}
+            onClick={() => exportConsumoToExcel({
+              sesiones,
+              maquinas,
+              consumosMaquinas,
+              consumosFisicos: consumosFisicos.consumos,
+              basesKg: consumosFisicos.basesKg,
+              periodos: rows,
+            })}
+            className="glass glass-hover"
+          >
             <FileSpreadsheet className="h-4 w-4 mr-1.5" /> Excel
           </Button>
-          <Button variant="outline" size="sm" disabled={sesiones.length === 0} onClick={() => exportConsumoToPDF({ sesiones, maquinas, consumosMaquinas })} className="glass glass-hover">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={rows.length === 0}
+            onClick={() => exportConsumoToPDF({
+              sesiones,
+              maquinas,
+              consumosMaquinas,
+              consumosFisicos: consumosFisicos.consumos,
+              basesKg: consumosFisicos.basesKg,
+              periodos: rows,
+            })}
+            className="glass glass-hover"
+          >
             <FileText className="h-4 w-4 mr-1.5" /> PDF
           </Button>
         </div>
