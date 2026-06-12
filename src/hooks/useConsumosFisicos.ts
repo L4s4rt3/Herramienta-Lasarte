@@ -124,6 +124,10 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
 
   const deleteConsumoMutation = useMutation({
     mutationFn: async (id: ConsumoFisicoRow["id"]) => {
+      if (!user) {
+        throw new Error("No auth");
+      }
+
       const { error } = await supabase
         .from("consumos_fisicos")
         .delete()
@@ -140,6 +144,10 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
 
   const deleteBaseKgMutation = useMutation({
     mutationFn: async (id: ConsumoBaseKgRow["id"]) => {
+      if (!user) {
+        throw new Error("No auth");
+      }
+
       const { error } = await supabase
         .from("consumos_bases_kg")
         .delete()
@@ -171,9 +179,9 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
     partes,
     monthlyRows,
     isLoading: loadingConsumos || loadingBasesKg || loadingPartes,
-    addConsumo: addConsumoMutation.mutateAsync,
-    addBaseKg: addBaseKgMutation.mutateAsync,
-    deleteConsumo: deleteConsumoMutation.mutateAsync,
-    deleteBaseKg: deleteBaseKgMutation.mutateAsync,
+    addConsumo: addConsumoMutation,
+    addBaseKg: addBaseKgMutation,
+    deleteConsumo: deleteConsumoMutation,
+    deleteBaseKg: deleteBaseKgMutation,
   };
 }
