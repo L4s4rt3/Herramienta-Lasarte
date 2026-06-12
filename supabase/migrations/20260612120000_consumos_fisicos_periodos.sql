@@ -22,6 +22,8 @@ CREATE INDEX idx_consumos_fisicos_recurso_fecha ON public.consumos_fisicos(recur
 
 ALTER TABLE public.consumos_fisicos ENABLE ROW LEVEL SECURITY;
 
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.consumos_fisicos TO authenticated;
+
 CREATE POLICY "consumos_fisicos_select_all_authenticated"
   ON public.consumos_fisicos FOR SELECT
   USING (auth.role() = 'authenticated');
@@ -32,7 +34,8 @@ CREATE POLICY "consumos_fisicos_insert_own"
 
 CREATE POLICY "consumos_fisicos_update_own_or_admin"
   ON public.consumos_fisicos FOR UPDATE
-  USING (auth.uid() = user_id OR public.has_role(auth.uid(), 'admin'));
+  USING (auth.uid() = user_id OR public.has_role(auth.uid(), 'admin'))
+  WITH CHECK (auth.uid() = user_id OR public.has_role(auth.uid(), 'admin'));
 
 CREATE POLICY "consumos_fisicos_delete_own_or_admin"
   ON public.consumos_fisicos FOR DELETE
@@ -56,6 +59,8 @@ CREATE INDEX idx_consumos_bases_kg_tipo_fecha ON public.consumos_bases_kg(tipo_b
 
 ALTER TABLE public.consumos_bases_kg ENABLE ROW LEVEL SECURITY;
 
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.consumos_bases_kg TO authenticated;
+
 CREATE POLICY "consumos_bases_kg_select_all_authenticated"
   ON public.consumos_bases_kg FOR SELECT
   USING (auth.role() = 'authenticated');
@@ -66,7 +71,8 @@ CREATE POLICY "consumos_bases_kg_insert_own"
 
 CREATE POLICY "consumos_bases_kg_update_own_or_admin"
   ON public.consumos_bases_kg FOR UPDATE
-  USING (auth.uid() = user_id OR public.has_role(auth.uid(), 'admin'));
+  USING (auth.uid() = user_id OR public.has_role(auth.uid(), 'admin'))
+  WITH CHECK (auth.uid() = user_id OR public.has_role(auth.uid(), 'admin'));
 
 CREATE POLICY "consumos_bases_kg_delete_own_or_admin"
   ON public.consumos_bases_kg FOR DELETE
