@@ -83,12 +83,6 @@ function ratioText(value: number | null | undefined, digits: number, unit = "") 
   return unit ? `${formatted} ${unit}` : formatted;
 }
 
-function daysAgo(n: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
-}
-
 function ConsumoDatePicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const selected = value ? new Date(`${value}T12:00:00`) : undefined;
 
@@ -126,6 +120,9 @@ export default function ConsumoCostes() {
   const qc = useQueryClient();
   const [tab, setTab] = useState("resumen");
   const consumosFisicos = useConsumosFisicos();
+  const maquinasQueryKey = ["maquinas", user?.id] as const;
+  const sesionesConsumoQueryKey = ["sesiones_consumo", user?.id] as const;
+  const consumosMaquinasQueryKey = ["consumo_maquinas", user?.id] as const;
   const [cfRecurso, setCfRecurso] = useState<ConsumoRecurso>("gasoil");
   const [cfInicio, setCfInicio] = useState("2025-09-01");
   const [cfFin, setCfFin] = useState(today());
@@ -201,30 +198,36 @@ export default function ConsumoCostes() {
 
   // ─── Queries ──────────────────────────────────────────────────────────────
   const { data: maquinas = [], isLoading: loadingMaquinas } = useQuery({
-    queryKey: ["maquinas"],
+    queryKey: maquinasQueryKey,
     queryFn: async () => {
-      const { data } = await supabase.from("maquinas").select("*").order("nombre");
+      const { data, error } = await supabase.from("maquinas").select("*").order("nombre");
+      if (error) throw error;
       return (data ?? []) as MaquinaRow[];
     },
+    enabled: Boolean(user),
   });
 
-  const { data: sesiones = [] } = useQuery({
-    queryKey: ["sesiones_consumo"],
+  const { data: sesiones = [], isLoading: loadingSesiones } = useQuery({
+    queryKey: sesionesConsumoQueryKey,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("sesiones_consumo")
         .select("*")
         .order("fecha_inicio", { ascending: false });
+      if (error) throw error;
       return (data ?? []) as SesionConsumoRow[];
     },
+    enabled: Boolean(user),
   });
 
-  const { data: consumosMaquinas = [] } = useQuery({
-    queryKey: ["consumo_maquinas"],
+  const { data: consumosMaquinas = [], isLoading: loadingConsumosMaquinas } = useQuery({
+    queryKey: consumosMaquinasQueryKey,
     queryFn: async () => {
-      const { data } = await supabase.from("consumo_maquinas").select("*");
+      const { data, error } = await supabase.from("consumo_maquinas").select("*");
+      if (error) throw error;
       return (data ?? []) as ConsumoMaquinaRow[];
     },
+    enabled: Boolean(user),
   });
 
   // ─── Formulario máquina ───────────────────────────────────────────────────
@@ -243,7 +246,7 @@ export default function ConsumoCostes() {
     onSuccess: () => {
       toast({ title: "Máquina añadida" });
       setMNombre("");
-      qc.invalidateQueries({ queryKey: ["maquinas"] });
+      qc.invalidateQueries({ queryKey: maquinasQueryKey });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -255,7 +258,7 @@ export default function ConsumoCostes() {
     },
     onSuccess: () => {
       toast({ title: "Máquina eliminada" });
-      qc.invalidateQueries({ queryKey: ["maquinas"] });
+      qc.invalidateQueries({ queryKey: maquinasQueryKey });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -331,6 +334,8 @@ export default function ConsumoCostes() {
   const issueRows = useMemo(() => rows.filter((row) => row.issues.length > 0), [rows]);
 
   const loading = loadingMaquinas || consumosFisicos.isLoading;
+  const exportLoading = loadingMaquinas || loadingSesiones || loadingConsumosMaquinas || consumosFisicos.isLoading;
+  const exportDisabled = exportLoading || selectedRows.length === 0;
 
   return (
     <div className="page-shell">
@@ -343,7 +348,7 @@ export default function ConsumoCostes() {
           <Button
             variant="outline"
             size="sm"
-            disabled={rows.length === 0}
+            disabled={exportDisabled}
             onClick={() => exportConsumoToExcel({
               sesiones,
               maquinas,
@@ -359,7 +364,7 @@ export default function ConsumoCostes() {
           <Button
             variant="outline"
             size="sm"
-            disabled={rows.length === 0}
+            disabled={exportDisabled}
             onClick={() => exportConsumoToPDF({
               sesiones,
               maquinas,

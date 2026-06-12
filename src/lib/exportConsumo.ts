@@ -272,15 +272,15 @@ export function exportConsumoToPDF(data: ExportData) {
       row.quimicosMlKg == null ? "-" : formatNumber(row.quimicosMlKg, 1),
     ])
     : data.sesiones.map((s) => {
-      const kg = s.kg_procesados || 1;
+      const kg = s.kg_procesados || 0;
       const aguaTotal = (s.agua_linea_l || 0) + (s.agua_drencher_l || 0);
       return [
         s.fecha_inicio === s.fecha_fin ? formatDate(s.fecha_inicio) : `${formatDate(s.fecha_inicio)} - ${formatDate(s.fecha_fin)}`,
         formatNumber(kg, 0),
-        formatNumber(aguaTotal / kg, 2),
-        formatNumber((s.electricidad_total_kwh || 0) / kg, 3),
-        formatNumber(((s.gasoil_l || 0) * 1000) / kg, 1),
-        formatNumber(((s.quimicos_drencher_l || 0) * 1000) / kg, 1),
+        kg > 0 ? formatNumber(aguaTotal / kg, 2) : "-",
+        kg > 0 ? formatNumber((s.electricidad_total_kwh || 0) / kg, 3) : "-",
+        kg > 0 ? formatNumber(((s.gasoil_l || 0) * 1000) / kg, 1) : "-",
+        kg > 0 ? formatNumber(((s.quimicos_drencher_l || 0) * 1000) / kg, 1) : "-",
       ];
     });
 
@@ -302,17 +302,20 @@ export function exportConsumoToPDF(data: ExportData) {
 
   drawFooter(doc);
 
-  if (hasPeriodos && periodos.some((row) => row.issues.length > 0)) {
+  if (hasPeriodos) {
     doc.addPage();
     pageIndex++;
     drawHeader(doc, pageIndex, "Validacion");
+    const validationRows = periodos
+      .filter((row) => row.issues.length > 0)
+      .map((row) => [row.periodo, confianzaLabel[row.confianza], row.issues.join(" | ")]);
 
     autoTable(doc, {
       startY: 24,
       head: [["Periodo", "Confianza", "Observaciones"]],
-      body: periodos
-        .filter((row) => row.issues.length > 0)
-        .map((row) => [row.periodo, confianzaLabel[row.confianza], row.issues.join(" | ")]),
+      body: validationRows.length > 0
+        ? validationRows
+        : [["Todos", "OK", "Sin incidencias de validacion"]],
       ...pdfTableTheme(),
     });
 
