@@ -82,7 +82,7 @@ export default function ConsumoCostes() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [tab, setTab] = useState("sesion");
-  const { isLoading: loadingConsumosFisicos } = useConsumosFisicos();
+  useConsumosFisicos();
 
   // ─── Queries ──────────────────────────────────────────────────────────────
   const { data: maquinas = [], isLoading: loadingMaquinas } = useQuery({
@@ -317,7 +317,7 @@ export default function ConsumoCostes() {
 
   const pct = (a: number, b: number) => (b > 0 ? ((a - b) / b) * 100 : 0);
 
-  const loading = loadingMaquinas || loadingSesiones || loadingConsumosFisicos;
+  const loading = loadingMaquinas || loadingSesiones;
 
   return (
     <div className="page-shell">

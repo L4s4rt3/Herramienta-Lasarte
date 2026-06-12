@@ -32,9 +32,12 @@ export interface ConsumoBaseKgFormValues {
 export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const consumosQueryKey = ["consumos_fisicos", user?.id] as const;
+  const basesKgQueryKey = ["consumos_bases_kg", user?.id] as const;
+  const partesKgQueryKey = ["partes_diarios_kg", user?.id, rangeStart, rangeEnd] as const;
 
   const { data: consumos = [], isLoading: loadingConsumos } = useQuery({
-    queryKey: ["consumos_fisicos"],
+    queryKey: consumosQueryKey,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("consumos_fisicos")
@@ -47,10 +50,11 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
 
       return (data ?? []) as ConsumoFisicoRow[];
     },
+    enabled: Boolean(user),
   });
 
   const { data: basesKg = [], isLoading: loadingBasesKg } = useQuery({
-    queryKey: ["consumos_bases_kg"],
+    queryKey: basesKgQueryKey,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("consumos_bases_kg")
@@ -63,10 +67,11 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
 
       return (data ?? []) as ConsumoBaseKgRow[];
     },
+    enabled: Boolean(user),
   });
 
   const { data: partes = [], isLoading: loadingPartes } = useQuery({
-    queryKey: ["partes_diarios_kg", rangeStart, rangeEnd],
+    queryKey: partesKgQueryKey,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("partes_diarios")
@@ -80,6 +85,7 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
 
       return (data ?? []) as ParteKgInput[];
     },
+    enabled: Boolean(user),
   });
 
   const addConsumoMutation = useMutation({
@@ -98,7 +104,7 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["consumos_fisicos"] });
+      queryClient.invalidateQueries({ queryKey: consumosQueryKey });
     },
   });
 
@@ -118,7 +124,7 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["consumos_bases_kg"] });
+      queryClient.invalidateQueries({ queryKey: basesKgQueryKey });
     },
   });
 
@@ -138,7 +144,7 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["consumos_fisicos"] });
+      queryClient.invalidateQueries({ queryKey: consumosQueryKey });
     },
   });
 
@@ -158,7 +164,7 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["consumos_bases_kg"] });
+      queryClient.invalidateQueries({ queryKey: basesKgQueryKey });
     },
   });
 
