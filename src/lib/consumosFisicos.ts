@@ -56,7 +56,7 @@ export interface ConsumoPeriodoRow {
   quimicosMlKg: number | null;
 }
 
-interface BuildMonthlyConsumptionRowsInput {
+interface BuildConsumptionRowsInput {
   rangeStart: string;
   rangeEnd: string;
   consumos: ConsumoFisicoInput[];
@@ -64,7 +64,7 @@ interface BuildMonthlyConsumptionRowsInput {
   basesKg: BaseKgInput[];
 }
 
-interface MonthPeriod {
+interface ConsumptionPeriod {
   periodo: string;
   fechaInicio: string;
   fechaFin: string;
@@ -99,14 +99,24 @@ export function kgProducidosParte(parte: ParteKgInput): number {
   );
 }
 
-export function buildMonthlyConsumptionRows(input: BuildMonthlyConsumptionRowsInput): ConsumoPeriodoRow[] {
-  const months = buildMonthPeriods(input.rangeStart, input.rangeEnd);
+export function buildMonthlyConsumptionRows(input: BuildConsumptionRowsInput): ConsumoPeriodoRow[] {
+  return buildConsumptionRows(input, buildMonthPeriods(input.rangeStart, input.rangeEnd));
+}
 
-  return months.map((month) => {
-    const totals = totalConsumosForMonth(input.consumos, month);
-    const kgPartes = totalPartesForMonth(input.partes, month);
-    const kgVentas = totalBasesForMonth(input.basesKg, month, "ventas");
-    const kgManual = totalBasesForMonth(input.basesKg, month, "manual");
+export function buildWeeklyConsumptionRows(input: BuildConsumptionRowsInput): ConsumoPeriodoRow[] {
+  return buildConsumptionRows(input, buildIsoWeekPeriods(input.rangeStart, input.rangeEnd));
+}
+
+export function buildDailyConsumptionRows(input: BuildConsumptionRowsInput): ConsumoPeriodoRow[] {
+  return buildConsumptionRows(input, buildDayPeriods(input.rangeStart, input.rangeEnd));
+}
+
+function buildConsumptionRows(input: BuildConsumptionRowsInput, periods: ConsumptionPeriod[]): ConsumoPeriodoRow[] {
+  return periods.map((period) => {
+    const totals = totalConsumosForPeriod(input.consumos, period);
+    const kgPartes = totalPartesForPeriod(input.partes, period);
+    const kgVentas = totalBasesForPeriod(input.basesKg, period, "ventas");
+    const kgManual = totalBasesForPeriod(input.basesKg, period, "manual");
     const proxyKg = kgVentas > 0 ? kgVentas : kgManual;
     const kgBase = kgPartes > 0 ? kgPartes : proxyKg;
     const hasConsumo = totals.aguaL > 0 || totals.electricidadKwh > 0 || totals.gasoilL > 0 || totals.quimicosL > 0;
@@ -133,9 +143,9 @@ export function buildMonthlyConsumptionRows(input: BuildMonthlyConsumptionRowsIn
     });
 
     return {
-      periodo: month.periodo,
-      fechaInicio: month.fechaInicio,
-      fechaFin: month.fechaFin,
+      periodo: period.periodo,
+      fechaInicio: period.fechaInicio,
+      fechaFin: period.fechaFin,
       kgBase,
       kgPartes,
       kgVentas,
@@ -177,10 +187,10 @@ function resolveConfianza(input: {
   return "estimado";
 }
 
-function totalConsumosForMonth(consumos: ConsumoFisicoInput[], month: MonthPeriod) {
+function totalConsumosForPeriod(consumos: ConsumoFisicoInput[], period: ConsumptionPeriod) {
   return consumos.reduce(
     (acc, consumo) => {
-      const factor = overlapFactor(consumo.fecha_inicio, consumo.fecha_fin, month);
+      const factor = overlapFactor(consumo.fecha_inicio, consumo.fecha_fin, period);
       if (factor <= 0) {
         return acc;
       }
@@ -209,10 +219,10 @@ function totalConsumosForMonth(consumos: ConsumoFisicoInput[], month: MonthPerio
   );
 }
 
-function totalPartesForMonth(partes: ParteKgInput[], month: MonthPeriod): number {
+function totalPartesForPeriod(partes: ParteKgInput[], period: ConsumptionPeriod): number {
   return partes.reduce((total, parte) => {
     const dateMs = dateToUtcMs(parte.date);
-    if (dateMs < month.startMs || dateMs > month.endMs) {
+    if (dateMs < period.startMs || dateMs > period.endMs) {
       return total;
     }
 
@@ -220,13 +230,13 @@ function totalPartesForMonth(partes: ParteKgInput[], month: MonthPeriod): number
   }, 0);
 }
 
-function totalBasesForMonth(basesKg: BaseKgInput[], month: MonthPeriod, tipoBase: BaseKgTipo): number {
+function totalBasesForPeriod(basesKg: BaseKgInput[], period: ConsumptionPeriod, tipoBase: BaseKgTipo): number {
   return basesKg.reduce((total, base) => {
     if (base.tipo_base !== tipoBase) {
       return total;
     }
 
-    return total + (finiteOrZero(base.kg) * overlapFactor(base.fecha_inicio, base.fecha_fin, month));
+    return total + (finiteOrZero(base.kg) * overlapFactor(base.fecha_inicio, base.fecha_fin, period));
   }, 0);
 }
 
@@ -234,12 +244,12 @@ function finiteOrZero(value: number | null | undefined): number {
   return Number.isFinite(value) ? value : 0;
 }
 
-function buildMonthPeriods(rangeStart: string, rangeEnd: string): MonthPeriod[] {
+function buildMonthPeriods(rangeStart: string, rangeEnd: string): ConsumptionPeriod[] {
   const rangeStartMs = dateToUtcMs(rangeStart);
   const rangeEndMs = dateToUtcMs(rangeEnd);
   const start = parseDateParts(rangeStart);
   const current = new Date(Date.UTC(start.year, start.month - 1, 1));
-  const months: MonthPeriod[] = [];
+  const months: ConsumptionPeriod[] = [];
 
   while (current.getTime() <= rangeEndMs) {
     const year = current.getUTCFullYear();
@@ -265,7 +275,55 @@ function buildMonthPeriods(rangeStart: string, rangeEnd: string): MonthPeriod[] 
   return months;
 }
 
-function overlapFactor(fechaInicio: string, fechaFin: string, month: MonthPeriod): number {
+function buildIsoWeekPeriods(rangeStart: string, rangeEnd: string): ConsumptionPeriod[] {
+  const rangeStartMs = dateToUtcMs(rangeStart);
+  const rangeEndMs = dateToUtcMs(rangeEnd);
+  const current = new Date(startOfIsoWeekMs(rangeStartMs));
+  const weeks: ConsumptionPeriod[] = [];
+
+  while (current.getTime() <= rangeEndMs) {
+    const weekStartMs = current.getTime();
+    const weekEndMs = weekStartMs + (6 * MS_PER_DAY);
+    const startMs = Math.max(weekStartMs, rangeStartMs);
+    const endMs = Math.min(weekEndMs, rangeEndMs);
+
+    if (startMs <= endMs) {
+      const iso = isoWeekFromUtcMs(weekStartMs);
+      weeks.push({
+        periodo: `${iso.year}-W${pad2(iso.week)}`,
+        fechaInicio: utcMsToDateString(startMs),
+        fechaFin: utcMsToDateString(endMs),
+        startMs,
+        endMs,
+      });
+    }
+
+    current.setUTCDate(current.getUTCDate() + 7);
+  }
+
+  return weeks;
+}
+
+function buildDayPeriods(rangeStart: string, rangeEnd: string): ConsumptionPeriod[] {
+  const rangeStartMs = dateToUtcMs(rangeStart);
+  const rangeEndMs = dateToUtcMs(rangeEnd);
+  const days: ConsumptionPeriod[] = [];
+
+  for (let currentMs = rangeStartMs; currentMs <= rangeEndMs; currentMs += MS_PER_DAY) {
+    const date = utcMsToDateString(currentMs);
+    days.push({
+      periodo: date,
+      fechaInicio: date,
+      fechaFin: date,
+      startMs: currentMs,
+      endMs: currentMs,
+    });
+  }
+
+  return days;
+}
+
+function overlapFactor(fechaInicio: string, fechaFin: string, period: ConsumptionPeriod): number {
   const startMs = dateToUtcMs(fechaInicio);
   const endMs = dateToUtcMs(fechaFin);
   const totalDays = inclusiveDays(startMs, endMs);
@@ -274,8 +332,8 @@ function overlapFactor(fechaInicio: string, fechaFin: string, month: MonthPeriod
     return 0;
   }
 
-  const overlapStartMs = Math.max(startMs, month.startMs);
-  const overlapEndMs = Math.min(endMs, month.endMs);
+  const overlapStartMs = Math.max(startMs, period.startMs);
+  const overlapEndMs = Math.min(endMs, period.endMs);
   const overlapDays = inclusiveDays(overlapStartMs, overlapEndMs);
 
   return overlapDays > 0 ? overlapDays / totalDays : 0;
@@ -310,6 +368,23 @@ function utcMsToDateString(ms: number): string {
 function parseDateParts(date: string): { year: number; month: number; day: number } {
   const [year, month, day] = date.split("-").map(Number);
   return { year, month, day };
+}
+
+function startOfIsoWeekMs(dateMs: number): number {
+  const date = new Date(dateMs);
+  const day = date.getUTCDay() || 7;
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - day + 1);
+}
+
+function isoWeekFromUtcMs(dateMs: number): { year: number; week: number } {
+  const thursday = new Date(dateMs);
+  const day = thursday.getUTCDay() || 7;
+  thursday.setUTCDate(thursday.getUTCDate() + 4 - day);
+  const year = thursday.getUTCFullYear();
+  const yearStart = Date.UTC(year, 0, 1);
+  const week = Math.ceil((((thursday.getTime() - yearStart) / MS_PER_DAY) + 1) / 7);
+
+  return { year, week };
 }
 
 function pad2(value: number): string {

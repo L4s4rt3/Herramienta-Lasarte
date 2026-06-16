@@ -3,9 +3,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  buildDailyConsumptionRows,
   buildMonthlyConsumptionRows,
+  buildWeeklyConsumptionRows,
   type ParteKgInput,
 } from "@/lib/consumosFisicos";
+import {
+  mergeCampana2024_2025BasesKg,
+  mergeFacturasCampana2024_2025Consumos,
+} from "@/lib/facturasCampana2024_2025";
+import {
+  mergeCampana2025_2026BasesKg,
+  mergeFacturasCampana2025_2026Consumos,
+} from "@/lib/facturasCampana2025_2026";
 import { today } from "@/lib/format";
 import type { ConsumoBaseKgRow, ConsumoFisicoRow } from "@/lib/types";
 
@@ -36,7 +46,7 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
   const basesKgQueryKey = ["consumos_bases_kg", user?.id] as const;
   const partesKgQueryKey = ["partes_diarios_kg", user?.id, rangeStart, rangeEnd] as const;
 
-  const { data: consumos = [], isLoading: loadingConsumos } = useQuery({
+  const { data: persistedConsumos = [], isLoading: loadingConsumos } = useQuery({
     queryKey: consumosQueryKey,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -53,7 +63,21 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
     enabled: Boolean(user),
   });
 
-  const { data: basesKg = [], isLoading: loadingBasesKg } = useQuery({
+  const consumos = useMemo(
+    () => {
+      if (!user) {
+        return persistedConsumos;
+      }
+
+      return mergeFacturasCampana2025_2026Consumos(
+        user.id,
+        mergeFacturasCampana2024_2025Consumos(user.id, persistedConsumos),
+      );
+    },
+    [persistedConsumos, user],
+  );
+
+  const { data: persistedBasesKg = [], isLoading: loadingBasesKg } = useQuery({
     queryKey: basesKgQueryKey,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -69,6 +93,20 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
     },
     enabled: Boolean(user),
   });
+
+  const basesKg = useMemo(
+    () => {
+      if (!user) {
+        return persistedBasesKg;
+      }
+
+      return mergeCampana2025_2026BasesKg(
+        user.id,
+        mergeCampana2024_2025BasesKg(user.id, persistedBasesKg),
+      );
+    },
+    [persistedBasesKg, user],
+  );
 
   const { data: partes = [], isLoading: loadingPartes } = useQuery({
     queryKey: partesKgQueryKey,
@@ -179,11 +217,35 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
     [rangeStart, rangeEnd, consumos, basesKg, partes],
   );
 
+  const weeklyRows = useMemo(
+    () => buildWeeklyConsumptionRows({
+      rangeStart,
+      rangeEnd,
+      consumos,
+      basesKg,
+      partes,
+    }),
+    [rangeStart, rangeEnd, consumos, basesKg, partes],
+  );
+
+  const dailyRows = useMemo(
+    () => buildDailyConsumptionRows({
+      rangeStart,
+      rangeEnd,
+      consumos,
+      basesKg,
+      partes,
+    }),
+    [rangeStart, rangeEnd, consumos, basesKg, partes],
+  );
+
   return {
     consumos,
     basesKg,
     partes,
     monthlyRows,
+    weeklyRows,
+    dailyRows,
     isLoading: loadingConsumos || loadingBasesKg || loadingPartes,
     addConsumo: addConsumoMutation,
     addBaseKg: addBaseKgMutation,

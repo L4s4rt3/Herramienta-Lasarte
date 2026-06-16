@@ -34,13 +34,24 @@ import {
   extractWeeklyAttendance,
 } from "@/lib/asistenciaImport";
 import {
+  RENDIMIENTO_GRUPOS,
+  calcularRendimientoPersonas,
   calcularRendimientoGrupos,
+  etiquetaTipoCoste,
   produccionRealParte,
   totalKgRendimiento,
   totalPersonasRendimiento,
 } from "@/lib/asistenciaRendimiento";
 
-const GRUPOS = ["Encargadas", "Produccion", "Aereo", "Tria podrido", "Punta", "Volcador", "Mecanica", "Envasadoras", "Mallas", "Carretilla", "Graneleras", "Mozos", "Carga y descarga"];
+const GRUPOS = ["Encargadas", "Produccion", "Aereo", "Tria podrido", "Punta", "Volcador", "Mecanica", "Mantenimiento", "Envasadoras", "Mallas", "Carretilla", "Graneleras", "Mozos", "Carga y descarga"];
+
+function formatKg(value: number) {
+  return new Intl.NumberFormat("es-ES").format(Math.round(value));
+}
+
+function errorMessage(err: unknown) {
+  return err instanceof Error ? err.message : String(err);
+}
 
 // ─── KPI Stat Cards ───────────────────────────────────────────────────────────
 
@@ -129,7 +140,7 @@ export default function Asistencia() {
   const [showWorkerList, setShowWorkerList] = useState(false);
   const [importingMode, setImportingMode] = useState<"daily" | "weekly" | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [parteDelDia, setParteDelDia] = useState<any>(null);
+  const [parteDelDia, setParteDelDia] = useState<Record<string, unknown> | null>(null);
   const [loadingParte, setLoadingParte] = useState(false);
 
   // ─── Load trabajadores ──────────────────────────────────────────────────
@@ -317,7 +328,7 @@ export default function Asistencia() {
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: "array" });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rowsAll: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+      const rowsAll: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
 
       if (rowsAll.length < 2) {
         toast({ title: "Excel vacío o sin datos", variant: "destructive" });
@@ -352,8 +363,8 @@ export default function Asistencia() {
       toast({
         title: `Diario importado — ${presentes} presentes de ${records.length} trabajadores`,
       });
-    } catch (err: any) {
-      toast({ title: "Error al importar", description: err.message, variant: "destructive" });
+    } catch (err: unknown) {
+      toast({ title: "Error al importar", description: errorMessage(err), variant: "destructive" });
     }
 
     setImportingMode(null);
@@ -370,7 +381,7 @@ export default function Asistencia() {
       const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
       const rowsBySheet = workbook.SheetNames.flatMap((sheetName) => {
         const sheet = workbook.Sheets[sheetName];
-        return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null }) as any[][];
+        return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null }) as unknown[][];
       });
 
       const defaultYear = Number(selectedDate.slice(0, 4)) || new Date().getFullYear();
@@ -408,8 +419,8 @@ export default function Asistencia() {
         title: `Semanal importado — ${days.length} día(s) detectado(s)`,
         description: `${presentes} presentes guardados sobre ${records.length} registros.`,
       });
-    } catch (err: any) {
-      toast({ title: "Error al importar semanal", description: err.message, variant: "destructive" });
+    } catch (err: unknown) {
+      toast({ title: "Error al importar semanal", description: errorMessage(err), variant: "destructive" });
     }
 
     setImportingMode(null);
@@ -444,8 +455,26 @@ export default function Asistencia() {
   );
 
   const totalKg = totalKgRendimiento(rendimientoGrupos);
-  const kgCalibrador = produccionRealParte(parteDelDia) || ((parteDelDia as any)?.kg_produccion_calibrador ?? 0);
+  const kgCalibrador = produccionRealParte(parteDelDia) || Number(parteDelDia?.kg_produccion_calibrador) || 0;
   const totalPersonas = totalPersonasRendimiento(rendimientoGrupos);
+  const rendimientoPersonas = useMemo(
+    () => calcularRendimientoPersonas({
+      trabajadores: activos,
+      asistencia,
+      grupos: rendimientoGrupos,
+      kgGeneralBase: kgCalibrador || totalKg,
+    }),
+    [activos, asistencia, kgCalibrador, rendimientoGrupos, totalKg]
+  );
+  const rendimientoPersonaById = useMemo(
+    () => new Map(rendimientoPersonas.map((persona) => [persona.id, persona])),
+    [rendimientoPersonas]
+  );
+  const presentesTratamiento = rendimientoPersonas.filter((persona) => persona.presente && persona.tipoCoste === "tratamiento").length;
+  const presentesGenerales = rendimientoPersonas.filter((persona) => persona.presente && (persona.tipoCoste === "general" || persona.tipoCoste === "sin_grupo")).length;
+  const presentesNoComputan = rendimientoPersonas.filter((persona) => persona.presente && !persona.cuentaKgPersona).length;
+  const presentesKgPersona = rendimientoPersonas.filter((persona) => persona.presente && persona.cuentaKgPersona).length;
+  const kgGeneralPersona = presentesKgPersona > 0 ? (kgCalibrador || totalKg) / presentesKgPersona : 0;
 
   // ─── Eficiencia histórica ──────────────────────────────────────────────
 
@@ -696,7 +725,7 @@ export default function Asistencia() {
       />
 
       {/* ── Main Grid ───────────────────────────────────────────── */}
-      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] gap-6 items-start">
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_460px] gap-6 items-start">
         {/* Left: Attendance */}
         <div className="space-y-6">
           <Card>
@@ -805,6 +834,7 @@ export default function Asistencia() {
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3">
                             {workers.map((t) => {
                               const presente = asistencia[t.id];
+                              const rendimientoPersona = rendimientoPersonaById.get(t.id);
                               return (
                                 <div
                                   key={t.id}
@@ -819,6 +849,11 @@ export default function Asistencia() {
                                     <p className="line-clamp-2 text-base font-semibold leading-snug">{t.nombre}</p>
                                     {t.zona && (
                                       <p className="text-xs text-muted-foreground truncate mt-0.5">{t.zona}</p>
+                                    )}
+                                    {presente === true && rendimientoPersona?.cuentaKgPersona && rendimientoPersona.kgReferenciaPersona > 0 && (
+                                      <p className="mt-1 text-xs font-semibold tabular-nums text-primary">
+                                        {formatKg(rendimientoPersona.kgReferenciaPersona)} kg/p ref.
+                                      </p>
                                     )}
                                   </div>
                                   <Switch
@@ -852,9 +887,10 @@ export default function Asistencia() {
               </CardContent>
             </Card>
           ) : parteDelDia ? (
-            <Card className="glass-strong border">
+            <>
+            <div className="hidden" aria-hidden="true">
               <CardContent className="p-5 space-y-4">
-                <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Rendimiento por grupo</h3>
+                <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Rendimiento por grupo directo</h3>
                 <div className="space-y-3 text-sm">
                   {([
                     { label: "Envasadoras", data: rendimientoGrupos.Envasadoras },
@@ -892,7 +928,114 @@ export default function Asistencia() {
                   </div>
                 </div>
               </CardContent>
+            </div>
+            <Card className="glass-strong border">
+              <CardHeader className="pb-3 px-5 pt-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-base font-semibold">Kg/persona y coste operativo</CardTitle>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Produccion por grupos directos y personas que entran como linea o coste general.
+                    </p>
+                  </div>
+                  <Badge variant="secondary" className="shrink-0">
+                    {formatKg(kgGeneralPersona)} kg/p
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="px-5 pb-5 space-y-5">
+                <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+                  <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
+                    <p className="panel-kicker">Directas</p>
+                    <p className="mt-1 text-xl font-semibold tabular-nums">{totalPersonas}</p>
+                  </div>
+                  <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
+                    <p className="panel-kicker">Tratamiento</p>
+                    <p className="mt-1 text-xl font-semibold tabular-nums">{presentesTratamiento}</p>
+                  </div>
+                  <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
+                    <p className="panel-kicker">General</p>
+                    <p className="mt-1 text-xl font-semibold tabular-nums">{presentesGenerales}</p>
+                  </div>
+                  <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
+                    <p className="panel-kicker">No kg/p</p>
+                    <p className="mt-1 text-xl font-semibold tabular-nums">{presentesNoComputan}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {RENDIMIENTO_GRUPOS.map((label) => {
+                    const data = rendimientoGrupos[label];
+                    const kgPersona = data.personas > 0 ? data.kg / data.personas : 0;
+                    const maxKg = Math.max(...RENDIMIENTO_GRUPOS.map((grupo) => rendimientoGrupos[grupo].kg), 1);
+                    return (
+                      <div key={label} className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold">{label}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {formatKg(data.kg)} kg / {data.personas} pers / {formatKg(kgPersona)} kg/p
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                          <div
+                            className="h-full rounded-full bg-primary"
+                            style={{ width: `${Math.min(100, (data.kg / maxKg) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] overflow-hidden">
+                  <div className="flex items-center justify-between gap-3 border-b border-[var(--glass-border)] px-3 py-2">
+                    <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Lista kg/persona</p>
+                    <span className="text-xs text-muted-foreground">{rendimientoPersonas.length} trabajadoras</span>
+                  </div>
+                  <div className="max-h-[360px] overflow-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">Trabajadora</TableHead>
+                          <TableHead className="text-xs">Coste</TableHead>
+                          <TableHead className="text-right text-xs">Kg dir.</TableHead>
+                          <TableHead className="text-right text-xs">Kg ref.</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {rendimientoPersonas.map((persona) => (
+                          <TableRow key={persona.id} className={cn(!persona.presente && "opacity-50")}>
+                            <TableCell className="py-2">
+                              <p className="text-sm font-semibold leading-tight">{persona.nombre}</p>
+                              <p className="text-[11px] text-muted-foreground">{persona.zona}</p>
+                            </TableCell>
+                            <TableCell className="py-2">
+                              <Badge variant={persona.tipoCoste === "grupo" ? "default" : "secondary"} className="text-[11px]">
+                                {etiquetaTipoCoste(persona.tipoCoste)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="py-2 text-right text-xs font-semibold tabular-nums">
+                              {persona.presente && persona.cuentaKgPersona ? formatKg(persona.kgDirectosPersona) : "-"}
+                            </TableCell>
+                            <TableCell className="py-2 text-right text-xs font-semibold tabular-nums text-primary">
+                              {persona.presente && persona.cuentaKgPersona ? formatKg(persona.kgReferenciaPersona) : "-"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center border-t border-[var(--glass-border)] pt-3 text-xs text-muted-foreground">
+                  <span>Total produccion real</span>
+                  <span className="font-semibold tabular-nums">{formatKg(kgCalibrador || totalKg)} kg</span>
+                </div>
+              </CardContent>
             </Card>
+            </>
           ) : null}
 
 

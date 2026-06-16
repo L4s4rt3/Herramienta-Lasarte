@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { calcularRendimientoGrupos, totalKgRendimiento } from "./asistenciaRendimiento";
+import {
+  calcularRendimientoGrupos,
+  calcularRendimientoPersonas,
+  etiquetaTipoCoste,
+  tipoCosteTrabajador,
+  totalKgRendimiento,
+} from "./asistenciaRendimiento";
 
 describe("calcularRendimientoGrupos", () => {
   it("uses producto_dia packaging to assign kg by confection group", () => {
@@ -112,5 +118,49 @@ describe("calcularRendimientoGrupos", () => {
     expect(result.Envasadoras.kg).toBeCloseTo(35952.8126, 4);
     expect(result.Mallas.kg).toBeCloseTo(33459.2399, 4);
     expect(result.Graneleras.kg).toBeCloseTo(27878.8503, 4);
+  });
+
+  it("assigns direct kg per present person and separates general/treatment costs", () => {
+    const personas = calcularRendimientoPersonas({
+      trabajadores: [
+        { id: "1", nombre: "Ana", zona: "Mallas" },
+        { id: "2", nombre: "Bea", zona: "Mallas" },
+        { id: "3", nombre: "Clara", zona: "Volcador" },
+        { id: "4", nombre: "Diana", zona: "Encargadas" },
+        { id: "5", nombre: "Eva", zona: "Carga y descarga" },
+      ],
+      asistencia: { "1": true, "2": true, "3": true, "4": false, "5": true },
+      grupos: {
+        Envasadoras: { kg: 0, personas: 0 },
+        Mallas: { kg: 32000, personas: 2 },
+        Graneleras: { kg: 0, personas: 0 },
+      },
+      kgGeneralBase: 48000,
+    });
+
+    const ana = personas.find((persona) => persona.id === "1");
+    const clara = personas.find((persona) => persona.id === "3");
+    const diana = personas.find((persona) => persona.id === "4");
+    const eva = personas.find((persona) => persona.id === "5");
+
+    expect(ana?.kgDirectosPersona).toBe(16000);
+    expect(ana?.kgGeneralPersona).toBe(16000);
+    expect(clara?.tipoCoste).toBe("tratamiento");
+    expect(clara?.kgDirectosPersona).toBe(0);
+    expect(clara?.kgReferenciaPersona).toBe(16000);
+    expect(diana?.tipoCoste).toBe("general");
+    expect(diana?.kgReferenciaPersona).toBe(0);
+    expect(eva?.tipoCoste).toBe("no_computa");
+    expect(eva?.cuentaKgPersona).toBe(false);
+    expect(eva?.kgReferenciaPersona).toBe(0);
+    expect(etiquetaTipoCoste("tratamiento")).toBe("Linea tratamiento");
+  });
+
+  it("classifies workers without applying operating targets", () => {
+    expect(tipoCosteTrabajador({ id: "1", zona: "Mallas" })).toBe("grupo");
+    expect(tipoCosteTrabajador({ id: "2", zona: "Punta" })).toBe("tratamiento");
+    expect(tipoCosteTrabajador({ id: "3", zona: "Mozos" })).toBe("general");
+    expect(tipoCosteTrabajador({ id: "4", zona: "Carga y descarga" })).toBe("no_computa");
+    expect(tipoCosteTrabajador({ id: "5", zona: null })).toBe("sin_grupo");
   });
 });

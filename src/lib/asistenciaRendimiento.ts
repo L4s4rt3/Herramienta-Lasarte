@@ -1,6 +1,11 @@
 export const RENDIMIENTO_GRUPOS = ["Envasadoras", "Mallas", "Graneleras"] as const;
+export const TRATAMIENTO_GRUPOS = ["Produccion", "Aereo", "Tria podrido", "Punta", "Volcador", "Mecanica", "Carretilla"] as const;
+export const EXCLUIDOS_KG_PERSONA = ["Carga y descarga"] as const;
 
 export type RendimientoGrupoKey = typeof RENDIMIENTO_GRUPOS[number];
+export type TipoCostePersona = "grupo" | "tratamiento" | "general" | "no_computa" | "sin_grupo";
+type ParteRendimiento = Record<string, unknown>;
+type ProductoRendimiento = Record<string, unknown>;
 
 export interface GrupoRendimiento {
   kg: number;
@@ -11,25 +16,53 @@ export type RendimientoGrupos = Record<RendimientoGrupoKey, GrupoRendimiento>;
 
 interface TrabajadorRendimiento {
   id: string;
+  nombre?: string | null;
   zona?: string | null;
 }
 
 interface CalcularRendimientoInput {
-  parte: any;
+  parte: ParteRendimiento | null | undefined;
   trabajadores: TrabajadorRendimiento[];
   asistencia: Record<string, boolean>;
+}
+
+export interface PersonaRendimiento {
+  id: string;
+  nombre: string;
+  zona: string;
+  presente: boolean;
+  cuentaKgPersona: boolean;
+  tipoCoste: TipoCostePersona;
+  grupoDirecto: RendimientoGrupoKey | null;
+  kgDirectosPersona: number;
+  kgGeneralPersona: number;
+  kgReferenciaPersona: number;
 }
 
 function num(value: unknown): number {
   return Number(value) || 0;
 }
 
-export function produccionRealParte(parte: any): number {
+function getRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function getPath(value: unknown, path: string[]): unknown {
+  let current: unknown = value;
+  for (const key of path) {
+    const record = getRecord(current);
+    if (!record) return undefined;
+    current = record[key];
+  }
+  return current;
+}
+
+export function produccionRealParte(parte: ParteRendimiento | null | undefined): number {
   if (!parte) return 0;
   const produccionCascada = num(
-    parte?.resumen_ia?.cascada?.produccion_real ??
-      parte?.cascade?.produccion_real ??
-      parte?.cascada?.produccion_real
+    getPath(parte, ["resumen_ia", "cascada", "produccion_real"]) ??
+      getPath(parte, ["cascade", "produccion_real"]) ??
+      getPath(parte, ["cascada", "produccion_real"])
   );
   if (produccionCascada > 0) return produccionCascada;
 
@@ -50,13 +83,13 @@ function normalizarTexto(value: unknown): string {
     .trim();
 }
 
-function textoExclusionItem(item: any): string {
+function textoExclusionItem(item: ProductoRendimiento): string {
   return [
-    item?.producto,
-    item?.grupo_destino,
-    item?.linea,
-    item?.destino,
-    item?.situacion,
+    item.producto,
+    item.grupo_destino,
+    item.linea,
+    item.destino,
+    item.situacion,
   ].map(normalizarTexto).filter(Boolean).join(" ");
 }
 
@@ -65,18 +98,18 @@ function esLineaTotal(value: unknown): boolean {
   return /\b(total|totales|subtotal|suma|gran total)\b/.test(text);
 }
 
-function esFilaTotal(item: any): boolean {
+function esFilaTotal(item: ProductoRendimiento): boolean {
   return [
-    item?.producto,
-    item?.linea,
-    item?.grupo_destino,
-    item?.destino,
-    item?.formato_caja,
-    item?.situacion,
+    item.producto,
+    item.linea,
+    item.grupo_destino,
+    item.destino,
+    item.formato_caja,
+    item.situacion,
   ].some(esLineaTotal);
 }
 
-function esExcluidoRendimiento(item: any): boolean {
+function esExcluidoRendimiento(item: ProductoRendimiento): boolean {
   const text = textoExclusionItem(item);
   if (!text) return true;
   return (
@@ -101,6 +134,26 @@ export function grupoRendimientoTrabajador(trabajador: TrabajadorRendimiento): R
   return normalizarGrupoConfeccion(trabajador.zona);
 }
 
+export function tipoCosteTrabajador(trabajador: TrabajadorRendimiento): TipoCostePersona {
+  if (grupoRendimientoTrabajador(trabajador)) return "grupo";
+  const zona = normalizarTexto(trabajador.zona);
+  if (!zona) return "sin_grupo";
+  if (EXCLUIDOS_KG_PERSONA.some((grupo) => normalizarTexto(grupo) === zona)) return "no_computa";
+  return TRATAMIENTO_GRUPOS.some((grupo) => normalizarTexto(grupo) === zona) ? "tratamiento" : "general";
+}
+
+export function etiquetaTipoCoste(tipo: TipoCostePersona) {
+  if (tipo === "grupo") return "Coste de grupo";
+  if (tipo === "tratamiento") return "Linea tratamiento";
+  if (tipo === "general") return "Coste general";
+  if (tipo === "no_computa") return "No computa kg/p";
+  return "Sin grupo";
+}
+
+export function cuentaTrabajadorKgPersona(trabajador: TrabajadorRendimiento): boolean {
+  return tipoCosteTrabajador(trabajador) !== "no_computa";
+}
+
 function grupoProductoNombre(producto: unknown): RendimientoGrupoKey | null {
   const text = normalizarTexto(producto);
   if (!text) return null;
@@ -109,35 +162,35 @@ function grupoProductoNombre(producto: unknown): RendimientoGrupoKey | null {
   return null;
 }
 
-function grupoProductoDia(item: any): RendimientoGrupoKey | null {
+function grupoProductoDia(item: ProductoRendimiento): RendimientoGrupoKey | null {
   if (esFilaTotal(item) || esExcluidoRendimiento(item)) return null;
 
-  const grupoProducto = grupoProductoNombre(item?.producto);
+  const grupoProducto = grupoProductoNombre(item.producto);
   if (grupoProducto) return grupoProducto;
 
   const explicit =
-    normalizarGrupoConfeccion(item?.grupo_destino) ??
-    normalizarGrupoConfeccion(item?.linea) ??
-    normalizarGrupoConfeccion(item?.formato_caja);
+    normalizarGrupoConfeccion(item.grupo_destino) ??
+    normalizarGrupoConfeccion(item.linea) ??
+    normalizarGrupoConfeccion(item.formato_caja);
   if (explicit) return explicit;
 
-  return normalizarTexto(item?.producto) ? "Envasadoras" : null;
+  return normalizarTexto(item.producto) ? "Envasadoras" : null;
 }
 
-function kgProducto(item: any): number {
-  return num(item?.kg ?? item?.kg_neto);
+function kgProducto(item: ProductoRendimiento): number {
+  return num(item.kg ?? item.kg_neto);
 }
 
-function getProductoDetalle(parte: any): any[] {
-  const detalleDb = parte?.producto_dia;
+function getProductoDetalle(parte: ParteRendimiento | null | undefined): ProductoRendimiento[] {
+  const detalleDb = getPath(parte, ["producto_dia"]);
   if (Array.isArray(detalleDb) && detalleDb.length > 0) return detalleDb;
 
-  const detalleIa = parte?.resumen_ia?.producto_detalle;
+  const detalleIa = getPath(parte, ["resumen_ia", "producto_detalle"]);
   return Array.isArray(detalleIa) ? detalleIa : [];
 }
 
-function getPaletsFallback(parte: any): any[] {
-  const paletsIa = parte?.resumen_ia?.palets_detalle;
+function getPaletsFallback(parte: ParteRendimiento | null | undefined): ProductoRendimiento[] {
+  const paletsIa = getPath(parte, ["resumen_ia", "palets_detalle"]);
   return Array.isArray(paletsIa) ? paletsIa : [];
 }
 
@@ -149,7 +202,7 @@ function gruposVacios(): RendimientoGrupos {
   };
 }
 
-function ajustarGruposAProduccionReal(grupos: RendimientoGrupos, parte: any) {
+function ajustarGruposAProduccionReal(grupos: RendimientoGrupos, parte: ParteRendimiento | null | undefined) {
   const produccionReal = produccionRealParte(parte);
   const totalGrupos = totalKgRendimiento(grupos);
   if (produccionReal <= 0 || totalGrupos <= 0) return;
@@ -198,4 +251,49 @@ export function totalKgRendimiento(grupos: RendimientoGrupos): number {
 
 export function totalPersonasRendimiento(grupos: RendimientoGrupos): number {
   return RENDIMIENTO_GRUPOS.reduce((sum, grupo) => sum + grupos[grupo].personas, 0);
+}
+
+export function calcularRendimientoPersonas({
+  trabajadores,
+  asistencia,
+  grupos,
+  kgGeneralBase,
+}: {
+  trabajadores: TrabajadorRendimiento[];
+  asistencia: Record<string, boolean>;
+  grupos: RendimientoGrupos;
+  kgGeneralBase: number;
+}): PersonaRendimiento[] {
+  const presentes = trabajadores.filter((trabajador) => asistencia[trabajador.id] === true && cuentaTrabajadorKgPersona(trabajador)).length;
+  const kgGeneralPersona = presentes > 0 ? kgGeneralBase / presentes : 0;
+
+  return trabajadores
+    .map((trabajador) => {
+      const presente = asistencia[trabajador.id] === true;
+      const cuentaKgPersona = cuentaTrabajadorKgPersona(trabajador);
+      const grupoDirecto = grupoRendimientoTrabajador(trabajador);
+      const grupoData = grupoDirecto ? grupos[grupoDirecto] : null;
+      const kgDirectosPersona = presente && grupoData && grupoData.personas > 0
+        ? grupoData.kg / grupoData.personas
+        : 0;
+      const tipoCoste = tipoCosteTrabajador(trabajador);
+
+      return {
+        id: trabajador.id,
+        nombre: trabajador.nombre ?? "Sin nombre",
+        zona: trabajador.zona ?? "Sin grupo",
+        presente,
+        cuentaKgPersona,
+        tipoCoste,
+        grupoDirecto,
+        kgDirectosPersona,
+        kgGeneralPersona: presente && cuentaKgPersona ? kgGeneralPersona : 0,
+        kgReferenciaPersona: presente && cuentaKgPersona ? (kgDirectosPersona || kgGeneralPersona) : 0,
+      };
+    })
+    .sort((a, b) => {
+      if (a.presente !== b.presente) return a.presente ? -1 : 1;
+      if (a.tipoCoste !== b.tipoCoste) return a.tipoCoste.localeCompare(b.tipoCoste);
+      return a.nombre.localeCompare(b.nombre, "es");
+    });
 }

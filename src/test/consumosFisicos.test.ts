@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDailyConsumptionRows,
   buildMonthlyConsumptionRows,
+  buildWeeklyConsumptionRows,
   kgProducidosParte,
   normalizeConsumoCantidad,
 } from "@/lib/consumosFisicos";
@@ -152,5 +154,62 @@ describe("consumos fisicos helpers", () => {
     expect(rows[0].confianza).toBe("incompleto");
     expect(rows[0].issues).toContain("Sin consumo fisico registrado");
     expect(rows[0].issues).toContain("Sin kg base para calcular ratios");
+  });
+
+  it("builds ISO weekly rows with week 24 from 2026-06-08 to 2026-06-14 and week 25 from 2026-06-15", () => {
+    const rows = buildWeeklyConsumptionRows({
+      rangeStart: "2026-06-08",
+      rangeEnd: "2026-06-15",
+      consumos: [
+        { id: "agua-junio", recurso: "agua", fecha_inicio: "2026-06-08", fecha_fin: "2026-06-15", cantidad: 800, unidad: "l", fuente: "contador" },
+      ],
+      partes: [
+        { date: "2026-06-08", kg_produccion_calibrador: 1000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+        { date: "2026-06-15", kg_produccion_calibrador: 500, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+      ],
+      basesKg: [],
+    });
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      periodo: "2026-W24",
+      fechaInicio: "2026-06-08",
+      fechaFin: "2026-06-14",
+      kgBase: 1000,
+    });
+    expect(rows[0].aguaL).toBeCloseTo(700);
+    expect(rows[1]).toMatchObject({
+      periodo: "2026-W25",
+      fechaInicio: "2026-06-15",
+      fechaFin: "2026-06-15",
+      kgBase: 500,
+    });
+    expect(rows[1].aguaL).toBeCloseTo(100);
+  });
+
+  it("can split the same imported period into monthly, weekly and daily totals", () => {
+    const input = {
+      rangeStart: "2026-06-08",
+      rangeEnd: "2026-06-14",
+      consumos: [
+        { id: "gasoil-semana", recurso: "gasoil" as const, fecha_inicio: "2026-06-08", fecha_fin: "2026-06-14", cantidad: 700, unidad: "l" as const, fuente: "albaran" as const },
+      ],
+      partes: [],
+      basesKg: [
+        { id: "ventas-semana", tipo_base: "ventas" as const, fecha_inicio: "2026-06-08", fecha_fin: "2026-06-14", kg: 7000 },
+      ],
+    };
+    const monthly = buildMonthlyConsumptionRows(input);
+    const weekly = buildWeeklyConsumptionRows(input);
+    const daily = buildDailyConsumptionRows(input);
+
+    expect(monthly).toHaveLength(1);
+    expect(weekly).toHaveLength(1);
+    expect(daily).toHaveLength(7);
+    expect(weekly[0].periodo).toBe("2026-W24");
+    expect(weekly[0].gasoilL).toBeCloseTo(700);
+    expect(weekly[0].kgBase).toBeCloseTo(7000);
+    expect(daily.reduce((total, row) => total + row.gasoilL, 0)).toBeCloseTo(weekly[0].gasoilL);
+    expect(daily.reduce((total, row) => total + row.kgBase, 0)).toBeCloseTo(weekly[0].kgBase);
   });
 });
