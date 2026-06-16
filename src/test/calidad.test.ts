@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCalidadAttachmentRows,
+  buildCalidadComentarioSugerido,
   buildCalidadExcelRows,
   buildCalidadIncidentRows,
+  buildComentarioCalidad,
   calidadSummary,
+  extractWordXmlText,
   formatCalidadDate,
   normalizeCalidadName,
+  splitComentarioCalidad,
   sameCalidadName,
   type CalidadLote,
 } from "@/lib/calidad";
@@ -117,5 +121,39 @@ describe("calidad helpers", () => {
   it("normalizes repeated producer/farm names", () => {
     expect(normalizeCalidadName("  Los   Corrales  ")).toBe("Los Corrales");
     expect(sameCalidadName("Los Corrales", "los corrales")).toBe(true);
+  });
+
+  it("extracts readable text from Word document XML", () => {
+    const xml = `
+      <w:document>
+        <w:p><w:r><w:t>Observacion:</w:t></w:r><w:r><w:t> Entrada con calibre irregular</w:t></w:r></w:p>
+        <w:p><w:r><w:t>Accion recomendada:</w:t></w:r><w:r><w:t> Revisar en linea</w:t></w:r></w:p>
+      </w:document>
+    `;
+
+    expect(extractWordXmlText(xml)).toBe("Observacion: Entrada con calibre irregular\nAccion recomendada: Revisar en linea");
+  });
+
+  it("combines observation and recommended action into one editable comment", () => {
+    expect(buildComentarioCalidad(lotes[0])).toBe(
+      "Entrada regular, revisar calibre.\n\nAccion recomendada: Separar para seguimiento.",
+    );
+  });
+
+  it("splits an editable combined comment back into stored fields", () => {
+    expect(splitComentarioCalidad("Entrada con rameado.\nAccion recomendada: Separar 20 box para seguimiento.")).toEqual({
+      observacion: "Entrada con rameado.",
+      accion_recomendada: "Separar 20 box para seguimiento.",
+    });
+  });
+
+  it("suggests a quality comment using lot context, photos and similar history", () => {
+    const suggestion = buildCalidadComentarioSugerido(lotes[0], [lotes[1], { ...lotes[0], id: "3", fecha: "2026-05-27", calidad: "Deficiente" }], 2);
+
+    expect(suggestion).toContain("Navel Powell");
+    expect(suggestion).toContain("Los Corrales");
+    expect(suggestion).toContain("2 foto");
+    expect(suggestion).toContain("Deficiente");
+    expect(suggestion).toContain("Accion recomendada:");
   });
 });

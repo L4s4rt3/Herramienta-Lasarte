@@ -9,11 +9,14 @@ import {
   Clock,
   Download,
   FileSpreadsheet,
+  FileText,
+  History,
   Image as ImageIcon,
   Loader2,
   Plus,
   Save,
   Search,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -36,12 +39,17 @@ import { es } from "date-fns/locale";
 import {
   CALIDAD_OPTIONS,
   attachmentCountMap,
+  buildCalidadComentarioSugerido,
+  buildComentarioCalidad,
   calidadSummary,
   exportCalidadToExcel,
   exportCalidadToPDF,
+  extractDocxText,
+  findCalidadHistoricoSimilar,
   formatCalidadDate,
   normalizeCalidadName,
   sameCalidadName,
+  splitComentarioCalidad,
   type CalidadAdjunto,
   type CalidadEstado,
   type CalidadJornada,
@@ -285,20 +293,27 @@ export default function CalidadJornadaPage() {
   const [responsableCustom, setResponsableCustom] = useState("");
   const [jornada, setJornada] = useState<CalidadJornada | null>(null);
   const [lotes, setLotes] = useState<CalidadLote[]>([]);
+  const [historicalLotes, setHistoricalLotes] = useState<CalidadLote[]>([]);
   const [productores, setProductores] = useState<CalidadProductor[]>([]);
   const [adjuntos, setAdjuntos] = useState<CalidadAdjunto[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [comentarioDraft, setComentarioDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [productorPickerOpen, setProductorPickerOpen] = useState(false);
   const [productorSearch, setProductorSearch] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const wordInputRef = useRef<HTMLInputElement | null>(null);
 
   const attachmentCounts = useMemo(() => attachmentCountMap(adjuntos), [adjuntos]);
   const summary = useMemo(() => calidadSummary(lotes, attachmentCounts), [lotes, attachmentCounts]);
   const selected = useMemo(() => lotes.find((lote) => lote.id === selectedId) ?? lotes[0] ?? null, [lotes, selectedId]);
   const selectedAdjuntos = useMemo(() => adjuntos.filter((adjunto) => adjunto.lote_id === selected?.id), [adjuntos, selected?.id]);
+  const selectedHistoricalSimilar = useMemo(
+    () => (selected ? findCalidadHistoricoSimilar(selected, historicalLotes) : []),
+    [historicalLotes, selected],
+  );
   const responsableSelectValue = RESPONSABLES.includes(responsable as typeof RESPONSABLES[number]) ? responsable : "otro";
   const productorOptions = useMemo(() => {
     const byName = new Map<string, CalidadProductor>();
@@ -320,14 +335,22 @@ export default function CalidadJornadaPage() {
     if (!user) return;
     setLoading(true);
     try {
-      const [{ data: calidadProductoresData }, { data: parteProductoresData }, jornadaResponse] = await Promise.all([
+      const [{ data: calidadProductoresData }, { data: parteProductoresData }, jornadaResponse, historicoResponse] = await Promise.all([
         supabase.from("calidad_productores" as any).select("*").order("nombre", { ascending: true }),
         supabase.from("lotes_dia" as any).select("productor").not("productor", "is", null).limit(5000),
         supabase.from("calidad_jornadas" as any).select("*").eq("fecha", fecha).maybeSingle(),
+        supabase
+          .from("calidad_lotes" as any)
+          .select("*")
+          .eq("user_id", user.id)
+          .lt("fecha", fecha)
+          .order("fecha", { ascending: false })
+          .limit(300),
       ]);
 
       let currentJornada = jornadaResponse.data as CalidadJornada | null;
       if (jornadaResponse.error) throw jornadaResponse.error;
+      if (historicoResponse.error) throw historicoResponse.error;
 
       if (!currentJornada) {
         const fallbackResponsible = "Eusebio Rodríguez";
@@ -372,6 +395,7 @@ export default function CalidadJornadaPage() {
         return nombre ? [{ id: `db-${nombre}`, nombre }] : [];
       });
       setProductores([...calidadProductores, ...importedProductores]);
+      setHistoricalLotes((historicoResponse.data ?? []) as CalidadLote[]);
       setJornada(currentJornada);
       setResponsable(currentJornada.responsable || "");
       setResponsableCustom(RESPONSABLES.includes(currentJornada.responsable as typeof RESPONSABLES[number]) ? "" : currentJornada.responsable || "");
@@ -388,6 +412,10 @@ export default function CalidadJornadaPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    setComentarioDraft(selected ? buildComentarioCalidad(selected) : "");
+  }, [selected?.id]);
 
   function changeDate(nextDate: string) {
     setFecha(nextDate);
@@ -599,6 +627,48 @@ export default function CalidadJornadaPage() {
     patchSelected({ defectos: next });
   }
 
+  function patchComentario(value: string) {
+    setComentarioDraft(value);
+    const fields = splitComentarioCalidad(value);
+    patchSelected(fields);
+  }
+
+  async function importComentarioFile(files: FileList | null) {
+    const file = files?.[0];
+    if (!file || !selected) return;
+
+    try {
+      const lowerName = file.name.toLowerCase();
+      let text = "";
+      if (lowerName.endsWith(".docx")) {
+        text = extractDocxText(new Uint8Array(await file.arrayBuffer()));
+      } else if (lowerName.endsWith(".txt")) {
+        text = await file.text();
+      } else {
+        throw new Error("Importa un Word en formato .docx o un archivo .txt.");
+      }
+
+      patchComentario(text);
+      toast({ title: "Comentario importado", description: file.name });
+    } catch (error) {
+      toast({ title: "Error importando Word", description: errorMessage(error), variant: "destructive" });
+    } finally {
+      if (wordInputRef.current) wordInputRef.current.value = "";
+    }
+  }
+
+  function generateComentario() {
+    if (!selected) return;
+    const photoCount = attachmentCounts[selected.id] ?? 0;
+    patchComentario(buildCalidadComentarioSugerido(selected, historicalLotes, photoCount));
+    toast({
+      title: "Comentario generado",
+      description: selectedHistoricalSimilar.length > 0
+        ? `Comparado con ${selectedHistoricalSimilar.length} registro(s) historico(s).`
+        : "Sin historico similar previo, usando datos del lote y calidad.",
+    });
+  }
+
   if (loading) {
     return (
       <div className="page-shell">
@@ -798,6 +868,7 @@ export default function CalidadJornadaPage() {
                   </div>
                 </div>
                 <input ref={fileInputRef} type="file" accept="image/*,.pdf,.xlsx,.xls,.doc,.docx" multiple className="hidden" onChange={(event) => uploadFiles(event.target.files)} />
+                <input ref={wordInputRef} type="file" accept=".docx,.txt" className="hidden" onChange={(event) => importComentarioFile(event.target.files)} />
               </CardHeader>
               <CardContent className="space-y-6">
                 <section className="grid gap-4 lg:grid-cols-4">
@@ -950,26 +1021,60 @@ export default function CalidadJornadaPage() {
                   </div>
                 </section>
 
-                <section className="grid gap-4 lg:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="observacion-lote">Observacion</Label>
+                <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <Label htmlFor="comentario-lote">Comentario / observaciones</Label>
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="outline" size="sm" className="glass glass-hover" onClick={() => wordInputRef.current?.click()}>
+                          <FileText className="h-4 w-4" />
+                          Word
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" className="glass glass-hover" onClick={generateComentario}>
+                          <Sparkles className="h-4 w-4" />
+                          Generar
+                        </Button>
+                      </div>
+                    </div>
                     <Textarea
-                      id="observacion-lote"
-                      value={selected.observacion}
-                      onChange={(event) => patchSelected({ observacion: event.target.value })}
-                      placeholder="Como entra el lote, incidencias, calibre, color..."
-                      className="min-h-28"
+                      id="comentario-lote"
+                      value={comentarioDraft}
+                      onChange={(event) => patchComentario(event.target.value)}
+                      placeholder="Como entra el lote, incidencias, calibre, color...\n\nAccion recomendada: Separar, revisar en linea, avisar al productor..."
+                      className="min-h-36"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="accion-lote">Accion recomendada</Label>
-                    <Textarea
-                      id="accion-lote"
-                      value={selected.accion_recomendada}
-                      onChange={(event) => patchSelected({ accion_recomendada: event.target.value })}
-                      placeholder="Separar, revisar en linea, avisar al productor, seguimiento..."
-                      className="min-h-28"
-                    />
+
+                  <div className="rounded-xl border border-border/70 bg-[var(--glass-bg)] p-4">
+                    <div className="flex items-center gap-2">
+                      <History className="h-4 w-4 text-primary" />
+                      <p className="text-sm font-semibold">Historico similar</p>
+                    </div>
+                    {selectedHistoricalSimilar.length === 0 ? (
+                      <p className="mt-3 text-sm text-muted-foreground">Sin registros similares previos.</p>
+                    ) : (
+                      <div className="mt-3 space-y-2">
+                        {selectedHistoricalSimilar.map((lote) => (
+                          <div key={lote.id} className="rounded-lg border border-border/60 bg-background/60 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs font-semibold text-muted-foreground">{formatCalidadDate(lote.fecha)}</p>
+                              <Badge variant="outline" className={cn("shrink-0", QUALITY_STYLES[lote.calidad])}>
+                                {lote.calidad}
+                              </Badge>
+                            </div>
+                            <p className="mt-1 truncate text-sm font-medium">{lote.productor_finca_nombre || "Sin productor/finca"}</p>
+                            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                              {lote.variedad || lote.producto || "Sin variedad"} - {lote.cantidad || "Sin box"} - {lote.hora || "Sin hora"}
+                            </p>
+                            {(lote.observacion || lote.accion_recomendada) && (
+                              <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+                                {buildComentarioCalidad(lote)}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </section>
 

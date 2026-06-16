@@ -19,7 +19,8 @@ import { Calendar as DatePickerCalendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Plus, Trash2, Upload, ChevronLeft, ChevronRight, UserCheck, UserX,
-  Users, AlertCircle, Calendar as CalendarIcon, CalendarDays, Search, BarChart3, Eraser,
+  Users, Calendar as CalendarIcon, CalendarDays, Search, BarChart3, Eraser,
+  CheckCircle2, PackageCheck,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { today } from "@/lib/format";
@@ -36,50 +37,75 @@ import {
 import {
   calcularRendimientoGrupos,
   produccionRealParte,
-  totalKgRendimiento,
-  totalPersonasRendimiento,
 } from "@/lib/asistenciaRendimiento";
 
-const GRUPOS = ["Encargadas", "Produccion", "Aereo", "Tria podrido", "Punta", "Volcador", "Mecanica", "Envasadoras", "Mallas", "Carretilla", "Graneleras", "Mozos", "Carga y descarga"];
+const GRUPOS = ["Encargadas", "Produccion", "Aereo", "Tria podrido", "Punta", "Volcador", "Mecanica", "Mantenimiento", "Envasadoras", "Mallas", "Carretilla", "Graneleras", "Mozos", "Carga y descarga"];
+const GRUPOS_DIRECTOS = new Set(["Envasadoras", "Mallas", "Graneleras"]);
+const GRUPOS_LINEA_TRATAMIENTO = new Set(["Produccion", "Aereo", "Tria podrido", "Punta", "Volcador", "Mecanica", "Carretilla"]);
+const GRUPOS_NO_COMPUTA_KG = new Set(["Carga y descarga"]);
+type WorkerFilter = "todos" | "presentes" | "ausentes" | "sinRegistro" | "conKg" | "fueraKg";
 
-// ─── KPI Stat Cards ───────────────────────────────────────────────────────────
+function tipoCosteOperativo(zona?: string | null) {
+  if (zona && GRUPOS_NO_COMPUTA_KG.has(zona)) return "No computa kg/p";
+  if (zona && GRUPOS_DIRECTOS.has(zona)) return "Coste de grupo";
+  if (zona && GRUPOS_LINEA_TRATAMIENTO.has(zona)) return "Linea tratamiento";
+  return "Coste general";
+}
 
-function KPIStatCards({ presentes, ausentes, bajas, total, asistenciaPct }: {
-  presentes: number; ausentes: number; bajas: number; total: number; asistenciaPct: number;
-}) {
-  const items = [
-    { label: "Presentes", value: presentes, color: "text-success", icon: UserCheck, bg: "bg-success/10", border: "border-success/30", trend: `${asistenciaPct}% asistencia` },
-    { label: "Ausentes", value: ausentes, color: "text-muted-foreground", icon: UserX, bg: "bg-[var(--glass-bg)]", border: "border-[var(--glass-border)]", trend: null },
-    { label: "Bajas", value: bajas, color: "text-warning", icon: AlertCircle, bg: "bg-warning/10", border: "border-warning/30", trend: null },
-    { label: "Total activos", value: total, color: "text-info", icon: Users, bg: "bg-info/10", border: "border-info/30", trend: null },
-  ];
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-      {items.map((item) => (
-        <Card key={item.label} className="glass-accented overflow-hidden">
-          <CardContent className="p-5">
-            <div className="flex items-start justify-between">
-              <div className="space-y-1.5">
-                <p className="panel-kicker">{item.label}</p>
-                <p className={cn("text-3xl font-semibold tabular-nums", item.color)}>{item.value}</p>
-              </div>
-              <div className={cn("rounded-xl border p-2", item.bg, item.border)}>
-                <item.icon className={cn("h-5 w-5", item.color)} />
-              </div>
-            </div>
-            {item.trend && (
-              <p className="text-xs text-muted-foreground mt-2">{item.trend}</p>
-            )}
-            {item.label === "Presentes" && total > 0 && (
-              <div className="mt-3 h-1.5 overflow-hidden rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
-                <div className={cn("h-full rounded-full", presentes > 0 ? "bg-success" : "bg-transparent")} style={{ width: `${asistenciaPct}%` }} />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
+function computaKgPersona(zona?: string | null) {
+  return !(zona && GRUPOS_NO_COMPUTA_KG.has(zona));
+}
+
+function formatoEntero(value: number) {
+  return new Intl.NumberFormat("es-ES").format(Math.round(value));
+}
+
+function errorMessage(err: unknown) {
+  if (err instanceof Error) return err.message;
+  return typeof err === "string" ? err : "Error desconocido";
+}
+
+function etiquetaCalculoKg(coste: string) {
+  if (coste === "No computa kg/p") return "Fuera kg/p";
+  return "Entra kg/p";
+}
+
+function inicialesTrabajador(nombre: string) {
+  const partes = nombre.trim().split(/\s+/).filter(Boolean);
+  if (partes.length === 0) return "?";
+  return partes.slice(0, 2).map((parte) => parte[0]?.toLocaleUpperCase("es")).join("");
+}
+
+function esAntonioMantenimiento(trabajador: Pick<TrabajadorRow, "nombre">) {
+  return trabajador.nombre.trim().toLocaleLowerCase("es") === "antonio";
+}
+
+function normalizarGrupoTrabajador(trabajador: TrabajadorRow): TrabajadorRow {
+  if (esAntonioMantenimiento(trabajador) && trabajador.zona !== "Mantenimiento") {
+    return { ...trabajador, zona: "Mantenimiento" };
+  }
+  return trabajador;
+}
+
+interface ParteDiarioRendimiento {
+  id?: string;
+  resumen_ia?: unknown;
+  kg_produccion_calibrador?: number | null;
+  kg_industria_manual?: number | null;
+  kg_mujeres_calibrador?: number | null;
+  kg_reciclado_malla_z1?: number | null;
+  kg_reciclado_malla_z2?: number | null;
+  producto_dia?: ProductoConfeccionDia[];
+}
+
+interface ProductoConfeccionDia {
+  linea?: string | null;
+  producto?: string | null;
+  formato_caja?: string | null;
+  kg?: number | string | null;
+  kg_neto?: number | string | null;
+  n_cajas?: number | string | null;
+  grupo_destino?: string | null;
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
@@ -129,8 +155,9 @@ export default function Asistencia() {
   const [showWorkerList, setShowWorkerList] = useState(false);
   const [importingMode, setImportingMode] = useState<"daily" | "weekly" | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [parteDelDia, setParteDelDia] = useState<any>(null);
-  const [loadingParte, setLoadingParte] = useState(false);
+  const [workerFilter, setWorkerFilter] = useState<WorkerFilter>("todos");
+  const [selectedGroup, setSelectedGroup] = useState("todos");
+  const [parteDelDia, setParteDelDia] = useState<ParteDiarioRendimiento | null>(null);
 
   // ─── Load trabajadores ──────────────────────────────────────────────────
 
@@ -143,7 +170,14 @@ export default function Asistencia() {
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } else {
-      setTrabajadores(data ?? []);
+      setTrabajadores((data ?? []).map(normalizarGrupoTrabajador));
+      const antonioSinGrupo = (data ?? []).find((t) => esAntonioMantenimiento(t) && t.zona !== "Mantenimiento");
+      if (antonioSinGrupo && user) {
+        await supabase
+          .from("trabajadores")
+          .update({ zona: "Mantenimiento" })
+          .eq("id", antonioSinGrupo.id);
+      }
     }
     setLoadingTrabajadores(false);
   }
@@ -173,7 +207,6 @@ export default function Asistencia() {
   // ─── Load parte del día ──────────────────────────────────────────────────
 
   async function loadParteDelDia(date: string) {
-    setLoadingParte(true);
     setParteDelDia(null);
     const { data, error } = await supabase
       .from("partes_diarios")
@@ -187,7 +220,6 @@ export default function Asistencia() {
         .eq("part_id", data.id);
       setParteDelDia({ ...data, producto_dia: productoDia ?? [] });
     }
-    setLoadingParte(false);
   }
 
   useEffect(() => { loadTrabajadores(); loadEficiencia(); }, []);
@@ -317,7 +349,7 @@ export default function Asistencia() {
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: "array" });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rowsAll: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+      const rowsAll = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: null });
 
       if (rowsAll.length < 2) {
         toast({ title: "Excel vacío o sin datos", variant: "destructive" });
@@ -352,8 +384,8 @@ export default function Asistencia() {
       toast({
         title: `Diario importado — ${presentes} presentes de ${records.length} trabajadores`,
       });
-    } catch (err: any) {
-      toast({ title: "Error al importar", description: err.message, variant: "destructive" });
+    } catch (err: unknown) {
+      toast({ title: "Error al importar", description: errorMessage(err), variant: "destructive" });
     }
 
     setImportingMode(null);
@@ -370,7 +402,7 @@ export default function Asistencia() {
       const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
       const rowsBySheet = workbook.SheetNames.flatMap((sheetName) => {
         const sheet = workbook.Sheets[sheetName];
-        return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null }) as any[][];
+        return XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: null });
       });
 
       const defaultYear = Number(selectedDate.slice(0, 4)) || new Date().getFullYear();
@@ -408,8 +440,8 @@ export default function Asistencia() {
         title: `Semanal importado — ${days.length} día(s) detectado(s)`,
         description: `${presentes} presentes guardados sobre ${records.length} registros.`,
       });
-    } catch (err: any) {
-      toast({ title: "Error al importar semanal", description: err.message, variant: "destructive" });
+    } catch (err: unknown) {
+      toast({ title: "Error al importar semanal", description: errorMessage(err), variant: "destructive" });
     }
 
     setImportingMode(null);
@@ -426,7 +458,7 @@ export default function Asistencia() {
 
   // ─── Computed ─────────────────────────────────────────────────────────
 
-  const activos = trabajadores.filter((t) => t.activo);
+  const activos = useMemo(() => trabajadores.filter((t) => t.activo), [trabajadores]);
   const totalActivos = activos.length;
   const presentesCount = activos.filter((t) => asistencia[t.id] === true).length;
   const ausentesCount = activos.filter(
@@ -434,18 +466,130 @@ export default function Asistencia() {
   ).length;
   const sinRegistro = activos.filter((t) => asistencia[t.id] === undefined).length;
   const asistenciaPct = totalActivos > 0 ? Math.round((presentesCount / totalActivos) * 100) : 0;
-  const bajas = trabajadores.filter((t) => !t.activo).length;
+  const ausentesTrabajadores = useMemo(() => activos.filter((t) => asistencia[t.id] === false), [activos, asistencia]);
+  const sinRegistroTrabajadores = useMemo(() => activos.filter((t) => asistencia[t.id] === undefined), [activos, asistencia]);
 
-  // ─── Rendimiento por grupo (producto_detalle) ────────────────────────────
+  // ─── Kg/persona de lista y coste operativo ───────────────────────────────
 
-  const rendimientoGrupos = useMemo(
+  const presentes = activos.filter((t) => asistencia[t.id] === true);
+  const presentesComputables = presentes.filter((t) => computaKgPersona(t.zona));
+  const kgProduccionDia = parteDelDia
+    ? produccionRealParte(parteDelDia) || Number(parteDelDia.kg_produccion_calibrador) || 0
+    : 0;
+  const kgPersonaLista = presentesComputables.length > 0 ? kgProduccionDia / presentesComputables.length : 0;
+  const rendimientoConfeccion = useMemo(
     () => calcularRendimientoGrupos({ parte: parteDelDia, trabajadores: activos, asistencia }),
     [parteDelDia, activos, asistencia]
   );
-
-  const totalKg = totalKgRendimiento(rendimientoGrupos);
-  const kgCalibrador = produccionRealParte(parteDelDia) || ((parteDelDia as any)?.kg_produccion_calibrador ?? 0);
-  const totalPersonas = totalPersonasRendimiento(rendimientoGrupos);
+  const kgPorConfeccion = useMemo(() => {
+    const maxKg = Math.max(rendimientoConfeccion.Envasadoras.kg, rendimientoConfeccion.Mallas.kg, rendimientoConfeccion.Graneleras.kg, 1);
+    return [
+      { label: "Envasado", kg: rendimientoConfeccion.Envasadoras.kg, pct: rendimientoConfeccion.Envasadoras.kg / maxKg },
+      { label: "Mallas", kg: rendimientoConfeccion.Mallas.kg, pct: rendimientoConfeccion.Mallas.kg / maxKg },
+      { label: "Graneleras", kg: rendimientoConfeccion.Graneleras.kg, pct: rendimientoConfeccion.Graneleras.kg / maxKg },
+    ];
+  }, [rendimientoConfeccion]);
+  const resumenCosteOperativo = useMemo(() => {
+    const counts: Record<string, number> = {
+      "Coste de grupo": 0,
+      "Linea tratamiento": 0,
+      "Coste general": 0,
+      "No computa kg/p": 0,
+    };
+    for (const trabajador of presentes) counts[tipoCosteOperativo(trabajador.zona)]++;
+    return counts;
+  }, [presentes]);
+  const listaKgPersona = useMemo(() => {
+    const costeOrder: Record<string, number> = {
+      "Coste general": 0,
+      "Linea tratamiento": 1,
+      "Coste de grupo": 2,
+      "No computa kg/p": 3,
+    };
+    return activos
+      .map((trabajador) => {
+        const presente = asistencia[trabajador.id] === true;
+        const coste = tipoCosteOperativo(trabajador.zona);
+        const kgRef = !presente || !computaKgPersona(trabajador.zona) ? null : kgPersonaLista;
+        return { trabajador, presente, coste, kgRef, order: presente ? costeOrder[coste] ?? 9 : 10 };
+      })
+      .sort((a, b) => a.order - b.order || a.trabajador.nombre.localeCompare(b.trabajador.nombre, "es"));
+  }, [activos, asistencia, kgPersonaLista]);
+  const listaKgPersonaById = useMemo(() => new Map(listaKgPersona.map((row) => [row.trabajador.id, row])), [listaKgPersona]);
+  const gruposResumen = useMemo(() => (
+    groupByZona(activos).map(({ grupo, workers }) => {
+      const presentesGrupo = workers.filter((worker) => asistencia[worker.id] === true).length;
+      const ausentesGrupo = workers.filter((worker) => asistencia[worker.id] === false).length;
+      const pendientesGrupo = workers.length - presentesGrupo - ausentesGrupo;
+      return {
+        grupo,
+        total: workers.length,
+        presentes: presentesGrupo,
+        ausentes: ausentesGrupo,
+        pendientes: pendientesGrupo,
+        pct: workers.length > 0 ? Math.round((presentesGrupo / workers.length) * 100) : 0,
+      };
+    })
+  ), [activos, asistencia]);
+  const filterOptions: { id: WorkerFilter; label: string; count: number }[] = [
+    { id: "todos", label: "Todos", count: activos.length },
+    { id: "presentes", label: "Presentes", count: presentesCount },
+    { id: "ausentes", label: "Ausentes", count: ausentesCount },
+    { id: "sinRegistro", label: "Sin registro", count: sinRegistro },
+    { id: "conKg", label: "Entra kg/p", count: presentesComputables.length },
+    { id: "fueraKg", label: "Fuera kg/p", count: resumenCosteOperativo["No computa kg/p"] },
+  ];
+  const trabajadoresVisibles = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return activos.filter((trabajador) => {
+      if (query && !trabajador.nombre.toLowerCase().includes(query) && !(trabajador.zona ?? "").toLowerCase().includes(query)) return false;
+      const grupoTrabajador = trabajador.zona && GRUPOS.includes(trabajador.zona) ? trabajador.zona : "Sin grupo";
+      if (selectedGroup !== "todos" && grupoTrabajador !== selectedGroup) return false;
+      const row = listaKgPersonaById.get(trabajador.id);
+      switch (workerFilter) {
+        case "presentes":
+          return asistencia[trabajador.id] === true;
+        case "ausentes":
+          return asistencia[trabajador.id] === false;
+        case "sinRegistro":
+          return asistencia[trabajador.id] === undefined;
+        case "conKg":
+          return row?.presente === true && row?.kgRef !== null;
+        case "fueraKg":
+          return row?.coste === "No computa kg/p";
+        default:
+          return true;
+      }
+    });
+  }, [activos, asistencia, listaKgPersonaById, searchQuery, selectedGroup, workerFilter]);
+  const gruposVisibles = useMemo(() => groupByZona(trabajadoresVisibles), [trabajadoresVisibles]);
+  const fueraKgTrabajadores = useMemo(
+    () => presentes.filter((trabajador) => !computaKgPersona(trabajador.zona)),
+    [presentes]
+  );
+  const revisionItems = [
+    {
+      label: "Sin marcar",
+      value: sinRegistro,
+      detail: sinRegistroTrabajadores.slice(0, 3).map((t) => t.nombre).join(", ") || "Todo marcado",
+      filter: "sinRegistro" as WorkerFilter,
+      tone: "border-amber-300/50 bg-amber-50/60 text-amber-950",
+    },
+    {
+      label: "Ausentes",
+      value: ausentesCount,
+      detail: ausentesTrabajadores.slice(0, 3).map((t) => t.nombre).join(", ") || "Sin ausencias",
+      filter: "ausentes" as WorkerFilter,
+      tone: "border-rose-300/50 bg-rose-50/60 text-rose-950",
+    },
+    {
+      label: "Fuera kg/p",
+      value: fueraKgTrabajadores.length,
+      detail: fueraKgTrabajadores.slice(0, 3).map((t) => t.nombre).join(", ") || "Nadie fuera",
+      filter: "fueraKg" as WorkerFilter,
+      tone: "border-slate-300/60 bg-slate-50/70 text-slate-950",
+    },
+  ];
 
   // ─── Eficiencia histórica ──────────────────────────────────────────────
 
@@ -686,70 +830,244 @@ export default function Asistencia() {
         </div>
       </header>
 
-      {/* ── KPI Cards ───────────────────────────────────────────── */}
-      <KPIStatCards
-        presentes={presentesCount}
-        ausentes={ausentesCount}
-        bajas={bajas}
-        total={totalActivos}
-        asistenciaPct={asistenciaPct}
-      />
+      <Card className="glass-accented glass-accent-top overflow-hidden">
+        <CardContent className="p-0">
+          <div className="grid xl:grid-cols-[1.05fr_0.8fr_1.05fr]">
+            <div className="border-b border-[var(--glass-border)] p-5 xl:border-b-0 xl:border-r">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="panel-kicker">Asistencia del turno</p>
+                  <div className="mt-3 flex items-end gap-3">
+                    <p className="text-5xl font-semibold leading-none tabular-nums text-success">{asistenciaPct}%</p>
+                    <div className="pb-1">
+                      <p className="text-lg font-semibold tabular-nums">{presentesCount}/{totalActivos}</p>
+                      <p className="text-xs text-muted-foreground">presentes marcados</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-success/25 bg-success/10 text-success shadow-[var(--glass-shadow)]">
+                  <UserCheck className="h-6 w-6" />
+                </div>
+              </div>
+              <div className="mt-5 h-3 overflow-hidden rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg)]">
+                <div className="h-full rounded-full bg-success" style={{ width: `${asistenciaPct}%` }} />
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2 py-2">
+                  <p className="text-lg font-semibold tabular-nums">{ausentesCount}</p>
+                  <p className="text-[11px] text-muted-foreground">ausentes</p>
+                </div>
+                <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2 py-2">
+                  <p className="text-lg font-semibold tabular-nums">{sinRegistro}</p>
+                  <p className="text-[11px] text-muted-foreground">sin marcar</p>
+                </div>
+                <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2 py-2">
+                  <p className="text-lg font-semibold tabular-nums">{presentesComputables.length}</p>
+                  <p className="text-[11px] text-muted-foreground">kg/p</p>
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 border-b border-[var(--glass-border)] p-5 xl:grid-cols-1 xl:border-b-0 xl:border-r">
+              <div className="rounded-xl border border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] p-4 shadow-[var(--glass-shadow)]">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="panel-kicker">Kg/persona</p>
+                  <CheckCircle2 className="h-4 w-4 text-primary" />
+                </div>
+                <p className="mt-2 text-3xl font-semibold tabular-nums">{formatoEntero(kgPersonaLista)}</p>
+                <p className="text-xs text-muted-foreground">media general del dia</p>
+              </div>
+              <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="panel-kicker">Produccion</p>
+                  <PackageCheck className="h-4 w-4 text-primary" />
+                </div>
+                <p className="mt-2 text-3xl font-semibold tabular-nums">{formatoEntero(kgProduccionDia)}</p>
+                <p className="text-xs text-muted-foreground">kg reales del parte</p>
+              </div>
+            </div>
+            <div className="p-5">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className="panel-kicker">Confeccion</p>
+                <p className="text-xs text-muted-foreground">kg por salida</p>
+              </div>
+              <div className="space-y-2">
+                {kgPorConfeccion.map((item) => (
+                    <div key={item.label} className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{item.label}</p>
+                          <p className="text-xs text-muted-foreground">kg del parte</p>
+                        </div>
+                        <p className="text-lg font-semibold tabular-nums text-primary">{formatoEntero(item.kg)} kg</p>
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                        <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(5, item.pct * 100)}%` }} />
+                      </div>
+                    </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="border-t border-[var(--glass-border)] bg-[var(--glass-bg)] p-3 sm:p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-sm font-semibold">Revisar primero</p>
+              <p className="text-xs text-muted-foreground">atajos para cerrar el dia</p>
+            </div>
+            <div className="grid gap-2 lg:grid-cols-3">
+              {revisionItems.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => {
+                    setWorkerFilter(item.filter);
+                    setSelectedGroup("todos");
+                  }}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-left transition hover:-translate-y-0.5 hover:shadow-[var(--glass-shadow)]",
+                    item.tone
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold uppercase tracking-wide">{item.label}</span>
+                    <span className="text-xl font-semibold tabular-nums">{item.value}</span>
+                  </div>
+                  <p className="mt-1 truncate text-xs opacity-75">{item.detail}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* ── Main Grid ───────────────────────────────────────────── */}
-      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] gap-6 items-start">
+      <div className="space-y-6">
         {/* Left: Attendance */}
         <div className="space-y-6">
-          <Card>
+          <Card className="glass-accented overflow-hidden">
+            <CardHeader className="border-b border-[var(--glass-border)] pb-4">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                <div>
+                  <CardTitle className="text-lg">Control diario</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">Marca asistencia, revisa quien entra en kg/persona e importa partes diarios o semanales.</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" disabled={!user} onClick={marcarTodosPresentes} className="glass glass-hover">
+                    <UserCheck className="h-4 w-4 mr-1.5" /> Todos presentes
+                  </Button>
+                  <Button variant="outline" size="sm" disabled={!user || sinRegistro === totalActivos} onClick={limpiarAsistenciaDia} className="glass glass-hover">
+                    <Eraser className="h-4 w-4 mr-1.5" /> Limpiar dia
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
             <CardContent className="p-5 sm:p-6">
               {/* Search + actions bar */}
-              <div className="section-toolbar mb-6 shadow-none">
+              <div className="mb-4 grid gap-3 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3 xl:grid-cols-[minmax(240px,1fr)_auto] xl:items-center">
                 <div className="relative flex-1 min-w-[180px]">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Buscar trabajador…"
+                    placeholder="Buscar trabajador o grupo..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="h-10 pl-9 text-sm"
                   />
                 </div>
-                <Button variant="outline" size="sm" disabled={!user} onClick={marcarTodosPresentes} className="glass glass-hover">
-                  <UserCheck className="h-4 w-4 mr-1.5" /> Todos presentes
-                </Button>
-                <Button variant="outline" size="sm" disabled={!user || sinRegistro === totalActivos} onClick={limpiarAsistenciaDia} className="glass glass-hover">
-                  <Eraser className="h-4 w-4 mr-1.5" /> Limpiar día
-                </Button>
-                <label className="relative">
-                  <input type="file" accept=".xlsx,.xls" className="absolute inset-0 opacity-0 cursor-pointer peer" onChange={handleDailyImportXLSX} disabled={importing} />
-                  <Button variant="outline" size="sm" disabled={importing} asChild className="glass transition-shadow duration-300 peer-hover:shadow-[var(--glass-shadow),var(--glass-glow)]">
-                    <span className="cursor-pointer">
-                      <Upload className="h-4 w-4 mr-1.5" />
-                      {importingMode === "daily" ? "Importando…" : "Importar diario"}
-                    </span>
-                  </Button>
-                </label>
-                <label className="relative">
-                  <input type="file" accept=".xlsx,.xls" className="absolute inset-0 opacity-0 cursor-pointer peer" onChange={handleWeeklyImportXLSX} disabled={importing} />
-                  <Button variant="outline" size="sm" disabled={importing} asChild className="glass transition-shadow duration-300 peer-hover:shadow-[var(--glass-shadow),var(--glass-glow)]">
-                    <span className="cursor-pointer">
-                      <CalendarDays className="h-4 w-4 mr-1.5" />
-                      {importingMode === "weekly" ? "Importando…" : "Importar semanal"}
-                    </span>
-                  </Button>
-                </label>
+                <div className="flex flex-wrap gap-2">
+                  <label className="relative">
+                    <input type="file" accept=".xlsx,.xls" className="absolute inset-0 opacity-0 cursor-pointer peer" onChange={handleDailyImportXLSX} disabled={importing} />
+                    <Button variant="outline" size="sm" disabled={importing} asChild className="glass transition-shadow duration-300 peer-hover:shadow-[var(--glass-shadow),var(--glass-glow)]">
+                      <span className="cursor-pointer">
+                        <Upload className="h-4 w-4 mr-1.5" />
+                        {importingMode === "daily" ? "Importando..." : "Importar diario"}
+                      </span>
+                    </Button>
+                  </label>
+                  <label className="relative">
+                    <input type="file" accept=".xlsx,.xls" className="absolute inset-0 opacity-0 cursor-pointer peer" onChange={handleWeeklyImportXLSX} disabled={importing} />
+                    <Button variant="outline" size="sm" disabled={importing} asChild className="glass transition-shadow duration-300 peer-hover:shadow-[var(--glass-shadow),var(--glass-glow)]">
+                      <span className="cursor-pointer">
+                        <CalendarDays className="h-4 w-4 mr-1.5" />
+                        {importingMode === "weekly" ? "Importando..." : "Importar semanal"}
+                      </span>
+                    </Button>
+                  </label>
+                </div>
               </div>
 
-              {/* Stats summary */}
-              <div className="mb-6 grid gap-3 glass p-3 text-sm sm:grid-cols-4">
-                <span className="inline-flex items-center gap-1.5 text-success font-medium">
-                  <UserCheck className="h-4 w-4" /> {presentesCount} presentes
-                </span>
-                <span className="inline-flex items-center gap-1.5 text-muted-foreground font-medium">
-                  <UserX className="h-4 w-4" /> {ausentesCount} ausentes
-                </span>
-                {sinRegistro > 0 && (
-                  <span className="text-muted-foreground">{sinRegistro} sin registro</span>
-                )}
-                <span className="text-muted-foreground">de {totalActivos} activos</span>
+              <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
+                {filterOptions.map((option) => (
+                  <Button
+                    key={option.id}
+                    type="button"
+                    variant={workerFilter === option.id ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setWorkerFilter(option.id)}
+                    className={cn("h-9 shrink-0 rounded-full px-3", workerFilter !== option.id && "glass glass-hover")}
+                  >
+                    {option.label}
+                    <span className="ml-2 rounded-full bg-background/60 px-1.5 text-xs tabular-nums">{option.count}</span>
+                  </Button>
+                ))}
+              </div>
+
+              <div className="mb-6 rounded-xl border border-[var(--glass-border-accent)] bg-[var(--glass-bg)] p-3 shadow-[var(--glass-shadow)] backdrop-blur-xl">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">Grupos de trabajo</p>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedGroup === "todos" ? "Mostrando todos los grupos" : `Mostrando ${selectedGroup}`}
+                    </p>
+                  </div>
+                  {selectedGroup !== "todos" && (
+                    <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => setSelectedGroup("todos")}>
+                      Ver todos
+                    </Button>
+                  )}
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedGroup("todos")}
+                    className={cn(
+                      "min-w-[116px] rounded-lg border px-3 py-2 text-left transition",
+                      selectedGroup === "todos"
+                        ? "border-primary/50 bg-primary/10"
+                        : "border-[var(--glass-border)] bg-background/40 hover:bg-background/70"
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold">Todos</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">{presentesCount}/{totalActivos}</span>
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                      <div className="h-full rounded-full bg-success" style={{ width: `${asistenciaPct}%` }} />
+                    </div>
+                  </button>
+                  {gruposResumen.map((grupo) => (
+                    <button
+                      key={grupo.grupo}
+                      type="button"
+                      onClick={() => setSelectedGroup(grupo.grupo)}
+                      className={cn(
+                        "min-w-[158px] rounded-lg border px-3 py-2 text-left transition",
+                        selectedGroup === grupo.grupo
+                          ? "border-primary/50 bg-primary/10"
+                          : "border-[var(--glass-border)] bg-background/40 hover:bg-background/70"
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-semibold">{grupo.grupo}</span>
+                        <span className="text-xs text-muted-foreground tabular-nums">{grupo.presentes}/{grupo.total}</span>
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                        <div className="h-full rounded-full bg-success" style={{ width: `${grupo.pct}%` }} />
+                      </div>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {grupo.pendientes > 0 ? `${grupo.pendientes} sin marcar` : grupo.ausentes > 0 ? `${grupo.ausentes} ausentes` : "Completo"}
+                      </p>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Worker grid */}
@@ -764,34 +1082,35 @@ export default function Asistencia() {
                   <p className="text-xs mt-1">Gestiona la lista desde el panel lateral</p>
                 </div>
               ) : (() => {
-                const filtered = searchQuery
-                  ? activos.filter(t => t.nombre.toLowerCase().includes(searchQuery.toLowerCase()))
-                  : activos;
-                const grouped = groupByZona(filtered);
-                if (filtered.length === 0) return (
+                if (trabajadoresVisibles.length === 0) return (
                   <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
                     <Search className="h-10 w-10 mb-3 opacity-30" />
-                    <p className="text-sm font-medium">Sin resultados para "{searchQuery}"</p>
+                    <p className="text-sm font-medium">Sin resultados con el filtro actual</p>
+                    <p className="mt-1 text-xs">Prueba otro estado, grupo o busqueda.</p>
                   </div>
                 );
                 return (
                   <div className="space-y-5">
-                    {grouped.map(({ grupo, workers }) => {
+                    {gruposVisibles.map(({ grupo, workers }) => {
                       const presentes = workers.filter((w) => asistencia[w.id] === true).length;
                       const todosPresentes = presentes === workers.length;
                       return (
-                        <div key={grupo}>
-                          <div className="flex items-center justify-between mb-3">
-                            <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">
-                              {grupo}
-                              <span className="ml-2 font-normal text-xs">
-                                ({presentes}/{workers.length})
-                              </span>
-                            </h3>
+                        <div key={grupo} className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3 shadow-[var(--glass-shadow)] backdrop-blur-xl">
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <h3 className="truncate text-sm font-bold uppercase tracking-wide text-muted-foreground">
+                                {grupo}
+                              </h3>
+                              <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                                <span className="tabular-nums">{presentes}/{workers.length} presentes</span>
+                                <span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
+                                <span>{workers.length - presentes} por revisar</span>
+                              </div>
+                            </div>
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-8 text-xs px-3"
+                              className="h-8 shrink-0 rounded-lg px-3 text-xs"
                               onClick={() => {
                                 for (const w of workers) {
                                   if (asistencia[w.id] !== true) toggleAsistencia(w.id, true);
@@ -802,30 +1121,69 @@ export default function Asistencia() {
                               <UserCheck className="h-3.5 w-3.5 mr-1" />Todos
                             </Button>
                           </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3">
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                             {workers.map((t) => {
                               const presente = asistencia[t.id];
+                              const metric = listaKgPersonaById.get(t.id);
+                              const estadoLabel = presente === true ? "Presente" : presente === false ? "Ausente" : "Pendiente";
                               return (
                                 <div
                                   key={t.id}
                                   className={cn(
-                                    "flex min-h-[74px] items-center justify-between gap-3 rounded-xl border border-[var(--glass-border)] px-4 py-3 transition-colors shadow-[var(--glass-shadow)] bg-[var(--glass-bg)]",
-                                    presente === true && "bg-success/10 border-success/30",
-                                    presente === false && "bg-destructive/10 border-destructive/30",
-                                    presente === undefined && "border-[var(--glass-border)] bg-[var(--glass-bg)]",
+                                    "relative flex min-h-[96px] items-start justify-between gap-3 overflow-hidden rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] px-3 py-3 shadow-[var(--glass-shadow)] backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:shadow-[var(--glass-shadow-lg)]",
+                                    presente === true && "border-success/30 bg-success/10",
+                                    presente === false && "border-destructive/30 bg-destructive/10",
+                                    presente === undefined && "border-amber-300/35 bg-amber-50/35",
                                   )}
                                 >
-                                  <div className="min-w-0 flex-1">
-                                    <p className="line-clamp-2 text-base font-semibold leading-snug">{t.nombre}</p>
-                                    {t.zona && (
-                                      <p className="text-xs text-muted-foreground truncate mt-0.5">{t.zona}</p>
+                                  <div
+                                    className={cn(
+                                      "absolute inset-y-3 left-0 w-1 rounded-r-full",
+                                      presente === true && "bg-success",
+                                      presente === false && "bg-destructive",
+                                      presente === undefined && "bg-amber-500"
                                     )}
-                                  </div>
-                                  <Switch
-                                    checked={presente === true}
-                                    onCheckedChange={(checked) => toggleAsistencia(t.id, checked)}
-                                    className="shrink-0"
                                   />
+                                  <div className="flex min-w-0 flex-1 gap-3 pl-1">
+                                    <div
+                                      className={cn(
+                                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border text-sm font-semibold shadow-[var(--glass-shadow)]",
+                                        presente === true && "border-success/25 bg-success/10 text-success",
+                                        presente === false && "border-destructive/25 bg-destructive/10 text-destructive",
+                                        presente === undefined && "border-amber-300/50 bg-amber-100/70 text-amber-800"
+                                      )}
+                                    >
+                                      {inicialesTrabajador(t.nombre)}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="line-clamp-2 text-[15px] font-semibold leading-snug">{t.nombre}</p>
+                                      {t.zona && (
+                                        <p className="mt-0.5 truncate text-xs text-muted-foreground">{t.zona}</p>
+                                      )}
+                                      {presente === true && metric?.kgRef !== null && metric?.kgRef !== undefined && (
+                                        <p className="mt-2 inline-flex rounded-lg border border-primary/15 bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
+                                          {formatoEntero(metric.kgRef)} kg/p
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex shrink-0 flex-col items-end gap-2">
+                                    <Badge
+                                      variant="secondary"
+                                      className={cn(
+                                        "rounded-full px-2 py-0.5 text-[10px]",
+                                        presente === true && "bg-success/15 text-success hover:bg-success/15",
+                                        presente === false && "bg-destructive/15 text-destructive hover:bg-destructive/15",
+                                        presente === undefined && "bg-amber-100 text-amber-800 hover:bg-amber-100"
+                                      )}
+                                    >
+                                      {estadoLabel}
+                                    </Badge>
+                                    <Switch
+                                      checked={presente === true}
+                                      onCheckedChange={(checked) => toggleAsistencia(t.id, checked)}
+                                    />
+                                  </div>
                                 </div>
                               );
                             })}
@@ -840,63 +1198,6 @@ export default function Asistencia() {
           </Card>
         </div>
 
-        {/* ── Right Column ──────────────────────────────────────────────── */}
-        <div className="space-y-6">
-          {/* ── Rendimiento por grupo ── */}
-          {loadingParte ? (
-            <Card className="glass-strong border">
-              <CardContent className="p-5">
-                <div className="space-y-3">
-                  {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-7 w-full" />)}
-                </div>
-              </CardContent>
-            </Card>
-          ) : parteDelDia ? (
-            <Card className="glass-strong border">
-              <CardContent className="p-5 space-y-4">
-                <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Rendimiento por grupo</h3>
-                <div className="space-y-3 text-sm">
-                  {([
-                    { label: "Envasadoras", data: rendimientoGrupos.Envasadoras },
-                    { label: "Mallas", data: rendimientoGrupos.Mallas },
-                    { label: "Graneleras", data: rendimientoGrupos.Graneleras },
-                  ] as const).map(({ label, data }) => (
-                    <div key={label} className="flex justify-between items-center">
-                      <span className="font-medium text-muted-foreground">{label}</span>
-                      <span className="font-semibold tabular-nums text-right">
-                        {new Intl.NumberFormat("es-ES").format(Math.round(data.kg))} kg
-                        <span className="text-muted-foreground font-normal mx-1">·</span>
-                        {data.personas} pers
-                        <span className="text-muted-foreground font-normal mx-1">·</span>
-                        {new Intl.NumberFormat("es-ES").format(
-                          Math.round(data.personas > 0 ? data.kg / data.personas : 0)
-                        )} kg/p
-                      </span>
-                    </div>
-                  ))}
-                  <div className="border-t pt-3 flex justify-between items-center font-bold">
-                    <span>Total directo</span>
-                    <span className="tabular-nums">
-                      {new Intl.NumberFormat("es-ES").format(Math.round(totalKg))} kg
-                      <span className="text-muted-foreground font-normal mx-1">·</span>
-                      {totalPersonas} pers
-                      <span className="text-muted-foreground font-normal mx-1">·</span>
-                      {new Intl.NumberFormat("es-ES").format(
-                        Math.round(totalPersonas > 0 ? totalKg / totalPersonas : 0)
-                      )} kg/p
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-xs text-muted-foreground">
-                    <span>Total producción (calibrador)</span>
-                    <span className="font-semibold tabular-nums">{new Intl.NumberFormat("es-ES").format(Math.round(kgCalibrador))} kg</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ) : null}
-
-
-        </div>
       </div>
     </div>
   );

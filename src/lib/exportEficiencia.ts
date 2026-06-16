@@ -18,32 +18,38 @@ interface SemanaData {
 
 const DAYS = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"];
 const DAY_KEYS = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"];
+type ExportCell = string | number;
+
+function kgPersonaDesdeMedias(kgDia: number, personasDia: number) {
+  return personasDia > 0 ? kgDia / personasDia : 0;
+}
 
 function weekStats(sem: SemanaData) {
   const days = Object.values(sem.days);
   const kg = days.reduce((s, d) => s + d.kg, 0);
   const workers = days.reduce((s, d) => s + d.workers, 0);
   const dias = days.length;
+  const personasDia = dias > 0 ? workers / dias : 0;
+  const kgDia = dias > 0 ? kg / dias : 0;
   return {
     kg,
     workers,
     dias,
-    personasDia: dias > 0 ? workers / dias : 0,
-    kgDia: dias > 0 ? kg / dias : 0,
-    kgPersona: workers > 0 ? kg / workers : 0,
+    personasDia,
+    kgDia,
+    kgPersona: kgPersonaDesdeMedias(kgDia, personasDia),
   };
 }
 
 export function exportEficienciaToExcel(data: SemanaData[], _optimo: string) {
   const resumenRows = data.map((sem) => {
     const stats = weekStats(sem);
-    const row: Record<string, any> = {
+    const row: Record<string, ExportCell> = {
       Semana: `Semana del ${sem.label}`,
       "Inicio semana": sem.weekStart,
       "Kg total": Math.round(stats.kg),
-      "Personas acumuladas": stats.workers,
+      "Media personas/dia": +stats.personasDia.toFixed(1),
       "Dias con datos": stats.dias,
-      "Personas/dia": +stats.personasDia.toFixed(1),
       "Kg/dia": Math.round(stats.kgDia),
     };
     for (let i = 0; i < DAY_KEYS.length; i++) {
@@ -67,12 +73,15 @@ export function exportEficienciaToExcel(data: SemanaData[], _optimo: string) {
         Personas: dia.workers,
         "Kg/persona": Math.round(dia.kgPorPersona),
       };
-    }).filter(Boolean) as Record<string, any>[]
+    }).filter(Boolean) as Record<string, ExportCell>[]
   );
 
   const allDias = data.flatMap((sem) => Object.values(sem.days));
   const totalKg = allDias.reduce((s, d) => s + d.kg, 0);
   const totalWorkers = allDias.reduce((s, d) => s + d.workers, 0);
+  const mediaPersonasDia = allDias.length > 0 ? totalWorkers / allDias.length : 0;
+  const mediaKgDia = allDias.length > 0 ? totalKg / allDias.length : 0;
+  const kgPersonaGlobal = kgPersonaDesdeMedias(mediaKgDia, mediaPersonasDia);
   const bestDay = allDias.reduce<DiaData | null>((best, d) => (!best || d.kgPorPersona > best.kgPorPersona ? d : best), null);
   const comparativaRows = data.map((sem, index) => {
     const current = weekStats(sem);
@@ -99,16 +108,17 @@ export function exportEficienciaToExcel(data: SemanaData[], _optimo: string) {
     ["Semanas con datos", data.length],
     ["Dias con datos", allDias.length],
     ["Kg producidos", Math.round(totalKg)],
-    ["Personas acumuladas", totalWorkers],
-    ["Kg/persona global", totalWorkers > 0 ? Math.round(totalKg / totalWorkers) : 0],
+    ["Media personas/dia", +mediaPersonasDia.toFixed(1)],
+    ["Kg/persona global", Math.round(kgPersonaGlobal)],
     ["Mejor dia", bestDay ? `${bestDay.date} (${Math.round(bestDay.kgPorPersona)} kg/persona)` : ""],
   ], [46, 34]);
 
-  appendRowsSheet(wb, "Resumen semanal", resumenRows, [22, 14, 14, 20, 14, 14, 14, ...DAYS.map(() => 10), 18], { freezeHeader: true });
+  appendRowsSheet(wb, "Resumen semanal", resumenRows, [22, 14, 14, 20, 14, 14, ...DAYS.map(() => 10), 18], { freezeHeader: true });
   appendRowsSheet(wb, "Comparativa", comparativaRows, [22, 14, 24, 16, 16, 14, 14, 14, 14], { freezeHeader: true });
   appendRowsSheet(wb, "Detalle diario", detalleRows, [22, 14, 10, 12, 14, 12, 14], { freezeHeader: true });
   appendDictionarySheet(wb, [
-    { Hoja: "Resumen semanal", Campo: "Kg/persona semana", Descripcion: "Kg producidos entre personas acumuladas de la semana.", Uso: "KPI principal de rendimiento." },
+    { Hoja: "Resumen semanal", Campo: "Media personas/dia", Descripcion: "Promedio de asistencias diarias con datos en la semana.", Uso: "Dimensionar la asistencia sin usar acumulados." },
+    { Hoja: "Resumen semanal", Campo: "Kg/persona semana", Descripcion: "Kg medio/dia dividido entre media personas/dia de la semana.", Uso: "KPI principal de rendimiento coherente con la asistencia media." },
     { Hoja: "Comparativa", Campo: "Dif kg/persona", Descripcion: "Diferencia contra la semana anterior.", Uso: "Detectar mejora o caida semanal." },
     { Hoja: "Detalle diario", Campo: "Kg/persona", Descripcion: "Kg producidos en el dia entre trabajadores presentes.", Uso: "Analisis por dia de la semana." },
   ]);
@@ -145,23 +155,25 @@ export function exportEficienciaToPDF(data: SemanaData[], _optimo: string) {
   const allDias = data.flatMap((sem) => Object.values(sem.days));
   const totalKg = allDias.reduce((s, d) => s + d.kg, 0);
   const totalWorkers = allDias.reduce((s, d) => s + d.workers, 0);
-  const globalEfic = totalWorkers > 0 ? Math.round(totalKg / totalWorkers) : 0;
+  const mediaPersonasDia = allDias.length > 0 ? totalWorkers / allDias.length : 0;
+  const mediaKgDia = allDias.length > 0 ? totalKg / allDias.length : 0;
+  const globalEfic = Math.round(kgPersonaDesdeMedias(mediaKgDia, mediaPersonasDia));
 
   [
     { label: "TOTAL KG", val: `${totalKg.toLocaleString("es-ES")} kg`, sub: `${allDias.length} dia(s)` },
-    { label: "TOTAL TRABAJADORES", val: `${totalWorkers}`, sub: "suma diaria" },
+    { label: "ASISTENCIA MEDIA", val: `${mediaPersonasDia.toLocaleString("es-ES", { maximumFractionDigits: 1, minimumFractionDigits: 1 })}`, sub: "personas/dia" },
     { label: "KG/PERSONA GLOBAL", val: `${globalEfic.toLocaleString("es-ES")}`, sub: "media global" },
     { label: "SEMANAS", val: `${data.length}`, sub: "en periodo" },
     { label: "DIAS CON DATOS", val: `${allDias.length}`, sub: "de 7 posibles/sem" },
   ].forEach((k, i) => drawKpiCard(doc, 8 + i * 57, 48, 55, k.label, k.val, k.sub));
 
-  const head = ["Semana", "Kg total", "Personas", "Dias", ...DAYS, "Kg/persona"];
+  const head = ["Semana", "Kg total", "Media pers/dia", "Dias", ...DAYS, "Kg/persona"];
   const body = data.map((sem) => {
     const stats = weekStats(sem);
     const cells = [
       `Semana del ${sem.label}`,
       new Intl.NumberFormat("es-ES").format(Math.round(stats.kg)),
-      new Intl.NumberFormat("es-ES").format(stats.workers),
+      new Intl.NumberFormat("es-ES", { maximumFractionDigits: 1, minimumFractionDigits: 1 }).format(stats.personasDia),
       String(stats.dias),
     ];
     for (const dk of DAY_KEYS) {

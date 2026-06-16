@@ -1,4 +1,5 @@
 import jsPDF from "jspdf";
+import { unzipSync } from "fflate";
 import * as XLSX from "xlsx";
 import { appendAoaSheet, appendDictionarySheet, appendRowsSheet, createWorkbook, saveWorkbook } from "@/lib/exportWorkbook";
 import { PDF_THEME } from "@/lib/exportTheme";
@@ -71,6 +72,116 @@ export function normalizeCalidadName(value: string) {
 
 export function sameCalidadName(a: string, b: string) {
   return normalizeCalidadName(a).localeCompare(normalizeCalidadName(b), "es", { sensitivity: "accent" }) === 0;
+}
+
+function decodeXmlEntities(value: string) {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/&apos;/g, "'");
+}
+
+function normalizeComentario(value: string) {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+export function extractWordXmlText(xml: string) {
+  const paragraphs = xml.match(/<w:p[\s\S]*?<\/w:p>/g) ?? [xml];
+  const lines = paragraphs
+    .map((paragraph) => {
+      const textRuns = [...paragraph.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)].map((match) => decodeXmlEntities(match[1]));
+      if (textRuns.length > 0) return textRuns.join("");
+      return decodeXmlEntities(paragraph.replace(/<[^>]+>/g, " "));
+    })
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  return lines.join("\n");
+}
+
+export function extractDocxText(bytes: Uint8Array) {
+  const files = unzipSync(bytes);
+  const decoder = new TextDecoder("utf-8");
+  const xmlNames = Object.keys(files).filter((name) =>
+    /^word\/(?:document|header\d*|footer\d*)\.xml$/i.test(name),
+  );
+
+  if (xmlNames.length === 0) throw new Error("No se pudo leer texto del Word. Usa un archivo .docx valido.");
+
+  return normalizeComentario(xmlNames.map((name) => extractWordXmlText(decoder.decode(files[name]))).join("\n"));
+}
+
+export function buildComentarioCalidad(lote: Pick<CalidadLote, "observacion" | "accion_recomendada">) {
+  const observacion = normalizeComentario(lote.observacion);
+  const accion = normalizeComentario(lote.accion_recomendada);
+  if (observacion && accion) return `${observacion}\n\nAccion recomendada: ${accion}`;
+  if (accion) return `Accion recomendada: ${accion}`;
+  return observacion;
+}
+
+function stripObservationLabel(value: string) {
+  return value.replace(/^\s*observaci[oó]n\s*:\s*/i, "").trim();
+}
+
+export function splitComentarioCalidad(value: string) {
+  const normalized = normalizeComentario(value);
+  const actionMatch = normalized.match(/(?:^|\n)\s*(?:acci[oó]n recomendada|acci[oó]n|recomendaci[oó]n)\s*:\s*/i);
+
+  if (!actionMatch || actionMatch.index == null) {
+    return { observacion: stripObservationLabel(normalized), accion_recomendada: "" };
+  }
+
+  const actionStart = actionMatch.index;
+  const actionContentStart = actionStart + actionMatch[0].length;
+  return {
+    observacion: stripObservationLabel(normalized.slice(0, actionStart)),
+    accion_recomendada: normalized.slice(actionContentStart).trim(),
+  };
+}
+
+export function findCalidadHistoricoSimilar(current: CalidadLote, history: CalidadLote[]) {
+  return history
+    .filter((lote) => lote.id !== current.id)
+    .filter((lote) => {
+      const sameProducer = current.productor_finca_nombre && sameCalidadName(current.productor_finca_nombre, lote.productor_finca_nombre);
+      const sameVariety = current.variedad && sameCalidadName(current.variedad, lote.variedad);
+      return sameProducer || sameVariety;
+    })
+    .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))
+    .slice(0, 3);
+}
+
+export function buildCalidadComentarioSugerido(current: CalidadLote, history: CalidadLote[] = [], photoCount = 0) {
+  const similar = findCalidadHistoricoSimilar(current, history);
+  const trace = [
+    current.productor_finca_nombre || "productor/finca pendiente",
+    current.variedad || current.producto || "variedad pendiente",
+    current.cantidad || "box pendiente",
+    current.hora ? `${current.hora} h` : "hora pendiente",
+  ].join(" - ");
+  const defects = current.defectos.length > 0 ? ` Defectos marcados: ${current.defectos.join(", ")}.` : "";
+  const photoText = photoCount === 1 ? "1 foto adjunta" : `${photoCount} fotos adjuntas`;
+  const historyText = similar.length > 0
+    ? ` Historico similar: ${similar.map((lote) => `${lote.fecha} ${lote.calidad}`).join("; ")}.`
+    : " Sin historico similar registrado para comparar.";
+  const actionByQuality: Record<CalidadEstado, string> = {
+    Bueno: "Mantener trazabilidad del lote y liberar si la inspeccion visual coincide con la calidad marcada.",
+    Regular: "Revisar en linea, controlar calibre/color y dejar seguimiento en el parte.",
+    Deficiente: "Separar para seguimiento, reforzar control visual y avisar a produccion antes de mezclar.",
+    Rechazado: "Bloquear el lote, documentar con fotos y escalar a responsable de calidad antes de procesar.",
+  };
+
+  return normalizeComentario(
+    `Entrada ${current.calidad.toLocaleLowerCase("es")} de ${trace}. ${photoText} como evidencia.${defects}${historyText}\n\nAccion recomendada: ${actionByQuality[current.calidad]}`,
+  );
 }
 
 export function calidadSummary(lotes: CalidadLote[], attachmentCounts: Record<string, number> = {}): CalidadSummary {

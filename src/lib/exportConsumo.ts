@@ -1,7 +1,8 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { formatDate, formatNumber } from "./format";
-import { SesionConsumoRow, ConsumoMaquinaRow, MaquinaRow } from "./types";
+import { type ConsumoPeriodoRow } from "./consumosFisicos";
+import { SesionConsumoRow, ConsumoMaquinaRow, MaquinaRow, ConsumoFisicoRow, ConsumoBaseKgRow } from "./types";
 import { PDF_THEME, drawExportHeader, drawExportFooter, drawKpiCard, pdfTableTheme } from "./exportTheme";
 import { appendAoaSheet, appendDictionarySheet, appendRowsSheet, createWorkbook, saveWorkbook } from "./exportWorkbook";
 
@@ -9,6 +10,9 @@ export interface ExportData {
   sesiones: SesionConsumoRow[];
   maquinas: MaquinaRow[];
   consumosMaquinas: ConsumoMaquinaRow[];
+  consumosFisicos?: ConsumoFisicoRow[];
+  basesKg?: ConsumoBaseKgRow[];
+  periodos?: ConsumoPeriodoRow[];
 }
 
 function n(value: unknown): number {
@@ -23,14 +27,36 @@ function periodo(s: SesionConsumoRow) {
   return s.fecha_inicio === s.fecha_fin ? s.fecha_inicio : `${s.fecha_inicio} - ${s.fecha_fin}`;
 }
 
+const confianzaLabel: Record<ConsumoPeriodoRow["confianza"], string> = {
+  real: "Real",
+  estimado: "Estimado",
+  mixto: "Mixto",
+  incompleto: "Incompleto",
+};
+
+function blankIfNull(value: number | null) {
+  return value == null ? "" : value;
+}
+
 export function exportConsumoToExcel(data: ExportData) {
-  const totalKg = data.sesiones.reduce((s, r) => s + n(r.kg_procesados), 0);
-  const totalAguaLinea = data.sesiones.reduce((s, r) => s + n(r.agua_linea_l), 0);
-  const totalAguaDrencher = data.sesiones.reduce((s, r) => s + n(r.agua_drencher_l), 0);
+  const periodos = data.periodos ?? [];
+  const hasPeriodos = periodos.length > 0;
+  const totalKg = hasPeriodos
+    ? periodos.reduce((s, r) => s + n(r.kgBase), 0)
+    : data.sesiones.reduce((s, r) => s + n(r.kg_procesados), 0);
+  const totalAguaLinea = hasPeriodos ? 0 : data.sesiones.reduce((s, r) => s + n(r.agua_linea_l), 0);
+  const totalAguaDrencher = hasPeriodos ? 0 : data.sesiones.reduce((s, r) => s + n(r.agua_drencher_l), 0);
   const totalAgua = totalAguaLinea + totalAguaDrencher;
-  const totalQuimicos = data.sesiones.reduce((s, r) => s + n(r.quimicos_drencher_l), 0);
-  const totalGasoil = data.sesiones.reduce((s, r) => s + n(r.gasoil_l), 0);
-  const totalElectricidad = data.sesiones.reduce((s, r) => s + n(r.electricidad_total_kwh), 0);
+  const totalAguaFisica = hasPeriodos ? periodos.reduce((s, r) => s + n(r.aguaL), 0) : totalAgua;
+  const totalQuimicos = hasPeriodos
+    ? periodos.reduce((s, r) => s + n(r.quimicosL), 0)
+    : data.sesiones.reduce((s, r) => s + n(r.quimicos_drencher_l), 0);
+  const totalGasoil = hasPeriodos
+    ? periodos.reduce((s, r) => s + n(r.gasoilL), 0)
+    : data.sesiones.reduce((s, r) => s + n(r.gasoil_l), 0);
+  const totalElectricidad = hasPeriodos
+    ? periodos.reduce((s, r) => s + n(r.electricidadKwh), 0)
+    : data.sesiones.reduce((s, r) => s + n(r.electricidad_total_kwh), 0);
 
   const wb = createWorkbook("Lasarte SAT - Consumos fisicos", "Control de recursos por produccion");
   appendAoaSheet(wb, "Portada", [
@@ -38,10 +64,10 @@ export function exportConsumoToExcel(data: ExportData) {
     [`Generado: ${new Date().toLocaleString("es-ES")}`],
     [],
     ["Indicador", "Valor"],
-    ["Sesiones", data.sesiones.length],
-    ["Kg procesados", Math.round(totalKg)],
-    ["Agua total L", Math.round(totalAgua)],
-    ["Agua L/kg", ratio(totalAgua, totalKg, 3)],
+    [hasPeriodos ? "Periodos" : "Sesiones", hasPeriodos ? periodos.length : data.sesiones.length],
+    ["Kg base", Math.round(totalKg)],
+    ["Agua total L", Math.round(totalAguaFisica)],
+    ["Agua L/kg", ratio(totalAguaFisica, totalKg, 3)],
     ["Electricidad kWh", Math.round(totalElectricidad)],
     ["kWh/kg", ratio(totalElectricidad, totalKg, 4)],
     ["Gasoil L", Math.round(totalGasoil)],
@@ -73,15 +99,77 @@ export function exportConsumoToExcel(data: ExportData) {
   });
   appendRowsSheet(wb, "Sesiones", sesionesRows, [22, 14, 14, 14, 14, 16, 14, 12, 12, 15, 12, 15, 16, 12, 40], { freezeHeader: true });
 
-  const recursosRows = [
-    { Recurso: "Agua linea", Unidad: "L", Total: Math.round(totalAguaLinea), "Por kg": ratio(totalAguaLinea, totalKg, 3), "Unidad ratio": "L/kg" },
-    { Recurso: "Agua drencher", Unidad: "L", Total: Math.round(totalAguaDrencher), "Por kg": ratio(totalAguaDrencher, totalKg, 3), "Unidad ratio": "L/kg" },
-    { Recurso: "Agua total", Unidad: "L", Total: Math.round(totalAgua), "Por kg": ratio(totalAgua, totalKg, 3), "Unidad ratio": "L/kg" },
-    { Recurso: "Quimicos", Unidad: "L", Total: Math.round(totalQuimicos), "Por kg": totalKg > 0 ? +((totalQuimicos * 1000) / totalKg).toFixed(2) : 0, "Unidad ratio": "mL/kg" },
-    { Recurso: "Gasoil", Unidad: "L", Total: Math.round(totalGasoil), "Por kg": totalKg > 0 ? +((totalGasoil * 1000) / totalKg).toFixed(2) : 0, "Unidad ratio": "mL/kg" },
-    { Recurso: "Electricidad", Unidad: "kWh", Total: Math.round(totalElectricidad), "Por kg": ratio(totalElectricidad, totalKg, 4), "Unidad ratio": "kWh/kg" },
-  ];
+  const recursosRows = hasPeriodos
+    ? [
+      { Recurso: "Agua total", Unidad: "L", Total: Math.round(totalAguaFisica), "Por kg": ratio(totalAguaFisica, totalKg, 3), "Unidad ratio": "L/kg" },
+      { Recurso: "Quimicos", Unidad: "L", Total: Math.round(totalQuimicos), "Por kg": totalKg > 0 ? +((totalQuimicos * 1000) / totalKg).toFixed(2) : 0, "Unidad ratio": "mL/kg" },
+      { Recurso: "Gasoil", Unidad: "L", Total: Math.round(totalGasoil), "Por kg": totalKg > 0 ? +((totalGasoil * 1000) / totalKg).toFixed(2) : 0, "Unidad ratio": "mL/kg" },
+      { Recurso: "Electricidad", Unidad: "kWh", Total: Math.round(totalElectricidad), "Por kg": ratio(totalElectricidad, totalKg, 4), "Unidad ratio": "kWh/kg" },
+    ]
+    : [
+      { Recurso: "Agua linea", Unidad: "L", Total: Math.round(totalAguaLinea), "Por kg": ratio(totalAguaLinea, totalKg, 3), "Unidad ratio": "L/kg" },
+      { Recurso: "Agua drencher", Unidad: "L", Total: Math.round(totalAguaDrencher), "Por kg": ratio(totalAguaDrencher, totalKg, 3), "Unidad ratio": "L/kg" },
+      { Recurso: "Agua total", Unidad: "L", Total: Math.round(totalAguaFisica), "Por kg": ratio(totalAguaFisica, totalKg, 3), "Unidad ratio": "L/kg" },
+      { Recurso: "Quimicos", Unidad: "L", Total: Math.round(totalQuimicos), "Por kg": totalKg > 0 ? +((totalQuimicos * 1000) / totalKg).toFixed(2) : 0, "Unidad ratio": "mL/kg" },
+      { Recurso: "Gasoil", Unidad: "L", Total: Math.round(totalGasoil), "Por kg": totalKg > 0 ? +((totalGasoil * 1000) / totalKg).toFixed(2) : 0, "Unidad ratio": "mL/kg" },
+      { Recurso: "Electricidad", Unidad: "kWh", Total: Math.round(totalElectricidad), "Por kg": ratio(totalElectricidad, totalKg, 4), "Unidad ratio": "kWh/kg" },
+    ];
   appendRowsSheet(wb, "Resumen recursos", recursosRows, [20, 12, 14, 14, 14], { freezeHeader: true });
+
+  if (hasPeriodos) {
+    appendRowsSheet(wb, "Consumos por periodo", periodos.map((row) => ({
+      Periodo: row.periodo,
+      "Fecha inicio": row.fechaInicio,
+      "Fecha fin": row.fechaFin,
+      Confianza: confianzaLabel[row.confianza],
+      "Kg partes": row.kgPartes,
+      "Kg ventas": row.kgVentas,
+      "Kg manual": row.kgManual,
+      "Kg base": row.kgBase,
+      "Agua L": row.aguaL,
+      "Agua L/kg": blankIfNull(row.aguaLKg),
+      "Electricidad kWh": row.electricidadKwh,
+      "kWh/kg": blankIfNull(row.electricidadKwhKg),
+      "Gasoil L": row.gasoilL,
+      "Gasoil mL/kg": blankIfNull(row.gasoilMlKg),
+      "Gasoil L/t": blankIfNull(row.gasoilLT),
+      "Quimicos L": row.quimicosL,
+      "Quimicos mL/kg": blankIfNull(row.quimicosMlKg),
+      Observaciones: row.issues.join(" | "),
+    })), [14, 14, 14, 14, 14, 14, 14, 14, 12, 12, 16, 12, 12, 14, 12, 12, 14, 42], { freezeHeader: true });
+
+    appendRowsSheet(wb, "Validacion consumos", periodos
+      .filter((row) => row.issues.length > 0)
+      .map((row) => ({
+        Periodo: row.periodo,
+        Confianza: confianzaLabel[row.confianza],
+        Observaciones: row.issues.join(" | "),
+      })), [14, 14, 60], { freezeHeader: true });
+  }
+
+  if (data.consumosFisicos?.length) {
+    appendRowsSheet(wb, "Registros consumo", data.consumosFisicos.map((row) => ({
+      Recurso: row.recurso,
+      "Fecha inicio": row.fecha_inicio,
+      "Fecha fin": row.fecha_fin,
+      Cantidad: row.cantidad,
+      Unidad: row.unidad,
+      Fuente: row.fuente,
+      Referencia: row.referencia ?? "",
+      Notas: row.notas ?? "",
+    })), [14, 14, 14, 14, 10, 18, 24, 42], { freezeHeader: true });
+  }
+
+  if (data.basesKg?.length) {
+    appendRowsSheet(wb, "Bases kg", data.basesKg.map((row) => ({
+      Tipo: row.tipo_base,
+      "Fecha inicio": row.fecha_inicio,
+      "Fecha fin": row.fecha_fin,
+      Kg: row.kg,
+      Referencia: row.referencia ?? "",
+      Notas: row.notas ?? "",
+    })), [14, 14, 14, 14, 24, 42], { freezeHeader: true });
+  }
 
   const machineName = new Map(data.maquinas.map((m) => [m.id, m]));
   const maquinaDetalleRows = data.consumosMaquinas.map((cm) => {
@@ -113,6 +201,10 @@ export function exportConsumoToExcel(data: ExportData) {
   appendDictionarySheet(wb, [
     { Hoja: "Sesiones", Campo: "Una fila por sesion", Descripcion: "Datos completos de cada rango de consumo.", Uso: "Filtrar por fecha y comparar ratios." },
     { Hoja: "Resumen recursos", Campo: "Por kg", Descripcion: "Consumo normalizado por kg procesado.", Uso: "Comparar eficiencia independientemente del volumen." },
+    { Hoja: "Consumos por periodo", Campo: "Confianza", Descripcion: "Real usa partes, estimado usa ventas/manual, mixto prioriza partes.", Uso: "Auditar la calidad del KPI mensual." },
+    { Hoja: "Validacion consumos", Campo: "Observaciones", Descripcion: "Meses con consumo o kg base incompletos.", Uso: "Completar datos pendientes." },
+    { Hoja: "Registros consumo", Campo: "Fuente", Descripcion: "Origen de cada registro fisico capturado.", Uso: "Trazabilidad de facturas, albaranes o contadores." },
+    { Hoja: "Bases kg", Campo: "Tipo", Descripcion: "Kg de ventas o ajustes manuales usados como proxy.", Uso: "Revisar la base antes de tener partes." },
     { Hoja: "Detalle maquinas", Campo: "kWh por maquina y sesion", Descripcion: "Consumo electrico granular.", Uso: "Analisis de maquinas." },
     { Hoja: "Resumen maquinas", Campo: "% electricidad", Descripcion: "Peso de cada maquina sobre el consumo electrico total.", Uso: "Priorizar mejoras." },
   ]);
@@ -131,6 +223,8 @@ function drawFooter(doc: jsPDF) {
 export function exportConsumoToPDF(data: ExportData) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   let pageIndex = 0;
+  const periodos = data.periodos ?? [];
+  const hasPeriodos = periodos.length > 0;
 
   pageIndex++;
   drawHeader(doc, pageIndex);
@@ -140,41 +234,61 @@ export function exportConsumoToPDF(data: ExportData) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
   doc.setTextColor(...PDF_THEME.primaryDark);
-  doc.text("Consumos de recursos por sesion", 148.5, 35, { align: "center" });
+  doc.text(hasPeriodos ? "Consumos fisicos por periodo" : "Consumos de recursos por sesion", 148.5, 35, { align: "center" });
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(...PDF_THEME.muted);
-  doc.text(`${data.sesiones.length} sesion(es)`, 148.5, 40, { align: "center" });
+  doc.text(hasPeriodos ? `${periodos.length} periodo(s)` : `${data.sesiones.length} sesion(es)`, 148.5, 40, { align: "center" });
 
-  const totalKg = data.sesiones.reduce((s, r) => s + (r.kg_procesados || 0), 0);
-  const totalAgua = data.sesiones.reduce((s, r) => s + (r.agua_linea_l || 0) + (r.agua_drencher_l || 0), 0);
-  const totalElec = data.sesiones.reduce((s, r) => s + (r.electricidad_total_kwh || 0), 0);
-  const totalGasoil = data.sesiones.reduce((s, r) => s + (r.gasoil_l || 0), 0);
+  const totalKg = hasPeriodos
+    ? periodos.reduce((s, r) => s + (r.kgBase || 0), 0)
+    : data.sesiones.reduce((s, r) => s + (r.kg_procesados || 0), 0);
+  const totalAgua = hasPeriodos
+    ? periodos.reduce((s, r) => s + (r.aguaL || 0), 0)
+    : data.sesiones.reduce((s, r) => s + (r.agua_linea_l || 0) + (r.agua_drencher_l || 0), 0);
+  const totalElec = hasPeriodos
+    ? periodos.reduce((s, r) => s + (r.electricidadKwh || 0), 0)
+    : data.sesiones.reduce((s, r) => s + (r.electricidad_total_kwh || 0), 0);
+  const totalGasoil = hasPeriodos
+    ? periodos.reduce((s, r) => s + (r.gasoilL || 0), 0)
+    : data.sesiones.reduce((s, r) => s + (r.gasoil_l || 0), 0);
 
   [
-    { label: "KG PROCESADOS", val: formatNumber(totalKg, 0), sub: "total" },
+    { label: hasPeriodos ? "KG BASE" : "KG PROCESADOS", val: formatNumber(totalKg, 0), sub: "total" },
     { label: "AGUA TOTAL", val: `${formatNumber(totalAgua, 0)} L`, sub: totalKg > 0 ? `${formatNumber(totalAgua / totalKg, 2)} L/kg` : "" },
     { label: "ELECTRICIDAD", val: `${formatNumber(totalElec, 0)} kWh`, sub: totalKg > 0 ? `${formatNumber(totalElec / totalKg, 3)} kWh/kg` : "" },
     { label: "GASOIL", val: `${formatNumber(totalGasoil, 0)} L`, sub: totalKg > 0 ? `${formatNumber((totalGasoil * 1000) / totalKg, 1)} mL/kg` : "" },
-    { label: "SESIONES", val: `${data.sesiones.length}`, sub: "registradas" },
+    { label: hasPeriodos ? "PERIODOS" : "SESIONES", val: `${hasPeriodos ? periodos.length : data.sesiones.length}`, sub: "registrados" },
   ].forEach((k, i) => drawKpiCard(doc, 8 + i * 57, 48, 55, k.label, k.val, k.sub));
 
-  const body = data.sesiones.map((s) => {
-    const kg = s.kg_procesados || 1;
-    const aguaTotal = (s.agua_linea_l || 0) + (s.agua_drencher_l || 0);
-    return [
-      s.fecha_inicio === s.fecha_fin ? formatDate(s.fecha_inicio) : `${formatDate(s.fecha_inicio)} - ${formatDate(s.fecha_fin)}`,
-      formatNumber(kg, 0),
-      formatNumber(aguaTotal / kg, 2),
-      formatNumber((s.electricidad_total_kwh || 0) / kg, 3),
-      formatNumber(((s.gasoil_l || 0) * 1000) / kg, 1),
-      formatNumber(((s.quimicos_drencher_l || 0) * 1000) / kg, 1),
-    ];
-  });
+  const body = hasPeriodos
+    ? periodos.map((row) => [
+      row.periodo,
+      confianzaLabel[row.confianza],
+      formatNumber(row.kgBase, 0),
+      row.aguaLKg == null ? "-" : formatNumber(row.aguaLKg, 2),
+      row.electricidadKwhKg == null ? "-" : formatNumber(row.electricidadKwhKg, 3),
+      row.gasoilMlKg == null ? "-" : formatNumber(row.gasoilMlKg, 1),
+      row.quimicosMlKg == null ? "-" : formatNumber(row.quimicosMlKg, 1),
+    ])
+    : data.sesiones.map((s) => {
+      const kg = s.kg_procesados || 0;
+      const aguaTotal = (s.agua_linea_l || 0) + (s.agua_drencher_l || 0);
+      return [
+        s.fecha_inicio === s.fecha_fin ? formatDate(s.fecha_inicio) : `${formatDate(s.fecha_inicio)} - ${formatDate(s.fecha_fin)}`,
+        formatNumber(kg, 0),
+        kg > 0 ? formatNumber(aguaTotal / kg, 2) : "-",
+        kg > 0 ? formatNumber((s.electricidad_total_kwh || 0) / kg, 3) : "-",
+        kg > 0 ? formatNumber(((s.gasoil_l || 0) * 1000) / kg, 1) : "-",
+        kg > 0 ? formatNumber(((s.quimicos_drencher_l || 0) * 1000) / kg, 1) : "-",
+      ];
+    });
 
   autoTable(doc, {
     startY: 74,
-    head: [["Periodo", "Kg", "Agua L/kg", "kWh/kg", "Gasoil mL/kg", "Quimicos mL/kg"]],
+    head: hasPeriodos
+      ? [["Periodo", "Confianza", "Kg base", "Agua L/kg", "kWh/kg", "Gasoil mL/kg", "Quimicos mL/kg"]]
+      : [["Periodo", "Kg", "Agua L/kg", "kWh/kg", "Gasoil mL/kg", "Quimicos mL/kg"]],
     body,
     ...pdfTableTheme(),
     didDrawPage: () => {
@@ -187,6 +301,26 @@ export function exportConsumoToPDF(data: ExportData) {
   });
 
   drawFooter(doc);
+
+  if (hasPeriodos) {
+    doc.addPage();
+    pageIndex++;
+    drawHeader(doc, pageIndex, "Validacion");
+    const validationRows = periodos
+      .filter((row) => row.issues.length > 0)
+      .map((row) => [row.periodo, confianzaLabel[row.confianza], row.issues.join(" | ")]);
+
+    autoTable(doc, {
+      startY: 24,
+      head: [["Periodo", "Confianza", "Observaciones"]],
+      body: validationRows.length > 0
+        ? validationRows
+        : [["Todos", "OK", "Sin incidencias de validacion"]],
+      ...pdfTableTheme(),
+    });
+
+    drawFooter(doc);
+  }
 
   if (data.maquinas.length > 0) {
     doc.addPage();
