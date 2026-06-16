@@ -4,6 +4,7 @@ export const EXCLUIDOS_KG_PERSONA = ["Carga y descarga"] as const;
 
 export type RendimientoGrupoKey = typeof RENDIMIENTO_GRUPOS[number];
 export type TipoCostePersona = "grupo" | "tratamiento" | "general" | "no_computa" | "sin_grupo";
+export type EtiquetaCosteOperativo = "Coste de grupo" | "Linea tratamiento" | "Coste general" | "No computa kg/p";
 type ParteRendimiento = Record<string, unknown>;
 type ProductoRendimiento = Record<string, unknown>;
 
@@ -18,6 +19,25 @@ interface TrabajadorRendimiento {
   id: string;
   nombre?: string | null;
   zona?: string | null;
+}
+
+export interface KgPersonaOperacionRow<TTrabajador extends TrabajadorRendimiento = TrabajadorRendimiento> {
+  trabajador: TTrabajador;
+  presente: boolean;
+  coste: EtiquetaCosteOperativo;
+  calculo: "Entra kg/p" | "Fuera kg/p";
+  kgRef: number | null;
+  order: number;
+}
+
+export interface ResumenKgPersonaOperacion<TTrabajador extends TrabajadorRendimiento = TrabajadorRendimiento> {
+  presentes: number;
+  presentesComputables: number;
+  fueraKgPersona: number;
+  kgProduccionDia: number;
+  kgPersona: number;
+  costes: Record<EtiquetaCosteOperativo, number>;
+  rows: KgPersonaOperacionRow<TTrabajador>[];
 }
 
 interface CalcularRendimientoInput {
@@ -150,8 +170,74 @@ export function etiquetaTipoCoste(tipo: TipoCostePersona) {
   return "Sin grupo";
 }
 
+function etiquetaCosteOperativo(tipo: TipoCostePersona): EtiquetaCosteOperativo {
+  const etiqueta = etiquetaTipoCoste(tipo);
+  return etiqueta === "Sin grupo" ? "Coste general" : etiqueta;
+}
+
+function ordenCosteOperativo(coste: EtiquetaCosteOperativo): number {
+  if (coste === "Coste general") return 0;
+  if (coste === "Linea tratamiento") return 1;
+  if (coste === "Coste de grupo") return 2;
+  return 3;
+}
+
 export function cuentaTrabajadorKgPersona(trabajador: TrabajadorRendimiento): boolean {
   return tipoCosteTrabajador(trabajador) !== "no_computa";
+}
+
+export function calcularResumenKgPersonaOperacion<TTrabajador extends TrabajadorRendimiento>({
+  trabajadores,
+  asistencia,
+  kgProduccionDia,
+}: {
+  trabajadores: TTrabajador[];
+  asistencia: Record<string, boolean>;
+  kgProduccionDia: number;
+}): ResumenKgPersonaOperacion<TTrabajador> {
+  const presentes = trabajadores.filter((trabajador) => asistencia[trabajador.id] === true);
+  const presentesComputables = presentes.filter(cuentaTrabajadorKgPersona);
+  const kgPersona = presentesComputables.length > 0 ? kgProduccionDia / presentesComputables.length : 0;
+  const costes: Record<EtiquetaCosteOperativo, number> = {
+    "Coste de grupo": 0,
+    "Linea tratamiento": 0,
+    "Coste general": 0,
+    "No computa kg/p": 0,
+  };
+
+  for (const trabajador of presentes) {
+    costes[etiquetaCosteOperativo(tipoCosteTrabajador(trabajador))]++;
+  }
+
+  const rows = trabajadores
+    .map((trabajador): KgPersonaOperacionRow<TTrabajador> => {
+      const presente = asistencia[trabajador.id] === true;
+      const coste = etiquetaCosteOperativo(tipoCosteTrabajador(trabajador));
+      const calculo = coste === "No computa kg/p" ? "Fuera kg/p" : "Entra kg/p";
+      return {
+        trabajador,
+        presente,
+        coste,
+        calculo,
+        kgRef: presente && cuentaTrabajadorKgPersona(trabajador) ? kgPersona : null,
+        order: presente ? ordenCosteOperativo(coste) : 10,
+      };
+    })
+    .sort((a, b) => {
+      const nombreA = a.trabajador.nombre ?? "";
+      const nombreB = b.trabajador.nombre ?? "";
+      return a.order - b.order || nombreA.localeCompare(nombreB, "es");
+    });
+
+  return {
+    presentes: presentes.length,
+    presentesComputables: presentesComputables.length,
+    fueraKgPersona: costes["No computa kg/p"],
+    kgProduccionDia,
+    kgPersona,
+    costes,
+    rows,
+  };
 }
 
 function grupoProductoNombre(producto: unknown): RendimientoGrupoKey | null {

@@ -29,7 +29,10 @@ export function splitExcelText(value: unknown, chunkSize = 30000): string[] {
   return chunks;
 }
 
-export function sanitizeExcelRow(row: Record<string, any>, overflowSheetName?: string) {
+type ExcelRowValue = string | number | boolean | Date | null | undefined | string[] | number[] | Record<string, unknown>;
+type ExcelRow = Record<string, ExcelRowValue>;
+
+export function sanitizeExcelRow(row: ExcelRow, overflowSheetName?: string) {
   return Object.fromEntries(
     Object.entries(row).map(([key, value]) => [
       key,
@@ -53,7 +56,7 @@ export function appendAoaSheet(
 export function appendRowsSheet(
   wb: XLSX.WorkBook,
   name: string,
-  rows: Record<string, any>[],
+  rows: ExcelRow[],
   cols: number[],
   options: { overflowSheetName?: string; freezeHeader?: boolean } = {},
 ) {

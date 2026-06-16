@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { usePartesDashboard } from "@/hooks/usePartes";
 import { KPICard } from "@/components/KPICard";
@@ -20,7 +20,7 @@ import {
 
 import {
   Truck, Package, TrendingDown, BarChart3,
-  Gauge, CalendarSync, ChevronDown, CalendarDays, Droplet,
+  Gauge, CalendarSync, ChevronDown, Droplet,
   Plus, ChevronRight,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -40,6 +40,25 @@ type ProductionPaceData = {
   avgTph: number | null;
   loteCount: number;
 };
+
+interface ChartPayloadItem {
+  dataKey?: string;
+  value?: number | string | null;
+}
+
+interface ChartTooltipProps {
+  active?: boolean;
+  payload?: ChartPayloadItem[];
+  label?: string | number;
+}
+
+interface DsjDotProps {
+  cx?: number;
+  cy?: number;
+  payload?: {
+    dsj_pct?: number;
+  };
+}
 
 function detectarTipoClasificacion(valor: string | null): string {
   if (!valor) return "Otro";
@@ -61,109 +80,121 @@ const GRUPO_COLORS: Record<string, string> = {
   "Otro":          DEST_COLORS.otro,
 };
 
+const WEEKS_IN_PANEL = 6;
+
+function toIsoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function getIsoWeekNumber(date: Date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+function getWeekStart(date: Date) {
+  const d = new Date(date);
+  const day = d.getDay() === 0 ? 6 : d.getDay() - 1;
+  d.setDate(d.getDate() - day);
+  d.setHours(12, 0, 0, 0);
+  return d;
+}
+
+function buildRecentWeeks(count: number) {
+  const currentStart = getWeekStart(new Date());
+  return Array.from({ length: count }, (_, index) => {
+    const start = addDays(currentStart, (index - count + 1) * 7);
+    const end = addDays(start, 6);
+    const weekNumber = getIsoWeekNumber(start);
+    return {
+      start: toIsoDate(start),
+      end: toIsoDate(end),
+      weekNumber,
+      label: `S${weekNumber}`,
+      rangeLabel: `${start.toLocaleDateString("es-ES", { day: "numeric", month: "short" })} - ${end.toLocaleDateString("es-ES", { day: "numeric", month: "short" })}`,
+    };
+  });
+}
+
 // ─── Tooltip glass ───────────────────────────────────────────────────
 
-function ChartTooltip({ active, payload, label }: any) {
+function ChartTooltip({ active, payload, label }: ChartTooltipProps) {
   if (!active || !payload?.length) return null;
-  const dsj  = payload.find((p: any) => p.dataKey === "dsj_pct");
-  const prod = payload.find((p: any) => p.dataKey === "produccion");
-  const abs  = Math.abs(dsj?.value ?? 0);
+  const dsj  = payload.find((p) => p.dataKey === "dsj_pct");
+  const prod = payload.find((p) => p.dataKey === "produccion");
+  const dsjValue = Number(dsj?.value ?? 0);
+  const abs  = Math.abs(dsjValue);
   const items: { name: string; value: string; color: string }[] = [];
-  if (prod) items.push({ name: "Producción", value: formatKg(prod.value), color: C.primary });
-  if (dsj)  items.push({ name: "DJPMN",      value: `${dsj.value >= 0 ? "+" : ""}${dsj.value.toFixed(2)}%`, color: abs <= 3 ? C.success : abs <= 5 ? C.warning : C.destructive });
+  if (prod) items.push({ name: "Producción", value: formatKg(Number(prod.value ?? 0)), color: C.primary });
+  if (dsj)  items.push({ name: "DJPMN",      value: `${dsjValue >= 0 ? "+" : ""}${dsjValue.toFixed(2)}%`, color: abs <= 3 ? C.success : abs <= 5 ? C.warning : C.destructive });
   return <GlassTooltip active label={label} payload={items} />;
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const [trendPeriod, setTrendPeriod] = useState<"30d" | "90d">("30d");
-  const days = trendPeriod === "90d" ? 90 : 30;
-  const { partes, allPartes, loading, totals, chartSeries } = usePartesDashboard(days);
+  const weeks = useMemo(() => buildRecentWeeks(WEEKS_IN_PANEL), []);
+  const currentWeek = weeks[weeks.length - 1];
+  const previousWeek = weeks[weeks.length - 2];
+  const dashboardDays = WEEKS_IN_PANEL * 7;
+  const { partes, loading } = usePartesDashboard(dashboardDays);
 
-  const [weeklyView, setWeeklyView] = useState(false);
-  type CompareMode = "week" | "month" | "year";
-  const [compareMode, setCompareMode] = useState<CompareMode | null>(null);
-  const [compareOpen, setCompareOpen] = useState(false);
-
-  // Period comparison
-  const yoyData = useMemo(() => {
-    if (!compareMode) return null;
-
-    const today = new Date();
-    const periodEnd = new Date(today);
-    const periodStart = new Date(today);
-    periodStart.setDate(periodStart.getDate() - days);
-
-    const prevStart = new Date(periodStart);
-    const prevEnd = new Date(periodEnd);
-    if (compareMode === "year") {
-      prevStart.setFullYear(prevStart.getFullYear() - 1);
-      prevEnd.setFullYear(prevEnd.getFullYear() - 1);
-    } else if (compareMode === "month") {
-      prevStart.setMonth(prevStart.getMonth() - 1);
-      prevEnd.setMonth(prevEnd.getMonth() - 1);
-    } else {
-      prevStart.setDate(prevStart.getDate() - 7);
-      prevEnd.setDate(prevEnd.getDate() - 7);
-    }
-
-    const fmt = (d: Date) => d.toISOString().slice(0, 10);
-    const startStr = fmt(periodStart);
-    const endStr = fmt(periodEnd);
-    const prevStartStr = fmt(prevStart);
-    const prevEndStr = fmt(prevEnd);
-
-    const current = allPartes.filter(
-      (p) => p.date >= startStr && p.date <= endStr
-    );
-    const previous = allPartes.filter(
-      (p) => p.date >= prevStartStr && p.date <= prevEndStr
-    );
-
-    const calcTotals = (list: typeof allPartes) => {
-      const prod = list.reduce((s, p) => s + p.cascade.produccion_real, 0);
-      const dsj = list.reduce((s, p) => s + p.cascade.dsj, 0);
-      const palets = list.reduce((s, p) => s + p.cascade.palets_ajustados, 0);
+  const weeklyRows = useMemo(() => {
+    return weeks.map((week) => {
+      const weekPartes = partes.filter((p) => p.date >= week.start && p.date <= week.end);
+      const produccion = weekPartes.reduce((s, p) => s + p.cascade.produccion_real, 0);
+      const palets = weekPartes.reduce((s, p) => s + p.cascade.palets_ajustados, 0);
+      const dsj = weekPartes.reduce((s, p) => s + p.cascade.dsj, 0);
       return {
-        produccion_real: prod,
-        dsj_pct: prod > 0 ? (dsj / prod) * 100 : 0,
-        palets_ajustados: palets,
-        count: list.length,
+        ...week,
+        produccion,
+        palets,
+        dsj,
+        dsj_pct: produccion > 0 ? (dsj / produccion) * 100 : 0,
+        partes: weekPartes.length,
       };
-    };
+    });
+  }, [partes, weeks]);
 
-    const curT = calcTotals(current);
-    const prevT = calcTotals(previous);
-
-    const pctChange = (cur: number, prev: number) =>
-      prev !== 0 ? ((cur - prev) / Math.abs(prev)) * 100 : 0;
-
-    return {
-      current: curT,
-      previous: prevT,
-      compareLabel:
-        compareMode === "year" ? "año anterior" :
-        compareMode === "month" ? "mes anterior" : "semana anterior",
-      change: {
-        produccion_real: pctChange(curT.produccion_real, prevT.produccion_real),
-        dsj_pct: curT.dsj_pct - prevT.dsj_pct,
-        palets_ajustados: pctChange(curT.palets_ajustados, prevT.palets_ajustados),
-      },
-    };
-  }, [compareMode, allPartes, days]);
+  const currentWeekData = weeklyRows[weeklyRows.length - 1];
+  const previousWeekData = weeklyRows[weeklyRows.length - 2];
+  const weekChangePct = previousWeekData?.produccion
+    ? ((currentWeekData.produccion - previousWeekData.produccion) / previousWeekData.produccion) * 100
+    : 0;
+  const dsjTrend = previousWeekData ? currentWeekData.dsj_pct - previousWeekData.dsj_pct : 0;
+  const chartDisplayData = weeklyRows;
+  const weeklyView = true;
+  const setWeeklyView = (_next: boolean) => undefined;
+  const trendPeriod: "30d" | "90d" = "30d";
+  const setTrendPeriod = (_next: "30d" | "90d") => undefined;
+  const compareMode: "week" | "month" | "year" | null = null;
+  const compareOpen = false;
+  const setCompareOpen = (_next: boolean) => undefined;
+  const setCompareMode = (_next: "week" | "month" | "year" | null) => undefined;
+  const yoyData = null as {
+    current: { count: number; produccion_real: number; dsj_pct: number; palets_ajustados: number };
+    previous: { produccion_real: number; dsj_pct: number; palets_ajustados: number };
+    compareLabel: string;
+    change: { produccion_real: number; dsj_pct: number; palets_ajustados: number };
+  } | null;
 
   // T/h promedio: resumen ejecutivo. El detalle vive en Analisis Diario y Productores.
   const { data: paceData } = useQuery<ProductionPaceData | null>({
-    queryKey: ["dashboard-production-pace", days],
+    queryKey: ["dashboard-production-pace", currentWeek.start, currentWeek.end],
     queryFn: async () => {
-      const since = new Date();
-      since.setDate(since.getDate() - days);
-      const sinceStr = since.toISOString().slice(0, 10);
       const { data } = await supabase
         .from("lotes_dia")
         .select("toneladas_hora, duracion_min, partes_diarios!inner(date)")
-        .gte("partes_diarios.date", sinceStr)
+        .gte("partes_diarios.date", currentWeek.start)
+        .lte("partes_diarios.date", currentWeek.end)
         .not("toneladas_hora", "is", null);
       const rows = (data ?? []).filter((row) => (row.toneladas_hora ?? 0) > 0);
       if (rows.length === 0) return null;
@@ -183,16 +214,13 @@ export default function Dashboard() {
 
   // Distribución por grupo de destino
   const { data: grupoDistribution } = useQuery({
-    queryKey: ["dashboard-grupo-distribution", days],
+    queryKey: ["dashboard-grupo-distribution", currentWeek.start, currentWeek.end],
     queryFn: async () => {
-      const since = new Date();
-      since.setDate(since.getDate() - days);
-      const sinceStr = since.toISOString().slice(0, 10);
-
       const { data: partesIds } = await supabase
         .from("partes_diarios")
         .select("id")
-        .gte("date", sinceStr);
+        .gte("date", currentWeek.start)
+        .lte("date", currentWeek.end);
 
       if (!partesIds || partesIds.length === 0) return [];
 
@@ -224,22 +252,6 @@ export default function Dashboard() {
     },
   });
 
-  const chartDisplayData = useMemo(() => {
-    if (!weeklyView || chartSeries.length === 0) return chartSeries;
-    const weeks: { label: string; produccion: number; dsj_pct: number }[] = [];
-    const chunkSize = 7;
-    for (let i = 0; i < chartSeries.length; i += chunkSize) {
-      const chunk = chartSeries.slice(i, i + chunkSize);
-      if (chunk.length === 0) continue;
-      const weekNum = Math.floor(i / chunkSize) + 1;
-      const prod = chunk.reduce((s, d) => s + (d.produccion || 0), 0);
-      const dsj = chunk.reduce((s, d) => s + (d.dsj_pct || 0), 0) / chunk.length;
-      weeks.push({ label: `S${weekNum}`, produccion: prod, dsj_pct: dsj });
-    }
-    return weeks;
-  }, [chartSeries, weeklyView]);
-
-
   const avgTph = paceData?.avgTph ?? null;
 
   return (
@@ -251,7 +263,7 @@ export default function Dashboard() {
           <div>
             <h1 className="page-title">Control de Producción</h1>
             <p className="page-subtitle">
-              Revisión de producción · últimos 30 días · {partes.length} partes
+              Semana {currentWeek.weekNumber} · {currentWeek.rangeLabel} · últimas {WEEKS_IN_PANEL} semanas
             </p>
           </div>
         </div>
@@ -271,13 +283,6 @@ export default function Dashboard() {
             Análisis diario
           </Link>
           <Link
-            to="/calendario"
-            className="inline-flex items-center gap-2 rounded-xl glass glass-hover px-3 py-2 text-xs font-medium"
-          >
-            <CalendarDays className="h-3.5 w-3.5 text-warning" />
-            Calendario
-          </Link>
-          <Link
             to="/costes/consumos"
             className="inline-flex items-center gap-2 rounded-xl glass glass-hover px-3 py-2 text-xs font-medium"
           >
@@ -294,22 +299,23 @@ export default function Dashboard() {
         ) : (
           <>
             <KPICard
-              label="Producción real"
-              value={formatKg(totals.produccion_real)}
-              hint={`${partes.length} partes analizados`}
+              label={`Producción real S${currentWeek.weekNumber}`}
+              value={formatKg(currentWeekData.produccion)}
+              hint={`${currentWeekData.partes} partes esta semana`}
               icon={Truck}
             />
             <KPICard
               label="Kg dados de alta"
-              value={formatKg(totals.palets_ajustados)}
+              value={formatKg(currentWeekData.palets)}
+              hint={previousWeek ? `vs S${previousWeek.weekNumber}: ${weekChangePct >= 0 ? "+" : ""}${weekChangePct.toFixed(1)}% kg` : undefined}
               icon={Package}
             />
             <KPICard
               label="Dif. Sin Justificar"
-              value={formatKg(totals.dsj)}
-              hint={`${totals.dsj_pct >= 0 ? "+" : ""}${totals.dsj_pct.toFixed(2)}% sobre producción`}
+              value={formatKg(currentWeekData.dsj)}
+              hint={`${currentWeekData.dsj_pct >= 0 ? "+" : ""}${currentWeekData.dsj_pct.toFixed(2)}% · ${dsjTrend >= 0 ? "+" : ""}${dsjTrend.toFixed(2)} pp vs semana ant.`}
               icon={TrendingDown}
-              trend={Math.abs(totals.dsj_pct) <= 3 ? "up" : Math.abs(totals.dsj_pct) <= 5 ? "neutral" : "down"}
+              trend={Math.abs(currentWeekData.dsj_pct) <= 3 ? "up" : Math.abs(currentWeekData.dsj_pct) <= 5 ? "neutral" : "down"}
             />
             <KPICard
               label="Velocidad media"
@@ -441,7 +447,7 @@ export default function Dashboard() {
         </Collapsible>
       )}
 
-      <div className="flex items-center gap-2">
+      <div className="hidden">
         <Popover open={compareOpen} onOpenChange={setCompareOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -498,10 +504,10 @@ export default function Dashboard() {
             <div className="space-y-1">
               <div className="flex items-center gap-3">
                 <div className="h-7 w-1 rounded-full bg-primary" />
-                <CardTitle className="text-lg font-semibold">Evolución DJPMN</CardTitle>
+                <CardTitle className="text-lg font-semibold">Evolución semanal</CardTitle>
               </div>
               <p className="text-xs text-muted-foreground pl-10">
-                Barras = producción real · Línea = % diferencia sin justificar
+                Últimas {WEEKS_IN_PANEL} semanas · barras = producción real · línea = % diferencia sin justificar
               </p>
             </div>
             <div className="flex items-center gap-3 shrink-0">
@@ -510,7 +516,7 @@ export default function Dashboard() {
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{backgroundColor: C.warning}} /> 3-5%</span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{backgroundColor: C.destructive}} /> &gt;5%</span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="hidden">
                 <Button
                   variant={trendPeriod === "30d" ? "default" : "outline"}
                   size="sm"
@@ -586,9 +592,10 @@ export default function Dashboard() {
                   dataKey="dsj_pct"
                   stroke={C.primary}
                   strokeWidth={2.5}
-                  dot={(props: any) => {
+                  dot={(props: DsjDotProps) => {
                     const { cx, cy, payload } = props;
-                    const abs = Math.abs(payload.dsj_pct);
+                    if (cx === undefined || cy === undefined) return null;
+                    const abs = Math.abs(payload?.dsj_pct ?? 0);
                     const color = abs <= 3 ? C.success : abs <= 5 ? C.warning : C.destructive;
                     return <circle key={cx} cx={cx} cy={cy} r={abs > 5 ? 5 : 3.5} fill={color} stroke="var(--glass-bg-strong)" strokeWidth={2} />;
                   }}
@@ -610,7 +617,7 @@ export default function Dashboard() {
             <div>
               <CardTitle className="text-lg font-semibold">Distribución por destino</CardTitle>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Reparto de kg clasificados · últimos {days} días
+                Reparto de kg clasificados · Semana {currentWeek.weekNumber}
               </p>
             </div>
           </div>

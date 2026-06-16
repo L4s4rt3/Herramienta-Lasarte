@@ -16,6 +16,12 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+interface AnalysisSuccessPayload {
+  parte: unknown;
+  cascada: ReturnType<typeof computeCascade>;
+  detalles: unknown;
+}
+
 interface Props {
   parte_id: string;
   current_data: {
@@ -30,7 +36,7 @@ interface Props {
     kg_podrido_bolsa_basura: number;
     kg_inventario_anterior_sin_alta: number;
   };
-  on_success?: (updated_data: any) => void;
+  on_success?: (updated_data: AnalysisSuccessPayload) => void;
 }
 
 export function AnalizeWithAI({ parte_id, current_data, on_success }: Props) {
@@ -126,10 +132,10 @@ export function AnalizeWithAI({ parte_id, current_data, on_success }: Props) {
         title: "✅ Análisis completado",
         description: `${edgeResp.datos_guardados} campos actualizados, ${edgeResp.detalles_insertados.lotes} lotes detectados`,
       });
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast({
         title: "Error inesperado",
-        description: e.message,
+        description: e instanceof Error ? e.message : "Error inesperado",
         variant: "destructive",
       });
     } finally {

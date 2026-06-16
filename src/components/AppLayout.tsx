@@ -5,12 +5,10 @@ import {
   ClipboardCheck,
   LogOut,
   Citrus,
-  Calculator,
   Droplet,
   Users,
   BarChart3,
   Sprout,
-  CalendarDays,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
 
@@ -57,7 +55,6 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { to: "/calidad", label: "Calidad", icon: ClipboardCheck },
       { to: "/partes", label: "Partes", icon: FileText, match: (path) => path.startsWith("/partes") },
-      { to: "/dsj", label: "Calculadora DJPMN", icon: Calculator },
     ],
   },
   {
@@ -65,7 +62,6 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3 },
       { to: "/productores", label: "Productores", icon: Sprout },
-      { to: "/calendario", label: "Calendario", icon: CalendarDays },
     ],
   },
   {

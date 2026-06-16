@@ -18,14 +18,12 @@ const Dashboard = lazy(pageLoaders.dashboard);
 const CalidadJornada = lazy(pageLoaders.calidad);
 const PartesList = lazy(pageLoaders.partesList);
 const PartDetail = lazy(pageLoaders.partDetail);
-const DSJCalculator = lazy(pageLoaders.dsjCalculator);
 const ConsumoCostes = lazy(pageLoaders.consumoCostes);
 const Asistencia = lazy(pageLoaders.asistencia);
 const AsistenciaComparativa = lazy(pageLoaders.asistenciaComparativa);
 const NotFound = lazy(pageLoaders.notFound);
 const Productores = lazy(pageLoaders.productores);
 const AnalisisDiario = lazy(pageLoaders.analisisDiario);
-const Calendario = lazy(pageLoaders.calendario);
 const ExcelViewerPage = lazy(() => import("@/pages/ExcelViewerPage"));
 
 const LoadingFallback = () => (
@@ -61,13 +59,13 @@ const App = () => (
                     <Route path="/calidad" element={<CalidadJornada />} />
                     <Route path="/partes" element={<PartesList />} />
                     <Route path="/partes/:id" element={<PartDetail />} />
-                    <Route path="/dsj" element={<DSJCalculator />} />
+                    <Route path="/dsj" element={<Navigate to="/" replace />} />
                     <Route path="/costes/consumos" element={<ConsumoCostes />} />
                     <Route path="/costes/asistencia" element={<Asistencia />} />
                     <Route path="/costes/asistencia/comparativa" element={<AsistenciaComparativa />} />
                     <Route path="/productores" element={<Productores />} />
                     <Route path="/analisis/diario" element={<AnalisisDiario />} />
-                    <Route path="/calendario" element={<Calendario />} />
+                    <Route path="/calendario" element={<Navigate to="/" replace />} />
                   </Route>
                   <Route path="/ver-excel/:fileId" element={<ExcelViewerPage />} />
                   <Route path="/index" element={<Navigate to="/" replace />} />

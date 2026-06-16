@@ -5,6 +5,46 @@ import { computeCascade, CascadeInput, CascadeResult } from "./cascade";
 import { formatDate, formatKg } from "./format";
 import { PDF_THEME, drawExportHeader, drawExportFooter, drawKpiCard, pdfTableTheme } from "./exportTheme";
 import { appendDictionarySheet, createWorkbook, excelText, saveWorkbook, splitExcelText } from "./exportWorkbook";
+import {
+  appendReportCoverSheet,
+  buildReportFilename,
+  drawReportCover,
+  drawReportInsights,
+  drawReportSectionTitle,
+  type ReportInsight,
+  type ReportKpi,
+  type ReportMeta,
+} from "./reportKit";
+
+type SheetCellValue = string | number | boolean | null | undefined;
+type SheetRow = Record<string, SheetCellValue>;
+
+interface ProductoDetalleIA extends Record<string, unknown> {
+  linea?: unknown;
+  producto?: unknown;
+  formato_caja?: unknown;
+  empaque?: unknown;
+  grupo_destino?: unknown;
+  kg?: unknown;
+  n_cajas?: unknown;
+  cajas?: unknown;
+}
+
+interface PaletDetalleIA extends Record<string, unknown> {
+  palet_id?: unknown;
+  producto?: unknown;
+  cliente?: unknown;
+  destino?: unknown;
+  situacion?: unknown;
+  kg_neto?: unknown;
+  n_cajas?: unknown;
+}
+
+interface ResumenIA extends Record<string, unknown> {
+  producto_detalle?: unknown;
+  palets_detalle?: unknown;
+  analisis?: unknown;
+}
 
 export interface ParteRow {
   id: string;
@@ -24,7 +64,7 @@ export interface ParteRow {
   kg_inventario_anterior_sin_alta?: number | null;
   notas_generales?: string | null;
   notas_inventario?: string | null;
-  resumen_ia?: any;
+  resumen_ia?: ResumenIA | null;
 }
 
 function n(value: unknown): number {
@@ -68,8 +108,17 @@ function pdfDate(value: string | Date) {
   return safePdf(formatDate(value));
 }
 
+function reportDate(value: string | Date) {
+  const date = typeof value === "string" ? new Date(value) : value;
+  return date.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
 function pdfKg(value: number, digits = 0) {
   return safePdf(formatKg(value, digits));
+}
+
+function lastAutoTableY(doc: jsPDF, fallback: number) {
+  return (doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? fallback;
 }
 
 function semLabel(s: "verde" | "amarillo" | "rojo"): string {
@@ -80,13 +129,13 @@ function semColor(s: "verde" | "amarillo" | "rojo"): [number, number, number] {
   return s === "verde" ? PDF_THEME.success : s === "amarillo" ? PDF_THEME.warning : PDF_THEME.destructive;
 }
 
-function sanitizeRow(row: Record<string, any>) {
+function sanitizeRow(row: SheetRow): SheetRow {
   return Object.fromEntries(
     Object.entries(row).map(([key, value]) => [key, typeof value === "string" ? excelText(value, "IA fragmentos") : value]),
-  );
+  ) as SheetRow;
 }
 
-function sheetFromRows(rows: Record<string, any>[], cols: number[]) {
+function sheetFromRows(rows: SheetRow[], cols: number[]) {
   const safeRows = rows.map(sanitizeRow);
   const ws = safeRows.length > 0 ? XLSX.utils.json_to_sheet(safeRows) : XLSX.utils.aoa_to_sheet([["Sin datos"]]);
   ws["!cols"] = cols.map((wch) => ({ wch }));
@@ -103,12 +152,12 @@ function flattenProducto(partes: ParteRow[]) {
   return partes.flatMap((p) => {
     const rows = p.resumen_ia?.producto_detalle;
     if (!Array.isArray(rows)) return [];
-    return rows.map((r: any) => ({
+    return rows.map((r: ProductoDetalleIA) => ({
       Fecha: formatDate(p.date),
-      Linea: r.linea ?? "",
-      Producto: r.producto ?? "",
-      "Formato caja": r.formato_caja ?? r.empaque ?? "",
-      "Grupo destino": r.grupo_destino ?? "",
+      Linea: String(r.linea ?? ""),
+      Producto: String(r.producto ?? ""),
+      "Formato caja": String(r.formato_caja ?? r.empaque ?? ""),
+      "Grupo destino": String(r.grupo_destino ?? ""),
       "Kg": n(r.kg),
       "Cajas": n(r.n_cajas ?? r.cajas),
     }));
@@ -119,23 +168,40 @@ function flattenPalets(partes: ParteRow[]) {
   return partes.flatMap((p) => {
     const rows = p.resumen_ia?.palets_detalle;
     if (!Array.isArray(rows)) return [];
-    return rows.map((r: any) => ({
+    return rows.map((r: PaletDetalleIA) => ({
       Fecha: formatDate(p.date),
-      Palet: r.palet_id ?? "",
-      Producto: r.producto ?? "",
-      Cliente: r.cliente ?? "",
-      Destino: r.destino ?? "",
-      Situacion: r.situacion ?? "",
+      Palet: String(r.palet_id ?? ""),
+      Producto: String(r.producto ?? ""),
+      Cliente: String(r.cliente ?? ""),
+      Destino: String(r.destino ?? ""),
+      Situacion: String(r.situacion ?? ""),
       "Kg neto": n(r.kg_neto),
       "Cajas": n(r.n_cajas),
     }));
   });
 }
 
-export function exportPartesToExcel(partes: ParteRow[], from: string, to: string) {
-  const enriched = partes.map((p) => ({ p, c: buildCascade(p) }));
-  const wb = createWorkbook("Lasarte SAT - Informe de partes", "Control de produccion y DJPMN");
+export interface PartesReportSummary {
+  meta: ReportMeta;
+  kpis: ReportKpi[];
+  insights: ReportInsight[];
+  totals: {
+    totalProd: number;
+    totalPalets: number;
+    totalDsj: number;
+    totalMermas: number;
+    dsjPctGlobal: number;
+  };
+  counts: {
+    nOk: number;
+    nWarn: number;
+    nCrit: number;
+  };
+  worst: { p: ParteRow; c: CascadeResult } | null;
+}
 
+export function buildPartesReportSummary(partes: ParteRow[], from: string, to: string): PartesReportSummary {
+  const enriched = partes.map((p) => ({ p, c: buildCascade(p) }));
   const totalProd = enriched.reduce((s, { c }) => s + c.produccion_real, 0);
   const totalPalets = enriched.reduce((s, { c }) => s + c.palets_ajustados, 0);
   const totalDsj = enriched.reduce((s, { c }) => s + c.dsj, 0);
@@ -149,32 +215,66 @@ export function exportPartesToExcel(partes: ParteRow[], from: string, to: string
     null,
   );
 
-  const portada = XLSX.utils.aoa_to_sheet([
-    ["Lasarte SAT - Informe de control de produccion"],
-    [`Periodo: ${formatDate(from)} - ${formatDate(to)}`],
-    [`Generado: ${new Date().toLocaleString("es-ES")}`],
-    [],
-    ["Lectura ejecutiva", "Valor"],
-    ["Partes incluidos", partes.length],
-    ["Produccion real total (kg)", kg(totalProd, 2)],
-    ["Palets alta ajustados (kg)", kg(totalPalets, 2)],
-    ["DJPMN total (kg)", kg(totalDsj, 2)],
-    ["DJPMN global (%)", +dsjPctGlobal.toFixed(3)],
-    ["Mermas totales (kg)", kg(totalMermas, 2)],
-    ["Dias OK", nOk],
-    ["Dias a revisar", nWarn],
-    ["Dias criticos", nCrit],
-    ["Peor dia", worst ? `${formatDate(worst.p.date)} (${worst.c.dsj_pct.toFixed(2)}%)` : ""],
-    [],
-    ["Como leer el archivo"],
-    ["Detalle diario", "Una fila por parte con los KPIs principales y semaforo."],
-    ["Cascada DJPMN", "Misma estructura que se muestra en la herramienta."],
-    ["Datos entrada", "Campos brutos usados para calcular la cascada."],
-    ["Producto y palets", "Detalle extraido del analisis cuando existe."],
-    ["Notas e IA", "Observaciones y analisis del parte."],
-  ]);
-  portada["!cols"] = [{ wch: 34 }, { wch: 50 }];
-  XLSX.utils.book_append_sheet(wb, portada, "Portada");
+  const insights: ReportInsight[] = [
+    {
+      label: "Lectura",
+      value: "El semaforo usa el valor absoluto de DJPMN %: OK hasta 3%, revisar hasta 5% y critico por encima.",
+      tone: "info",
+    },
+  ];
+  if (worst) {
+    insights.push({
+      label: "Dia a revisar",
+      value: `${formatDate(worst.p.date)} · ${worst.c.dsj_pct >= 0 ? "+" : ""}${worst.c.dsj_pct.toFixed(2)}% DJPMN`,
+      tone: Math.abs(worst.c.dsj_pct) > 5 ? "danger" : Math.abs(worst.c.dsj_pct) > 3 ? "warning" : "success",
+    });
+  }
+
+  return {
+    meta: {
+      title: "Informe de partes diarios",
+      subtitle: "Produccion, cascada DJPMN y trazabilidad",
+      periodLabel: `${reportDate(from)} - ${reportDate(to)} · ${partes.length} parte(s)`,
+    },
+    kpis: [
+      { label: "Produccion real", value: formatKg(totalProd, 0), sub: `${partes.length} parte(s)`, tone: "info" },
+      { label: "Palets ajustados", value: formatKg(totalPalets, 0), sub: "alta neta", tone: "neutral" },
+      { label: "DJPMN total", value: formatKg(totalDsj, 0), sub: `${dsjPctGlobal >= 0 ? "+" : ""}${dsjPctGlobal.toFixed(2)}% global`, tone: Math.abs(dsjPctGlobal) > 5 ? "danger" : Math.abs(dsjPctGlobal) > 3 ? "warning" : "success" },
+      { label: "Mermas totales", value: formatKg(totalMermas, 0), sub: "podrido manual", tone: "neutral" },
+      { label: "Dias OK", value: nOk, sub: "<= 3%", tone: "success" },
+      { label: "Dias criticos", value: nCrit, sub: "> 5%", tone: nCrit > 0 ? "danger" : "success" },
+    ],
+    insights,
+    totals: {
+      totalProd,
+      totalPalets,
+      totalDsj,
+      totalMermas,
+      dsjPctGlobal,
+    },
+    counts: {
+      nOk,
+      nWarn,
+      nCrit,
+    },
+    worst,
+  };
+}
+
+export function exportPartesToExcel(partes: ParteRow[], from: string, to: string) {
+  const enriched = partes.map((p) => ({ p, c: buildCascade(p) }));
+  const wb = createWorkbook("Lasarte SAT - Informe de partes", "Control de produccion y DJPMN");
+  const summary = buildPartesReportSummary(partes, from, to);
+
+  const {
+    totalProd,
+    totalPalets,
+    totalDsj,
+    totalMermas,
+    dsjPctGlobal,
+  } = summary.totals;
+
+  appendReportCoverSheet(wb, summary.meta, summary.kpis);
 
   const detalleRows = enriched.map(({ p, c }) => ({
     Fecha: formatDate(p.date),
@@ -268,7 +368,7 @@ export function exportPartesToExcel(partes: ParteRow[], from: string, to: string
     { Hoja: "Notas e IA", Campo: "Notas y resumen IA", Descripcion: "Texto operativo del parte. Los textos largos se fragmentan.", Uso: "Contexto de revision." },
   ]);
 
-  saveWorkbook(wb, `partes_${from}_${to}.xlsx`);
+  saveWorkbook(wb, buildReportFilename(`informe-partes-${from}-${to}`, "xlsx"));
 }
 
 function drawHeader(doc: jsPDF, pageIndex: number, from: string, to: string, title?: string) {
@@ -294,38 +394,21 @@ export function exportPartesToPDF(partes: ParteRow[], from: string, to: string) 
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const enriched = partes.map((p) => ({ p, c: buildCascade(p) }));
   const pageIndex = { value: 1 };
+  const summary = buildPartesReportSummary(partes, from, to);
+  const {
+    totalProd,
+    totalPalets,
+    totalDsj,
+    totalMermas,
+    dsjPctGlobal,
+  } = summary.totals;
+  const { nOk, nWarn, nCrit } = summary.counts;
 
-  const totalProd = enriched.reduce((s, { c }) => s + c.produccion_real, 0);
-  const totalPalets = enriched.reduce((s, { c }) => s + c.palets_ajustados, 0);
-  const totalDsj = enriched.reduce((s, { c }) => s + c.dsj, 0);
-  const totalMermas = enriched.reduce((s, { c }) => s + c.mermas_totales, 0);
-  const dsjPctGlobal = totalProd > 0 ? (totalDsj / totalProd) * 100 : 0;
-  const nOk = enriched.filter(({ c }) => Math.abs(c.dsj_pct) <= 3).length;
-  const nWarn = enriched.filter(({ c }) => Math.abs(c.dsj_pct) > 3 && Math.abs(c.dsj_pct) <= 5).length;
-  const nCrit = enriched.filter(({ c }) => Math.abs(c.dsj_pct) > 5).length;
+  let y = drawReportCover(doc, summary.meta, summary.kpis);
+  y = drawReportInsights(doc, summary.insights, 8, y, 281) + 4;
+  y = drawReportSectionTitle(doc, "Resumen ejecutivo", y, "Detalle diario con semaforo y totales del periodo");
 
-  drawHeader(doc, pageIndex.value, from, to, "Resumen ejecutivo");
-
-  doc.setFillColor(...PDF_THEME.cream);
-  doc.roundedRect(8, 26, 281, 16, 2, 2, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.setTextColor(...PDF_THEME.primaryDark);
-  doc.text("Informe de partes diarios - DJPMN", 148.5, 35, { align: "center" });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(...PDF_THEME.muted);
-  doc.text(safePdf(`${partes.length} parte(s) - ${pdfDate(from)} al ${pdfDate(to)}`), 148.5, 40, { align: "center" });
-
-  [
-    { label: "PRODUCCION REAL", val: pdfKg(totalProd), sub: `${partes.length} partes` },
-    { label: "PALETS AJUSTADOS", val: pdfKg(totalPalets), sub: "neto ajustado" },
-    { label: "DJPMN TOTAL", val: pdfKg(totalDsj), sub: `${dsjPctGlobal >= 0 ? "+" : ""}${dsjPctGlobal.toFixed(2)}% global` },
-    { label: "MERMAS TOTALES", val: pdfKg(totalMermas), sub: "podrido manual" },
-    { label: "DIAS CRITICOS", val: `${nCrit}`, sub: "DJPMN > 5%" },
-  ].forEach((k, i) => drawKpiCard(doc, 8 + i * 57, 48, 55, k.label, k.val, k.sub));
-
-  const barY = 74;
+  const barY = y;
   const totalSem = nOk + nWarn + nCrit;
   let x = 8;
   [
@@ -345,7 +428,7 @@ export function exportPartesToPDF(partes: ParteRow[], from: string, to: string) 
   });
 
   autoTable(doc, {
-    startY: 94,
+    startY: barY + 20,
     head: [["Fecha", "Estado", "Prod. real", "Palets ajust.", "Diferencia", "Mermas", "DJPMN", "% DJPMN", "Semaforo"]],
     body: [
       ...enriched.map(({ p, c }) => [
@@ -463,7 +546,7 @@ export function exportPartesToPDF(partes: ParteRow[], from: string, to: string) 
       didDrawPage: () => addAutoTablePageHeader(doc, pageIndex, from, to, detailTitle),
     });
 
-    const rawStartY = ((doc as any).lastAutoTable?.finalY ?? 72) + 6;
+    const rawStartY = lastAutoTableY(doc, 72) + 6;
     const rawRows = [
       ["Calibrador", pdfKg(n(p.kg_produccion_calibrador)), "Base de produccion"],
       ["Industria manual", pdfKg(n(p.kg_industria_manual)), "Dato bruto registrado"],
@@ -494,7 +577,7 @@ export function exportPartesToPDF(partes: ParteRow[], from: string, to: string) 
       didDrawPage: () => addAutoTablePageHeader(doc, pageIndex, from, to, `${detailTitle} - datos entrada`),
     });
 
-    let noteY = ((doc as any).lastAutoTable?.finalY ?? rawStartY) + 6;
+    let noteY = lastAutoTableY(doc, rawStartY) + 6;
     const noteBlocks = [
       { title: "Notas generales", text: p.notas_generales },
       { title: "Notas inventario", text: p.notas_inventario },
@@ -524,5 +607,5 @@ export function exportPartesToPDF(partes: ParteRow[], from: string, to: string) 
     drawFooter(doc);
   });
 
-  doc.save(`partes_${from}_${to}.pdf`);
+  doc.save(buildReportFilename(`informe-partes-${from}-${to}`, "pdf"));
 }

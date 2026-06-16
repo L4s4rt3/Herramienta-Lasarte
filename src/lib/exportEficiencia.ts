@@ -1,7 +1,16 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { PDF_THEME, drawExportHeader, drawExportFooter, drawKpiCard, pdfTableTheme } from "./exportTheme";
-import { appendAoaSheet, appendDictionarySheet, appendRowsSheet, createWorkbook, saveWorkbook } from "./exportWorkbook";
+import { drawExportHeader, drawExportFooter, pdfTableTheme } from "./exportTheme";
+import { appendDictionarySheet, appendRowsSheet, createWorkbook, saveWorkbook } from "./exportWorkbook";
+import {
+  appendReportCoverSheet,
+  buildReportFilename,
+  drawReportCover,
+  drawReportInsights,
+  drawReportSectionTitle,
+  type ReportKpi,
+  type ReportMeta,
+} from "./reportKit";
 
 interface DiaData {
   date: string;
@@ -83,6 +92,17 @@ export function exportEficienciaToExcel(data: SemanaData[], _optimo: string) {
   const mediaKgDia = allDias.length > 0 ? totalKg / allDias.length : 0;
   const kgPersonaGlobal = kgPersonaDesdeMedias(mediaKgDia, mediaPersonasDia);
   const bestDay = allDias.reduce<DiaData | null>((best, d) => (!best || d.kgPorPersona > best.kgPorPersona ? d : best), null);
+  const reportMeta: ReportMeta = {
+    title: "Informe semanal operativo",
+    subtitle: "Produccion y asistencia",
+    periodLabel: `${data.length} semana(s) · ${allDias.length} dia(s) con datos`,
+  };
+  const coverKpis: ReportKpi[] = [
+    { label: "Kg producidos", value: Math.round(totalKg).toLocaleString("es-ES"), sub: "total periodo", tone: "info" },
+    { label: "Media personas/dia", value: mediaPersonasDia.toLocaleString("es-ES", { maximumFractionDigits: 1, minimumFractionDigits: 1 }), sub: "asistencia media", tone: "neutral" },
+    { label: "Kg/persona", value: Math.round(kgPersonaGlobal).toLocaleString("es-ES"), sub: "media global", tone: "success" },
+    { label: "Mejor dia", value: bestDay ? Math.round(bestDay.kgPorPersona).toLocaleString("es-ES") : "-", sub: bestDay?.date ?? "", tone: "success" },
+  ];
   const comparativaRows = data.map((sem, index) => {
     const current = weekStats(sem);
     const prev = index > 0 ? weekStats(data[index - 1]) : null;
@@ -100,18 +120,7 @@ export function exportEficienciaToExcel(data: SemanaData[], _optimo: string) {
   });
 
   const wb = createWorkbook("Lasarte SAT - Comparativa semanal", "Rendimiento de produccion por asistencia");
-  appendAoaSheet(wb, "Portada", [
-    ["Lasarte SAT - Comparativa semanal de asistencia y produccion"],
-    [`Generado: ${new Date().toLocaleString("es-ES")}`],
-    [],
-    ["Indicador", "Valor"],
-    ["Semanas con datos", data.length],
-    ["Dias con datos", allDias.length],
-    ["Kg producidos", Math.round(totalKg)],
-    ["Media personas/dia", +mediaPersonasDia.toFixed(1)],
-    ["Kg/persona global", Math.round(kgPersonaGlobal)],
-    ["Mejor dia", bestDay ? `${bestDay.date} (${Math.round(bestDay.kgPorPersona)} kg/persona)` : ""],
-  ], [46, 34]);
+  appendReportCoverSheet(wb, reportMeta, coverKpis);
 
   appendRowsSheet(wb, "Resumen semanal", resumenRows, [22, 14, 14, 20, 14, 14, ...DAYS.map(() => 10), 18], { freezeHeader: true });
   appendRowsSheet(wb, "Comparativa", comparativaRows, [22, 14, 24, 16, 16, 14, 14, 14, 14], { freezeHeader: true });
@@ -123,7 +132,7 @@ export function exportEficienciaToExcel(data: SemanaData[], _optimo: string) {
     { Hoja: "Detalle diario", Campo: "Kg/persona", Descripcion: "Kg producidos en el dia entre trabajadores presentes.", Uso: "Analisis por dia de la semana." },
   ]);
 
-  saveWorkbook(wb, "comparativa_semanal.xlsx");
+  saveWorkbook(wb, buildReportFilename("informe-semanal-operativo", "xlsx"));
 }
 
 function drawHeader(doc: jsPDF, pageIndex: number) {
@@ -139,33 +148,33 @@ export function exportEficienciaToPDF(data: SemanaData[], _optimo: string) {
   let pageIndex = 0;
 
   pageIndex++;
-  drawHeader(doc, pageIndex);
-
-  doc.setFillColor(...PDF_THEME.cream);
-  doc.roundedRect(8, 26, 281, 16, 2, 2, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.setTextColor(...PDF_THEME.primaryDark);
-  doc.text("Comparativa semanal - Kg/persona por dia", 148.5, 35, { align: "center" });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(...PDF_THEME.muted);
-  doc.text(`${data.length} semana(s) de datos`, 148.5, 40, { align: "center" });
-
   const allDias = data.flatMap((sem) => Object.values(sem.days));
   const totalKg = allDias.reduce((s, d) => s + d.kg, 0);
   const totalWorkers = allDias.reduce((s, d) => s + d.workers, 0);
   const mediaPersonasDia = allDias.length > 0 ? totalWorkers / allDias.length : 0;
   const mediaKgDia = allDias.length > 0 ? totalKg / allDias.length : 0;
   const globalEfic = Math.round(kgPersonaDesdeMedias(mediaKgDia, mediaPersonasDia));
+  const bestDay = allDias.reduce<DiaData | null>((best, d) => (!best || d.kgPorPersona > best.kgPorPersona ? d : best), null);
+  const reportMeta: ReportMeta = {
+    title: "Informe semanal operativo",
+    subtitle: "Produccion y asistencia",
+    periodLabel: `${data.length} semana(s) · ${allDias.length} dia(s) con datos`,
+  };
 
-  [
-    { label: "TOTAL KG", val: `${totalKg.toLocaleString("es-ES")} kg`, sub: `${allDias.length} dia(s)` },
-    { label: "ASISTENCIA MEDIA", val: `${mediaPersonasDia.toLocaleString("es-ES", { maximumFractionDigits: 1, minimumFractionDigits: 1 })}`, sub: "personas/dia" },
-    { label: "KG/PERSONA GLOBAL", val: `${globalEfic.toLocaleString("es-ES")}`, sub: "media global" },
-    { label: "SEMANAS", val: `${data.length}`, sub: "en periodo" },
-    { label: "DIAS CON DATOS", val: `${allDias.length}`, sub: "de 7 posibles/sem" },
-  ].forEach((k, i) => drawKpiCard(doc, 8 + i * 57, 48, 55, k.label, k.val, k.sub));
+  let y = drawReportCover(doc, reportMeta, [
+    { label: "TOTAL KG", value: `${totalKg.toLocaleString("es-ES")} kg`, sub: `${allDias.length} dia(s)`, tone: "info" },
+    { label: "ASISTENCIA MEDIA", value: mediaPersonasDia.toLocaleString("es-ES", { maximumFractionDigits: 1, minimumFractionDigits: 1 }), sub: "personas/dia" },
+    { label: "KG/PERSONA GLOBAL", value: globalEfic.toLocaleString("es-ES"), sub: "media global", tone: "success" },
+    { label: "SEMANAS", value: data.length, sub: "en periodo" },
+    { label: "DIAS CON DATOS", value: allDias.length, sub: "de 7 posibles/sem" },
+  ]);
+
+  y = drawReportInsights(doc, [
+    { label: "Mejor dia", value: bestDay ? `${bestDay.date} · ${Math.round(bestDay.kgPorPersona).toLocaleString("es-ES")} kg/persona` : "Sin datos suficientes", tone: "success" },
+    { label: "Lectura", value: "Kg/persona semanal calculado desde kg medio/dia dividido entre media personas/dia.", tone: "info" },
+  ], 8, y, 281) + 4;
+
+  y = drawReportSectionTitle(doc, "Detalle semanal", y, "Kg/persona por dia y resumen de asistencia media");
 
   const head = ["Semana", "Kg total", "Media pers/dia", "Dias", ...DAYS, "Kg/persona"];
   const body = data.map((sem) => {
@@ -185,7 +194,7 @@ export function exportEficienciaToPDF(data: SemanaData[], _optimo: string) {
   });
 
   autoTable(doc, {
-    startY: 74,
+    startY: y,
     head: [head],
     body,
     ...pdfTableTheme(),
@@ -206,5 +215,5 @@ export function exportEficienciaToPDF(data: SemanaData[], _optimo: string) {
   });
 
   drawFooter(doc);
-  doc.save("comparativa_semanal.pdf");
+  doc.save(buildReportFilename("informe-semanal-operativo", "pdf"));
 }

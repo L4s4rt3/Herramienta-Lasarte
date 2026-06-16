@@ -112,8 +112,11 @@ export function buildDailyConsumptionRows(input: BuildConsumptionRowsInput): Con
 }
 
 function buildConsumptionRows(input: BuildConsumptionRowsInput, periods: ConsumptionPeriod[]): ConsumoPeriodoRow[] {
-  return periods.map((period) => {
+  const gasoilLByPeriod = distributeGasoilPurchases(input, periods);
+
+  return periods.map((period, index) => {
     const totals = totalConsumosForPeriod(input.consumos, period);
+    totals.gasoilL = gasoilLByPeriod[index] ?? 0;
     const kgPartes = totalPartesForPeriod(input.partes, period);
     const kgVentas = totalBasesForPeriod(input.basesKg, period, "ventas");
     const kgManual = totalBasesForPeriod(input.basesKg, period, "manual");
@@ -190,6 +193,10 @@ function resolveConfianza(input: {
 function totalConsumosForPeriod(consumos: ConsumoFisicoInput[], period: ConsumptionPeriod) {
   return consumos.reduce(
     (acc, consumo) => {
+      if (consumo.recurso === "gasoil") {
+        return acc;
+      }
+
       const factor = overlapFactor(consumo.fecha_inicio, consumo.fecha_fin, period);
       if (factor <= 0) {
         return acc;
@@ -202,8 +209,6 @@ function totalConsumosForPeriod(consumos: ConsumoFisicoInput[], period: Consumpt
         acc.aguaL += cantidad;
       } else if (consumo.recurso === "electricidad") {
         acc.electricidadKwh += cantidad;
-      } else if (consumo.recurso === "gasoil") {
-        acc.gasoilL += cantidad;
       } else {
         acc.quimicosL += cantidad;
       }
@@ -217,6 +222,97 @@ function totalConsumosForPeriod(consumos: ConsumoFisicoInput[], period: Consumpt
       quimicosL: 0,
     },
   );
+}
+
+function distributeGasoilPurchases(input: BuildConsumptionRowsInput, periods: ConsumptionPeriod[]): number[] {
+  const result = periods.map(() => 0);
+  const purchases = gasoilPurchasesByDate(input.consumos);
+  const rangeStartMs = dateToUtcMs(input.rangeStart);
+  const rangeEndMs = dateToUtcMs(input.rangeEnd);
+
+  purchases.forEach((purchase, index) => {
+    const nextPurchase = purchases[index + 1];
+    const rawEndMs = nextPurchase ? nextPurchase.dateMs - MS_PER_DAY : rangeEndMs;
+    const startMs = Math.max(purchase.dateMs, rangeStartMs);
+    const endMs = Math.min(rawEndMs, rangeEndMs);
+
+    if (purchase.litros <= 0 || endMs < startMs) {
+      return;
+    }
+
+    const tramoKg = kgBaseForRange(input, startMs, endMs);
+
+    if (tramoKg <= 0) {
+      addGasoilToPurchasePeriod(result, periods, startMs, purchase.litros);
+      return;
+    }
+
+    periods.forEach((period, periodIndex) => {
+      const overlapStartMs = Math.max(startMs, period.startMs);
+      const overlapEndMs = Math.min(endMs, period.endMs);
+
+      if (overlapEndMs < overlapStartMs) {
+        return;
+      }
+
+      const overlapKg = kgBaseForRange(input, overlapStartMs, overlapEndMs);
+      if (overlapKg <= 0) {
+        return;
+      }
+
+      result[periodIndex] += purchase.litros * (overlapKg / tramoKg);
+    });
+  });
+
+  return result;
+}
+
+function gasoilPurchasesByDate(consumos: ConsumoFisicoInput[]): Array<{ dateMs: number; litros: number }> {
+  const purchases = new Map<number, number>();
+
+  consumos.forEach((consumo) => {
+    if (consumo.recurso !== "gasoil") {
+      return;
+    }
+
+    const dateMs = dateToUtcMs(consumo.fecha_inicio);
+    const normalized = normalizeConsumoCantidad(consumo);
+    purchases.set(dateMs, (purchases.get(dateMs) ?? 0) + normalized.cantidadBase);
+  });
+
+  return Array.from(purchases.entries())
+    .map(([dateMs, litros]) => ({ dateMs, litros }))
+    .sort((a, b) => a.dateMs - b.dateMs);
+}
+
+function kgBaseForRange(input: BuildConsumptionRowsInput, startMs: number, endMs: number): number {
+  const period = periodFromRange(startMs, endMs);
+  const kgPartes = totalPartesForPeriod(input.partes, period);
+  const kgVentas = totalBasesForPeriod(input.basesKg, period, "ventas");
+  const kgManual = totalBasesForPeriod(input.basesKg, period, "manual");
+
+  if (kgPartes > 0) {
+    return kgPartes;
+  }
+
+  return kgVentas > 0 ? kgVentas : kgManual;
+}
+
+function periodFromRange(startMs: number, endMs: number): ConsumptionPeriod {
+  return {
+    periodo: "",
+    fechaInicio: utcMsToDateString(startMs),
+    fechaFin: utcMsToDateString(endMs),
+    startMs,
+    endMs,
+  };
+}
+
+function addGasoilToPurchasePeriod(result: number[], periods: ConsumptionPeriod[], dateMs: number, litros: number): void {
+  const periodIndex = periods.findIndex((period) => dateMs >= period.startMs && dateMs <= period.endMs);
+  if (periodIndex >= 0) {
+    result[periodIndex] += litros;
+  }
 }
 
 function totalPartesForPeriod(partes: ParteKgInput[], period: ConsumptionPeriod): number {

@@ -5,6 +5,26 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+interface PaletDetalle {
+  producto?: unknown;
+  es_campo?: boolean;
+  kg_neto?: unknown;
+}
+
+interface ResumenIa {
+  palets_detalle?: PaletDetalle[];
+}
+
+interface ParteConResumen {
+  id: string;
+  resumen_ia: string | ResumenIa | null;
+}
+
+interface PaletDb {
+  id: string;
+  producto?: unknown;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
@@ -16,12 +36,13 @@ Deno.serve(async (req) => {
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
 
     // 1. Obtener todos los partes con resumen_ia
-    const { data: partes, error: pErr } = await admin
+    const { data: partesData, error: pErr } = await admin
       .from("partes_diarios")
       .select("id, resumen_ia, kg_palets_brutos, kg_palets_campo")
       .not("resumen_ia", "is", null);
 
     if (pErr) return json({ error: pErr.message }, 500);
+    const partes = (partesData ?? []) as ParteConResumen[];
     if (!partes || partes.length === 0) return json({ message: "No hay partes con resumen_ia" });
 
     const re = /CAMPO|DEL CAMPO|DE CAMPO|CAMPI/i;
@@ -46,20 +67,21 @@ Deno.serve(async (req) => {
       }
 
       if (changed) {
-        const updates: Record<string, any> = { resumen_ia: ia };
+        const updates: Record<string, unknown> = { resumen_ia: ia };
         if (kgCampo > 0) updates.kg_palets_campo = kgCampo;
         await admin.from("partes_diarios").update(updates).eq("id", parte.id);
         partesActualizados++;
       }
 
       // 2. Tambien actualizar palets_dia si existen
-      const { data: paletsDb } = await admin
+      const { data: paletsDbData } = await admin
         .from("palets_dia")
         .select("id, producto")
         .eq("part_id", parte.id)
         .is("campo", false);
+      const paletsDb = (paletsDbData ?? []) as PaletDb[];
       if (paletsDb) {
-        const ids = paletsDb.filter((p: any) => re.test(String(p.producto ?? ""))).map((p: any) => p.id);
+        const ids = paletsDb.filter((p) => re.test(String(p.producto ?? ""))).map((p) => p.id);
         if (ids.length > 0) {
           await admin.from("palets_dia").update({ campo: true }).in("id", ids);
         }

@@ -14,16 +14,16 @@ Deno.serve(async (req) => {
       return json({ error: "data_base64 requerido" }, 400);
     }
 
-    let bytes = base64ToBytes(data_base64);
+    const bytes = base64ToBytes(data_base64);
     // Convertir DEFLATE64 real a DEFLATE
     let converted = deflate64ToDeflate(bytes);
     if (converted === bytes) converted = repairXlsx(bytes);
     const wb = XLSX.read(converted, { type: "array" });
 
-    const result: Record<string, any[][]> = {};
+    const result: Record<string, unknown[][]> = {};
     for (const sn of wb.SheetNames) {
       const ws = wb.Sheets[sn];
-      result[sn] = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, blankrows: false, defval: null });
+      result[sn] = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: false, defval: null });
     }
 
     return json({ sheet_names: wb.SheetNames, data: result });

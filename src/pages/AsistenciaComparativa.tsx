@@ -9,30 +9,16 @@ import {
   BAR_STYLE, CHART_CURSOR, CHART_PANEL_CLASS, barFill,
 } from "@/lib/chartTheme";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Download, FileText, Scale } from "lucide-react";
+import { ArrowLeft, Scale } from "lucide-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { exportEficienciaToExcel, exportEficienciaToPDF } from "@/lib/exportEficiencia";
 import {
-  calcularRendimientoGrupos,
-  grupoRendimientoTrabajador,
-  produccionRealParte,
-  totalKgRendimiento,
-} from "@/lib/asistenciaRendimiento";
-
-interface DiaData {
-  date: string;
-  workers: number;
-  kg: number;
-  kgPorPersona: number;
-}
-
-interface SemanaData {
-  weekStart: string;
-  label: string;
-  days: Record<string, DiaData>;
-}
+  ASISTENCIA_COMPARATIVA_RANGE_DAYS,
+  buildSemanasAsistenciaComparativa,
+  type DiaComparativaData,
+  type SemanaComparativaData,
+} from "@/lib/asistenciaComparativa";
 
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 const DAY_KEYS = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"];
@@ -40,27 +26,6 @@ const DAY_KEYS = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"];
 const DAY_MAP: Record<number, string> = {
   1: "Lun", 2: "Mar", 3: "Mie", 4: "Jue", 5: "Vie", 6: "Sab", 0: "Dom",
 };
-
-const RANGE_DAYS = 60;
-
-function num(value: unknown): number {
-  return Number(value) || 0;
-}
-
-function getWeekStart(dateStr: string) {
-  const d = new Date(dateStr + "T12:00:00");
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(d.setDate(diff));
-  return monday.toISOString().slice(0, 10);
-}
-
-function formatWeekLabel(weekStart: string) {
-  const d = new Date(weekStart + "T12:00:00");
-  const day = d.getDate();
-  const month = d.toLocaleDateString("es-ES", { month: "short" });
-  return `${day} ${month}`;
-}
 
 function formatDateShort(dateStr: string) {
   const d = new Date(dateStr + "T12:00:00");
@@ -74,20 +39,20 @@ function formatNumber(value: number, digits = 0) {
   }).format(value);
 }
 
-function weekStats(sem?: SemanaData | null) {
+function weekStats(sem?: SemanaComparativaData | null) {
   const days = sem ? Object.values(sem.days) : [];
   const kg = days.reduce((s, d) => s + d.kg, 0);
   const workers = days.reduce((s, d) => s + d.workers, 0);
   const kgPorPersona = workers > 0 ? kg / workers : 0;
   const kgPorDia = days.length > 0 ? kg / days.length : 0;
   const personasDia = days.length > 0 ? workers / days.length : 0;
-  const mejorDia = days.reduce<DiaData | null>((best, d) => (!best || d.kgPorPersona > best.kgPorPersona ? d : best), null);
+  const mejorDia = days.reduce<DiaComparativaData | null>((best, d) => (!best || d.kgPorPersona > best.kgPorPersona ? d : best), null);
   return { kg, workers, kgPorPersona, kgPorDia, personasDia, dias: days.length, mejorDia };
 }
 
 export default function AsistenciaComparativa() {
   const navigate = useNavigate();
-  const [semanas, setSemanas] = useState<SemanaData[]>([]);
+  const [semanas, setSemanas] = useState<SemanaComparativaData[]>([]);
   const [baseWeek, setBaseWeek] = useState("");
   const [compareWeek, setCompareWeek] = useState("");
   const [loading, setLoading] = useState(true);
@@ -95,7 +60,7 @@ export default function AsistenciaComparativa() {
   async function loadData() {
     setLoading(true);
     const until = new Date().toISOString().slice(0, 10);
-    const from = new Date(Date.now() - RANGE_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const from = new Date(Date.now() - ASISTENCIA_COMPARATIVA_RANGE_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
     const { data: attendance } = await supabase
       .from("asistencia_detalle")
@@ -107,70 +72,17 @@ export default function AsistenciaComparativa() {
       .from("trabajadores")
       .select("id, zona");
 
-    const trabajadoresRendimiento = new Set(
-      (trabajadores ?? [])
-        .filter((t) => grupoRendimientoTrabajador(t))
-        .map((t) => t.id)
-    );
-
-    const dayWorkers: Record<string, number> = {};
-    for (const r of attendance ?? []) {
-      if (r.presente && trabajadoresRendimiento.has(r.trabajador_id)) {
-        dayWorkers[r.date] = (dayWorkers[r.date] ?? 0) + 1;
-      }
-    }
-
     const { data: production } = await supabase
       .from("partes_diarios")
       .select("id, date, resumen_ia, kg_produccion_calibrador, kg_industria_manual, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
       .gte("date", from)
       .lte("date", until);
 
-    const partIds = (production ?? []).map((p) => p.id).filter(Boolean);
-    const { data: productos } = partIds.length > 0
-      ? await supabase
-          .from("producto_dia")
-          .select("part_id, linea, producto, formato_caja, kg, n_cajas, grupo_destino")
-          .in("part_id", partIds)
-      : { data: [] as any[] };
-
-    const productoByPart: Record<string, any[]> = {};
-    for (const row of productos ?? []) {
-      if (!productoByPart[row.part_id]) productoByPart[row.part_id] = [];
-      productoByPart[row.part_id].push(row);
-    }
-
-    const kgByDay: Record<string, number> = {};
-    for (const r of production ?? []) {
-      const grupos = calcularRendimientoGrupos({
-        parte: { ...r, producto_dia: productoByPart[r.id] ?? [] },
-        trabajadores: [],
-        asistencia: {},
-      });
-      const kg = totalKgRendimiento(grupos) || produccionRealParte(r) || num(r.kg_produccion_calibrador);
-      if (kg > 0) kgByDay[r.date] = (kgByDay[r.date] ?? 0) + kg;
-    }
-
-    const weeksMap: Record<string, SemanaData> = {};
-    for (const [date, workers] of Object.entries(dayWorkers)) {
-      const kg = kgByDay[date] ?? 0;
-      if (kg === 0) continue;
-      const d = new Date(date + "T12:00:00");
-      const dayKey = DAY_MAP[d.getDay()];
-      const ws = getWeekStart(date);
-      if (!weeksMap[ws]) {
-        weeksMap[ws] = { weekStart: ws, label: formatWeekLabel(ws), days: {} };
-      }
-      weeksMap[ws].days[dayKey] = {
-        date,
-        workers,
-        kg,
-        kgPorPersona: workers > 0 ? kg / workers : 0,
-      };
-    }
-
-    const result = Object.values(weeksMap).sort((a, b) => a.weekStart.localeCompare(b.weekStart));
-    setSemanas(result);
+    setSemanas(buildSemanasAsistenciaComparativa({
+      asistencia: attendance,
+      trabajadores,
+      produccion: production,
+    }));
     setLoading(false);
   }
 
@@ -185,7 +97,7 @@ export default function AsistenciaComparativa() {
 
   const chartData = useMemo(() => {
     return semanas.map((sem) => {
-      const row: Record<string, any> = { semana: sem.label };
+      const row: Record<string, string | number | null> = { semana: sem.label };
       for (const dk of DAY_KEYS) {
         const dia = sem.days[dk];
         row[dk] = dia ? Math.round(dia.kgPorPersona) : null;
@@ -254,17 +166,9 @@ export default function AsistenciaComparativa() {
           <div>
             <h1 className="page-title">Comparativa semanal</h1>
             <p className="page-subtitle">
-              Kg/persona por día y semana (últimos {RANGE_DAYS} días)
+              Kg/persona por día y semana (últimos {ASISTENCIA_COMPARATIVA_RANGE_DAYS} días)
             </p>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled={semanas.length === 0} onClick={() => exportEficienciaToExcel(semanas, `Media global: ${globalKgPorPersona} kg/persona`)} className="glass glass-hover">
-            <FileText className="h-4 w-4 mr-1.5" /> Excel
-          </Button>
-          <Button variant="outline" size="sm" disabled={semanas.length === 0} onClick={() => exportEficienciaToPDF(semanas, `Media global: ${globalKgPorPersona} kg/persona`)} className="glass glass-hover">
-            <Download className="h-4 w-4 mr-1.5" /> PDF
-          </Button>
         </div>
       </header>
 
@@ -276,7 +180,7 @@ export default function AsistenciaComparativa() {
       ) : semanas.length === 0 ? (
         <Card>
           <CardContent className="py-16 text-center text-sm text-muted-foreground">
-            Sin datos semanales (últimos {RANGE_DAYS} días).
+            Sin datos semanales (últimos {ASISTENCIA_COMPARATIVA_RANGE_DAYS} días).
           </CardContent>
         </Card>
       ) : (
@@ -353,7 +257,7 @@ export default function AsistenciaComparativa() {
                   <p className="mt-1 text-sm font-semibold">
                     {baseStats.mejorDia ? `${formatDateShort(baseStats.mejorDia.date)} · ${formatNumber(baseStats.mejorDia.kgPorPersona)} kg/persona` : "Sin dato"}
                   </p>
-                  <p className="text-xs text-muted-foreground">{baseStats.dias} dias con datos, {formatNumber(baseStats.workers)} presencias acumuladas.</p>
+                  <p className="text-xs text-muted-foreground">{baseStats.dias} dias con datos, {formatNumber(baseStats.personasDia, 1)} personas/dia.</p>
                 </div>
                 <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
                   <p className="panel-kicker">Lectura directiva</p>
@@ -412,7 +316,7 @@ export default function AsistenciaComparativa() {
                         <th key={d} className="text-center px-3 py-3 font-bold text-xs uppercase text-muted-foreground">{d}</th>
                       ))}
                       <th className="text-right px-4 py-3 font-bold text-xs uppercase text-muted-foreground">Kg total</th>
-                      <th className="text-right px-4 py-3 font-bold text-xs uppercase text-muted-foreground">Personas</th>
+                      <th className="text-right px-4 py-3 font-bold text-xs uppercase text-muted-foreground">Pers/dia</th>
                       <th className="text-right px-4 py-3 font-bold text-xs uppercase text-muted-foreground">Dias</th>
                       <th className="text-right px-4 py-3 font-bold text-xs uppercase text-muted-foreground">Kg/persona</th>
                     </tr>
@@ -423,6 +327,7 @@ export default function AsistenciaComparativa() {
                       const semWorkers = Object.values(sem.days).reduce((a, d) => a + d.workers, 0);
                       const semEfic = semWorkers > 0 ? Math.round(semKg / semWorkers) : 0;
                       const values = Object.values(sem.days);
+                      const semPersonasDia = values.length > 0 ? semWorkers / values.length : 0;
                       const maxKgP = values.length > 0 ? Math.max(...values.map(d => d.kgPorPersona)) : 0;
                       return (
                         <tr key={sem.weekStart}>
@@ -446,7 +351,7 @@ export default function AsistenciaComparativa() {
                             );
                           })}
                           <td className="text-right px-4 py-3 font-semibold tabular-nums">{formatNumber(semKg)}</td>
-                          <td className="text-right px-4 py-3 tabular-nums">{formatNumber(semWorkers)}</td>
+                          <td className="text-right px-4 py-3 tabular-nums">{formatNumber(semPersonasDia, 1)}</td>
                           <td className="text-right px-4 py-3 tabular-nums">{Object.keys(sem.days).length}</td>
                           <td className="text-right px-4 py-3 font-bold tabular-nums">{new Intl.NumberFormat("es-ES").format(semEfic)}</td>
                         </tr>
@@ -462,7 +367,7 @@ export default function AsistenciaComparativa() {
           <Card className="glass-accented">
             <CardContent className="p-5 text-sm space-y-1">
               <p className="text-foreground"><strong>Media global:</strong> {globalKgPorPersona} kg/persona en {totalDias} días ({totalKg > 1000 ? `${(totalKg / 1000).toFixed(1)}t` : `${Math.round(totalKg)} kg`} totales).</p>
-              <p className="text-xs text-muted-foreground">Basado en datos de los últimos {RANGE_DAYS} días con asistencia y producción registrada.</p>
+              <p className="text-xs text-muted-foreground">Basado en datos de los últimos {ASISTENCIA_COMPARATIVA_RANGE_DAYS} días con asistencia y producción registrada.</p>
             </CardContent>
           </Card>
         </div>

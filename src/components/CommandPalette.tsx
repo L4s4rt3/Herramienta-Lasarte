@@ -13,14 +13,11 @@ import {
   LayoutDashboard,
   FileText,
   ClipboardCheck,
-  Calculator,
   BarChart3,
   Sprout,
   Droplet,
   Users,
-  CalendarDays,
   Plus,
-  ArrowRight,
   Loader2,
 } from "lucide-react";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
@@ -29,18 +26,15 @@ const PAGES = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, keywords: "panel inicio dashboard" },
   { to: "/calidad", label: "Jornada de Calidad", icon: ClipboardCheck, keywords: "calidad lotes notas aerobotics finca productor" },
   { to: "/partes", label: "Partes diarios", icon: FileText, keywords: "partes produccion diario" },
-  { to: "/dsj", label: "Calculadora DJPMN", icon: Calculator, keywords: "dsj calculadora descuadre calculo" },
   { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3, keywords: "analisis diario lotes calibres" },
   { to: "/productores", label: "Productores", icon: Sprout, keywords: "productores proveedores origen" },
   { to: "/costes/consumos", label: "Consumos", icon: Droplet, keywords: "consumos costes agua energia gasoil" },
   { to: "/costes/asistencia", label: "Asistencia", icon: Users, keywords: "asistencia trabajadores turnos" },
-  { to: "/calendario", label: "Calendario", icon: CalendarDays, keywords: "calendario planificacion fechas" },
 ];
 
 const ACTIONS = [
   { id: "nueva-calidad", label: "Crear notas de calidad", icon: ClipboardCheck, to: "/calidad" },
   { id: "nuevo-parte", label: "Crear nuevo parte", icon: Plus, to: "/partes" },
-  { id: "ir-hoy", label: "Ir al día de hoy", icon: ArrowRight, to: "/calendario" },
 ];
 
 interface CommandPaletteProps {

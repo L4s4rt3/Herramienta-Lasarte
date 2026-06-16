@@ -13,6 +13,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Calendar as DatePickerCalendar } from "@/components/ui/calendar";
@@ -20,7 +23,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import {
   Plus, Trash2, Upload, ChevronLeft, ChevronRight, UserCheck, UserX,
   Users, Calendar as CalendarIcon, CalendarDays, Search, BarChart3, Eraser,
-  CheckCircle2, PackageCheck,
+  CheckCircle2, PackageCheck, FileText, Download, ChevronDown,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { today } from "@/lib/format";
@@ -35,26 +38,19 @@ import {
   extractWeeklyAttendance,
 } from "@/lib/asistenciaImport";
 import {
+  calcularResumenKgPersonaOperacion,
   calcularRendimientoGrupos,
   produccionRealParte,
 } from "@/lib/asistenciaRendimiento";
+import {
+  ASISTENCIA_COMPARATIVA_RANGE_DAYS,
+  buildSemanasAsistenciaComparativa,
+  type SemanaComparativaData,
+} from "@/lib/asistenciaComparativa";
+import { exportEficienciaToExcel, exportEficienciaToPDF } from "@/lib/exportEficiencia";
 
 const GRUPOS = ["Encargadas", "Produccion", "Aereo", "Tria podrido", "Punta", "Volcador", "Mecanica", "Mantenimiento", "Envasadoras", "Mallas", "Carretilla", "Graneleras", "Mozos", "Carga y descarga"];
-const GRUPOS_DIRECTOS = new Set(["Envasadoras", "Mallas", "Graneleras"]);
-const GRUPOS_LINEA_TRATAMIENTO = new Set(["Produccion", "Aereo", "Tria podrido", "Punta", "Volcador", "Mecanica", "Carretilla"]);
-const GRUPOS_NO_COMPUTA_KG = new Set(["Carga y descarga"]);
 type WorkerFilter = "todos" | "presentes" | "ausentes" | "sinRegistro" | "conKg" | "fueraKg";
-
-function tipoCosteOperativo(zona?: string | null) {
-  if (zona && GRUPOS_NO_COMPUTA_KG.has(zona)) return "No computa kg/p";
-  if (zona && GRUPOS_DIRECTOS.has(zona)) return "Coste de grupo";
-  if (zona && GRUPOS_LINEA_TRATAMIENTO.has(zona)) return "Linea tratamiento";
-  return "Coste general";
-}
-
-function computaKgPersona(zona?: string | null) {
-  return !(zona && GRUPOS_NO_COMPUTA_KG.has(zona));
-}
 
 function formatoEntero(value: number) {
   return new Intl.NumberFormat("es-ES").format(Math.round(value));
@@ -63,11 +59,6 @@ function formatoEntero(value: number) {
 function errorMessage(err: unknown) {
   if (err instanceof Error) return err.message;
   return typeof err === "string" ? err : "Error desconocido";
-}
-
-function etiquetaCalculoKg(coste: string) {
-  if (coste === "No computa kg/p") return "Fuera kg/p";
-  return "Entra kg/p";
 }
 
 function inicialesTrabajador(nombre: string) {
@@ -158,6 +149,7 @@ export default function Asistencia() {
   const [workerFilter, setWorkerFilter] = useState<WorkerFilter>("todos");
   const [selectedGroup, setSelectedGroup] = useState("todos");
   const [parteDelDia, setParteDelDia] = useState<ParteDiarioRendimiento | null>(null);
+  const [exportingAsistencia, setExportingAsistencia] = useState<"excel" | "pdf" | null>(null);
 
   // ─── Load trabajadores ──────────────────────────────────────────────────
 
@@ -219,6 +211,71 @@ export default function Asistencia() {
         .select("linea, producto, formato_caja, kg, n_cajas, grupo_destino")
         .eq("part_id", data.id);
       setParteDelDia({ ...data, producto_dia: productoDia ?? [] });
+    }
+  }
+
+  async function loadSemanasExportables(): Promise<SemanaComparativaData[]> {
+    const until = new Date().toISOString().slice(0, 10);
+    const from = new Date(Date.now() - ASISTENCIA_COMPARATIVA_RANGE_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const { data: attendance, error: attendanceError } = await supabase
+      .from("asistencia_detalle")
+      .select("date, presente, trabajador_id")
+      .gte("date", from)
+      .lte("date", until);
+    if (attendanceError) throw attendanceError;
+
+    const { data: trabajadoresExport, error: trabajadoresError } = await supabase
+      .from("trabajadores")
+      .select("id, zona");
+    if (trabajadoresError) throw trabajadoresError;
+
+    const { data: production, error: productionError } = await supabase
+      .from("partes_diarios")
+      .select("id, date, resumen_ia, kg_produccion_calibrador, kg_industria_manual, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
+      .gte("date", from)
+      .lte("date", until);
+    if (productionError) throw productionError;
+
+    return buildSemanasAsistenciaComparativa({
+      asistencia: attendance,
+      trabajadores: trabajadoresExport,
+      produccion: production,
+    });
+  }
+
+  async function exportarAsistencia(tipo: "excel" | "pdf") {
+    setExportingAsistencia(tipo);
+
+    try {
+      const semanas = await loadSemanasExportables();
+      if (semanas.length === 0) {
+        toast({
+          title: "Sin datos para exportar",
+          description: "No hay semanas con asistencia y produccion registrada en el periodo.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const totalKg = semanas.reduce((sum, semana) => sum + Object.values(semana.days).reduce((acc, dia) => acc + dia.kg, 0), 0);
+      const totalWorkers = semanas.reduce((sum, semana) => sum + Object.values(semana.days).reduce((acc, dia) => acc + dia.workers, 0), 0);
+      const kgPersonaGlobal = totalWorkers > 0 ? Math.round(totalKg / totalWorkers) : 0;
+      const resumen = `Media global: ${kgPersonaGlobal} kg/persona`;
+
+      if (tipo === "excel") {
+        exportEficienciaToExcel(semanas, resumen);
+      } else {
+        exportEficienciaToPDF(semanas, resumen);
+      }
+    } catch (err: unknown) {
+      toast({
+        title: "Error al exportar asistencia",
+        description: errorMessage(err),
+        variant: "destructive",
+      });
+    } finally {
+      setExportingAsistencia(null);
     }
   }
 
@@ -472,11 +529,15 @@ export default function Asistencia() {
   // ─── Kg/persona de lista y coste operativo ───────────────────────────────
 
   const presentes = activos.filter((t) => asistencia[t.id] === true);
-  const presentesComputables = presentes.filter((t) => computaKgPersona(t.zona));
   const kgProduccionDia = parteDelDia
     ? produccionRealParte(parteDelDia) || Number(parteDelDia.kg_produccion_calibrador) || 0
     : 0;
-  const kgPersonaLista = presentesComputables.length > 0 ? kgProduccionDia / presentesComputables.length : 0;
+  const kgPersonaResumen = useMemo(
+    () => calcularResumenKgPersonaOperacion({ trabajadores: activos, asistencia, kgProduccionDia }),
+    [activos, asistencia, kgProduccionDia]
+  );
+  const presentesComputables = kgPersonaResumen.presentesComputables;
+  const kgPersonaLista = kgPersonaResumen.kgPersona;
   const rendimientoConfeccion = useMemo(
     () => calcularRendimientoGrupos({ parte: parteDelDia, trabajadores: activos, asistencia }),
     [parteDelDia, activos, asistencia]
@@ -489,32 +550,8 @@ export default function Asistencia() {
       { label: "Graneleras", kg: rendimientoConfeccion.Graneleras.kg, pct: rendimientoConfeccion.Graneleras.kg / maxKg },
     ];
   }, [rendimientoConfeccion]);
-  const resumenCosteOperativo = useMemo(() => {
-    const counts: Record<string, number> = {
-      "Coste de grupo": 0,
-      "Linea tratamiento": 0,
-      "Coste general": 0,
-      "No computa kg/p": 0,
-    };
-    for (const trabajador of presentes) counts[tipoCosteOperativo(trabajador.zona)]++;
-    return counts;
-  }, [presentes]);
-  const listaKgPersona = useMemo(() => {
-    const costeOrder: Record<string, number> = {
-      "Coste general": 0,
-      "Linea tratamiento": 1,
-      "Coste de grupo": 2,
-      "No computa kg/p": 3,
-    };
-    return activos
-      .map((trabajador) => {
-        const presente = asistencia[trabajador.id] === true;
-        const coste = tipoCosteOperativo(trabajador.zona);
-        const kgRef = !presente || !computaKgPersona(trabajador.zona) ? null : kgPersonaLista;
-        return { trabajador, presente, coste, kgRef, order: presente ? costeOrder[coste] ?? 9 : 10 };
-      })
-      .sort((a, b) => a.order - b.order || a.trabajador.nombre.localeCompare(b.trabajador.nombre, "es"));
-  }, [activos, asistencia, kgPersonaLista]);
+  const resumenCosteOperativo = kgPersonaResumen.costes;
+  const listaKgPersona = kgPersonaResumen.rows;
   const listaKgPersonaById = useMemo(() => new Map(listaKgPersona.map((row) => [row.trabajador.id, row])), [listaKgPersona]);
   const gruposResumen = useMemo(() => (
     groupByZona(activos).map(({ grupo, workers }) => {
@@ -536,7 +573,7 @@ export default function Asistencia() {
     { id: "presentes", label: "Presentes", count: presentesCount },
     { id: "ausentes", label: "Ausentes", count: ausentesCount },
     { id: "sinRegistro", label: "Sin registro", count: sinRegistro },
-    { id: "conKg", label: "Entra kg/p", count: presentesComputables.length },
+    { id: "conKg", label: "Entra kg/p", count: presentesComputables },
     { id: "fueraKg", label: "Fuera kg/p", count: resumenCosteOperativo["No computa kg/p"] },
   ];
   const trabajadoresVisibles = useMemo(() => {
@@ -564,8 +601,8 @@ export default function Asistencia() {
   }, [activos, asistencia, listaKgPersonaById, searchQuery, selectedGroup, workerFilter]);
   const gruposVisibles = useMemo(() => groupByZona(trabajadoresVisibles), [trabajadoresVisibles]);
   const fueraKgTrabajadores = useMemo(
-    () => presentes.filter((trabajador) => !computaKgPersona(trabajador.zona)),
-    [presentes]
+    () => presentes.filter((trabajador) => listaKgPersonaById.get(trabajador.id)?.coste === "No computa kg/p"),
+    [listaKgPersonaById, presentes]
   );
   const revisionItems = [
     {
@@ -707,6 +744,25 @@ export default function Asistencia() {
           <Button variant="outline" size="sm" onClick={() => navigate("/costes/asistencia/comparativa")} className="glass glass-hover">
             <BarChart3 className="h-4 w-4 mr-1" /> Comparativa
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={exportingAsistencia !== null} className="glass glass-hover">
+                <Download className="h-4 w-4 mr-1" />
+                {exportingAsistencia ? "Exportando..." : "Exportar"}
+                <ChevronDown className="ml-1 h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem disabled={exportingAsistencia !== null} onSelect={() => exportarAsistencia("excel")}>
+                <FileText className="mr-2 h-4 w-4" />
+                Comparativa semanal Excel
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={exportingAsistencia !== null} onSelect={() => exportarAsistencia("pdf")}>
+                <Download className="mr-2 h-4 w-4" />
+                Comparativa semanal PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Dialog open={showWorkerList} onOpenChange={setShowWorkerList}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm" className="glass glass-hover">
@@ -862,7 +918,7 @@ export default function Asistencia() {
                   <p className="text-[11px] text-muted-foreground">sin marcar</p>
                 </div>
                 <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2 py-2">
-                  <p className="text-lg font-semibold tabular-nums">{presentesComputables.length}</p>
+                  <p className="text-lg font-semibold tabular-nums">{presentesComputables}</p>
                   <p className="text-[11px] text-muted-foreground">kg/p</p>
                 </div>
               </div>

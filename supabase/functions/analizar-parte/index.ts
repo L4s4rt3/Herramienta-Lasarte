@@ -251,7 +251,7 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
     ];
 
     // ── Procesar cada subagente ───────────────────────────────────────────
-    let aiData: any = {};
+    const aiData: any = {};
     let aiWarning: string | null = null;
     let subagentSuccessCount = 0;
     const subagentErrors: string[] = [];
@@ -642,7 +642,7 @@ function extractNetos(rows: any[][]): number {
   
   let sum = 0;
   let count = 0;
-  let sampleValues: string[] = [];
+  const sampleValues: string[] = [];
   for (let i = hit.headerIdx + 1; i < rows.length; i++) {
     const r = rows[i] ?? [];
     if (isTotal(r)) continue;

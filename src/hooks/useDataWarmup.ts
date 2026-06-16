@@ -20,7 +20,7 @@ export function useDataWarmup() {
 
     const warmup = () => {
       void queryClient.prefetchQuery(partesQueryOptions);
-      ["/calidad", "/partes", "/analisis/diario", "/calendario", "/productores", "/costes/consumos"].forEach(preloadRoute);
+      ["/calidad", "/partes", "/analisis/diario", "/productores", "/costes/consumos"].forEach(preloadRoute);
     };
 
     if (window.requestIdleCallback) {

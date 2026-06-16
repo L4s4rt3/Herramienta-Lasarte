@@ -11,6 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { computeCascade, CascadeResult } from "@/lib/cascade";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthProvider";
+import type { Json } from "@/integrations/supabase/types";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -33,7 +34,7 @@ export interface ParteRaw {
   kg_inventario_anterior_sin_alta: number | null;
   notas_generales: string | null;
   notas_inventario: string | null;
-  resumen_ia: any;
+  resumen_ia: Json | null;
 }
 
 export interface Parte extends ParteRaw {

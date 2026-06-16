@@ -3,8 +3,18 @@ import autoTable from "jspdf-autotable";
 import { formatDate, formatNumber } from "./format";
 import { type ConsumoPeriodoRow } from "./consumosFisicos";
 import { SesionConsumoRow, ConsumoMaquinaRow, MaquinaRow, ConsumoFisicoRow, ConsumoBaseKgRow } from "./types";
-import { PDF_THEME, drawExportHeader, drawExportFooter, drawKpiCard, pdfTableTheme } from "./exportTheme";
-import { appendAoaSheet, appendDictionarySheet, appendRowsSheet, createWorkbook, saveWorkbook } from "./exportWorkbook";
+import { drawExportHeader, drawExportFooter, pdfTableTheme } from "./exportTheme";
+import { appendDictionarySheet, appendRowsSheet, createWorkbook, saveWorkbook } from "./exportWorkbook";
+import {
+  appendReportCoverSheet,
+  buildReportFilename,
+  drawReportCover,
+  drawReportInsights,
+  drawReportSectionTitle,
+  type ReportInsight,
+  type ReportKpi,
+  type ReportMeta,
+} from "./reportKit";
 
 export interface ExportData {
   sesiones: SesionConsumoRow[];
@@ -38,7 +48,25 @@ function blankIfNull(value: number | null) {
   return value == null ? "" : value;
 }
 
-export function exportConsumoToExcel(data: ExportData) {
+export interface ConsumoReportSummary {
+  meta: ReportMeta;
+  kpis: ReportKpi[];
+  insights: ReportInsight[];
+  periodos: ConsumoPeriodoRow[];
+  hasPeriodos: boolean;
+  totals: {
+    totalKg: number;
+    totalAguaLinea: number;
+    totalAguaDrencher: number;
+    totalAguaFisica: number;
+    totalQuimicos: number;
+    totalGasoil: number;
+    totalElectricidad: number;
+    issueCount: number;
+  };
+}
+
+export function buildConsumoReportSummary(data: ExportData): ConsumoReportSummary {
   const periodos = data.periodos ?? [];
   const hasPeriodos = periodos.length > 0;
   const totalKg = hasPeriodos
@@ -57,24 +85,67 @@ export function exportConsumoToExcel(data: ExportData) {
   const totalElectricidad = hasPeriodos
     ? periodos.reduce((s, r) => s + n(r.electricidadKwh), 0)
     : data.sesiones.reduce((s, r) => s + n(r.electricidad_total_kwh), 0);
+  const issueCount = periodos.reduce((s, r) => s + r.issues.length, 0);
+  const rowLabel = hasPeriodos ? `${periodos.length} periodo(s)` : `${data.sesiones.length} sesion(es)`;
+
+  return {
+    meta: {
+      title: "Informe de consumos fisicos",
+      subtitle: "Recursos, ratios y validacion operativa",
+      periodLabel: rowLabel,
+    },
+    kpis: [
+      { label: hasPeriodos ? "Kg base" : "Kg procesados", value: formatNumber(totalKg, 0), sub: "total", tone: "info" },
+      { label: "Agua total", value: `${formatNumber(totalAguaFisica, 0)} L`, sub: `${formatNumber(ratio(totalAguaFisica, totalKg, 3), 3)} L/kg`, tone: "info" },
+      { label: "Electricidad", value: `${formatNumber(totalElectricidad, 0)} kWh`, sub: `${formatNumber(ratio(totalElectricidad, totalKg, 4), 4)} kWh/kg`, tone: "neutral" },
+      { label: "Gasoil", value: `${formatNumber(totalGasoil, 0)} L`, sub: `${formatNumber(totalKg > 0 ? (totalGasoil * 1000) / totalKg : 0, 2)} mL/kg`, tone: "warning" },
+      { label: "Quimicos", value: `${formatNumber(totalQuimicos, 0)} L`, sub: `${formatNumber(totalKg > 0 ? (totalQuimicos * 1000) / totalKg : 0, 2)} mL/kg`, tone: "neutral" },
+      { label: "Validacion", value: issueCount, sub: issueCount === 0 ? "sin incidencias" : "observaciones", tone: issueCount === 0 ? "success" : "danger" },
+    ],
+    insights: [
+      {
+        label: "Base",
+        value: hasPeriodos
+          ? "Informe construido desde periodos de consumo con kg base y confianza por periodo."
+          : "Informe construido desde sesiones de consumo registradas.",
+        tone: "info",
+      },
+      {
+        label: "Validacion",
+        value: issueCount === 0 ? "No hay incidencias de validacion en el rango." : `${issueCount} observacion(es) requieren revision.`,
+        tone: issueCount === 0 ? "success" : "danger",
+      },
+    ],
+    periodos,
+    hasPeriodos,
+    totals: {
+      totalKg,
+      totalAguaLinea,
+      totalAguaDrencher,
+      totalAguaFisica,
+      totalQuimicos,
+      totalGasoil,
+      totalElectricidad,
+      issueCount,
+    },
+  };
+}
+
+export function exportConsumoToExcel(data: ExportData) {
+  const summary = buildConsumoReportSummary(data);
+  const { periodos, hasPeriodos } = summary;
+  const {
+    totalKg,
+    totalAguaLinea,
+    totalAguaDrencher,
+    totalAguaFisica,
+    totalQuimicos,
+    totalGasoil,
+    totalElectricidad,
+  } = summary.totals;
 
   const wb = createWorkbook("Lasarte SAT - Consumos fisicos", "Control de recursos por produccion");
-  appendAoaSheet(wb, "Portada", [
-    ["Lasarte SAT - Informe de consumos fisicos"],
-    [`Generado: ${new Date().toLocaleString("es-ES")}`],
-    [],
-    ["Indicador", "Valor"],
-    [hasPeriodos ? "Periodos" : "Sesiones", hasPeriodos ? periodos.length : data.sesiones.length],
-    ["Kg base", Math.round(totalKg)],
-    ["Agua total L", Math.round(totalAguaFisica)],
-    ["Agua L/kg", ratio(totalAguaFisica, totalKg, 3)],
-    ["Electricidad kWh", Math.round(totalElectricidad)],
-    ["kWh/kg", ratio(totalElectricidad, totalKg, 4)],
-    ["Gasoil L", Math.round(totalGasoil)],
-    ["Gasoil mL/kg", totalKg > 0 ? +((totalGasoil * 1000) / totalKg).toFixed(2) : 0],
-    ["Quimicos L", Math.round(totalQuimicos)],
-    ["Quimicos mL/kg", totalKg > 0 ? +((totalQuimicos * 1000) / totalKg).toFixed(2) : 0],
-  ], [34, 24]);
+  appendReportCoverSheet(wb, summary.meta, summary.kpis);
 
   const sesionesRows = data.sesiones.map((s) => {
     const kg = n(s.kg_procesados);
@@ -209,7 +280,7 @@ export function exportConsumoToExcel(data: ExportData) {
     { Hoja: "Resumen maquinas", Campo: "% electricidad", Descripcion: "Peso de cada maquina sobre el consumo electrico total.", Uso: "Priorizar mejoras." },
   ]);
 
-  saveWorkbook(wb, "consumos_fisicos.xlsx");
+  saveWorkbook(wb, buildReportFilename("informe-consumos-fisicos", "xlsx"));
 }
 
 function drawHeader(doc: jsPDF, pageIndex: number, subtitle?: string) {
@@ -222,44 +293,19 @@ function drawFooter(doc: jsPDF) {
 
 export function exportConsumoToPDF(data: ExportData) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  let pageIndex = 0;
-  const periodos = data.periodos ?? [];
-  const hasPeriodos = periodos.length > 0;
+  let pageIndex = 1;
+  const summary = buildConsumoReportSummary(data);
+  const { periodos, hasPeriodos } = summary;
+  const { totalKg } = summary.totals;
 
-  pageIndex++;
-  drawHeader(doc, pageIndex);
-
-  doc.setFillColor(...PDF_THEME.cream);
-  doc.roundedRect(8, 26, 281, 16, 2, 2, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.setTextColor(...PDF_THEME.primaryDark);
-  doc.text(hasPeriodos ? "Consumos fisicos por periodo" : "Consumos de recursos por sesion", 148.5, 35, { align: "center" });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(...PDF_THEME.muted);
-  doc.text(hasPeriodos ? `${periodos.length} periodo(s)` : `${data.sesiones.length} sesion(es)`, 148.5, 40, { align: "center" });
-
-  const totalKg = hasPeriodos
-    ? periodos.reduce((s, r) => s + (r.kgBase || 0), 0)
-    : data.sesiones.reduce((s, r) => s + (r.kg_procesados || 0), 0);
-  const totalAgua = hasPeriodos
-    ? periodos.reduce((s, r) => s + (r.aguaL || 0), 0)
-    : data.sesiones.reduce((s, r) => s + (r.agua_linea_l || 0) + (r.agua_drencher_l || 0), 0);
-  const totalElec = hasPeriodos
-    ? periodos.reduce((s, r) => s + (r.electricidadKwh || 0), 0)
-    : data.sesiones.reduce((s, r) => s + (r.electricidad_total_kwh || 0), 0);
-  const totalGasoil = hasPeriodos
-    ? periodos.reduce((s, r) => s + (r.gasoilL || 0), 0)
-    : data.sesiones.reduce((s, r) => s + (r.gasoil_l || 0), 0);
-
-  [
-    { label: hasPeriodos ? "KG BASE" : "KG PROCESADOS", val: formatNumber(totalKg, 0), sub: "total" },
-    { label: "AGUA TOTAL", val: `${formatNumber(totalAgua, 0)} L`, sub: totalKg > 0 ? `${formatNumber(totalAgua / totalKg, 2)} L/kg` : "" },
-    { label: "ELECTRICIDAD", val: `${formatNumber(totalElec, 0)} kWh`, sub: totalKg > 0 ? `${formatNumber(totalElec / totalKg, 3)} kWh/kg` : "" },
-    { label: "GASOIL", val: `${formatNumber(totalGasoil, 0)} L`, sub: totalKg > 0 ? `${formatNumber((totalGasoil * 1000) / totalKg, 1)} mL/kg` : "" },
-    { label: hasPeriodos ? "PERIODOS" : "SESIONES", val: `${hasPeriodos ? periodos.length : data.sesiones.length}`, sub: "registrados" },
-  ].forEach((k, i) => drawKpiCard(doc, 8 + i * 57, 48, 55, k.label, k.val, k.sub));
+  let y = drawReportCover(doc, summary.meta, summary.kpis);
+  y = drawReportInsights(doc, summary.insights, 8, y, 281) + 4;
+  y = drawReportSectionTitle(
+    doc,
+    hasPeriodos ? "Consumos fisicos por periodo" : "Consumos de recursos por sesion",
+    y,
+    hasPeriodos ? "Ratios normalizados por kg base y confianza del periodo" : "Ratios normalizados por kg procesado en cada sesion",
+  );
 
   const body = hasPeriodos
     ? periodos.map((row) => [
@@ -285,7 +331,7 @@ export function exportConsumoToPDF(data: ExportData) {
     });
 
   autoTable(doc, {
-    startY: 74,
+    startY: y,
     head: hasPeriodos
       ? [["Periodo", "Confianza", "Kg base", "Agua L/kg", "kWh/kg", "Gasoil mL/kg", "Quimicos mL/kg"]]
       : [["Periodo", "Kg", "Agua L/kg", "kWh/kg", "Gasoil mL/kg", "Quimicos mL/kg"]],
@@ -306,12 +352,13 @@ export function exportConsumoToPDF(data: ExportData) {
     doc.addPage();
     pageIndex++;
     drawHeader(doc, pageIndex, "Validacion");
+    const validationY = drawReportSectionTitle(doc, "Validacion de consumos", 24, "Observaciones detectadas en los periodos");
     const validationRows = periodos
       .filter((row) => row.issues.length > 0)
       .map((row) => [row.periodo, confianzaLabel[row.confianza], row.issues.join(" | ")]);
 
     autoTable(doc, {
-      startY: 24,
+      startY: validationY,
       head: [["Periodo", "Confianza", "Observaciones"]],
       body: validationRows.length > 0
         ? validationRows
@@ -326,13 +373,7 @@ export function exportConsumoToPDF(data: ExportData) {
     doc.addPage();
     pageIndex++;
     drawHeader(doc, pageIndex, "Maquinas");
-
-    doc.setFillColor(...PDF_THEME.cream);
-    doc.roundedRect(8, 16, 281, 14, 2, 2, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.setTextColor(...PDF_THEME.primaryDark);
-    doc.text("Desglose de consumos por maquina", 148.5, 24, { align: "center" });
+    const machinesY = drawReportSectionTitle(doc, "Desglose de consumos por maquina", 24, "Consumo electrico granular por equipo");
 
     const maqBody = data.maquinas.map((m) => {
       const totalKwh = data.consumosMaquinas
@@ -342,7 +383,7 @@ export function exportConsumoToPDF(data: ExportData) {
     });
 
     autoTable(doc, {
-      startY: 34,
+      startY: machinesY,
       head: [["Maquina", "Zona", "kWh total", "kWh/kg"]],
       body: maqBody,
       ...pdfTableTheme(),
@@ -351,5 +392,5 @@ export function exportConsumoToPDF(data: ExportData) {
     drawFooter(doc);
   }
 
-  doc.save("consumos_fisicos.pdf");
+  doc.save(buildReportFilename("informe-consumos-fisicos", "pdf"));
 }

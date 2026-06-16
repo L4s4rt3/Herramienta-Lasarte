@@ -3,7 +3,7 @@
  * Tabla por productor × día con kg, T/h, peso fruta promedio, nº lotes.
  * Histórico y alertas de calibre derivante.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,6 +51,10 @@ interface ProductorStats {
   lotes: LoteDia[];
 }
 
+type LoteDiaRow = LoteDia & {
+  partes_diarios?: { date?: string | null } | null;
+};
+
 function TphBadge({ tph }: { tph: number | null }) {
   if (tph === null) return <span className="text-muted-foreground text-xs">N/D</span>;
   const color =
@@ -75,7 +79,7 @@ export default function Productores() {
   });
   const [dateTo, setDateTo] = useState(today);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("lotes_dia")
@@ -90,15 +94,15 @@ export default function Productores() {
       return;
     }
 
-    const rows: LoteDia[] = (data ?? []).map((r: any) => ({
+    const rows: LoteDia[] = ((data ?? []) as LoteDiaRow[]).map((r) => ({
       ...r,
       parte_date: r.partes_diarios?.date ?? null,
     })).sort((a, b) => (b.parte_date ?? "").localeCompare(a.parte_date ?? ""));
     setLotes(rows);
     setLoading(false);
-  }
+  }, [dateFrom, dateTo]);
 
-  useEffect(() => { setSelected(null); load(); }, [dateFrom, dateTo]);
+  useEffect(() => { setSelected(null); load(); }, [load]);
 
   // Agrupar por productor
   const byProductor = useMemo<ProductorStats[]>(() => {

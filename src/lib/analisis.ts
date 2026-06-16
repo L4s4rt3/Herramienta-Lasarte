@@ -122,7 +122,7 @@ export interface AnalisisDia {
 // Helpers internos
 // ─────────────────────────────────────────────────────────────────────────────
 
-const n = (v: any): number => Number(v) || 0;
+const n = (v: unknown): number => Number(v) || 0;
 
 function normGrupo(g: string | null): "exportacion" | "mercado" | "industria" | "otro" {
   if (!g) return "otro";

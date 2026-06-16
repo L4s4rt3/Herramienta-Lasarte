@@ -4,27 +4,23 @@ export const pageLoaders = {
   calidad: () => import("@/pages/CalidadJornada"),
   partesList: () => import("@/pages/PartesList"),
   partDetail: () => import("@/pages/PartDetail"),
-  dsjCalculator: () => import("@/pages/DSJCalculator"),
   consumoCostes: () => import("@/pages/ConsumoCostes"),
   asistencia: () => import("@/pages/Asistencia"),
   asistenciaComparativa: () => import("@/pages/AsistenciaComparativa"),
   notFound: () => import("@/pages/NotFound"),
   productores: () => import("@/pages/Productores"),
   analisisDiario: () => import("@/pages/AnalisisDiario"),
-  calendario: () => import("@/pages/CalendarioProduccion"),
 };
 
 const preloadByPath: Record<string, () => Promise<unknown>> = {
   "/": pageLoaders.dashboard,
   "/calidad": pageLoaders.calidad,
   "/partes": pageLoaders.partesList,
-  "/dsj": pageLoaders.dsjCalculator,
   "/costes/consumos": pageLoaders.consumoCostes,
   "/costes/asistencia": pageLoaders.asistencia,
   "/costes/asistencia/comparativa": pageLoaders.asistenciaComparativa,
   "/productores": pageLoaders.productores,
   "/analisis/diario": pageLoaders.analisisDiario,
-  "/calendario": pageLoaders.calendario,
 };
 
 export function preloadRoute(path: string) {

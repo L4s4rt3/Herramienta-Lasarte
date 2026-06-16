@@ -40,6 +40,29 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 
+interface ChartPayloadItem<TPayload = Record<string, unknown>> {
+  name?: string;
+  value?: number | string | null;
+  fill?: string;
+  payload: TPayload;
+}
+
+interface ChartTooltipProps<TPayload = Record<string, unknown>> {
+  active?: boolean;
+  payload?: ChartPayloadItem<TPayload>[];
+  label?: string | number;
+}
+
+interface TphTooltipPoint {
+  lote: string;
+  productor: string;
+  tph: number;
+}
+
+function emptyCell(value: React.ReactNode) {
+  return value ?? <span className="text-muted-foreground text-[10px]">—</span>;
+}
+
 // ─── Alerta badge ─────────────────────────────────────────────────────────────
 function AlertaBadge({ alerta }: { alerta: Alerta }) {
   const styles = {
@@ -79,18 +102,18 @@ function KpiCard({ label, value, sub, icon: Icon, accentClass }: {
 }
 
 // ─── Tooltip de gráficos (glass) ──────────────────────────────────────────────
-function CalibreTooltip({ active, payload, label }: any) {
+function CalibreTooltip({ active, payload, label }: ChartTooltipProps) {
   if (!active || !payload?.length) return null;
-  const total = payload.reduce((s: number, p: any) => s + (p.value ?? 0), 0);
-  const items = payload.map((p: any) => ({ name: p.name, value: formatKg(p.value), color: p.fill }));
+  const total = payload.reduce((s, p) => s + Number(p.value ?? 0), 0);
+  const items = payload.map((p) => ({ name: String(p.name ?? ""), value: formatKg(Number(p.value ?? 0)), color: p.fill }));
   items.push({ name: "Total", value: formatKg(total), color: "#888" });
   return <GlassTooltip active label={label} payload={items} />;
 }
 
-function PieTooltip({ active, payload }: any) {
+function PieTooltip({ active, payload }: ChartTooltipProps<{ color?: string }>) {
   if (!active || !payload?.length) return null;
   const d = payload[0];
-  const items = [{ name: d.name, value: formatKg(d.value), color: d.payload.color }];
+  const items = [{ name: String(d.name ?? ""), value: formatKg(Number(d.value ?? 0)), color: d.payload.color }];
   return <GlassTooltip active payload={items} />;
 }
 
@@ -294,7 +317,7 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
                 <CartesianGrid {...GRID} />
                 <XAxis dataKey="lote" {...XAXIS} fontSize={9} />
                 <YAxis {...YAXIS} tickFormatter={v => `${v}T`} width={30} domain={["auto", "auto"]} />
-                <Tooltip cursor={CHART_CURSOR} content={(props: any) => {
+                <Tooltip cursor={CHART_CURSOR} content={(props: ChartTooltipProps<TphTooltipPoint>) => {
                   if (!props.active || !props.payload?.length) return null;
                   const d = props.payload[0].payload;
                   const c = tphColor(d.tph);
@@ -417,7 +440,6 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
 import type { LoteProduccion, ProductoEmpacado, CalibreRow, PaletRow, TipoClasificacion } from "@/lib/parsers";
 
 function RawProduccionTable({ lotes, columnas }: { lotes: LoteProduccion[]; columnas?: string[] }) {
-  const na = (v: any) => v ?? <span className="text-muted-foreground text-[10px]">—</span>;
   return (
     <Card>
       <CardContent className="p-0">
@@ -441,13 +463,13 @@ function RawProduccionTable({ lotes, columnas }: { lotes: LoteProduccion[]; colu
             <TableBody>
               {lotes.map((l) => (
                 <TableRow key={l.id_lote}>
-                  <TableCell className="text-xs font-mono">{na(l.id_lote)}</TableCell>
-                  <TableCell className="text-xs">{na(l.nombre_lote)}</TableCell>
-                  <TableCell className="text-xs font-mono">{na(l.codigo_productor)}</TableCell>
-                  <TableCell className="text-xs font-medium">{na(l.nombre_productor)}</TableCell>
-                  <TableCell className="text-xs">{na(l.variedad)}</TableCell>
-                  <TableCell className="text-xs whitespace-nowrap">{na(l.tiempo_inicio)}</TableCell>
-                  <TableCell className="text-xs whitespace-nowrap">{na(l.hora_maquina)}</TableCell>
+                  <TableCell className="text-xs font-mono">{emptyCell(l.id_lote)}</TableCell>
+                  <TableCell className="text-xs">{emptyCell(l.nombre_lote)}</TableCell>
+                  <TableCell className="text-xs font-mono">{emptyCell(l.codigo_productor)}</TableCell>
+                  <TableCell className="text-xs font-medium">{emptyCell(l.nombre_productor)}</TableCell>
+                  <TableCell className="text-xs">{emptyCell(l.variedad)}</TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">{emptyCell(l.tiempo_inicio)}</TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">{emptyCell(l.hora_maquina)}</TableCell>
                   <TableCell className="text-right tabular-nums text-xs font-semibold">{formatKg(l.kg_peso_total)}</TableCell>
                   <TableCell className="text-right text-xs">
                     {l.toneladas_hora !== null
@@ -473,7 +495,6 @@ function RawProduccionTable({ lotes, columnas }: { lotes: LoteProduccion[]; colu
 // Orden: Producto · Empaque · Empaques · Peso(kg) · Fruta
 
 function RawProductoTable({ lineas, columnas }: { lineas: ProductoEmpacado[]; columnas?: string[] }) {
-  const na = (v: any) => v ?? <span className="text-muted-foreground text-[10px]">—</span>;
   return (
     <Card>
       <CardContent className="p-0">
@@ -492,13 +513,13 @@ function RawProductoTable({ lineas, columnas }: { lineas: ProductoEmpacado[]; co
             <TableBody>
               {lineas.map((l) => (
                 <TableRow key={`${l.producto}-${l.empaque}`}>
-                  <TableCell className="text-xs font-medium max-w-[200px] truncate" title={l.producto ?? ""}>{na(l.producto)}</TableCell>
-                  <TableCell className="text-xs">{na(l.empaque)}</TableCell>
+                  <TableCell className="text-xs font-medium max-w-[200px] truncate" title={l.producto ?? ""}>{emptyCell(l.producto)}</TableCell>
+                  <TableCell className="text-xs">{emptyCell(l.empaque)}</TableCell>
                   <TableCell className="text-right tabular-nums text-xs">
                     {l.empaques !== null ? formatNumber(l.empaques) : "—"}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-xs font-semibold">{formatKg(l.kg)}</TableCell>
-                  <TableCell className="text-xs">{na(l.fruta)}</TableCell>
+                  <TableCell className="text-xs">{emptyCell(l.fruta)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -513,7 +534,6 @@ function RawProductoTable({ lineas, columnas }: { lineas: ProductoEmpacado[]; co
 // Orden: Variedad · Clase · Grupo · Peso(kg) · Tamaños
 
 function RawCalibresTable({ calibres, columnas }: { calibres: CalibreRow[]; columnas?: string[] }) {
-  const na = (v: any) => v ?? <span className="text-muted-foreground text-[10px]">—</span>;
   return (
     <Card>
       <CardContent className="p-0">
@@ -532,13 +552,13 @@ function RawCalibresTable({ calibres, columnas }: { calibres: CalibreRow[]; colu
             <TableBody>
               {calibres.map((c) => (
                 <TableRow key={`${c.variedad}-${c.clase}-${c.grupo}`}>
-                  <TableCell className="text-xs font-medium">{na(c.variedad)}</TableCell>
-                  <TableCell className="text-xs">{na(c.clase)}</TableCell>
+                  <TableCell className="text-xs font-medium">{emptyCell(c.variedad)}</TableCell>
+                  <TableCell className="text-xs">{emptyCell(c.clase)}</TableCell>
                   <TableCell className="text-xs">
                     {c.grupo ? <GrupoBadge grupo={c.grupo} /> : "—"}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-xs font-semibold">{c.kg > 0 ? formatKg(c.kg) : "—"}</TableCell>
-                  <TableCell className="text-xs">{na(c.tamanos)}</TableCell>
+                  <TableCell className="text-xs">{emptyCell(c.tamanos)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -587,7 +607,6 @@ function TiposClasificacionTable({ tipos }: { tipos: TipoClasificacion[] }) {
 // Orden: Producto · Fecha · Cliente · Kg Netos
 
 function RawPaletsTable({ palets, columnas }: { palets: PaletRow[]; columnas?: string[] }) {
-  const na = (v: any) => v ?? <span className="text-muted-foreground text-[10px]">—</span>;
   return (
     <Card>
       <CardContent className="p-0">
@@ -605,9 +624,9 @@ function RawPaletsTable({ palets, columnas }: { palets: PaletRow[]; columnas?: s
             <TableBody>
               {palets.map((p) => (
                 <TableRow key={`${p.producto}-${p.fecha}-${p.cliente}`}>
-                  <TableCell className="text-xs font-medium max-w-[200px] truncate" title={p.producto ?? ""}>{na(p.producto)}</TableCell>
-                  <TableCell className="text-xs whitespace-nowrap">{na(p.fecha)}</TableCell>
-                  <TableCell className="text-xs">{na(p.cliente)}</TableCell>
+                  <TableCell className="text-xs font-medium max-w-[200px] truncate" title={p.producto ?? ""}>{emptyCell(p.producto)}</TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">{emptyCell(p.fecha)}</TableCell>
+                  <TableCell className="text-xs">{emptyCell(p.cliente)}</TableCell>
                   <TableCell className="text-right tabular-nums text-xs font-semibold">{formatKg(p.kg_neto)}</TableCell>
                 </TableRow>
               ))}

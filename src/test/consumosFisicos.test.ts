@@ -212,4 +212,46 @@ describe("consumos fisicos helpers", () => {
     expect(daily.reduce((total, row) => total + row.gasoilL, 0)).toBeCloseTo(weekly[0].gasoilL);
     expect(daily.reduce((total, row) => total + row.kgBase, 0)).toBeCloseTo(weekly[0].kgBase);
   });
+
+  it("spreads gasoil purchases over kg produced until the next purchase", () => {
+    const dailyParts = [
+      ["2026-01-01", 100],
+      ["2026-01-02", 100],
+      ["2026-01-03", 100],
+      ["2026-01-04", 100],
+      ["2026-01-05", 120],
+      ["2026-01-06", 120],
+      ["2026-01-07", 120],
+      ["2026-01-08", 120],
+      ["2026-01-09", 120],
+      ["2026-01-10", 100],
+      ["2026-01-11", 100],
+      ["2026-01-12", 100],
+      ["2026-01-13", 100],
+      ["2026-01-14", 100],
+    ] as const;
+
+    const rows = buildWeeklyConsumptionRows({
+      rangeStart: "2026-01-01",
+      rangeEnd: "2026-01-14",
+      consumos: [
+        { id: "gasoil-1", recurso: "gasoil", fecha_inicio: "2026-01-01", fecha_fin: "2026-01-01", cantidad: 900, unidad: "l", fuente: "factura_detallada" },
+        { id: "gasoil-2", recurso: "gasoil", fecha_inicio: "2026-01-10", fecha_fin: "2026-01-10", cantidad: 300, unidad: "l", fuente: "factura_detallada" },
+      ],
+      partes: dailyParts.map(([date, kg]) => ({
+        date,
+        kg_produccion_calibrador: kg,
+        kg_mujeres_calibrador: 0,
+        kg_reciclado_malla_z1: 0,
+        kg_reciclado_malla_z2: 0,
+      })),
+      basesKg: [],
+    });
+
+    expect(rows.map((row) => row.periodo)).toEqual(["2026-W01", "2026-W02", "2026-W03"]);
+    expect(rows[0].gasoilL).toBeCloseTo(360);
+    expect(rows[1].gasoilL).toBeCloseTo(660);
+    expect(rows[2].gasoilL).toBeCloseTo(180);
+    expect(rows.reduce((total, row) => total + row.gasoilL, 0)).toBeCloseTo(1200);
+  });
 });

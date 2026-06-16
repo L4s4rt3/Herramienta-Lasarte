@@ -1,6 +1,21 @@
 import { supabase } from "@/integrations/supabase/client";
 import { DailyProduction, ProduccionResumen } from "./types";
 
+interface ProduccionPartesRow {
+  date: string;
+  kg_produccion_calibrador: number | null;
+  kg_industria_manual: number | null;
+  kg_mujeres_calibrador: number | null;
+  kg_reciclado_malla_z1: number | null;
+  kg_reciclado_malla_z2: number | null;
+}
+
+interface EstadoParteRow {
+  user_id: string;
+  estado: string;
+  date: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers de fecha
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,7 +58,7 @@ export function getWeekRange(weekOffset = 0): { from: string; to: string; label:
 // producción real = calibrador − mujeres − reciclado_z1 − reciclado_z2
 // ─────────────────────────────────────────────────────────────────────────────
 
-function calcProduccionReal(row: Record<string, any>): number {
+function calcProduccionReal(row: ProduccionPartesRow): number {
   return (
     (Number(row.kg_produccion_calibrador) || 0) -
     (Number(row.kg_mujeres_calibrador)     || 0) -
@@ -83,7 +98,7 @@ export async function getProduccionSemanal(
 
   // Agrupa por fecha (puede haber varios partes por día)
   const grouped: Record<string, number> = {};
-  for (const row of data ?? []) {
+  for (const row of (data ?? []) as ProduccionPartesRow[]) {
     grouped[row.date] = (grouped[row.date] ?? 0) + calcProduccionReal(row);
   }
 
@@ -119,7 +134,7 @@ export async function getProduccionHoy(): Promise<ProduccionResumen> {
     throw error;
   }
 
-  const totalKg = (data ?? []).reduce((sum, r) => sum + calcProduccionReal(r), 0);
+  const totalKg = ((data ?? []) as ProduccionPartesRow[]).reduce((sum, r) => sum + calcProduccionReal(r), 0);
 
   return { totalKg, objetivo: 0, completion: 0 };
 }
@@ -190,7 +205,7 @@ export async function getEstadoPartesHoy(): Promise<
     throw error;
   }
 
-  return (data ?? []).map((r: any) => ({
+  return ((data ?? []) as EstadoParteRow[]).map((r) => ({
     user_id: r.user_id,
     estado: r.estado,
     fecha: r.date,

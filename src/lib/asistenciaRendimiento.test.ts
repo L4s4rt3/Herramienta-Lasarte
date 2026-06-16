@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  calcularResumenKgPersonaOperacion,
   calcularRendimientoGrupos,
   calcularRendimientoPersonas,
   etiquetaTipoCoste,
@@ -162,5 +163,37 @@ describe("calcularRendimientoGrupos", () => {
     expect(tipoCosteTrabajador({ id: "3", zona: "Mozos" })).toBe("general");
     expect(tipoCosteTrabajador({ id: "4", zona: "Carga y descarga" })).toBe("no_computa");
     expect(tipoCosteTrabajador({ id: "5", zona: null })).toBe("sin_grupo");
+  });
+
+  it("builds the daily kg/person operation summary excluding non-computable workers", () => {
+    const result = calcularResumenKgPersonaOperacion({
+      trabajadores: [
+        { id: "1", nombre: "Ana", zona: "Envasadoras" },
+        { id: "2", nombre: "Bea", zona: "Punta" },
+        { id: "3", nombre: "Clara", zona: "Mozos" },
+        { id: "4", nombre: "Diana", zona: "Carga y descarga" },
+        { id: "5", nombre: "Eva", zona: "Mallas" },
+      ],
+      asistencia: { "1": true, "2": true, "3": true, "4": true, "5": false },
+      kgProduccionDia: 90000,
+    });
+
+    expect(result.presentes).toBe(4);
+    expect(result.presentesComputables).toBe(3);
+    expect(result.fueraKgPersona).toBe(1);
+    expect(result.kgPersona).toBe(30000);
+    expect(result.costes).toEqual({
+      "Coste de grupo": 1,
+      "Linea tratamiento": 1,
+      "Coste general": 1,
+      "No computa kg/p": 1,
+    });
+    expect(result.rows.map((row) => [row.trabajador.id, row.coste, row.calculo, row.kgRef])).toEqual([
+      ["3", "Coste general", "Entra kg/p", 30000],
+      ["2", "Linea tratamiento", "Entra kg/p", 30000],
+      ["1", "Coste de grupo", "Entra kg/p", 30000],
+      ["4", "No computa kg/p", "Fuera kg/p", null],
+      ["5", "Coste de grupo", "Entra kg/p", null],
+    ]);
   });
 });

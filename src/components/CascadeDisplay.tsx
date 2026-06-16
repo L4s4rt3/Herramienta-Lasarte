@@ -5,9 +5,10 @@
  * cuando se hace "Analizar con IA" o se modifican datos manuales.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { computeCascade } from "@/lib/cascade";
+import type { CascadeResult } from "@/lib/cascade";
 import { CascadeView } from "@/components/CascadeView";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, AlertCircle, CheckCircle } from "lucide-react";
@@ -19,12 +20,12 @@ interface Props {
 }
 
 export function CascadeDisplay({ parte_id, class_name }: Props) {
-  const [cascada, setCascada] = useState<any>(null);
+  const [cascada, setCascada] = useState<CascadeResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
-  async function fetchAndCompute() {
+  const fetchAndCompute = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -77,17 +78,17 @@ export function CascadeDisplay({ parte_id, class_name }: Props) {
 
       setCascada(result);
       setLastUpdate(new Date());
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Error inesperado");
     } finally {
       setLoading(false);
     }
-  }
+  }, [parte_id]);
 
   // Cargar inicial
   useEffect(() => {
     fetchAndCompute();
-  }, [parte_id]);
+  }, [fetchAndCompute]);
 
   // Suscribirse a cambios en tiempo real
   useEffect(() => {
@@ -111,7 +112,7 @@ export function CascadeDisplay({ parte_id, class_name }: Props) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [parte_id]);
+  }, [fetchAndCompute, parte_id]);
 
   if (loading && !cascada) {
     return (

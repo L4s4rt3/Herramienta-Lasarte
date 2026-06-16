@@ -6,6 +6,21 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+type ExcelRow = unknown[];
+
+interface DbWorker {
+  id: string;
+  nombre: string;
+  zona: string | null;
+}
+
+interface DetalleRow {
+  user_id: string;
+  date: string;
+  trabajador_id: string;
+  presente: boolean;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -51,17 +66,17 @@ Deno.serve(async (req) => {
     }
     const wb = XLSX.read(bytes, { type: "array" });
 
-    const rowsAll: any[][] = [];
+    const rowsAll: ExcelRow[] = [];
     for (const sn of wb.SheetNames) {
       const ws = wb.Sheets[sn];
-      rowsAll.push(...XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, blankrows: false, defval: null }));
+      rowsAll.push(...XLSX.utils.sheet_to_json<ExcelRow>(ws, { header: 1, blankrows: false, defval: null }));
     }
 
     if (rowsAll.length < 2) return json({ error: "Excel sin datos" }, 400);
 
     const header = rowsAll[0] ?? [];
     const colIdx: Record<string, number> = {};
-    const headerNorm = header.map((h: any) => norm(String(h ?? "")));
+    const headerNorm = header.map((h: unknown) => norm(String(h ?? "")));
     headerNorm.forEach((h: string, i: number) => {
       if (/productor|nombre/.test(h)) colIdx.nombre = i;
       if (/actividad/.test(h)) colIdx.actividad = i;
@@ -93,11 +108,12 @@ Deno.serve(async (req) => {
     if (!targetDate) return json({ error: "Fecha no encontrada en Excel ni en parámetros" }, 400);
 
     // ── Cargar trabajadores de la DB ──
-    const { data: dbWorkers, error: dbErr } = await admin
+    const { data: dbWorkersData, error: dbErr } = await admin
       .from("trabajadores").select("id, nombre, zona")
       .eq("user_id", uid)
       .eq("activo", true);
     if (dbErr) return json({ error: dbErr.message }, 500);
+    const dbWorkers = (dbWorkersData ?? []) as DbWorker[];
     if (!dbWorkers || dbWorkers.length === 0) return json({ error: "No hay trabajadores dados de alta" }, 404);
 
     // ── Matching de nombres ──
@@ -113,7 +129,7 @@ Deno.serve(async (req) => {
     function cleanName(s: string): string {
       let r = s.replace(/\u00ad/g, "").toUpperCase();
       for (const [k, v] of Object.entries(accentMap)) r = r.split(k).join(v);
-      r = r.replace(/[,;:!?()\-]/g, "").replace(/\s+/g, " ").trim();
+      r = r.replace(/[,;:!?()-]/g, "").replace(/\s+/g, " ").trim();
       return r;
     }
 
@@ -147,7 +163,7 @@ Deno.serve(async (req) => {
     // Match each Excel worker to a DB worker
     const matchedDbIds = new Set<string>();
     const presenteTrabajadorIds: string[] = [];
-    const unmatchedDbIds = new Set(dbWorkers.map((w: any) => w.id));
+    const unmatchedDbIds = new Set(dbWorkers.map((w) => w.id));
 
     for (const ew of excelWorkers) {
       let bestId: string | null = null;
@@ -205,7 +221,7 @@ Deno.serve(async (req) => {
     // ── Guardar asistencia_detalle (borrar previos + insertar nuevos) ──
     await admin.from("asistencia_detalle").delete().eq("user_id", uid).eq("date", targetDate);
 
-    const detalleRows: any[] = [
+    const detalleRows: DetalleRow[] = [
       ...presenteTrabajadorIds.map((tid) => ({
         user_id: uid,
         date: targetDate,

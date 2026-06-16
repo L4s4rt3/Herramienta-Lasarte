@@ -37,7 +37,7 @@ export default function PartDetailCalidad({ date }: { date: string }) {
       setLoading(true);
       try {
         const { data: lotesData, error } = await supabase
-          .from("calidad_lotes" as any)
+          .from("calidad_lotes")
           .select("*")
           .eq("fecha", date)
           .order("created_at", { ascending: true });
@@ -47,7 +47,7 @@ export default function PartDetailCalidad({ date }: { date: string }) {
         let loadedAdjuntos: CalidadAdjunto[] = [];
         if (loadedLotes.length > 0) {
           const { data: adjuntosData, error: adjuntosError } = await supabase
-            .from("calidad_adjuntos" as any)
+            .from("calidad_adjuntos")
             .select("*")
             .in("lote_id", loadedLotes.map((lote) => lote.id));
           if (adjuntosError) throw adjuntosError;

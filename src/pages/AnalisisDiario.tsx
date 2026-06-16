@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -60,10 +60,21 @@ function normalizeText(value: string | null | undefined): string {
 type Periodo = "7d" | "30d" | "90d" | "custom";
 
 export default function AnalisisDiario() {
-  const [periodo, setPeriodo] = useState<Periodo>("30d");
-  const [customDesde, setCustomDesde] = useState(daysAgo(30));
-  const [customHasta, setCustomHasta] = useState(today());
+  const [searchParams] = useSearchParams();
+  const queryDesde = searchParams.get("desde");
+  const queryHasta = searchParams.get("hasta");
+  const hasQueryRange = Boolean(queryDesde && queryHasta);
+  const [periodo, setPeriodo] = useState<Periodo>(() => (hasQueryRange ? "custom" : "30d"));
+  const [customDesde, setCustomDesde] = useState(() => queryDesde ?? daysAgo(30));
+  const [customHasta, setCustomHasta] = useState(() => queryHasta ?? today());
   const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    if (!queryDesde || !queryHasta) return;
+    setPeriodo("custom");
+    setCustomDesde(queryDesde);
+    setCustomHasta(queryHasta);
+  }, [queryDesde, queryHasta]);
 
   const desde = useMemo(() => {
     if (periodo === "7d") return daysAgo(7);

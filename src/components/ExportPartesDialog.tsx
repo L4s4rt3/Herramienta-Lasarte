@@ -55,8 +55,9 @@ export function ExportPartesDialog({ defaultFrom, defaultTo }: Props) {
       else exportPartesToPDF(rows, from, to);
       setOpen(false);
       toast({ title: `Exportado correctamente - ${rows.length} parte(s)` });
-    } catch (e: any) {
-      toast({ title: "Error al exportar", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      const description = e instanceof Error ? e.message : String(e);
+      toast({ title: "Error al exportar", description, variant: "destructive" });
     } finally {
       setBusy(null);
     }

@@ -12,7 +12,7 @@ import { CascadeView } from "@/components/CascadeView";
 import { computeCascade } from "@/lib/cascade";
 import { formatDate } from "@/lib/format";
 import { toast } from "@/hooks/use-toast";
-import { ArrowLeft, Save, Lock, Unlock, Sparkles, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, Lock, Unlock, Sparkles, Loader2, BarChart3 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExportPartesDialog } from "@/components/ExportPartesDialog";
 import PartDetailArchivos from "@/components/PartDetailArchivos";
@@ -65,6 +65,8 @@ interface Archivo {
   file_size: number | null;
   uploaded_at: string;
 }
+
+type ParteUpdatePayload = Partial<Record<keyof Parte, string | number | null>>;
 
 function normalizeParte(raw: Partial<CachedParte> & { id: string; date: string; estado: string }): Parte {
   return {
@@ -181,7 +183,7 @@ export default function PartDetail() {
   async function save() {
     if (!parte || !cascade) return;
     setSaving(true);
-    const payload: any = {
+    const payload: ParteUpdatePayload = {
       notas_generales: parte.notas_generales,
       notas_inventario: parte.notas_inventario,
     };
@@ -195,7 +197,7 @@ export default function PartDetail() {
     if (error) return toast({ title: "Error", description: error.message, variant: "destructive" });
     toast({ title: "Guardado" });
     void queryClient.invalidateQueries({ queryKey: PARTES_QUERY_KEY });
-    if (payload.estado && payload.estado !== parte.estado) load();
+    if (typeof payload.estado === "string" && payload.estado !== parte.estado) load();
   }
 
   async function toggleEstado() {
@@ -310,7 +312,7 @@ export default function PartDetail() {
           <div>
             <h1 className="page-title">
               Parte ·{" "}
-              <Link to="/calendario" className="text-primary hover:underline">
+              <Link to={`/analisis/diario?desde=${parte.date}&hasta=${parte.date}`} className="text-primary hover:underline">
                 {formatDate(parte.date)}
               </Link>
             </h1>
@@ -318,6 +320,11 @@ export default function PartDetail() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild className="glass glass-hover">
+            <Link to={`/analisis/diario?desde=${parte.date}&hasta=${parte.date}`}>
+              <BarChart3 className="h-4 w-4" />Análisis detallado
+            </Link>
+          </Button>
           <ExportPartesDialog defaultFrom={parte.date} defaultTo={parte.date} />
           <Button
             variant="default"

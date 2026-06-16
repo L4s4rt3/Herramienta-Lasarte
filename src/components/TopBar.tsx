@@ -29,27 +29,15 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/",
     parentLabel: "Operaciones diarias",
   },
-  "/dsj": {
-    label: "Calculadora DJPMN",
-    subtitle: "Simulación y validación de diferencias sin justificar",
-    parent: "/",
-    parentLabel: "Operaciones diarias",
-  },
   "/analisis/diario": {
     label: "Análisis diario",
-    subtitle: "Indicadores diarios de rendimiento y calidad",
+    subtitle: "Revisión detallada de lotes, calibres y destinos por día",
     parent: "/",
     parentLabel: "Producción",
   },
   "/productores": {
     label: "Productores",
     subtitle: "Análisis de origen, rendimiento y comportamiento",
-    parent: "/",
-    parentLabel: "Producción",
-  },
-  "/calendario": {
-    label: "Calendario",
-    subtitle: "Planificación de producción y actividad",
     parent: "/",
     parentLabel: "Producción",
   },
