@@ -14,6 +14,7 @@
  * PALETS: Producto, Fecha, Cliente, Kg Netos
  */
 import * as XLSX from "xlsx";
+import { calcularTphOperativa } from "./velocidadOperativa";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MODO DIAGNÓSTICO
@@ -574,15 +575,8 @@ export function parseInformeProduccion(wb: XLSX.WorkBook): ParsedProduccion {
 
   const kg_total = lotes.reduce((s, l) => s + l.kg_peso_total, 0);
 
-  // T/h promedio ponderado por duración
-  let tph_promedio: number | null = null;
-  const conTph = lotes.filter(l => l.toneladas_hora !== null && l.toneladas_hora > 0);
-  if (conTph.length > 0) {
-    const totalMin = conTph.reduce((s, l) => s + (l.duracion_min ?? 1), 0);
-    tph_promedio = totalMin > 0
-      ? conTph.reduce((s, l) => s + (l.toneladas_hora as number) * (l.duracion_min ?? 1), 0) / totalMin
-      : conTph.reduce((s, l) => s + (l.toneladas_hora as number), 0) / conTph.length;
-  }
+  // Velocidad general: kg del dia repartidos entre 8 horas operativas.
+  const tph_promedio = calcularTphOperativa(kg_total);
 
   return {
     tipo: "produccion",

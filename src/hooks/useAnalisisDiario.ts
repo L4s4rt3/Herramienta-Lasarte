@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { calcularTphOperativa } from "@/lib/velocidadOperativa";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -200,11 +201,7 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       const kg_lotes = lotesAll.reduce((s, l) => s + l.kg_peso_total, 0);
       const lotesConTph = lotesAll.filter((l) => l.toneladas_hora !== null && l.toneladas_hora > 0);
       const totalMin = lotesConTph.reduce((s, l) => s + (l.duracion_min ?? 0), 0);
-      const avgTph = lotesConTph.length > 0
-        ? totalMin > 0
-          ? lotesConTph.reduce((s, l) => s + (l.toneladas_hora ?? 0) * (l.duracion_min ?? 1), 0) / totalMin
-          : lotesConTph.reduce((s, l) => s + (l.toneladas_hora ?? 0), 0) / lotesConTph.length
-        : null;
+      const avgTph = calcularTphOperativa(kg_lotes, diasSet.size);
 
       setData({
         totals: {

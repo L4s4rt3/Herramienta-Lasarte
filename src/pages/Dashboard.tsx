@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatKg, formatPct } from "@/lib/format";
+import { calcularTphOperativa } from "@/lib/velocidadOperativa";
 import { cn } from "@/lib/utils";
 import {
   Popover,
@@ -35,11 +36,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-
-type ProductionPaceData = {
-  avgTph: number | null;
-  loteCount: number;
-};
 
 interface ChartPayloadItem {
   dataKey?: string;
@@ -187,31 +183,6 @@ export default function Dashboard() {
   } | null;
 
   // T/h promedio: resumen ejecutivo. El detalle vive en Analisis Diario y Productores.
-  const { data: paceData } = useQuery<ProductionPaceData | null>({
-    queryKey: ["dashboard-production-pace", currentWeek.start, currentWeek.end],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("lotes_dia")
-        .select("toneladas_hora, duracion_min, partes_diarios!inner(date)")
-        .gte("partes_diarios.date", currentWeek.start)
-        .lte("partes_diarios.date", currentWeek.end)
-        .not("toneladas_hora", "is", null);
-      const rows = (data ?? []).filter((row) => (row.toneladas_hora ?? 0) > 0);
-      if (rows.length === 0) return null;
-      const totalMin = rows.reduce((sum, row) => sum + (row.duracion_min ?? 0), 0);
-      const weightedTph = rows.reduce(
-        (sum, row) => sum + (row.toneladas_hora ?? 0) * (row.duracion_min ?? 1),
-        0
-      );
-      const simpleTph = rows.reduce((sum, row) => sum + (row.toneladas_hora ?? 0), 0);
-
-      return {
-        avgTph: totalMin > 0 ? weightedTph / totalMin : simpleTph / rows.length,
-        loteCount: rows.length,
-      };
-    },
-  });
-
   // Distribución por grupo de destino
   const { data: grupoDistribution } = useQuery({
     queryKey: ["dashboard-grupo-distribution", currentWeek.start, currentWeek.end],
@@ -252,7 +223,7 @@ export default function Dashboard() {
     },
   });
 
-  const avgTph = paceData?.avgTph ?? null;
+  const avgTph = calcularTphOperativa(currentWeekData.produccion, currentWeekData.partes);
 
   return (
     <div className="page-shell">
@@ -320,7 +291,7 @@ export default function Dashboard() {
             <KPICard
               label="Velocidad media"
               value={avgTph !== null ? `${avgTph.toFixed(1)} T/h` : "—"}
-              hint={`${paceData?.loteCount ?? 0} lotes con velocidad`}
+              hint={`${currentWeekData.partes} dias operativos - 8 h/dia`}
               icon={Gauge}
               trend={avgTph !== null ? (avgTph >= 16 ? "up" : avgTph >= 12 ? "neutral" : "down") : "neutral"}
             />

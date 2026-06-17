@@ -17,6 +17,7 @@ import type {
   ProductoEmpacado,
   CalibreRow,
 } from "./parsers";
+import { calcularTphOperativa } from "./velocidadOperativa";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tipos de salida
@@ -32,7 +33,7 @@ export interface KpiDia {
   pct_mercado: number;
   pct_industria: number;
   pct_rechazo: number;
-  tph_promedio: number | null;   // T/h ponderado
+  tph_promedio: number | null;   // T/h operativo general
   tph_min: number | null;        // T/h mínimo (lote más lento)
   tph_max: number | null;        // T/h máximo (lote más rápido)
   n_lotes: number;
@@ -185,7 +186,7 @@ export function computeAnalisis(
   const lotes = produccion?.lotes ?? [];
   const lotesConTph = lotes.filter((l) => l.toneladas_hora && l.toneladas_hora > 0);
 
-  let tph_promedio: number | null = null;
+  const tph_promedio = calcularTphOperativa(kg_calibrador);
   let tph_min: number | null = null;
   let tph_max: number | null = null;
 
@@ -193,10 +194,6 @@ export function computeAnalisis(
     const tphVals = lotesConTph.map((l) => l.toneladas_hora as number);
     tph_min = Math.min(...tphVals);
     tph_max = Math.max(...tphVals);
-    const totalMin = lotesConTph.reduce((s, l) => s + (l.duracion_min ?? 1), 0);
-    tph_promedio = totalMin > 0
-      ? lotesConTph.reduce((s, l) => s + (l.toneladas_hora as number) * (l.duracion_min ?? 1), 0) / totalMin
-      : tphVals.reduce((a, b) => a + b, 0) / tphVals.length;
   }
 
   // ── 3. Productores ────────────────────────────────────────────────────

@@ -1,0 +1,44 @@
+import { describe, expect, it } from "vitest";
+import { computeAnalisis } from "./analisis";
+import type { LoteProduccion, ParsedProduccion } from "./parsers";
+
+function lote(overrides: Partial<LoteProduccion>): LoteProduccion {
+  return {
+    id_lote: null,
+    nombre_lote: null,
+    codigo_productor: null,
+    nombre_productor: null,
+    variedad: null,
+    tiempo_inicio: null,
+    hora_maquina: null,
+    kg_peso_total: 0,
+    toneladas_hora: null,
+    peso_fruta_promedio_g: null,
+    lote_codigo: null,
+    productor: null,
+    producto: null,
+    hora_inicio: null,
+    duracion_min: null,
+    ...overrides,
+  };
+}
+
+describe("computeAnalisis", () => {
+  it("calculates the general day T/h from total kg divided by 8 operational hours", () => {
+    const produccion: ParsedProduccion = {
+      tipo: "produccion",
+      kg_total: 80000,
+      tph_promedio: 20,
+      lotes: [
+        lote({ productor: "Productor A", kg_peso_total: 40000, toneladas_hora: 20, duracion_min: 30 }),
+        lote({ productor: "Productor B", kg_peso_total: 40000, toneladas_hora: 5, duracion_min: 30 }),
+      ],
+    };
+
+    const result = computeAnalisis(produccion, null, null, null);
+
+    expect(result.kpis.tph_promedio).toBe(10);
+    expect(result.productores.find((p) => p.productor === "Productor A")?.tph_avg).toBe(20);
+    expect(result.productores.find((p) => p.productor === "Productor B")?.tph_avg).toBe(5);
+  });
+});
