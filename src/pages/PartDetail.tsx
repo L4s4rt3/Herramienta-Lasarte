@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { CascadeView } from "@/components/CascadeView";
 import { computeCascade } from "@/lib/cascade";
 import { formatDate } from "@/lib/format";
+import { PART_DETAIL_MANUAL_FIELDS } from "@/lib/partDetailManualFields";
 import { toast } from "@/hooks/use-toast";
 import { ArrowLeft, Save, Lock, Unlock, Sparkles, Loader2, BarChart3 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -39,14 +40,6 @@ interface Parte {
   notas_generales: string | null;
   notas_inventario: string | null;
 }
-
-const MANUAL_FIELDS: { key: keyof Parte; label: string }[] = [
-  { key: "kg_industria_manual", label: "Industria de la punta" },
-  { key: "kg_reciclado_malla_z1", label: "Reciclado malla Z1" },
-  { key: "kg_reciclado_malla_z2", label: "Reciclado malla Z2" },
-  { key: "kg_inventario_sin_alta", label: "Inventario final sin dar de alta" },
-  { key: "kg_podrido_bolsa_basura", label: "Podrido manual (bolsa basura)" },
-];
 
 const CATEGORIES = [
   { id: "GSTOCK", label: "GSTOCK" },
@@ -187,7 +180,7 @@ export default function PartDetail() {
       notas_generales: parte.notas_generales,
       notas_inventario: parte.notas_inventario,
     };
-    MANUAL_FIELDS.forEach((f) => (payload[f.key] = Number(parte[f.key] || 0)));
+    PART_DETAIL_MANUAL_FIELDS.forEach((f) => (payload[f.key] = Number(parte[f.key] || 0)));
     if (parte.estado !== "Borrador") {
       const abs = Math.abs(cascade.dsj_pct);
       payload.estado = abs > 3 ? "Con descuadre" : abs >= 1 ? "Analizado" : "Validado";
@@ -258,7 +251,6 @@ export default function PartDetail() {
     try {
       // Enviar valores actuales del formulario (incluyendo no guardados)
       const currentValues = {
-        kg_industria_manual: Number(parte.kg_industria_manual) || 0,
         kg_reciclado_malla_z1: Number(parte.kg_reciclado_malla_z1) || 0,
         kg_reciclado_malla_z2: Number(parte.kg_reciclado_malla_z2) || 0,
         kg_inventario_sin_alta: Number(parte.kg_inventario_sin_alta) || 0,
@@ -386,7 +378,7 @@ export default function PartDetail() {
             parte={parte}
             readOnly={readOnly}
             update={update}
-            MANUAL_FIELDS={MANUAL_FIELDS}
+            manualFields={PART_DETAIL_MANUAL_FIELDS}
           />
         </TabsContent>
 

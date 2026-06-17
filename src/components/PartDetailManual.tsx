@@ -2,6 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatKg } from "@/lib/format";
+import type { PartDetailManualField, PartDetailManualFieldKey } from "@/lib/partDetailManualFields";
 
 interface Parte {
   id: string;
@@ -26,26 +27,26 @@ interface Parte {
 interface PartDetailManualProps {
   parte: Parte;
   readOnly: boolean;
-  update: <K extends keyof Parte>(key: K, value: Parte[K]) => void;
-  MANUAL_FIELDS: { key: keyof Parte; label: string }[];
+  update: <K extends PartDetailManualFieldKey>(key: K, value: Parte[K]) => void;
+  manualFields: readonly PartDetailManualField[];
 }
 
 export default function PartDetailManual({
   parte,
   readOnly,
   update,
-  MANUAL_FIELDS,
+  manualFields,
 }: PartDetailManualProps) {
   return (
     <>
       <Card className="glass-accented">
         <CardHeader><CardTitle className="text-lg">Ajustes manuales</CardTitle></CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
-          {MANUAL_FIELDS.map((f) => (
-            <div key={f.key as string} className="space-y-1.5">
-              <Label htmlFor={f.key as string}>{f.label}</Label>
+          {manualFields.map((f) => (
+            <div key={f.key} className="space-y-1.5">
+              <Label htmlFor={f.key}>{f.label}</Label>
               <Input
-                id={f.key as string}
+                id={f.key}
                 type="number"
                 step="0.01"
                 min="0"

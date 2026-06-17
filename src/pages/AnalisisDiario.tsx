@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useAnalisisDiario } from "@/hooks/useAnalisisDiario";
 import type { LoteResumen, ClaseResumen, GrupoClasificacionResumen } from "@/hooks/useAnalisisDiario";
+import { shouldShowProductionEvolution } from "@/lib/analisisDiarioView";
 import { today } from "@/lib/format";
 import { KPICard } from "@/components/KPICard";
 import {
@@ -139,6 +140,8 @@ export default function AnalisisDiario() {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, kg]) => ({ date, kg }));
   }, [data.lotes]);
+  const showProductionEvolution = shouldShowProductionEvolution(dailyTrend);
+  const singleDayProduction = dailyTrend[0] ?? null;
 
   return (
     <div className="page-shell">
@@ -251,7 +254,7 @@ export default function AnalisisDiario() {
           />
         </section>
 
-        {dailyTrend.length > 0 && (
+        {showProductionEvolution && (
           <Card className="glass-accented overflow-hidden">
             <CardHeader className="pb-3 px-5 pt-4">
               <div className="flex items-center gap-3">
@@ -281,6 +284,14 @@ export default function AnalisisDiario() {
               </div>
             </CardContent>
           </Card>
+        )}
+        {!showProductionEvolution && singleDayProduction && (
+          <SingleDayProductionSummary
+            point={singleDayProduction}
+            nLotes={data.totals.n_lotes}
+            avgTph={data.totals.avg_tph}
+            kgCalibres={data.totals.kg_calibres}
+          />
         )}
       </>
       )}
@@ -492,6 +503,60 @@ function EmptyTab({ msg }: { msg: string }) {
       <CardContent className="py-10 text-center">
         <FilterX className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
         <p className="text-sm text-muted-foreground">{msg}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function SingleDayProductionSummary({
+  point,
+  nLotes,
+  avgTph,
+  kgCalibres,
+}: {
+  point: { date: string; kg: number };
+  nLotes: number;
+  avgTph: number | null;
+  kgCalibres: number;
+}) {
+  return (
+    <Card className="glass-accented">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-3">
+          <div className="h-7 w-1 rounded-full bg-primary" />
+          <div>
+            <CardTitle className="text-lg font-semibold">Resumen del parte</CardTitle>
+            <CardDescription className="text-xs text-muted-foreground mt-0.5">
+              Vista de un solo dia: sin grafica de evolucion
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fecha</p>
+            <p className="mt-2 text-2xl font-semibold tabular-nums">{point.date}</p>
+          </div>
+          <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Produccion</p>
+            <p className="mt-2 text-2xl font-semibold tabular-nums">{formatKg(point.kg)}</p>
+          </div>
+          <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lotes</p>
+            <p className="mt-2 text-2xl font-semibold tabular-nums">{nLotes}</p>
+          </div>
+          <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Velocidad</p>
+            <p className="mt-2 text-2xl font-semibold tabular-nums">{avgTph ? `${avgTph.toFixed(1)} T/h` : "—"}</p>
+          </div>
+        </div>
+        {kgCalibres > 0 && (
+          <div className="mt-3 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] px-4 py-3 text-sm">
+            <span className="text-muted-foreground">Kg con clasificacion: </span>
+            <span className="font-semibold tabular-nums">{formatKg(kgCalibres)}</span>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
