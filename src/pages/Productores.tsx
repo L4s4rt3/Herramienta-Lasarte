@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { KPICard } from "@/components/KPICard";
 import { formatKg } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Users, TrendingUp, Gauge, Search } from "lucide-react";
+import { Users, TrendingUp, Gauge, Search, Apple } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, AreaChart, Area,
@@ -190,6 +190,12 @@ export default function Productores() {
       : null;
   const nProductores = byProductor.length;
 
+  const lotesConPeso = lotes.filter((l) => l.peso_fruta_promedio_g && l.peso_fruta_promedio_g > 0);
+  const avgPesoFruta =
+    lotesConPeso.length > 0
+      ? lotesConPeso.reduce((s, l) => s + l.peso_fruta_promedio_g!, 0) / lotesConPeso.length
+      : null;
+
   return (
     <div className="page-shell">
       <header className="page-header">
@@ -221,9 +227,9 @@ export default function Productores() {
       </header>
 
       {/* KPIs */}
-      <section className="grid gap-4 sm:grid-cols-3">
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {loading ? (
-          Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28" />)
+          Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28" />)
         ) : (
           <>
             <KPICard label="Productores activos" value={String(nProductores)} icon={Users} />
@@ -233,6 +239,12 @@ export default function Productores() {
               value={avgTph ? `${avgTph.toFixed(2)} T/h` : "N/D"}
               icon={Gauge}
               trend={avgTph ? (avgTph >= 16 ? "up" : "down") : "neutral"}
+            />
+            <KPICard
+              label="Peso fruta medio"
+              value={avgPesoFruta ? `${avgPesoFruta.toFixed(0)} g` : "N/D"}
+              hint={`${lotesConPeso.length} lotes con dato`}
+              icon={Apple}
             />
           </>
         )}
