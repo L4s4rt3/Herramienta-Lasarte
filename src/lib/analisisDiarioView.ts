@@ -14,6 +14,7 @@ export function shouldShowProductionEvolution(points: readonly ProductionEvoluti
 export interface DiaSubtotales {
   kg: number;
   avgTph: number | null;
+  avgPesoFruta: number | null;
   nLotes: number;
   nLentes: number;
 }
@@ -49,9 +50,13 @@ export function calcularTphPonderado(lotes: LoteResumen[]): number | null {
 export function calcularSubtotalesDia(lotes: LoteResumen[]): DiaSubtotales {
   const kg = lotes.reduce((s, l) => s + l.kg_peso_total, 0);
   const avgTph = calcularTphPonderado(lotes);
+  const lotesConPeso = lotes.filter((l) => l.peso_fruta_promedio_g !== null && l.peso_fruta_promedio_g > 0);
+  const avgPesoFruta = lotesConPeso.length > 0
+    ? lotesConPeso.reduce((s, l) => s + l.peso_fruta_promedio_g!, 0) / lotesConPeso.length
+    : null;
   const nLotes = lotes.length;
   const nLentes = lotes.filter((l) => l.toneladas_hora !== null && l.toneladas_hora < SLOW_TPH_THRESHOLD).length;
-  return { kg, avgTph, nLotes, nLentes };
+  return { kg, avgTph, avgPesoFruta, nLotes, nLentes };
 }
 
 export function detectarLotesLentos(lotes: LoteResumen[]): boolean {

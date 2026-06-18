@@ -78,6 +78,13 @@ function DaySection({ date, lotes, defaultOpen = false }: DaySectionProps) {
               <span className="text-sm font-semibold tabular-nums leading-tight">{sub.nLotes}</span>
               <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Lotes</span>
             </div>
+            <div className="w-px h-6 bg-[var(--glass-border)]" />
+            <div className="flex flex-col">
+              <span className="text-sm font-semibold tabular-nums leading-tight">
+                {sub.avgPesoFruta !== null ? `${sub.avgPesoFruta.toFixed(0)}g` : "—"}
+              </span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Fruta</span>
+            </div>
           </div>
 
           {/* Alerta lotes lentos */}
