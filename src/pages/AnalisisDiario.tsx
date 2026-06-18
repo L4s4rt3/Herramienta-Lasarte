@@ -280,11 +280,8 @@ function ClaseTabSummary({ clases, totalKg }: { clases: Array<{ clase: string; k
                 <span className="text-sm font-semibold text-muted-foreground tabular-nums">{pct.toFixed(1)}%</span>
               </div>
 
-              {/* Kg total */}
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-bold tabular-nums text-foreground">{formatKg(c.kg_total)}</span>
-                <span className="text-xs text-muted-foreground">kg</span>
-              </div>
+              {/* Peso total */}
+              <p className="text-2xl font-bold tabular-nums text-foreground">{formatKg(c.kg_total)}</p>
 
               {/* Barra */}
               <div className="space-y-1.5">
@@ -370,11 +367,8 @@ function GrupoTabSummary({ grupos, totalKg }: { grupos: Array<{ grupo: string; k
                 <span className="text-sm font-semibold text-muted-foreground tabular-nums">{pct.toFixed(1)}%</span>
               </div>
 
-              {/* Kg total */}
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-bold tabular-nums text-foreground">{formatKg(g.kg_total)}</span>
-                <span className="text-xs text-muted-foreground">kg</span>
-              </div>
+              {/* Peso total */}
+              <p className="text-2xl font-bold tabular-nums text-foreground">{formatKg(g.kg_total)}</p>
 
               {/* Barra */}
               <div className="space-y-1.5">
