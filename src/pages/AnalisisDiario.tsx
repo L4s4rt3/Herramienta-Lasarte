@@ -247,13 +247,13 @@ function ClaseTabSummary({ clases, totalKg }: { clases: Array<{ clase: string; k
     );
   }
 
-  const CLASE_SEMAFORO = {
-    Exportación:      { bg: "bg-success/10",  border: "border-success/30",  icon: "text-success",  bar: "bg-success" },
-    Mercado:          { bg: "bg-info/10",     border: "border-info/30",     icon: "text-info",     bar: "bg-info" },
-    "No exportación": { bg: "bg-warning/10",  border: "border-warning/30",  icon: "text-warning",  bar: "bg-warning" },
-    "No comercial":   { bg: "bg-destructive/10", border: "border-destructive/30", icon: "text-destructive", bar: "bg-destructive" },
-    Mujeres:          { bg: "bg-info/10",     border: "border-info/30",     icon: "text-info",     bar: "bg-info" },
-    Otro:             { bg: "bg-[var(--glass-bg)]", border: "border-[var(--glass-border)]", icon: "text-muted-foreground", bar: "bg-muted-foreground" },
+  const CLASE_COLORS = {
+    Exportación:      { bg: "bg-emerald-50",  border: "border-emerald-300",  text: "text-emerald-700",  dot: "bg-emerald-500", bar: "bg-emerald-500" },
+    Mercado:          { bg: "bg-sky-50",      border: "border-sky-300",      text: "text-sky-700",      dot: "bg-sky-500",     bar: "bg-sky-500" },
+    "No exportación": { bg: "bg-amber-50",    border: "border-amber-300",    text: "text-amber-700",    dot: "bg-amber-500",   bar: "bg-amber-500" },
+    "No comercial":   { bg: "bg-red-50",      border: "border-red-300",      text: "text-red-700",      dot: "bg-red-500",     bar: "bg-red-500" },
+    Mujeres:          { bg: "bg-violet-50",   border: "border-violet-300",   text: "text-violet-700",   dot: "bg-violet-500",  bar: "bg-violet-500" },
+    Otro:             { bg: "bg-slate-50",    border: "border-slate-300",    text: "text-slate-600",    dot: "bg-slate-400",   bar: "bg-slate-400" },
   } as const;
 
   return (
@@ -269,40 +269,48 @@ function ClaseTabSummary({ clases, totalKg }: { clases: Array<{ clase: string; k
           const pct = totalKg > 0 ? (c.kg_total / totalKg) * 100 : 0;
           const gruposOrdenados = Object.entries(c.grupos).sort((a, b) => b[1] - a[1]);
           const maxGrupoKg = gruposOrdenados.length > 0 ? gruposOrdenados[0][1] : 1;
-          const colors = CLASE_SEMAFORO[c.clase as keyof typeof CLASE_SEMAFORO] ?? CLASE_SEMAFORO.Otro;
+          const colors = CLASE_COLORS[c.clase as keyof typeof CLASE_COLORS] ?? CLASE_COLORS.Otro;
           return (
-            <div key={c.clase} className={cn("rounded-xl border p-4 space-y-3 shadow-[var(--glass-shadow)] backdrop-blur-xl", colors.bg, colors.border)}>
+            <div key={c.clase} className={cn("rounded-xl border-2 p-5 space-y-4 shadow-[var(--glass-shadow)] backdrop-blur-xl", colors.bg, colors.border)}>
+              {/* Nombre de categoría bien grande */}
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className={cn("h-3 w-3 rounded-full", colors.bar)} />
-                  <span className={cn("text-sm font-bold", colors.icon)}>{c.clase}</span>
+                <div className="flex items-center gap-3">
+                  <div className={cn("h-4 w-4 rounded-full", colors.dot)} />
+                  <span className={cn("text-xl font-extrabold uppercase tracking-wide", colors.text)}>{c.clase}</span>
                 </div>
-                <span className="text-xs text-muted-foreground">{pct.toFixed(1)}%</span>
+                <span className={cn("text-2xl font-extrabold tabular-nums", colors.text)}>{pct.toFixed(0)}%</span>
               </div>
 
-              <p className={cn("text-3xl font-bold tabular-nums", colors.icon)}>{formatKg(c.kg_total)}</p>
+              {/* Kg total */}
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-bold tabular-nums text-foreground">{formatKg(c.kg_total)}</span>
+                <span className="text-xs text-muted-foreground">kg totales</span>
+              </div>
 
+              {/* Barra */}
               <div className="space-y-1.5">
-                <div className="h-2 w-full rounded-full bg-[var(--glass-bg-strong)] overflow-hidden">
+                <div className="h-3 w-full rounded-full bg-[var(--glass-bg-strong)] overflow-hidden">
                   <div className={cn("h-full rounded-full transition-all duration-500", colors.bar)} style={{ width: `${pct}%` }} />
                 </div>
-                <p className="text-[10px] text-muted-foreground">{c.n_registros} lotes en {c.n_dias} {c.n_dias === 1 ? "día" : "días"}</p>
+                <p className="text-[11px] text-muted-foreground font-medium">{c.n_registros} lotes en {c.n_dias} {c.n_dias === 1 ? "día" : "días"}</p>
               </div>
 
+              {/* Grupos */}
               {gruposOrdenados.length > 0 && (
-                <div className="space-y-2 pt-2 border-t border-[var(--glass-border)]">
+                <div className="space-y-2 pt-3 border-t-2 border-[var(--glass-border)]">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Grupos</p>
                   {gruposOrdenados.map(([g, kg]) => {
                     const gPct = c.kg_total > 0 ? (kg / c.kg_total) * 100 : 0;
                     const barWidth = maxGrupoKg > 0 ? (kg / maxGrupoKg) * 100 : 0;
-                    const gc = CLASE_SEMAFORO[g as keyof typeof CLASE_SEMAFORO] ?? CLASE_SEMAFORO.Otro;
+                    const gc = CLASE_COLORS[g as keyof typeof CLASE_COLORS] ?? CLASE_COLORS.Otro;
                     return (
                       <div key={g} className="flex items-center gap-2.5">
-                        <div className={cn("h-2 w-2 rounded-full shrink-0", gc.bar)} />
-                        <span className="text-xs font-medium w-28 shrink-0 truncate">{g}</span>
-                        <div className="flex-1 h-1.5 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                        <div className={cn("h-2.5 w-2.5 rounded-full shrink-0", gc.dot)} />
+                        <span className="text-sm font-semibold w-28 shrink-0 truncate">{g}</span>
+                        <div className="flex-1 h-2 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
                           <div className={cn("h-full rounded-full transition-all duration-500", gc.bar)} style={{ width: `${barWidth}%` }} />
                         </div>
-                        <span className="text-[10px] font-mono tabular-nums text-muted-foreground w-16 text-right shrink-0">{formatKg(kg)}</span>
+                        <span className="text-xs font-mono font-semibold tabular-nums text-muted-foreground w-16 text-right shrink-0">{formatKg(kg)}</span>
                         <span className="text-[10px] font-mono tabular-nums text-muted-foreground w-8 text-right shrink-0">{gPct.toFixed(0)}%</span>
                       </div>
                     );
@@ -330,13 +338,13 @@ function GrupoTabSummary({ grupos, totalKg }: { grupos: Array<{ grupo: string; k
     );
   }
 
-  const CLASE_SEMAFORO = {
-    Exportación:      { bg: "bg-success/10",  border: "border-success/30",  icon: "text-success",  bar: "bg-success" },
-    Mercado:          { bg: "bg-info/10",     border: "border-info/30",     icon: "text-info",     bar: "bg-info" },
-    "No exportación": { bg: "bg-warning/10",  border: "border-warning/30",  icon: "text-warning",  bar: "bg-warning" },
-    "No comercial":   { bg: "bg-destructive/10", border: "border-destructive/30", icon: "text-destructive", bar: "bg-destructive" },
-    Mujeres:          { bg: "bg-info/10",     border: "border-info/30",     icon: "text-info",     bar: "bg-info" },
-    Otro:             { bg: "bg-[var(--glass-bg)]", border: "border-[var(--glass-border)]", icon: "text-muted-foreground", bar: "bg-muted-foreground" },
+  const GRUPO_COLORS = {
+    Exportación:      { bg: "bg-emerald-50",  border: "border-emerald-300",  text: "text-emerald-700",  dot: "bg-emerald-500", bar: "bg-emerald-500" },
+    Mercado:          { bg: "bg-sky-50",      border: "border-sky-300",      text: "text-sky-700",      dot: "bg-sky-500",     bar: "bg-sky-500" },
+    "No exportación": { bg: "bg-amber-50",    border: "border-amber-300",    text: "text-amber-700",    dot: "bg-amber-500",   bar: "bg-amber-500" },
+    "No comercial":   { bg: "bg-red-50",      border: "border-red-300",      text: "text-red-700",      dot: "bg-red-500",     bar: "bg-red-500" },
+    Mujeres:          { bg: "bg-violet-50",   border: "border-violet-300",   text: "text-violet-700",   dot: "bg-violet-500",  bar: "bg-violet-500" },
+    Otro:             { bg: "bg-slate-50",    border: "border-slate-300",    text: "text-slate-600",    dot: "bg-slate-400",   bar: "bg-slate-400" },
   } as const;
 
   const maxKg = grupos.length > 0 ? Math.max(...grupos.map((g) => g.kg_total)) : 1;
@@ -353,24 +361,30 @@ function GrupoTabSummary({ grupos, totalKg }: { grupos: Array<{ grupo: string; k
         {grupos.map((g) => {
           const pct = totalKg > 0 ? (g.kg_total / totalKg) * 100 : 0;
           const barWidth = maxKg > 0 ? (g.kg_total / maxKg) * 100 : 0;
-          const colors = CLASE_SEMAFORO[g.grupo as keyof typeof CLASE_SEMAFORO] ?? CLASE_SEMAFORO.Otro;
+          const colors = GRUPO_COLORS[g.grupo as keyof typeof GRUPO_COLORS] ?? GRUPO_COLORS.Otro;
           return (
-            <div key={g.grupo} className={cn("rounded-xl border p-4 space-y-3 shadow-[var(--glass-shadow)] backdrop-blur-xl", colors.bg, colors.border)}>
+            <div key={g.grupo} className={cn("rounded-xl border-2 p-5 space-y-4 shadow-[var(--glass-shadow)] backdrop-blur-xl", colors.bg, colors.border)}>
+              {/* Nombre del grupo bien grande */}
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className={cn("h-3 w-3 rounded-full", colors.bar)} />
-                  <span className={cn("text-sm font-bold", colors.icon)}>{g.grupo}</span>
+                <div className="flex items-center gap-3">
+                  <div className={cn("h-4 w-4 rounded-full", colors.dot)} />
+                  <span className={cn("text-xl font-extrabold uppercase tracking-wide", colors.text)}>{g.grupo}</span>
                 </div>
-                <span className="text-xs text-muted-foreground">{pct.toFixed(1)}%</span>
+                <span className={cn("text-2xl font-extrabold tabular-nums", colors.text)}>{pct.toFixed(0)}%</span>
               </div>
 
-              <p className={cn("text-3xl font-bold tabular-nums", colors.icon)}>{formatKg(g.kg_total)}</p>
+              {/* Kg total */}
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-bold tabular-nums text-foreground">{formatKg(g.kg_total)}</span>
+                <span className="text-xs text-muted-foreground">kg totales</span>
+              </div>
 
+              {/* Barra */}
               <div className="space-y-1.5">
-                <div className="h-2 w-full rounded-full bg-[var(--glass-bg-strong)] overflow-hidden">
+                <div className="h-3 w-full rounded-full bg-[var(--glass-bg-strong)] overflow-hidden">
                   <div className={cn("h-full rounded-full transition-all duration-500", colors.bar)} style={{ width: `${barWidth}%` }} />
                 </div>
-                <p className="text-[10px] text-muted-foreground">{g.n_registros} lotes en {g.n_dias} {g.n_dias === 1 ? "día" : "días"}</p>
+                <p className="text-[11px] text-muted-foreground font-medium">{g.n_registros} lotes en {g.n_dias} {g.n_dias === 1 ? "día" : "días"}</p>
               </div>
             </div>
           );
