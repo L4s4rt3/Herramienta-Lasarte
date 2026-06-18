@@ -1,7 +1,7 @@
 // src/pages/AnalisisDiario.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,9 +14,7 @@ import { useAnalisisDiario } from "@/hooks/useAnalisisDiario";
 import { KPICard } from "@/components/KPICard";
 import { DailyListTable } from "@/components/DailyListTable";
 import { WeekSelector } from "@/components/WeekSelector";
-import {
-  buildWeekRange,
-} from "@/lib/analisisDiarioView";
+import { buildWeekRange } from "@/lib/analisisDiarioView";
 import type { Periodo } from "@/lib/analisisDiarioView";
 import { today } from "@/lib/format";
 
@@ -49,7 +47,16 @@ function normalizeText(value: string | null | undefined): string {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-const CLASE_COLORS: Record<string, string> = {
+const CLASE_BADGE_CLASSES: Record<string, string> = {
+  Exportación: "border-success/40 bg-success/10 text-success",
+  Mercado: "border-info/40 bg-info/10 text-info",
+  "No exportación": "border-warning/40 bg-warning/10 text-warning",
+  "No comercial": "border-destructive/40 bg-destructive/10 text-destructive",
+  Mujeres: "border-info/40 bg-info/10 text-info",
+  Otro: "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground",
+};
+
+const CLASE_TEXT_CLASSES: Record<string, string> = {
   Exportación: "text-success",
   Mercado: "text-info",
   "No exportación": "text-warning",
@@ -108,7 +115,8 @@ export default function AnalisisDiario() {
 
   return (
     <div className="page-shell">
-      <div className="page-header">
+      {/* ─── Header ─────────────────────────────────────────────── */}
+      <header className="page-header">
         <div>
           <h1 className="page-title">Analisis Diario</h1>
           <p className="page-subtitle">
@@ -119,8 +127,9 @@ export default function AnalisisDiario() {
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           Actualizar
         </Button>
-      </div>
+      </header>
 
+      {/* ─── Selector de periodo ────────────────────────────────── */}
       <WeekSelector
         periodo={periodo}
         onPeriodoChange={setPeriodo}
@@ -131,6 +140,7 @@ export default function AnalisisDiario() {
         onNavigateWeek={handleNavigateWeek}
       />
 
+      {/* ─── Loading ────────────────────────────────────────────── */}
       {loading && (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -138,6 +148,7 @@ export default function AnalisisDiario() {
         </div>
       )}
 
+      {/* ─── Error ──────────────────────────────────────────────── */}
       {!loading && error && (
         <Card className="glass-accented border-destructive/30">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
@@ -153,8 +164,10 @@ export default function AnalisisDiario() {
         </Card>
       )}
 
+      {/* ─── Contenido principal ────────────────────────────────── */}
       {!loading && hayDatos && (
         <>
+          {/* KPIs */}
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KPICard label="Kg totales" value={formatKg(data.totals.kg_lotes)} hint={`${data.totals.n_lotes} lotes`} icon={PackageCheck} />
             <KPICard
@@ -174,7 +187,8 @@ export default function AnalisisDiario() {
             <KPICard label="Dias analizados" value={String(data.totals.n_dias)} icon={Calendar} />
           </section>
 
-          {hayDatos && (
+          {/* Toolbar de busqueda */}
+          <div className="section-toolbar">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <Input
@@ -184,8 +198,9 @@ export default function AnalisisDiario() {
                 className="pl-8 w-64 h-8"
               />
             </div>
-          )}
+          </div>
 
+          {/* Tabs */}
           <Tabs defaultValue="lotes" className="w-full">
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="lotes">
@@ -212,6 +227,7 @@ export default function AnalisisDiario() {
         </>
       )}
 
+      {/* ─── Empty state ────────────────────────────────────────── */}
       {!loading && !hayDatos && (
         <Card className="glass-accented">
           <CardContent className="py-12 text-center">
@@ -240,46 +256,57 @@ export default function AnalisisDiario() {
 function ClaseTabSummary({ clases, totalKg }: { clases: Array<{ clase: string; kg_total: number; n_registros: number; n_dias: number; grupos: Record<string, number> }>; totalKg: number }) {
   if (clases.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] py-12 text-center">
-        <p className="text-sm text-muted-foreground">Sin resultados de clase</p>
-      </div>
+      <Card className="glass-accented">
+        <CardContent className="py-12 text-center">
+          <p className="text-sm text-muted-foreground">Sin resultados de clase</p>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {clases.map((c) => {
         const pct = totalKg > 0 ? (c.kg_total / totalKg) * 100 : 0;
         const gruposOrdenados = Object.entries(c.grupos).sort((a, b) => b[1] - a[1]);
         return (
-          <div key={c.clase} className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
-            <div className="flex items-center justify-between gap-4 mb-2">
-              <div className="flex items-center gap-3">
-                <span className={`text-sm font-semibold ${CLASE_COLORS[c.clase] ?? ""}`}>{c.clase}</span>
-                <Badge variant="secondary" className="text-xs">{c.n_registros} registros</Badge>
-                <Badge variant="secondary" className="text-xs">{c.n_dias} dias</Badge>
+          <Card key={c.clase} className="glass-accented overflow-hidden">
+            <CardContent className="p-4 sm:p-5">
+              {/* Header: nombre + métricas */}
+              <div className="flex items-center justify-between gap-4 mb-3">
+                <div className="flex items-center gap-3">
+                  <span className={`text-sm font-semibold ${CLASE_TEXT_CLASSES[c.clase] ?? ""}`}>{c.clase}</span>
+                  <Badge variant="secondary" className="text-[10px]">{c.n_registros} registros</Badge>
+                  <Badge variant="secondary" className="text-[10px]">{c.n_dias} dias</Badge>
+                </div>
+                <div className="text-right">
+                  <span className="font-mono font-semibold tabular-nums text-sm">{formatKg(c.kg_total)}</span>
+                  <span className="text-xs text-muted-foreground ml-2">{pct.toFixed(1)}%</span>
+                </div>
               </div>
-              <div className="text-right">
-                <span className="font-mono font-semibold tabular-nums">{formatKg(c.kg_total)}</span>
-                <span className="text-xs text-muted-foreground ml-2">{pct.toFixed(1)}%</span>
+
+              {/* Barra de progreso estilo SemaforoCard */}
+              <div className="space-y-2">
+                <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                  <div
+                    className="h-full rounded-full transition-all duration-500 bg-primary/40"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+
+                {/* Badges de grupos */}
+                {gruposOrdenados.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {gruposOrdenados.map(([g, kg]) => (
+                      <Badge key={g} variant="outline" className={`text-[10px] ${CLASE_BADGE_CLASSES[g] ?? CLASE_BADGE_CLASSES["Otro"]}`}>
+                        {g}: {formatKg(kg)}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-            <div className="h-2 w-full overflow-hidden rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
-              <div
-                className="h-full rounded-full transition-all duration-500 bg-primary/40"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-            {gruposOrdenados.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-2">
-                {gruposOrdenados.map(([g, kg]) => (
-                  <Badge key={g} variant="outline" className={`text-xs ${CLASE_COLORS[g] ?? ""}`}>
-                    {g}: {formatKg(kg)}
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
+            </CardContent>
+          </Card>
         );
       })}
     </div>
@@ -291,36 +318,45 @@ function ClaseTabSummary({ clases, totalKg }: { clases: Array<{ clase: string; k
 function GrupoTabSummary({ grupos, totalKg }: { grupos: Array<{ grupo: string; kg_total: number; n_registros: number; n_dias: number }>; totalKg: number }) {
   if (grupos.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] py-12 text-center">
-        <p className="text-sm text-muted-foreground">Sin resultados de grupo</p>
-      </div>
+      <Card className="glass-accented">
+        <CardContent className="py-12 text-center">
+          <p className="text-sm text-muted-foreground">Sin resultados de grupo</p>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {grupos.map((g) => {
         const pct = totalKg > 0 ? (g.kg_total / totalKg) * 100 : 0;
         return (
-          <div key={g.grupo} className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
-            <div className="flex items-center justify-between gap-4 mb-2">
-              <div className="flex items-center gap-3">
-                <span className={`text-sm font-semibold ${CLASE_COLORS[g.grupo] ?? ""}`}>{g.grupo}</span>
-                <Badge variant="secondary" className="text-xs">{g.n_registros} registros</Badge>
-                <Badge variant="secondary" className="text-xs">{g.n_dias} dias</Badge>
+          <Card key={g.grupo} className="glass-accented overflow-hidden">
+            <CardContent className="p-4 sm:p-5">
+              {/* Header */}
+              <div className="flex items-center justify-between gap-4 mb-3">
+                <div className="flex items-center gap-3">
+                  <Badge variant="outline" className={`text-xs ${CLASE_BADGE_CLASSES[g.grupo] ?? CLASE_BADGE_CLASSES["Otro"]}`}>
+                    {g.grupo}
+                  </Badge>
+                  <Badge variant="secondary" className="text-[10px]">{g.n_registros} registros</Badge>
+                  <Badge variant="secondary" className="text-[10px]">{g.n_dias} dias</Badge>
+                </div>
+                <div className="text-right">
+                  <span className="font-mono font-semibold tabular-nums text-sm">{formatKg(g.kg_total)}</span>
+                  <span className="text-xs text-muted-foreground ml-2">{pct.toFixed(1)}%</span>
+                </div>
               </div>
-              <div className="text-right">
-                <span className="font-mono font-semibold tabular-nums">{formatKg(g.kg_total)}</span>
-                <span className="text-xs text-muted-foreground ml-2">{pct.toFixed(1)}%</span>
+
+              {/* Barra de progreso */}
+              <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                <div
+                  className="h-full rounded-full transition-all duration-500 bg-primary/40"
+                  style={{ width: `${pct}%` }}
+                />
               </div>
-            </div>
-            <div className="h-2 w-full overflow-hidden rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
-              <div
-                className="h-full rounded-full transition-all duration-500 bg-primary/40"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         );
       })}
     </div>

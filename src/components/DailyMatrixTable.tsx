@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { getDiaSemana, formatFechaCorta, getIntensityColor } from "@/lib/analisisDiarioView";
@@ -8,21 +9,21 @@ function formatKg(v: number): string {
   return v.toFixed(0) + " kg";
 }
 
-const DIMENSION_COLORS: Record<string, string> = {
-  Exportación: "text-success",
-  Mercado: "text-info",
-  "No exportación": "text-warning",
-  "No comercial": "text-destructive",
-  Mujeres: "text-info",
-  Otro: "text-muted-foreground",
+const DIMENSION_BADGE_CLASSES: Record<string, string> = {
+  Exportación: "border-success/40 bg-success/10 text-success",
+  Mercado: "border-info/40 bg-info/10 text-info",
+  "No exportación": "border-warning/40 bg-warning/10 text-warning",
+  "No comercial": "border-destructive/40 bg-destructive/10 text-destructive",
+  Mujeres: "border-info/40 bg-info/10 text-info",
+  Otro: "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground",
 };
 
 interface DailyMatrixTableProps {
-  data: Record<string, Record<string, number>>; // { "2026-06-16": { "Exportación": 5200, ... } }
-  days: string[];                                // sorted ISO dates
-  dimensions: string[];                          // sorted dimension names
-  dayTotals: Record<string, number>;             // { "2026-06-16": 8500 }
-  dimensionTotals: Record<string, number>;       // { "Exportación": 26200 }
+  data: Record<string, Record<string, number>>;
+  days: string[];
+  dimensions: string[];
+  dayTotals: Record<string, number>;
+  dimensionTotals: Record<string, number>;
   grandTotal: number;
 }
 
@@ -41,74 +42,78 @@ export function DailyMatrixTable({
 
   if (days.length === 0 || dimensions.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] py-12 text-center">
-        <p className="text-sm text-muted-foreground">Sin datos para este periodo</p>
-      </div>
+      <Card className="glass-accented">
+        <CardContent className="py-12 text-center">
+          <p className="text-sm text-muted-foreground">Sin datos para este periodo</p>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-[var(--glass-border)]">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
-            <th className="sticky left-0 z-10 bg-[var(--glass-bg-strong)] px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Dia
-            </th>
-            {dimensions.map((dim) => (
-              <th key={dim} className={cn("px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider", DIMENSION_COLORS[dim] ?? "text-muted-foreground")}>
-                {dim}
-              </th>
-            ))}
-            <th className="sticky right-0 z-10 bg-[var(--glass-bg-strong)] px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground border-l border-[var(--glass-border)]">
-              Total
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {days.map((day) => {
-            const diaSemana = getDiaSemana(day);
-            const fechaCorta = formatFechaCorta(day);
-            const dayData = data[day] ?? {};
-            const total = dayTotals[day] ?? 0;
-            return (
-              <tr key={day} className="border-b border-[var(--glass-border)] last:border-0 hover:bg-[var(--glass-bg-strong)] transition-colors">
-                <td className="sticky left-0 z-10 bg-[var(--glass-bg)] px-4 py-2.5">
-                  <Badge variant="outline" className="font-mono text-xs">
-                    {diaSemana} {fechaCorta}
-                  </Badge>
-                </td>
-                {dimensions.map((dim) => {
-                  const kg = dayData[dim] ?? 0;
-                  return (
-                    <td key={dim} className={cn("px-4 py-2.5 text-right font-mono tabular-nums", getIntensityColor(kg, maxCellKg))}>
-                      {kg > 0 ? formatKg(kg) : <span className="text-muted-foreground/40">—</span>}
+    <Card className="glass overflow-hidden">
+      <CardContent className="p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm data-table">
+            <thead>
+              <tr>
+                <th className="sticky left-0 z-10 bg-[var(--glass-bg-strong)]">Dia</th>
+                {dimensions.map((dim) => (
+                  <th key={dim} className="text-right">
+                    <Badge variant="outline" className={`text-[10px] ${DIMENSION_BADGE_CLASSES[dim] ?? DIMENSION_BADGE_CLASSES["Otro"]}`}>
+                      {dim}
+                    </Badge>
+                  </th>
+                ))}
+                <th className="sticky right-0 z-10 bg-[var(--glass-bg-strong)] text-right border-l border-[var(--glass-border)]">
+                  Total
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {days.map((day) => {
+                const diaSemana = getDiaSemana(day);
+                const fechaCorta = formatFechaCorta(day);
+                const dayData = data[day] ?? {};
+                const total = dayTotals[day] ?? 0;
+                return (
+                  <tr key={day}>
+                    <td className="sticky left-0 z-10 bg-[var(--glass-bg)]">
+                      <Badge variant="outline" className="font-mono text-xs">
+                        {diaSemana} {fechaCorta}
+                      </Badge>
                     </td>
-                  );
-                })}
-                <td className="sticky right-0 z-10 bg-[var(--glass-bg)] px-4 py-2.5 text-right font-mono font-semibold tabular-nums border-l border-[var(--glass-border)]">
-                  {formatKg(total)}
+                    {dimensions.map((dim) => {
+                      const kg = dayData[dim] ?? 0;
+                      return (
+                        <td key={dim} className={cn("text-right font-mono tabular-nums", getIntensityColor(kg, maxCellKg))}>
+                          {kg > 0 ? formatKg(kg) : <span className="text-muted-foreground/40">—</span>}
+                        </td>
+                      );
+                    })}
+                    <td className="sticky right-0 z-10 bg-[var(--glass-bg)] text-right font-mono font-semibold tabular-nums border-l border-[var(--glass-border)]">
+                      {formatKg(total)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-[var(--glass-border-accent)] font-semibold">
+                <td className="sticky left-0 z-10 bg-[var(--glass-bg-strong)]">Total</td>
+                {dimensions.map((dim) => (
+                  <td key={dim} className="text-right font-mono tabular-nums">
+                    {formatKg(dimensionTotals[dim] ?? 0)}
+                  </td>
+                ))}
+                <td className="sticky right-0 z-10 bg-[var(--glass-bg-strong)] text-right font-mono font-bold tabular-nums border-l border-[var(--glass-border)]">
+                  {formatKg(grandTotal)}
                 </td>
               </tr>
-            );
-          })}
-        </tbody>
-        <tfoot>
-          <tr className="border-t-2 border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)]">
-            <td className="sticky left-0 z-10 bg-[var(--glass-bg-strong)] px-4 py-2.5 text-sm font-semibold">
-              Total
-            </td>
-            {dimensions.map((dim) => (
-              <td key={dim} className={cn("px-4 py-2.5 text-right font-mono font-semibold tabular-nums", DIMENSION_COLORS[dim] ?? "")}>
-                {formatKg(dimensionTotals[dim] ?? 0)}
-              </td>
-            ))}
-            <td className="sticky right-0 z-10 bg-[var(--glass-bg-strong)] px-4 py-2.5 text-right font-mono font-bold tabular-nums border-l border-[var(--glass-border)]">
-              {formatKg(grandTotal)}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
+            </tfoot>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
