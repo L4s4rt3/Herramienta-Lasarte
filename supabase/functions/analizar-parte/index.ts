@@ -736,7 +736,7 @@ function extractProduccionTotal(rows: any[][]): number {
 
 function extractLotesDetalle(rows: any[][]): any[] {
   // Buscar columnas en las primeras 50 filas
-  let pesoCol = -1, nombreProdCol = -1, codigoProdCol = -1, loteCol = -1, tphCol = -1, variedadCol = -1;
+  let pesoCol = -1, nombreProdCol = -1, codigoProdCol = -1, loteCol = -1, tphCol = -1, variedadCol = -1, pesoFrutaCol = -1;
   for (let i = 0; i < Math.min(rows.length, 50); i++) {
     const r = rows[i] ?? [];
     for (let j = 0; j < r.length; j++) {
@@ -752,6 +752,7 @@ function extractLotesDetalle(rows: any[][]): any[] {
       if (/^(id|lote)/.test(c) && !/productor/i.test(raw)) loteCol = j;
       if (/^t\/?h$|^toneladas/.test(c)) tphCol = j;
       if (/^(variedad|producto)/.test(c) && !/productor/i.test(raw)) variedadCol = j;
+      if (/peso.*fruta.*promedio|peso.*fruta|peso.*pieza|peso.*medio.*fruta|peso.*promedio.*fruta/.test(c)) pesoFrutaCol = j;
     }
   }
   if (pesoCol < 0) return [];
@@ -784,7 +785,7 @@ function extractLotesDetalle(rows: any[][]): any[] {
       kg_peso_total: kg,
       toneladas_hora: tphCol >= 0 ? (toNum(r[tphCol]) || null) : null,
       duracion_min: null,
-      peso_fruta_promedio_g: null,
+      peso_fruta_promedio_g: pesoFrutaCol >= 0 ? (toNum(r[pesoFrutaCol]) || null) : null,
       hora_inicio: null,
     });
   }
