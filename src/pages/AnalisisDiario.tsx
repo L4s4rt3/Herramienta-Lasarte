@@ -65,6 +65,24 @@ const CLASE_TEXT_CLASSES: Record<string, string> = {
   Otro: "text-muted-foreground",
 };
 
+const CLASE_DOT_CLASSES: Record<string, string> = {
+  Exportación: "bg-success",
+  Mercado: "bg-info",
+  "No exportación": "bg-warning",
+  "No comercial": "bg-destructive",
+  Mujeres: "bg-info",
+  Otro: "bg-muted-foreground",
+};
+
+const CLASE_BAR_CLASSES: Record<string, string> = {
+  Exportación: "bg-success/50",
+  Mercado: "bg-info/50",
+  "No exportación": "bg-warning/50",
+  "No comercial": "bg-destructive/50",
+  Mujeres: "bg-info/50",
+  Otro: "bg-primary/40",
+};
+
 export default function AnalisisDiario() {
   const [searchParams] = useSearchParams();
   const queryDesde = searchParams.get("desde");
@@ -265,45 +283,60 @@ function ClaseTabSummary({ clases, totalKg }: { clases: Array<{ clase: string; k
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {clases.map((c) => {
         const pct = totalKg > 0 ? (c.kg_total / totalKg) * 100 : 0;
         const gruposOrdenados = Object.entries(c.grupos).sort((a, b) => b[1] - a[1]);
+        const maxGrupoKg = gruposOrdenados.length > 0 ? gruposOrdenados[0][1] : 1;
         return (
           <Card key={c.clase} className="glass-accented overflow-hidden">
-            <CardContent className="p-4 sm:p-5">
-              {/* Header: nombre + barra */}
-              <div className="flex items-center justify-between gap-4 mb-2">
-                <span className={`text-sm font-bold ${CLASE_TEXT_CLASSES[c.clase] ?? ""}`}>{c.clase}</span>
-                <span className="font-mono font-bold tabular-nums text-base">{formatKg(c.kg_total)}</span>
+            <CardContent className="p-5">
+              {/* Header: color dot + nombre + kg total */}
+              <div className="flex items-center justify-between gap-4 mb-3">
+                <div className="flex items-center gap-3">
+                  <div className={cn("h-3 w-3 rounded-full shrink-0", CLASE_DOT_CLASSES[c.clase] ?? "bg-muted-foreground")} />
+                  <span className={`text-base font-bold ${CLASE_TEXT_CLASSES[c.clase] ?? ""}`}>{c.clase}</span>
+                </div>
+                <div className="text-right">
+                  <span className="font-mono font-bold tabular-nums text-lg">{formatKg(c.kg_total)}</span>
+                  <span className="text-xs text-muted-foreground ml-1.5">{pct.toFixed(1)}%</span>
+                </div>
               </div>
 
-              {/* Barra de progreso */}
-              <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+              {/* Barra general */}
+              <div className="h-2.5 w-full overflow-hidden rounded-full bg-[var(--glass-bg-strong)] mb-3">
                 <div
-                  className="h-full rounded-full transition-all duration-500 bg-primary/40"
+                  className={cn("h-full rounded-full transition-all duration-500", CLASE_BAR_CLASSES[c.clase] ?? "bg-primary/40")}
                   style={{ width: `${pct}%` }}
                 />
               </div>
 
-              {/* Detalles debajo de la barra */}
-              <div className="flex items-center justify-between mt-2.5">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground">{c.n_registros} lotes</span>
-                  <span className="text-xs text-muted-foreground">·</span>
-                  <span className="text-xs text-muted-foreground">{c.n_dias} dias</span>
-                </div>
-                <span className="text-xs text-muted-foreground font-mono tabular-nums">{pct.toFixed(1)}% del total</span>
-              </div>
+              {/* Sub-info: lotes y días */}
+              <p className="text-xs text-muted-foreground mb-4">
+                {c.n_registros} lotes en {c.n_dias} {c.n_dias === 1 ? "día" : "días"}
+              </p>
 
-              {/* Badges de grupos */}
+              {/* Grupos como filas */}
               {gruposOrdenados.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-[var(--glass-border)]">
-                  {gruposOrdenados.map(([g, kg]) => (
-                    <Badge key={g} variant="outline" className={`text-[10px] ${CLASE_BADGE_CLASSES[g] ?? CLASE_BADGE_CLASSES["Otro"]}`}>
-                      {g}: {formatKg(kg)}
-                    </Badge>
-                  ))}
+                <div className="space-y-2.5">
+                  {gruposOrdenados.map(([g, kg]) => {
+                    const gPct = c.kg_total > 0 ? (kg / c.kg_total) * 100 : 0;
+                    const barWidth = maxGrupoKg > 0 ? (kg / maxGrupoKg) * 100 : 0;
+                    return (
+                      <div key={g} className="flex items-center gap-3">
+                        <div className={cn("h-2.5 w-2.5 rounded-full shrink-0", CLASE_DOT_CLASSES[g] ?? "bg-muted-foreground")} />
+                        <span className="text-sm font-medium w-36 shrink-0 truncate">{g}</span>
+                        <div className="flex-1 h-2 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                          <div
+                            className={cn("h-full rounded-full transition-all duration-500", CLASE_BAR_CLASSES[g] ?? "bg-primary/40")}
+                            style={{ width: `${barWidth}%` }}
+                          />
+                        </div>
+                        <span className="text-xs font-mono tabular-nums text-muted-foreground w-20 text-right shrink-0">{formatKg(kg)}</span>
+                        <span className="text-[10px] font-mono tabular-nums text-muted-foreground w-10 text-right shrink-0">{gPct.toFixed(0)}%</span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -327,40 +360,40 @@ function GrupoTabSummary({ grupos, totalKg }: { grupos: Array<{ grupo: string; k
     );
   }
 
+  const maxKg = grupos.length > 0 ? Math.max(...grupos.map((g) => g.kg_total)) : 1;
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {grupos.map((g) => {
         const pct = totalKg > 0 ? (g.kg_total / totalKg) * 100 : 0;
+        const barWidth = maxKg > 0 ? (g.kg_total / maxKg) * 100 : 0;
         return (
           <Card key={g.grupo} className="glass-accented overflow-hidden">
-            <CardContent className="p-4 sm:p-5">
-              {/* Header: nombre + barra */}
-              <div className="flex items-center justify-between gap-4 mb-2">
-                <div className="flex items-center gap-2.5">
-                  <Badge variant="outline" className={`text-xs font-semibold ${CLASE_BADGE_CLASSES[g.grupo] ?? CLASE_BADGE_CLASSES["Otro"]}`}>
-                    {g.grupo}
-                  </Badge>
+            <CardContent className="p-5">
+              {/* Header: dot + nombre + kg */}
+              <div className="flex items-center justify-between gap-4 mb-3">
+                <div className="flex items-center gap-3">
+                  <div className={cn("h-3 w-3 rounded-full shrink-0", CLASE_DOT_CLASSES[g.grupo] ?? "bg-muted-foreground")} />
+                  <span className="text-base font-bold">{g.grupo}</span>
                 </div>
-                <span className="font-mono font-bold tabular-nums text-base">{formatKg(g.kg_total)}</span>
+                <div className="text-right">
+                  <span className="font-mono font-bold tabular-nums text-lg">{formatKg(g.kg_total)}</span>
+                  <span className="text-xs text-muted-foreground ml-1.5">{pct.toFixed(1)}%</span>
+                </div>
               </div>
 
-              {/* Barra de progreso */}
-              <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+              {/* Barra proporcional al grupo más grande */}
+              <div className="h-2.5 w-full overflow-hidden rounded-full bg-[var(--glass-bg-strong)] mb-3">
                 <div
-                  className="h-full rounded-full transition-all duration-500 bg-primary/40"
-                  style={{ width: `${pct}%` }}
+                  className={cn("h-full rounded-full transition-all duration-500", CLASE_BAR_CLASSES[g.grupo] ?? "bg-primary/40")}
+                  style={{ width: `${barWidth}%` }}
                 />
               </div>
 
-              {/* Detalles debajo de la barra */}
-              <div className="flex items-center justify-between mt-2.5">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground">{g.n_registros} lotes</span>
-                  <span className="text-xs text-muted-foreground">·</span>
-                  <span className="text-xs text-muted-foreground">{g.n_dias} dias</span>
-                </div>
-                <span className="text-xs text-muted-foreground font-mono tabular-nums">{pct.toFixed(1)}% del total</span>
-              </div>
+              {/* Sub-info */}
+              <p className="text-xs text-muted-foreground">
+                {g.n_registros} lotes en {g.n_dias} {g.n_dias === 1 ? "día" : "días"}
+              </p>
             </CardContent>
           </Card>
         );
