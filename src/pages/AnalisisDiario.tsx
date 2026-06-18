@@ -106,7 +106,7 @@ export default function AnalisisDiario() {
             {formatFechaLarga(weekRange.start)} — {formatFechaLarga(weekRange.end)}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={loading} className="glass glass-hover">
+        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={loading}>
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           Actualizar
         </Button>
@@ -140,7 +140,7 @@ export default function AnalisisDiario() {
               <p className="font-semibold text-sm">Error al cargar los datos</p>
               <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
             </div>
-            <Button variant="outline" size="sm" onClick={refetch} className="ml-auto glass glass-hover">
+            <Button variant="outline" size="sm" onClick={refetch} className="ml-auto">
               <RefreshCw className="h-3.5 w-3.5 mr-1" /> Reintentar
             </Button>
           </CardContent>
@@ -158,14 +158,13 @@ export default function AnalisisDiario() {
               value={data.totals.avg_tph ? `${data.totals.avg_tph.toFixed(1)} T/h` : "—"}
               hint={`${data.totals.n_dias} días de producción`}
               icon={Gauge}
-              trend={data.totals.avg_tph ? (data.totals.avg_tph >= 16 ? "up" : "down") : "neutral"}
+              trend={data.totals.avg_tph ? (data.totals.avg_tph >= 14.5 ? "up" : "down") : "neutral"}
             />
             <KPICard
-              label="Lotes lentos"
-              value={String(data.totals.n_lotes_lentos)}
-              hint={`${formatHoras(data.totals.total_min)} tiempo total`}
+              label="Horas totales"
+              value={`${data.totals.total_horas.toFixed(1)} h`}
+              hint={`${data.totals.n_lotes_lentos} lotes lentos`}
               icon={Timer}
-              trend={data.totals.n_lotes_lentos <= 3 ? "up" : "down"}
             />
             <KPICard label="Días analizados" value={String(data.totals.n_dias)} hint="con datos de detalle" icon={Calendar} />
           </section>
@@ -220,10 +219,10 @@ export default function AnalisisDiario() {
               Para ver datos aqui necesitas subir el informe de tamaños/calibres al parte y pulsar "Analizar".
             </p>
             <div className="mt-6 flex items-center justify-center gap-3">
-              <Button asChild className="glass glass-hover">
+              <Button asChild variant="outline">
                 <Link to="/partes"><FileText className="h-4 w-4" /> Ir a Partes</Link>
               </Button>
-              <Button variant="outline" onClick={() => setPeriodo("ultimas_4")} className="glass glass-hover">
+              <Button variant="outline" onClick={() => setPeriodo("ultimas_4")}>
                 Ampliar a 4 semanas
               </Button>
             </div>

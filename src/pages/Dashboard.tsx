@@ -293,7 +293,7 @@ export default function Dashboard() {
               value={avgTph !== null ? `${avgTph.toFixed(1)} T/h` : "—"}
               hint={`${currentWeekData.partes} dias operativos - 8 h/dia`}
               icon={Gauge}
-              trend={avgTph !== null ? (avgTph >= 16 ? "up" : avgTph >= 12 ? "neutral" : "down") : "neutral"}
+              trend={avgTph !== null ? (avgTph >= 14.5 ? "up" : avgTph >= 12.5 ? "neutral" : "down") : "neutral"}
             />
           </>
         )}

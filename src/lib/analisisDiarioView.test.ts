@@ -42,7 +42,7 @@ describe("calcularSubtotalesDia", () => {
     expect(sub.avgTph).toBeGreaterThan(0);
   });
 
-  it("cuenta lotes lentos (tph < 12)", () => {
+  it("cuenta lotes lentos (tph < 12.5)", () => {
     const lotesLentos: LoteResumen[] = [
       { fecha: "2026-06-17", lote_codigo: "C-01", productor: "A", producto: "B", kg_peso_total: 1000, toneladas_hora: 10, duracion_min: 60, peso_fruta_promedio_g: 150 },
       { fecha: "2026-06-17", lote_codigo: "C-02", productor: "A", producto: "B", kg_peso_total: 1000, toneladas_hora: 11, duracion_min: 55, peso_fruta_promedio_g: 155 },
@@ -53,7 +53,7 @@ describe("calcularSubtotalesDia", () => {
 });
 
 describe("detectarLotesLentos", () => {
-  it("devuelve true si hay lotes con tph < 12", () => {
+  it("devuelve true si hay lotes con tph < 12.5", () => {
     expect(detectarLotesLentos(mockLotes)).toBe(false);
     expect(detectarLotesLentos([{ ...mockLotes[0], toneladas_hora: 10 }])).toBe(true);
   });
@@ -132,17 +132,17 @@ describe("getTphBadge", () => {
     expect(getTphBadge(null)).toBeNull();
   });
 
-  it("devuelve success si tph >= 16", () => {
-    expect(getTphBadge(16)).toBe("success");
+  it("devuelve success si tph >= 14.5", () => {
+    expect(getTphBadge(14.5)).toBe("success");
     expect(getTphBadge(20)).toBe("success");
   });
 
-  it("devuelve warning si 12 <= tph < 16", () => {
-    expect(getTphBadge(12)).toBe("warning");
-    expect(getTphBadge(15)).toBe("warning");
+  it("devuelve warning si 12.5 <= tph < 14.5", () => {
+    expect(getTphBadge(12.5)).toBe("warning");
+    expect(getTphBadge(14)).toBe("warning");
   });
 
-  it("devuelve destructive si tph < 12", () => {
+  it("devuelve destructive si tph < 12.5", () => {
     expect(getTphBadge(10)).toBe("destructive");
     expect(getTphBadge(0)).toBe("destructive");
   });

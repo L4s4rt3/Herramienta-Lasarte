@@ -282,7 +282,30 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
         if (agent.kind === "produccion") {
           console.log("[SUBAGENT] produccion: serverLotes=" + serverLotes.length + " AI lotes=" + (result.data.lotes_detalle?.length ?? 0));
           if (serverLotes.length > 0) {
-            merged.lotes_detalle = serverLotes;
+            // Merge: serverLotes as base, fill missing fields from AI data
+            const aiLotes = Array.isArray(result.data.lotes_detalle) ? result.data.lotes_detalle : [];
+            if (aiLotes.length > 0) {
+              merged.lotes_detalle = serverLotes.map((sl: any) => {
+                // Find matching AI lote by lote_codigo or productor+producto
+                const match = aiLotes.find((al: any) =>
+                  (al.lote_codigo && al.lote_codigo === sl.lote_codigo) ||
+                  (al.productor === sl.productor && al.producto === sl.producto)
+                );
+                if (!match) return sl;
+                return {
+                  ...match,  // AI data as base (has more fields)
+                  lote_codigo: sl.lote_codigo ?? match.lote_codigo,
+                  productor: sl.productor ?? match.productor,
+                  producto: sl.producto ?? match.producto,
+                  kg_peso_total: sl.kg_peso_total || match.kg_peso_total,
+                  toneladas_hora: sl.toneladas_hora ?? match.toneladas_hora,
+                  duracion_min: sl.duracion_min ?? match.duracion_min,
+                  peso_fruta_promedio_g: sl.peso_fruta_promedio_g ?? match.peso_fruta_promedio_g,
+                };
+              });
+            } else {
+              merged.lotes_detalle = serverLotes;
+            }
             console.log("[SUBAGENT] produccion: usando serverLotes (prio 1)");
           }
           if (server.kg_produccion_calibrador) merged.kg_produccion_total = server.kg_produccion_calibrador;
@@ -736,7 +759,7 @@ function extractProduccionTotal(rows: any[][]): number {
 
 function extractLotesDetalle(rows: any[][]): any[] {
   // Buscar columnas en las primeras 50 filas
-  let pesoCol = -1, nombreProdCol = -1, codigoProdCol = -1, loteCol = -1, tphCol = -1, variedadCol = -1, pesoFrutaCol = -1;
+  let pesoCol = -1, nombreProdCol = -1, codigoProdCol = -1, loteCol = -1, tphCol = -1, variedadCol = -1, pesoFrutaCol = -1, duracionCol = -1;
   for (let i = 0; i < Math.min(rows.length, 50); i++) {
     const r = rows[i] ?? [];
     for (let j = 0; j < r.length; j++) {
@@ -752,10 +775,18 @@ function extractLotesDetalle(rows: any[][]): any[] {
       if (/^(id|lote)/.test(c) && !/productor/i.test(raw)) loteCol = j;
       if (/^t\/?h$|^toneladas/.test(c)) tphCol = j;
       if (/^(variedad|producto)/.test(c) && !/productor/i.test(raw)) variedadCol = j;
-      if (/peso.*fruta.*promedio|peso.*fruta|peso.*pieza|peso.*medio.*fruta|peso.*promedio.*fruta/.test(c)) pesoFrutaCol = j;
+      if (/peso.*fruta.*promedio|peso.*fruta|peso.*pieza|peso.*medio.*fruta|peso.*promedio.*fruta/.test(c)) {
+        console.log("[EXTRACT] pesoFrutaCol found at col " + j + ": raw=" + raw + " norm=" + c);
+        pesoFrutaCol = j;
+      }
+      if (/hora.*maquina|tiempo.*maquina|duracion|tiempo|hora.*calibrador|machine.*time/.test(c)) {
+        console.log("[EXTRACT] duracionCol found at col " + j + ": raw=" + raw + " norm=" + c);
+        duracionCol = j;
+      }
     }
   }
   if (pesoCol < 0) return [];
+  console.log("[EXTRACT] pesoCol=" + pesoCol + " pesoFrutaCol=" + pesoFrutaCol + " tphCol=" + tphCol + " duracionCol=" + duracionCol);
   
   const lotes: any[] = [];
   for (let i = 1; i < rows.length; i++) {
@@ -777,6 +808,27 @@ function extractLotesDetalle(rows: any[][]): any[] {
     // Skip rows where productor looks like a bare number (total row misparse)
     if (/^\d{1,3}$/.test(fallbackProductor) && /^\d{1,3}$/.test(fallbackVariedad) && /^\d{1,3}$/.test(fallbackLote)) continue;
     
+    // Parse duracion: could be "HH:MM:SS" string or numeric minutes
+    let duracionMin: number | null = null;
+    if (duracionCol >= 0) {
+      const raw = r[duracionCol];
+      if (raw != null) {
+        const rawStr = String(raw).trim();
+        // Try HH:MM:SS or HH:MM
+        const timeMatch = rawStr.match(/^(\d+):(\d+)(?::(\d+))?$/);
+        if (timeMatch) {
+          const h = parseInt(timeMatch[1], 10) || 0;
+          const m = parseInt(timeMatch[2], 10) || 0;
+          const s = parseInt(timeMatch[3], 10) || 0;
+          duracionMin = h * 60 + m + (s > 0 ? Math.round(s / 60) : 0);
+        } else {
+          // Try as number (minutes)
+          const numVal = toNum(raw);
+          if (numVal > 0) duracionMin = numVal;
+        }
+      }
+    }
+    
     lotes.push({
       lote_codigo: fallbackLote || null,
       codigo_productor: codigoProd || null,
@@ -784,10 +836,13 @@ function extractLotesDetalle(rows: any[][]): any[] {
       producto: fallbackVariedad || "—",
       kg_peso_total: kg,
       toneladas_hora: tphCol >= 0 ? (toNum(r[tphCol]) || null) : null,
-      duracion_min: null,
+      duracion_min: duracionMin,
       peso_fruta_promedio_g: pesoFrutaCol >= 0 ? (toNum(r[pesoFrutaCol]) || null) : null,
       hora_inicio: null,
     });
+  }
+  if (lotes.length > 0) {
+    console.log("[EXTRACT] lotes found=" + lotes.length + " first peso_fruta=" + lotes[0].peso_fruta_promedio_g);
   }
   return lotes;
 }

@@ -85,6 +85,11 @@ function DaySection({ date, lotes, defaultOpen = false }: DaySectionProps) {
               </span>
               <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Fruta</span>
             </div>
+            <div className="w-px h-6 bg-[var(--glass-border)]" />
+            <div className="flex flex-col">
+              <span className="text-sm font-semibold tabular-nums leading-tight">{sub.totalHoras.toFixed(1)} h</span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Tiempo</span>
+            </div>
           </div>
 
           {/* Alerta lotes lentos */}
@@ -97,15 +102,15 @@ function DaySection({ date, lotes, defaultOpen = false }: DaySectionProps) {
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="border-t border-[var(--glass-border)]">
-            <table className="w-full text-sm data-table">
-              <thead>
+            <table className="w-full text-sm border-collapse">
+              <thead className="border-b border-[var(--glass-border)]">
                 <tr>
-                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:px-4">Lote</th>
-                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:px-4">Productor</th>
-                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:px-4">Producto</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-left sm:px-4">Lote</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-left sm:px-4">Productor</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-left sm:px-4">Producto</th>
                   <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:px-4">Kg</th>
                   <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:px-4">T/h</th>
-                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:px-4">Min</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:px-4">Tiempo</th>
                   <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:px-4">Peso fruta</th>
                 </tr>
               </thead>
@@ -113,20 +118,20 @@ function DaySection({ date, lotes, defaultOpen = false }: DaySectionProps) {
                 {lotes.map((l, i) => {
                   const badge = getTphBadge(l.toneladas_hora);
                   return (
-                    <tr key={`${l.fecha}-${l.lote_codigo}-${i}`}>
-                      <td className="font-mono text-xs">{l.lote_codigo}</td>
-                      <td className="font-medium">{l.productor}</td>
-                      <td className="text-muted-foreground">{l.producto}</td>
-                      <td className="text-right font-mono tabular-nums">{formatKg(l.kg_peso_total)}</td>
-                      <td className="text-right">
+                    <tr key={`${l.fecha}-${l.lote_codigo}-${i}`} className="border-b border-[var(--glass-border)] last:border-b-0 hover:bg-[var(--glass-bg-strong)]">
+                      <td className="px-3 py-2.5 text-left font-mono text-xs sm:px-4">{l.lote_codigo}</td>
+                      <td className="px-3 py-2.5 text-left font-medium sm:px-4">{l.productor}</td>
+                      <td className="px-3 py-2.5 text-left text-muted-foreground sm:px-4">{l.producto}</td>
+                      <td className="px-3 py-2.5 text-right font-mono tabular-nums whitespace-nowrap sm:px-4">{formatKg(l.kg_peso_total)}</td>
+                      <td className="px-3 py-2.5 text-right whitespace-nowrap sm:px-4">
                         {l.toneladas_hora !== null ? (
                           <Badge variant="outline" className={cn("text-xs font-mono", badge && TPH_BADGE_CLASSES[badge])}>
                             {l.toneladas_hora.toFixed(1)}
                           </Badge>
                         ) : "—"}
                       </td>
-                      <td className="text-right tabular-nums">{l.duracion_min ?? "—"}</td>
-                      <td className="text-right tabular-nums">{l.peso_fruta_promedio_g !== null ? `${l.peso_fruta_promedio_g.toFixed(0)}g` : "—"}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap sm:px-4">{l.duracion_min != null ? `${(l.duracion_min / 60).toFixed(1)} h` : "—"}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap sm:px-4">{l.peso_fruta_promedio_g !== null ? `${l.peso_fruta_promedio_g.toFixed(0)}g` : "—"}</td>
                     </tr>
                   );
                 })}

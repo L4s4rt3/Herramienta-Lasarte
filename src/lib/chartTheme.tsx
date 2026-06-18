@@ -128,7 +128,7 @@ export function barFill(color: string, opacity = 0.22): string {
 }
 
 export function tphColor(tph: number): string {
-  return tph >= 16 ? C.success : tph >= 12 ? C.warning : C.destructive;
+  return tph >= 14.5 ? C.success : tph >= 12.5 ? C.warning : C.destructive;
 }
 
 export function dotStyle(color: string, radius = 3.5) {

@@ -213,7 +213,7 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
           icon={Globe} accentClass={kpis.pct_exportacion >= 60 ? "border-l-success" : "border-l-warning"} />
         <KpiCard label="Eficiencia T/h" value={kpis.tph_promedio ? `${kpis.tph_promedio} T/h` : "—"}
           sub={kpis.tph_min && kpis.tph_max ? `min ${kpis.tph_min} · max ${kpis.tph_max}` : undefined}
-          icon={Gauge} accentClass={kpis.tph_promedio ? kpis.tph_promedio >= 16 ? "border-l-success" : kpis.tph_promedio >= 12 ? "border-l-warning" : "border-l-destructive" : "border-l-muted"} />
+          icon={Gauge} accentClass={kpis.tph_promedio ? kpis.tph_promedio >= 14.5 ? "border-l-success" : kpis.tph_promedio >= 12.5 ? "border-l-warning" : "border-l-destructive" : "border-l-muted"} />
         <KpiCard label="Top calibre / variedad" value={kpis.top_calibre ?? "—"}
           sub={kpis.top_calibre ? `${kpis.top_calibre_pct}% del total` : undefined} icon={BarChart3} accentClass="border-l-info" />
         <KpiCard label="Stock en cámara" value={formatKg(kpis.kg_camara)} sub={`${kpis.n_palets} palets`}
@@ -406,7 +406,7 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
                       <TableCell className="text-right text-xs">
                         {p.tph_avg ? (
                           <span className={cn("tabular-nums font-semibold",
-                            p.tph_avg >= 16 ? "text-success" : p.tph_avg >= 12 ? "text-warning" : "text-destructive"
+                            p.tph_avg >= 14.5 ? "text-success" : p.tph_avg >= 12.5 ? "text-warning" : "text-destructive"
                           )}>{p.tph_avg.toFixed(1)} T/h</span>
                         ) : "—"}
                       </TableCell>
@@ -474,7 +474,7 @@ function RawProduccionTable({ lotes, columnas }: { lotes: LoteProduccion[]; colu
                   <TableCell className="text-right text-xs">
                     {l.toneladas_hora !== null
                       ? <span className={cn("tabular-nums font-medium",
-                          l.toneladas_hora >= 16 ? "text-success" : l.toneladas_hora >= 12 ? "text-warning" : "text-destructive"
+                          l.toneladas_hora >= 14.5 ? "text-success" : l.toneladas_hora >= 12.5 ? "text-warning" : "text-destructive"
                         )}>{l.toneladas_hora.toFixed(2)}</span>
                       : <span className="text-muted-foreground">—</span>}
                   </TableCell>

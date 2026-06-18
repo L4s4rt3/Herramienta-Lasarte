@@ -201,7 +201,7 @@ registro de partes, análisis de diferencias de peso (DSJ), seguimiento por prod
    - Lista de productores activos con kg totales, nº lotes y T/h media
    - Filtro por rango de fechas
    - Detalle de cada productor: evolución T/h, producción diaria, tabla de lotes
-   - Alertas si T/h < 14
+   - Alertas si T/h < 12.5
 
 7. CALENDARIO (/calendario)
    - Vista mensual: cada día muestra un punto de color (semáforo)
@@ -239,9 +239,9 @@ SEMÁFORO DJPMN:
   🔴 Rojo    > 5%   → Crítico, requiere investigación
 
 VELOCIDAD DE MÁQUINA (T/h = toneladas/hora):
-  ✅ Buena      ≥ 16 T/h
-  ⚠️ Aceptable  ≥ 12 T/h
-  ❌ Baja       < 12 T/h
+  ✅ Buena      ≥ 14.5 T/h
+  ⚠️ Aceptable  ≥ 12.5 T/h
+  ❌ Baja       < 12.5 T/h
 
 DESTINOS DE FRUTA:
   - Exportación    → máxima calidad, mercado internacional

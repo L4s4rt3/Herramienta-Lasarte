@@ -87,7 +87,7 @@ function TablaProductores({ productores }: { productores: AnalisisDia["productor
                     <TableCell className="text-right text-xs">
                       {p.tph_avg ? (
                         <span className={cn("tabular-nums font-semibold",
-                          p.tph_avg >= 16 ? "text-success" : p.tph_avg >= 12 ? "text-warning" : "text-destructive"
+                          p.tph_avg >= 14.5 ? "text-success" : p.tph_avg >= 12.5 ? "text-warning" : "text-destructive"
                         )}>{p.tph_avg.toFixed(1)} T/h</span>
                       ) : "—"}
                     </TableCell>

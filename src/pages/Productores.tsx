@@ -54,7 +54,7 @@ type LoteDiaRow = LoteDia & {
 function TphBadge({ tph }: { tph: number | null }) {
   if (tph === null) return <span className="text-muted-foreground text-xs">N/D</span>;
   const color =
-    tph >= 18 ? "text-success" : tph >= 14 ? "text-warning" : "text-destructive";
+    tph >= 14.5 ? "text-success" : tph >= 12.5 ? "text-warning" : "text-destructive";
   return (
     <span className={cn("tabular-nums font-semibold text-sm", color)}>
       {tph.toFixed(2)} T/h
@@ -238,7 +238,7 @@ export default function Productores() {
               label="T/h media"
               value={avgTph ? `${avgTph.toFixed(2)} T/h` : "N/D"}
               icon={Gauge}
-              trend={avgTph ? (avgTph >= 16 ? "up" : "down") : "neutral"}
+              trend={avgTph ? (avgTph >= 14.5 ? "up" : "down") : "neutral"}
             />
             <KPICard
               label="Peso fruta medio"
@@ -281,7 +281,7 @@ export default function Productores() {
                   {filtered.map((p) => {
                     const isSelected = selected === p.productor;
                     const tph = p.tph_promedio;
-                    const tphColor = tph === null ? "" : tph >= 16 ? "text-success" : tph >= 12 ? "text-warning" : "text-destructive";
+                    const tphColor = tph === null ? "" : tph >= 14.5 ? "text-success" : tph >= 12.5 ? "text-warning" : "text-destructive";
                     return (
                       <li key={p.productor}>
                         <div

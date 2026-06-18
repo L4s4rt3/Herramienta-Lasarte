@@ -49,6 +49,7 @@ export interface AnalisisDiarioData {
     kg_calibres: number;
     avg_tph: number | null;
     total_min: number;
+    total_horas: number;
     n_lotes_lentos: number;
   };
   lotes: LoteResumen[];
@@ -57,7 +58,7 @@ export interface AnalisisDiarioData {
 }
 
 const EMPTY_DATA: AnalisisDiarioData = {
-  totals: { n_dias: 0, n_lotes: 0, kg_lotes: 0, kg_calibres: 0, avg_tph: null, total_min: 0, n_lotes_lentos: 0 },
+  totals: { n_dias: 0, n_lotes: 0, kg_lotes: 0, kg_calibres: 0, avg_tph: null, total_min: 0, total_horas: 0, n_lotes_lentos: 0 },
   lotes: [],
   clases: [],
   grupos: [],
@@ -201,6 +202,7 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       const kg_lotes = lotesAll.reduce((s, l) => s + l.kg_peso_total, 0);
       const lotesConTph = lotesAll.filter((l) => l.toneladas_hora !== null && l.toneladas_hora > 0);
       const totalMin = lotesConTph.reduce((s, l) => s + (l.duracion_min ?? 0), 0);
+      const totalHoras = totalMin / 60;
       const avgTph = calcularTphOperativa(kg_lotes, diasSet.size);
 
       setData({
@@ -211,7 +213,8 @@ export function useAnalisisDiario(desde: string, hasta: string) {
           kg_calibres: kgCalibres,
           avg_tph: avgTph,
           total_min: totalMin,
-          n_lotes_lentos: lotesConTph.filter((l) => (l.toneladas_hora ?? 0) < 12).length,
+          total_horas: totalHoras,
+          n_lotes_lentos: lotesConTph.filter((l) => (l.toneladas_hora ?? 0) < 12.5).length,
         },
         lotes: lotesAll.sort((a, b) => b.fecha.localeCompare(a.fecha)),
         clases,

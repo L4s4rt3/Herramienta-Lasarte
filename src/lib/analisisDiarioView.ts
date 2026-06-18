@@ -1,6 +1,6 @@
 import type { LoteResumen } from "@/hooks/useAnalisisDiario";
 
-export const SLOW_TPH_THRESHOLD = 12;
+export const SLOW_TPH_THRESHOLD = 12.5;
 
 export interface ProductionEvolutionPoint {
   date: string;
@@ -17,6 +17,7 @@ export interface DiaSubtotales {
   avgPesoFruta: number | null;
   nLotes: number;
   nLentes: number;
+  totalHoras: number;
 }
 
 export interface WeekRange {
@@ -56,7 +57,8 @@ export function calcularSubtotalesDia(lotes: LoteResumen[]): DiaSubtotales {
     : null;
   const nLotes = lotes.length;
   const nLentes = lotes.filter((l) => l.toneladas_hora !== null && l.toneladas_hora < SLOW_TPH_THRESHOLD).length;
-  return { kg, avgTph, avgPesoFruta, nLotes, nLentes };
+  const totalHoras = lotes.reduce((s, l) => s + (l.duracion_min ?? 0), 0) / 60;
+  return { kg, avgTph, avgPesoFruta, nLotes, nLentes, totalHoras };
 }
 
 export function detectarLotesLentos(lotes: LoteResumen[]): boolean {
@@ -131,8 +133,8 @@ export function getIntensityColor(kg: number, maxKg: number): string {
 
 export function getTphBadge(tph: number | null): "success" | "warning" | "destructive" | null {
   if (tph === null) return null;
-  if (tph >= 16) return "success";
-  if (tph >= 12) return "warning";
+  if (tph >= 14.5) return "success";
+  if (tph >= 12.5) return "warning";
   return "destructive";
 }
 
