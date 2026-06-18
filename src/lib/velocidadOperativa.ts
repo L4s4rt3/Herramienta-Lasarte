@@ -1,14 +1,14 @@
 export const HORAS_OPERATIVAS_DIA = 8;
 
-export function calcularTphOperativa(kg: number | null | undefined, horas = 8): number | null {
+export function calcularTphOperativa(kg: number | null | undefined, nDias = 1): number | null {
   const kgValue = Number(kg) || 0;
-  const horasValue = Number(horas) || 0;
+  const diasValue = Number(nDias) || 0;
 
-  if (kgValue <= 0 || horasValue <= 0) {
+  if (kgValue <= 0 || diasValue <= 0) {
     return null;
   }
 
-  // Nuevo método: toneladas / horas_reales (más preciso)
-  // Parámetro horas ahora representa horas reales trabajadas
-  return kgValue / 1000 / horasValue;
+  // Método corregido: toneladas / (días × 8 horas)
+  // Usa exactamente 8 horas por día como base fija
+  return kgValue / 1000 / (diasValue * HORAS_OPERATIVAS_DIA);
 }

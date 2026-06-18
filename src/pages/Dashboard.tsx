@@ -223,9 +223,8 @@ export default function Dashboard() {
     },
   });
 
-  // Calcular horas reales trabajadas esta semana
-  const horasReales = currentWeekData.partes * 8; // 8h por día operativo
-  const avgTph = calcularTphOperativa(currentWeekData.produccion, horasReales);
+  // Calcular T/h usando exactamente 8 horas por día
+  const avgTph = calcularTphOperativa(currentWeekData.produccion, currentWeekData.partes);
 
   return (
     <div className="page-shell">
@@ -293,7 +292,7 @@ export default function Dashboard() {
             <KPICard
               label="Velocidad media"
               value={avgTph !== null ? `${avgTph.toFixed(1)} T/h` : "—"}
-              hint={`${horasReales} horas operativas esta semana`}
+              hint={`${currentWeekData.partes} días × 8 h/día`}
               icon={Gauge}
               trend={avgTph !== null ? (avgTph >= 14.5 ? "up" : avgTph >= 12.5 ? "neutral" : "down") : "neutral"}
             />

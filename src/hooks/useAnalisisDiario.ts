@@ -203,8 +203,8 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       const lotesConTph = lotesAll.filter((l) => l.toneladas_hora !== null && l.toneladas_hora > 0);
       const totalMin = lotesConTph.reduce((s, l) => s + (l.duracion_min ?? 0), 0);
       const totalHoras = totalMin / 60;
-      // Usar horas reales en lugar de dias estimados para cálculo más preciso
-      const avgTph = calcularTphOperativa(kg_lotes, totalHoras > 0 ? totalHoras : diasSet.size * 8);
+      // Usar exactamente 8 horas por día como base fija
+      const avgTph = calcularTphOperativa(kg_lotes, diasSet.size);
 
       setData({
         totals: {

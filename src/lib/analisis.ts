@@ -188,10 +188,9 @@ export function computeAnalisis(
   const totalMin = lotesConTph.reduce((s, l) => s + (l.duracion_min ?? 0), 0);
   const totalHoras = totalMin / 60;
 
-  // Usar horas reales si disponibles, sino estimar 8h por día
+  // Usar exactamente 8 horas por día como base fija
   const nDiasEstimados = lotes.length > 0 ? new Set(lotes.map(l => l.fecha)).size : 1;
-  const horasParaCalculo = totalHoras > 0 ? totalHoras : nDiasEstimados * 8;
-  const tph_promedio = calcularTphOperativa(kg_calibrador, horasParaCalculo);
+  const tph_promedio = calcularTphOperativa(kg_calibrador, nDiasEstimados);
   let tph_min: number | null = null;
   let tph_max: number | null = null;
 
