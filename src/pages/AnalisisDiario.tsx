@@ -272,23 +272,22 @@ function ClaseTabSummary({ clases, totalKg }: { clases: Array<{ clase: string; k
           const colors = CLASE_COLORS[c.clase as keyof typeof CLASE_COLORS] ?? CLASE_COLORS.Otro;
           return (
             <div key={c.clase} className={cn("rounded-xl border p-5 space-y-3 shadow-[var(--glass-shadow)] backdrop-blur-xl", colors.bg, colors.border)}>
-              {/* Nombre de categoría grande y legible */}
-              <div className="flex items-baseline justify-between gap-3">
-                <div className="flex items-center gap-2.5">
-                  <div className={cn("h-3 w-3 rounded-full shrink-0", colors.dot)} />
-                  <span className={cn("text-lg font-bold tracking-tight", colors.text)}>{c.clase}</span>
-                </div>
+              {/* Nombre de categoría en pill */}
+              <div className="flex items-center justify-between gap-3">
+                <span className={cn("inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm font-bold", colors.dot, "text-white")}>
+                  {c.clase}
+                </span>
                 <span className="text-sm font-semibold text-muted-foreground tabular-nums">{pct.toFixed(1)}%</span>
               </div>
 
-              {/* Kg total grande */}
-              <div className="flex items-baseline gap-2 pl-[22px]">
+              {/* Kg total */}
+              <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-bold tabular-nums text-foreground">{formatKg(c.kg_total)}</span>
                 <span className="text-xs text-muted-foreground">kg</span>
               </div>
 
               {/* Barra */}
-              <div className="pl-[22px] space-y-1.5">
+              <div className="space-y-1.5">
                 <div className="h-2 w-full rounded-full bg-[var(--glass-bg-strong)] overflow-hidden">
                   <div className={cn("h-full rounded-full transition-all duration-500", colors.dot)} style={{ width: `${pct}%` }} />
                 </div>
@@ -363,23 +362,22 @@ function GrupoTabSummary({ grupos, totalKg }: { grupos: Array<{ grupo: string; k
           const colors = GRUPO_COLORS[g.grupo as keyof typeof GRUPO_COLORS] ?? GRUPO_COLORS.Otro;
           return (
             <div key={g.grupo} className={cn("rounded-xl border p-5 space-y-3 shadow-[var(--glass-shadow)] backdrop-blur-xl", colors.bg, colors.border)}>
-              {/* Nombre del grupo grande y legible */}
-              <div className="flex items-baseline justify-between gap-3">
-                <div className="flex items-center gap-2.5">
-                  <div className={cn("h-3 w-3 rounded-full shrink-0", colors.dot)} />
-                  <span className={cn("text-lg font-bold tracking-tight", colors.text)}>{g.grupo}</span>
-                </div>
+              {/* Nombre del grupo en pill */}
+              <div className="flex items-center justify-between gap-3">
+                <span className={cn("inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm font-bold", colors.dot, "text-white")}>
+                  {g.grupo}
+                </span>
                 <span className="text-sm font-semibold text-muted-foreground tabular-nums">{pct.toFixed(1)}%</span>
               </div>
 
               {/* Kg total */}
-              <div className="flex items-baseline gap-2 pl-[22px]">
+              <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-bold tabular-nums text-foreground">{formatKg(g.kg_total)}</span>
                 <span className="text-xs text-muted-foreground">kg</span>
               </div>
 
               {/* Barra */}
-              <div className="pl-[22px] space-y-1.5">
+              <div className="space-y-1.5">
                 <div className="h-2 w-full rounded-full bg-[var(--glass-bg-strong)] overflow-hidden">
                   <div className={cn("h-full rounded-full transition-all duration-500", colors.dot)} style={{ width: `${barWidth}%` }} />
                 </div>
