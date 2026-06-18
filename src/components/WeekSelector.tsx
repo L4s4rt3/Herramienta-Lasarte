@@ -1,5 +1,5 @@
+import { useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { ChevronLeft, ChevronRight, Calendar, CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Periodo } from "@/lib/analisisDiarioView";
@@ -21,6 +21,31 @@ const PERIODOS: { value: Periodo; label: string; icon: React.ElementType }[] = [
   { value: "ultimas_4", label: "4 semanas", icon: Calendar },
   { value: "custom", label: "Rango", icon: Calendar },
 ];
+
+function GlassDateInput({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const display = value
+    ? new Date(value + "T12:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "2-digit" })
+    : label;
+  return (
+    <button
+      type="button"
+      onClick={() => ref.current?.showPicker()}
+      className="inline-flex items-center gap-1.5 rounded-lg glass border border-[var(--glass-border)] px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-[var(--glass-bg-strong)] transition-colors cursor-pointer"
+    >
+      <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      <span>{display}</span>
+      <input
+        ref={ref}
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="sr-only"
+        tabIndex={-1}
+      />
+    </button>
+  );
+}
 
 export function WeekSelector({
   periodo, onPeriodoChange,
@@ -56,17 +81,18 @@ export function WeekSelector({
       <div className="flex items-center gap-1.5">
         {PERIODOS.map((p) => {
           const Icon = p.icon;
+          const active = periodo === p.value;
           return (
             <Button
               key={p.value}
-              variant={periodo === p.value ? "default" : "outline"}
+              variant="outline"
               size="sm"
               onClick={() => onPeriodoChange(p.value)}
               className={cn(
-                "h-8 text-xs gap-1.5",
-                periodo === p.value
-                  ? "glass border border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] shadow-[var(--glass-shadow)]"
-                  : "glass glass-hover"
+                "h-8 text-xs gap-1.5 border transition-all",
+                active
+                  ? "border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] text-foreground shadow-[var(--glass-shadow)] font-semibold"
+                  : "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground hover:text-foreground hover:bg-[var(--glass-bg-strong)]"
               )}
             >
               <Icon className="h-3.5 w-3.5" />
@@ -76,23 +102,26 @@ export function WeekSelector({
         })}
       </div>
 
-      {/* Inputs de fecha para rango custom */}
+      {/* Selector de día rápido */}
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Ver día:</span>
+        <GlassDateInput
+          value=""
+          onChange={(v) => {
+            onCustomDesdeChange(v);
+            onCustomHastaChange(v);
+            onPeriodoChange("custom");
+          }}
+          label="Elegir día"
+        />
+      </div>
+
+      {/* Rango de fechas custom */}
       {periodo === "custom" && (
-        <div className="flex items-center gap-2 rounded-lg glass border border-[var(--glass-border)] px-3 py-1.5">
-          <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <Input
-            type="date"
-            value={customDesde}
-            onChange={(e) => onCustomDesdeChange(e.target.value)}
-            className="w-32 h-7 border-0 bg-transparent p-0 text-xs focus-visible:ring-0 focus-visible:ring-offset-0"
-          />
+        <div className="flex items-center gap-1.5">
+          <GlassDateInput value={customDesde} onChange={onCustomDesdeChange} label="Desde" />
           <span className="text-muted-foreground text-xs">—</span>
-          <Input
-            type="date"
-            value={customHasta}
-            onChange={(e) => onCustomHastaChange(e.target.value)}
-            className="w-32 h-7 border-0 bg-transparent p-0 text-xs focus-visible:ring-0 focus-visible:ring-offset-0"
-          />
+          <GlassDateInput value={customHasta} onChange={onCustomHastaChange} label="Hasta" />
         </div>
       )}
     </div>
