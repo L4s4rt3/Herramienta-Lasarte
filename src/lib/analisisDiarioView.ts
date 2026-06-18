@@ -130,3 +130,110 @@ export function getTphBadge(tph: number | null): "success" | "warning" | "destru
   if (tph >= 12) return "warning";
   return "destructive";
 }
+
+function detectarTipoClasificacion(valor: string | null): string {
+  if (!valor) return "Otro";
+  const v = valor.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (v.includes("no_export") || v.includes("no export") || v.includes("no_exportac") || v.includes("no exportac")) return "No exportación";
+  if (v.includes("no_comerc") || v.includes("no comerc") || v.includes("industria") || v.includes("ind")) return "No comercial";
+  if (v.includes("export") || v.includes("ext")) return "Exportación";
+  if (v.includes("mujer")) return "Mujeres";
+  if (v.includes("mercado") || v.includes("nac") || v.includes("interior") || v.includes("int")) return "Mercado";
+  return valor;
+}
+
+export interface MatrixData {
+  data: Record<string, Record<string, number>>;
+  days: string[];
+  dimensions: string[];
+  dayTotals: Record<string, number>;
+  dimensionTotals: Record<string, number>;
+  grandTotal: number;
+}
+
+export function buildClaseMatrix(
+  clases: Array<{ clase: string; kg_total: number }>,
+  calibresRaw: Array<{ clase: string | null; grupo_destino: string | null; kg: number; part_id: string }>,
+  partDateMap: Map<string, string>,
+  weekDays: string[]
+): MatrixData {
+  const dayMap = new Map<string, Map<string, number>>();
+  const dimSet = new Set<string>();
+
+  for (const c of calibresRaw) {
+    const day = partDateMap.get(c.part_id);
+    if (!day || !weekDays.includes(day)) continue;
+    const clase = c.clase ?? "Sin clase";
+    const kg = Number(c.kg) || 0;
+    dimSet.add(clase);
+
+    const dimMap = dayMap.get(day) ?? new Map();
+    dimMap.set(clase, (dimMap.get(clase) ?? 0) + kg);
+    dayMap.set(day, dimMap);
+  }
+
+  const dimensions = Array.from(dimSet).sort();
+  const data: Record<string, Record<string, number>> = {};
+  const dayTotals: Record<string, number> = {};
+  const dimensionTotals: Record<string, number> = {};
+  let grandTotal = 0;
+
+  for (const day of weekDays) {
+    const dimMap = dayMap.get(day) ?? new Map();
+    data[day] = {};
+    let dayTotal = 0;
+    for (const dim of dimensions) {
+      const kg = dimMap.get(dim) ?? 0;
+      data[day][dim] = kg;
+      dimensionTotals[dim] = (dimensionTotals[dim] ?? 0) + kg;
+      dayTotal += kg;
+    }
+    dayTotals[day] = dayTotal;
+    grandTotal += dayTotal;
+  }
+
+  return { data, days: weekDays, dimensions, dayTotals, dimensionTotals, grandTotal };
+}
+
+export function buildGrupoMatrix(
+  calibresRaw: Array<{ grupo_destino: string | null; kg: number; part_id: string }>,
+  partDateMap: Map<string, string>,
+  weekDays: string[]
+): MatrixData {
+  const dayMap = new Map<string, Map<string, number>>();
+  const dimSet = new Set<string>();
+
+  for (const c of calibresRaw) {
+    const day = partDateMap.get(c.part_id);
+    if (!day || !weekDays.includes(day)) continue;
+    const grupo = detectarTipoClasificacion(c.grupo_destino);
+    const kg = Number(c.kg) || 0;
+    dimSet.add(grupo);
+
+    const dimMap = dayMap.get(day) ?? new Map();
+    dimMap.set(grupo, (dimMap.get(grupo) ?? 0) + kg);
+    dayMap.set(day, dimMap);
+  }
+
+  const dimensions = Array.from(dimSet).sort();
+  const data: Record<string, Record<string, number>> = {};
+  const dayTotals: Record<string, number> = {};
+  const dimensionTotals: Record<string, number> = {};
+  let grandTotal = 0;
+
+  for (const day of weekDays) {
+    const dimMap = dayMap.get(day) ?? new Map();
+    data[day] = {};
+    let dayTotal = 0;
+    for (const dim of dimensions) {
+      const kg = dimMap.get(dim) ?? 0;
+      data[day][dim] = kg;
+      dimensionTotals[dim] = (dimensionTotals[dim] ?? 0) + kg;
+      dayTotal += kg;
+    }
+    dayTotals[day] = dayTotal;
+    grandTotal += dayTotal;
+  }
+
+  return { data, days: weekDays, dimensions, dayTotals, dimensionTotals, grandTotal };
+}
