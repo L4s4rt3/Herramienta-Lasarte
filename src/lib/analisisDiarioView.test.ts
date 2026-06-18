@@ -5,6 +5,10 @@ import {
   detectarLotesLentos,
   calcularTphPonderado,
   buildWeekRange,
+  getDiaSemana,
+  formatFechaCorta,
+  getIntensityColor,
+  getTphBadge,
 } from "./analisisDiarioView";
 import type { LoteResumen } from "@/hooks/useAnalisisDiario";
 
@@ -73,5 +77,73 @@ describe("buildWeekRange", () => {
     const endDay = new Date(end).getDay();
     expect(startDay).toBe(1); // lunes
     expect(endDay).toBe(0); // domingo
+  });
+
+  it("devuelve la semana anterior", () => {
+    const actual = buildWeekRange("esta_semana");
+    const anterior = buildWeekRange("anterior");
+    const diffMs = new Date(actual.start).getTime() - new Date(anterior.end).getTime();
+    expect(diffMs).toBe(86400000); // 1 day gap between sunday and next monday
+    expect(anterior.label).toBe("Semana anterior");
+  });
+
+  it("devuelve rango de 4 semanas", () => {
+    const result = buildWeekRange("ultimas_4");
+    const start = new Date(result.start);
+    const end = new Date(result.end);
+    const diffDays = (end.getTime() - start.getTime()) / 86400000;
+    expect(diffDays).toBe(27); // 4 weeks - 1
+    expect(result.label).toBe("Ultimas 4 semanas");
+  });
+});
+
+describe("getDiaSemana", () => {
+  it("devuelve nombre corto del dia", () => {
+    expect(getDiaSemana("2026-06-15")).toBe("Lun"); // monday
+    expect(getDiaSemana("2026-06-16")).toBe("Mar");
+    expect(getDiaSemana("2026-06-17")).toBe("Mie");
+    expect(getDiaSemana("2026-06-18")).toBe("Jue");
+    expect(getDiaSemana("2026-06-19")).toBe("Vie");
+    expect(getDiaSemana("2026-06-20")).toBe("Sab");
+    expect(getDiaSemana("2026-06-21")).toBe("Dom");
+  });
+});
+
+describe("formatFechaCorta", () => {
+  it("devuelve formato dd/mm", () => {
+    expect(formatFechaCorta("2026-06-15")).toBe("15/06");
+    expect(formatFechaCorta("2026-01-05")).toBe("05/01");
+  });
+});
+
+describe("getIntensityColor", () => {
+  it("devuelve color segun ratio", () => {
+    expect(getIntensityColor(100, 0)).toBe("bg-transparent");
+    expect(getIntensityColor(100, 100)).toBe("bg-primary/20");  // ratio 1.0
+    expect(getIntensityColor(80, 100)).toBe("bg-primary/20");   // ratio 0.8
+    expect(getIntensityColor(60, 100)).toBe("bg-primary/12");   // ratio 0.6
+    expect(getIntensityColor(30, 100)).toBe("bg-primary/6");    // ratio 0.3
+    expect(getIntensityColor(10, 100)).toBe("bg-transparent");  // ratio 0.1
+  });
+});
+
+describe("getTphBadge", () => {
+  it("devuelve null si tph es null", () => {
+    expect(getTphBadge(null)).toBeNull();
+  });
+
+  it("devuelve success si tph >= 16", () => {
+    expect(getTphBadge(16)).toBe("success");
+    expect(getTphBadge(20)).toBe("success");
+  });
+
+  it("devuelve warning si 12 <= tph < 16", () => {
+    expect(getTphBadge(12)).toBe("warning");
+    expect(getTphBadge(15)).toBe("warning");
+  });
+
+  it("devuelve destructive si tph < 12", () => {
+    expect(getTphBadge(10)).toBe("destructive");
+    expect(getTphBadge(0)).toBe("destructive");
   });
 });

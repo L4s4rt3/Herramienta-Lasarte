@@ -1,5 +1,7 @@
 import type { LoteResumen } from "@/hooks/useAnalisisDiario";
 
+export const SLOW_TPH_THRESHOLD = 12;
+
 export interface ProductionEvolutionPoint {
   date: string;
   kg: number;
@@ -48,12 +50,12 @@ export function calcularSubtotalesDia(lotes: LoteResumen[]): DiaSubtotales {
   const kg = lotes.reduce((s, l) => s + l.kg_peso_total, 0);
   const avgTph = calcularTphPonderado(lotes);
   const nLotes = lotes.length;
-  const nLentes = lotes.filter((l) => l.toneladas_hora !== null && l.toneladas_hora < 12).length;
+  const nLentes = lotes.filter((l) => l.toneladas_hora !== null && l.toneladas_hora < SLOW_TPH_THRESHOLD).length;
   return { kg, avgTph, nLotes, nLentes };
 }
 
 export function detectarLotesLentos(lotes: LoteResumen[]): boolean {
-  return lotes.some((l) => l.toneladas_hora !== null && l.toneladas_hora < 12);
+  return lotes.some((l) => l.toneladas_hora !== null && l.toneladas_hora < SLOW_TPH_THRESHOLD);
 }
 
 function getMonday(date: Date): Date {
