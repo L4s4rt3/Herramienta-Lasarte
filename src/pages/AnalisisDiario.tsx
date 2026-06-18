@@ -1,7 +1,7 @@
 // src/pages/AnalisisDiario.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import {
   Loader2, Search, RefreshCw, FileText, BarChart3,
   Gauge, PackageCheck, Timer, AlertCircle, Calendar,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useAnalisisDiario } from "@/hooks/useAnalisisDiario";
 import { KPICard } from "@/components/KPICard";
 import { DailyListTable } from "@/components/DailyListTable";
@@ -46,42 +47,6 @@ function normalizeText(value: string | null | undefined): string {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
 }
-
-const CLASE_BADGE_CLASSES: Record<string, string> = {
-  Exportación: "border-success/40 bg-success/10 text-success",
-  Mercado: "border-info/40 bg-info/10 text-info",
-  "No exportación": "border-warning/40 bg-warning/10 text-warning",
-  "No comercial": "border-destructive/40 bg-destructive/10 text-destructive",
-  Mujeres: "border-info/40 bg-info/10 text-info",
-  Otro: "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground",
-};
-
-const CLASE_TEXT_CLASSES: Record<string, string> = {
-  Exportación: "text-success",
-  Mercado: "text-info",
-  "No exportación": "text-warning",
-  "No comercial": "text-destructive",
-  Mujeres: "text-info",
-  Otro: "text-muted-foreground",
-};
-
-const CLASE_DOT_CLASSES: Record<string, string> = {
-  Exportación: "bg-success",
-  Mercado: "bg-info",
-  "No exportación": "bg-warning",
-  "No comercial": "bg-destructive",
-  Mujeres: "bg-info",
-  Otro: "bg-muted-foreground",
-};
-
-const CLASE_BAR_CLASSES: Record<string, string> = {
-  Exportación: "bg-success/50",
-  Mercado: "bg-info/50",
-  "No exportación": "bg-warning/50",
-  "No comercial": "bg-destructive/50",
-  Mujeres: "bg-info/50",
-  Otro: "bg-primary/40",
-};
 
 export default function AnalisisDiario() {
   const [searchParams] = useSearchParams();
@@ -282,67 +247,72 @@ function ClaseTabSummary({ clases, totalKg }: { clases: Array<{ clase: string; k
     );
   }
 
+  const CLASE_SEMAFORO = {
+    Exportación:      { bg: "bg-success/10",  border: "border-success/30",  icon: "text-success",  bar: "bg-success" },
+    Mercado:          { bg: "bg-info/10",     border: "border-info/30",     icon: "text-info",     bar: "bg-info" },
+    "No exportación": { bg: "bg-warning/10",  border: "border-warning/30",  icon: "text-warning",  bar: "bg-warning" },
+    "No comercial":   { bg: "bg-destructive/10", border: "border-destructive/30", icon: "text-destructive", bar: "bg-destructive" },
+    Mujeres:          { bg: "bg-info/10",     border: "border-info/30",     icon: "text-info",     bar: "bg-info" },
+    Otro:             { bg: "bg-[var(--glass-bg)]", border: "border-[var(--glass-border)]", icon: "text-muted-foreground", bar: "bg-muted-foreground" },
+  } as const;
+
   return (
     <div className="space-y-4">
-      {clases.map((c) => {
-        const pct = totalKg > 0 ? (c.kg_total / totalKg) * 100 : 0;
-        const gruposOrdenados = Object.entries(c.grupos).sort((a, b) => b[1] - a[1]);
-        const maxGrupoKg = gruposOrdenados.length > 0 ? gruposOrdenados[0][1] : 1;
-        return (
-          <Card key={c.clase} className="glass-accented overflow-hidden">
-            <CardContent className="p-5">
-              {/* Header: color dot + nombre + kg total */}
-              <div className="flex items-center justify-between gap-4 mb-3">
-                <div className="flex items-center gap-3">
-                  <div className={cn("h-3 w-3 rounded-full shrink-0", CLASE_DOT_CLASSES[c.clase] ?? "bg-muted-foreground")} />
-                  <span className={`text-base font-bold ${CLASE_TEXT_CLASSES[c.clase] ?? ""}`}>{c.clase}</span>
+      <div className="flex items-center gap-2 mb-1">
+        <div className="h-px flex-1 bg-border" />
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground px-2">Distribución por clase</span>
+        <div className="h-px flex-1 bg-border" />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        {clases.map((c) => {
+          const pct = totalKg > 0 ? (c.kg_total / totalKg) * 100 : 0;
+          const gruposOrdenados = Object.entries(c.grupos).sort((a, b) => b[1] - a[1]);
+          const maxGrupoKg = gruposOrdenados.length > 0 ? gruposOrdenados[0][1] : 1;
+          const colors = CLASE_SEMAFORO[c.clase as keyof typeof CLASE_SEMAFORO] ?? CLASE_SEMAFORO.Otro;
+          return (
+            <div key={c.clase} className={cn("rounded-xl border p-4 space-y-3 shadow-[var(--glass-shadow)] backdrop-blur-xl", colors.bg, colors.border)}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className={cn("h-3 w-3 rounded-full", colors.bar)} />
+                  <span className={cn("text-sm font-bold", colors.icon)}>{c.clase}</span>
                 </div>
-                <div className="text-right">
-                  <span className="font-mono font-bold tabular-nums text-lg">{formatKg(c.kg_total)}</span>
-                  <span className="text-xs text-muted-foreground ml-1.5">{pct.toFixed(1)}%</span>
-                </div>
+                <span className="text-xs text-muted-foreground">{pct.toFixed(1)}%</span>
               </div>
 
-              {/* Barra general */}
-              <div className="h-2.5 w-full overflow-hidden rounded-full bg-[var(--glass-bg-strong)] mb-3">
-                <div
-                  className={cn("h-full rounded-full transition-all duration-500", CLASE_BAR_CLASSES[c.clase] ?? "bg-primary/40")}
-                  style={{ width: `${pct}%` }}
-                />
+              <p className={cn("text-3xl font-bold tabular-nums", colors.icon)}>{formatKg(c.kg_total)}</p>
+
+              <div className="space-y-1.5">
+                <div className="h-2 w-full rounded-full bg-[var(--glass-bg-strong)] overflow-hidden">
+                  <div className={cn("h-full rounded-full transition-all duration-500", colors.bar)} style={{ width: `${pct}%` }} />
+                </div>
+                <p className="text-[10px] text-muted-foreground">{c.n_registros} lotes en {c.n_dias} {c.n_dias === 1 ? "día" : "días"}</p>
               </div>
 
-              {/* Sub-info: lotes y días */}
-              <p className="text-xs text-muted-foreground mb-4">
-                {c.n_registros} lotes en {c.n_dias} {c.n_dias === 1 ? "día" : "días"}
-              </p>
-
-              {/* Grupos como filas */}
               {gruposOrdenados.length > 0 && (
-                <div className="space-y-2.5">
+                <div className="space-y-2 pt-2 border-t border-[var(--glass-border)]">
                   {gruposOrdenados.map(([g, kg]) => {
                     const gPct = c.kg_total > 0 ? (kg / c.kg_total) * 100 : 0;
                     const barWidth = maxGrupoKg > 0 ? (kg / maxGrupoKg) * 100 : 0;
+                    const gc = CLASE_SEMAFORO[g as keyof typeof CLASE_SEMAFORO] ?? CLASE_SEMAFORO.Otro;
                     return (
-                      <div key={g} className="flex items-center gap-3">
-                        <div className={cn("h-2.5 w-2.5 rounded-full shrink-0", CLASE_DOT_CLASSES[g] ?? "bg-muted-foreground")} />
-                        <span className="text-sm font-medium w-36 shrink-0 truncate">{g}</span>
-                        <div className="flex-1 h-2 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
-                          <div
-                            className={cn("h-full rounded-full transition-all duration-500", CLASE_BAR_CLASSES[g] ?? "bg-primary/40")}
-                            style={{ width: `${barWidth}%` }}
-                          />
+                      <div key={g} className="flex items-center gap-2.5">
+                        <div className={cn("h-2 w-2 rounded-full shrink-0", gc.bar)} />
+                        <span className="text-xs font-medium w-28 shrink-0 truncate">{g}</span>
+                        <div className="flex-1 h-1.5 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                          <div className={cn("h-full rounded-full transition-all duration-500", gc.bar)} style={{ width: `${barWidth}%` }} />
                         </div>
-                        <span className="text-xs font-mono tabular-nums text-muted-foreground w-20 text-right shrink-0">{formatKg(kg)}</span>
-                        <span className="text-[10px] font-mono tabular-nums text-muted-foreground w-10 text-right shrink-0">{gPct.toFixed(0)}%</span>
+                        <span className="text-[10px] font-mono tabular-nums text-muted-foreground w-16 text-right shrink-0">{formatKg(kg)}</span>
+                        <span className="text-[10px] font-mono tabular-nums text-muted-foreground w-8 text-right shrink-0">{gPct.toFixed(0)}%</span>
                       </div>
                     );
                   })}
                 </div>
               )}
-            </CardContent>
-          </Card>
-        );
-      })}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -360,44 +330,52 @@ function GrupoTabSummary({ grupos, totalKg }: { grupos: Array<{ grupo: string; k
     );
   }
 
+  const CLASE_SEMAFORO = {
+    Exportación:      { bg: "bg-success/10",  border: "border-success/30",  icon: "text-success",  bar: "bg-success" },
+    Mercado:          { bg: "bg-info/10",     border: "border-info/30",     icon: "text-info",     bar: "bg-info" },
+    "No exportación": { bg: "bg-warning/10",  border: "border-warning/30",  icon: "text-warning",  bar: "bg-warning" },
+    "No comercial":   { bg: "bg-destructive/10", border: "border-destructive/30", icon: "text-destructive", bar: "bg-destructive" },
+    Mujeres:          { bg: "bg-info/10",     border: "border-info/30",     icon: "text-info",     bar: "bg-info" },
+    Otro:             { bg: "bg-[var(--glass-bg)]", border: "border-[var(--glass-border)]", icon: "text-muted-foreground", bar: "bg-muted-foreground" },
+  } as const;
+
   const maxKg = grupos.length > 0 ? Math.max(...grupos.map((g) => g.kg_total)) : 1;
 
   return (
     <div className="space-y-4">
-      {grupos.map((g) => {
-        const pct = totalKg > 0 ? (g.kg_total / totalKg) * 100 : 0;
-        const barWidth = maxKg > 0 ? (g.kg_total / maxKg) * 100 : 0;
-        return (
-          <Card key={g.grupo} className="glass-accented overflow-hidden">
-            <CardContent className="p-5">
-              {/* Header: dot + nombre + kg */}
-              <div className="flex items-center justify-between gap-4 mb-3">
-                <div className="flex items-center gap-3">
-                  <div className={cn("h-3 w-3 rounded-full shrink-0", CLASE_DOT_CLASSES[g.grupo] ?? "bg-muted-foreground")} />
-                  <span className="text-base font-bold">{g.grupo}</span>
+      <div className="flex items-center gap-2 mb-1">
+        <div className="h-px flex-1 bg-border" />
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground px-2">Distribución por grupo</span>
+        <div className="h-px flex-1 bg-border" />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {grupos.map((g) => {
+          const pct = totalKg > 0 ? (g.kg_total / totalKg) * 100 : 0;
+          const barWidth = maxKg > 0 ? (g.kg_total / maxKg) * 100 : 0;
+          const colors = CLASE_SEMAFORO[g.grupo as keyof typeof CLASE_SEMAFORO] ?? CLASE_SEMAFORO.Otro;
+          return (
+            <div key={g.grupo} className={cn("rounded-xl border p-4 space-y-3 shadow-[var(--glass-shadow)] backdrop-blur-xl", colors.bg, colors.border)}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className={cn("h-3 w-3 rounded-full", colors.bar)} />
+                  <span className={cn("text-sm font-bold", colors.icon)}>{g.grupo}</span>
                 </div>
-                <div className="text-right">
-                  <span className="font-mono font-bold tabular-nums text-lg">{formatKg(g.kg_total)}</span>
-                  <span className="text-xs text-muted-foreground ml-1.5">{pct.toFixed(1)}%</span>
-                </div>
+                <span className="text-xs text-muted-foreground">{pct.toFixed(1)}%</span>
               </div>
 
-              {/* Barra proporcional al grupo más grande */}
-              <div className="h-2.5 w-full overflow-hidden rounded-full bg-[var(--glass-bg-strong)] mb-3">
-                <div
-                  className={cn("h-full rounded-full transition-all duration-500", CLASE_BAR_CLASSES[g.grupo] ?? "bg-primary/40")}
-                  style={{ width: `${barWidth}%` }}
-                />
-              </div>
+              <p className={cn("text-3xl font-bold tabular-nums", colors.icon)}>{formatKg(g.kg_total)}</p>
 
-              {/* Sub-info */}
-              <p className="text-xs text-muted-foreground">
-                {g.n_registros} lotes en {g.n_dias} {g.n_dias === 1 ? "día" : "días"}
-              </p>
-            </CardContent>
-          </Card>
-        );
-      })}
+              <div className="space-y-1.5">
+                <div className="h-2 w-full rounded-full bg-[var(--glass-bg-strong)] overflow-hidden">
+                  <div className={cn("h-full rounded-full transition-all duration-500", colors.bar)} style={{ width: `${barWidth}%` }} />
+                </div>
+                <p className="text-[10px] text-muted-foreground">{g.n_registros} lotes en {g.n_dias} {g.n_dias === 1 ? "día" : "días"}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

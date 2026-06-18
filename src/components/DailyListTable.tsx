@@ -37,7 +37,12 @@ function DaySection({ date, lotes, defaultOpen = false }: DaySectionProps) {
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <Card className="glass overflow-hidden">
+      <Card className={cn(
+        "overflow-hidden transition-shadow",
+        sub.nLentes > 0
+          ? "border-l-4 border-l-warning bg-warning/5"
+          : "border-l-4 border-l-success bg-success/5"
+      )}>
         <CollapsibleTrigger className="flex w-full items-center gap-4 px-4 py-3.5 text-left transition-colors hover:bg-[var(--glass-bg-strong)]">
           <ChevronDown
             className={cn(
@@ -86,13 +91,13 @@ function DaySection({ date, lotes, defaultOpen = false }: DaySectionProps) {
             <table className="w-full text-sm data-table">
               <thead>
                 <tr>
-                  <th>Lote</th>
-                  <th>Productor</th>
-                  <th>Producto</th>
-                  <th className="text-right">Kg</th>
-                  <th className="text-right">T/h</th>
-                  <th className="text-right">Min</th>
-                  <th className="text-right">Peso fruta</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:px-4">Lote</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:px-4">Productor</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:px-4">Producto</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:px-4">Kg</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:px-4">T/h</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:px-4">Min</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:px-4">Peso fruta</th>
                 </tr>
               </thead>
               <tbody>
