@@ -13,6 +13,7 @@ export interface LoteResumen {
   toneladas_hora: number | null;
   duracion_min: number | null;
   peso_fruta_promedio_g: number | null;
+  produccion_real_part: number | null; // Producción real del parte para este día
 }
 
 export interface ClaseResumen {
@@ -47,6 +48,7 @@ export interface AnalisisDiarioData {
     n_lotes: number;
     kg_lotes: number;
     kg_calibres: number;
+    kg_produccion_real: number;
     avg_tph: number | null;
     total_min: number;
     total_horas: number;
@@ -58,7 +60,7 @@ export interface AnalisisDiarioData {
 }
 
 const EMPTY_DATA: AnalisisDiarioData = {
-  totals: { n_dias: 0, n_lotes: 0, kg_lotes: 0, kg_calibres: 0, avg_tph: null, total_min: 0, total_horas: 0, n_lotes_lentos: 0 },
+  totals: { n_dias: 0, n_lotes: 0, kg_lotes: 0, kg_calibres: 0, kg_produccion_real: 0, avg_tph: null, total_min: 0, total_horas: 0, n_lotes_lentos: 0 },
   lotes: [],
   clases: [],
   grupos: [],
@@ -77,7 +79,7 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       // ── 1. Partes en el rango ──────────────────────────────────────────────
       const { data: partes, error: pErr } = await supabase
         .from("partes_diarios")
-        .select("id, date")
+        .select("id, date, cascade->produccion_real")
         .gte("date", desde)
         .lte("date", hasta)
         .order("date", { ascending: false });
@@ -93,7 +95,7 @@ export function useAnalisisDiario(desde: string, hasta: string) {
 
       if (partIds.length === 0) {
         setData({
-          totals: { n_dias: 0, n_lotes: 0, kg_lotes: 0, kg_calibres: 0, avg_tph: null, total_min: 0, n_lotes_lentos: 0 },
+          totals: { n_dias: 0, n_lotes: 0, kg_lotes: 0, kg_calibres: 0, kg_produccion_real: 0, avg_tph: null, total_min: 0, n_lotes_lentos: 0 },
           lotes: [],
           clases: [],
           grupos: [],
@@ -188,23 +190,31 @@ export function useAnalisisDiario(desde: string, hasta: string) {
         return;
       }
 
-      const lotesAll: LoteResumen[] = (lotesRaw ?? []).map((l) => ({
-        fecha: parteDateMap.get(l.part_id) ?? "—",
-        lote_codigo: l.lote_codigo ?? "—",
-        productor: l.productor ?? "—",
-        producto: l.producto ?? "—",
-        kg_peso_total: Number(l.kg_peso_total) || 0,
-        toneladas_hora: l.toneladas_hora ? Number(l.toneladas_hora) : null,
-        duracion_min: l.duracion_min ? Number(l.duracion_min) : null,
-        peso_fruta_promedio_g: l.peso_fruta_promedio_g ? Number(l.peso_fruta_promedio_g) : null,
-      }));
+      const lotesAll: LoteResumen[] = (lotesRaw ?? []).map((l) => {
+        const partId = l.part_id;
+        const parte = partes?.find(p => p.id === partId);
+        return {
+          fecha: parteDateMap.get(l.part_id) ?? "—",
+          lote_codigo: l.lote_codigo ?? "—",
+          productor: l.productor ?? "—",
+          producto: l.producto ?? "—",
+          kg_peso_total: Number(l.kg_peso_total) || 0,
+          toneladas_hora: l.toneladas_hora ? Number(l.toneladas_hora) : null,
+          duracion_min: l.duracion_min ? Number(l.duracion_min) : null,
+          peso_fruta_promedio_g: l.peso_fruta_promedio_g ? Number(l.peso_fruta_promedio_g) : null,
+          produccion_real_part: parte?.cascade?.produccion_real ?? null,
+        };
+      });
 
       const kg_lotes = lotesAll.reduce((s, l) => s + l.kg_peso_total, 0);
       const lotesConTph = lotesAll.filter((l) => l.toneladas_hora !== null && l.toneladas_hora > 0);
       const totalMin = lotesConTph.reduce((s, l) => s + (l.duracion_min ?? 0), 0);
       const totalHoras = totalMin / 60;
-      // Usar exactamente 8 horas por día como base fija
-      const avgTph = calcularTphOperativa(kg_lotes, diasSet.size);
+      
+      // Calcular producción real total desde los partes
+      const kg_produccion_real = (partes ?? []).reduce((s, p) => s + (p.cascade?.produccion_real ?? 0), 0);
+      // Usar producción real / 8 horas para T/h promedio
+      const avgTph = kg_produccion_real > 0 ? (kg_produccion_real / 1000) / (diasSet.size * 8) : null;
 
       setData({
         totals: {
@@ -212,6 +222,7 @@ export function useAnalisisDiario(desde: string, hasta: string) {
           n_lotes: lotesAll.length,
           kg_lotes,
           kg_calibres: kgCalibres,
+          kg_produccion_real,
           avg_tph: avgTph,
           total_min: totalMin,
           total_horas: totalHoras,

@@ -50,8 +50,10 @@ export function calcularTphPonderado(lotes: LoteResumen[]): number | null {
 
 export function calcularSubtotalesDia(lotes: LoteResumen[]): DiaSubtotales {
   const kg = lotes.reduce((s, l) => s + l.kg_peso_total, 0);
-  // Nuevo cálculo: T/h del día = toneladas totales / 8 horas (no media de lotes)
-  const avgTph = kg > 0 ? (kg / 1000) / 8 : null;
+  // Usar producción real del parte si disponible, sino usar suma de lotes
+  const produccionReal = lotes[0]?.produccion_real_part ?? kg;
+  // Nuevo cálculo: T/h del día = producción real / 8 horas
+  const avgTph = produccionReal > 0 ? (produccionReal / 1000) / 8 : null;
   const lotesConPeso = lotes.filter((l) => l.peso_fruta_promedio_g !== null && l.peso_fruta_promedio_g > 0);
   const avgPesoFruta = lotesConPeso.length > 0
     ? lotesConPeso.reduce((s, l) => s + l.peso_fruta_promedio_g!, 0) / lotesConPeso.length
