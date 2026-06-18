@@ -1,5 +1,5 @@
-import { useRef } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ChevronLeft, ChevronRight, Calendar, CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Periodo } from "@/lib/analisisDiarioView";
@@ -22,31 +22,6 @@ const PERIODOS: { value: Periodo; label: string; icon: React.ElementType }[] = [
   { value: "custom", label: "Rango", icon: Calendar },
 ];
 
-function GlassDateInput({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
-  const ref = useRef<HTMLInputElement>(null);
-  const display = value
-    ? new Date(value + "T12:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "2-digit" })
-    : label;
-  return (
-    <button
-      type="button"
-      onClick={() => ref.current?.showPicker()}
-      className="inline-flex items-center gap-1.5 rounded-lg glass border border-[var(--glass-border)] px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-[var(--glass-bg-strong)] transition-colors cursor-pointer"
-    >
-      <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-      <span>{display}</span>
-      <input
-        ref={ref}
-        type="date"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="sr-only"
-        tabIndex={-1}
-      />
-    </button>
-  );
-}
-
 export function WeekSelector({
   periodo, onPeriodoChange,
   customDesde, customHasta, onCustomDesdeChange, onCustomHastaChange,
@@ -55,11 +30,11 @@ export function WeekSelector({
   return (
     <div className="flex flex-col gap-3 rounded-xl glass-accented p-3 sm:flex-row sm:flex-wrap sm:items-center sm:p-4">
       {/* Navegación de semana */}
-      <div className="flex items-center gap-1 rounded-lg glass border border-[var(--glass-border)] px-1.5 py-1">
+      <div className="flex items-center gap-1 rounded-xl glass border border-[var(--glass-border)] px-1.5 py-1 shadow-[var(--glass-shadow)]">
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7"
+          className="h-7 w-7 glass glass-hover"
           onClick={() => onNavigateWeek(-1)}
           disabled={!canNavigate}
         >
@@ -69,7 +44,7 @@ export function WeekSelector({
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7"
+          className="h-7 w-7 glass glass-hover"
           onClick={() => onNavigateWeek(1)}
           disabled={!canNavigate}
         >
@@ -89,10 +64,10 @@ export function WeekSelector({
               size="sm"
               onClick={() => onPeriodoChange(p.value)}
               className={cn(
-                "h-8 text-xs gap-1.5 border transition-all",
+                "h-8 text-xs gap-1.5 glass transition-all",
                 active
                   ? "border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] text-foreground shadow-[var(--glass-shadow)] font-semibold"
-                  : "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground hover:text-foreground hover:bg-[var(--glass-bg-strong)]"
+                  : "glass-hover text-muted-foreground hover:text-foreground"
               )}
             >
               <Icon className="h-3.5 w-3.5" />
@@ -105,23 +80,35 @@ export function WeekSelector({
       {/* Selector de día rápido */}
       <div className="flex items-center gap-1.5">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Ver día:</span>
-        <GlassDateInput
+        <Input
+          type="date"
           value=""
-          onChange={(v) => {
-            onCustomDesdeChange(v);
-            onCustomHastaChange(v);
+          onChange={(e) => {
+            if (!e.target.value) return;
+            onCustomDesdeChange(e.target.value);
+            onCustomHastaChange(e.target.value);
             onPeriodoChange("custom");
           }}
-          label="Elegir día"
+          className="w-auto h-8 text-xs glass glass-hover cursor-pointer"
         />
       </div>
 
       {/* Rango de fechas custom */}
       {periodo === "custom" && (
-        <div className="flex items-center gap-1.5">
-          <GlassDateInput value={customDesde} onChange={onCustomDesdeChange} label="Desde" />
+        <div className="flex items-center gap-2">
+          <Input
+            type="date"
+            value={customDesde}
+            onChange={(e) => onCustomDesdeChange(e.target.value)}
+            className="w-36 h-8 text-xs glass glass-hover"
+          />
           <span className="text-muted-foreground text-xs">—</span>
-          <GlassDateInput value={customHasta} onChange={onCustomHastaChange} label="Hasta" />
+          <Input
+            type="date"
+            value={customHasta}
+            onChange={(e) => onCustomHastaChange(e.target.value)}
+            className="w-36 h-8 text-xs glass glass-hover"
+          />
         </div>
       )}
     </div>
