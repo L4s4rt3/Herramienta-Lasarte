@@ -1,6 +1,9 @@
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ChevronLeft, ChevronRight, Calendar, CalendarDays } from "lucide-react";
+import { Calendar as DatePickerCalendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import type { Periodo } from "@/lib/analisisDiarioView";
 
@@ -15,12 +18,44 @@ interface WeekSelectorProps {
   canNavigate?: boolean;
 }
 
-const PERIODOS: { value: Periodo; label: string; icon: React.ElementType }[] = [
-  { value: "esta_semana", label: "Esta semana", icon: CalendarDays },
-  { value: "anterior", label: "Anterior", icon: Calendar },
-  { value: "ultimas_4", label: "4 semanas", icon: Calendar },
-  { value: "custom", label: "Rango", icon: Calendar },
+const PERIODOS: { value: Periodo; label: string }[] = [
+  { value: "esta_semana", label: "Esta semana" },
+  { value: "anterior", label: "Anterior" },
+  { value: "ultimas_4", label: "4 semanas" },
+  { value: "custom", label: "Rango" },
 ];
+
+function GlassDatePicker({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
+  const selected = value ? new Date(`${value}T12:00:00`) : undefined;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className="glass glass-hover h-8 min-w-[130px] justify-start gap-2 rounded-xl border-[var(--glass-border)] px-2.5 text-xs font-medium"
+        >
+          <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="tabular-nums">
+            {selected ? format(selected, "dd MMM", { locale: es }) : label}
+          </span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0 glass-accented" align="start">
+        <DatePickerCalendar
+          mode="single"
+          selected={selected}
+          onSelect={(date) => {
+            if (date) onChange(format(date, "yyyy-MM-dd"));
+          }}
+          locale={es}
+          initialFocus
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export function WeekSelector({
   periodo, onPeriodoChange,
@@ -55,7 +90,6 @@ export function WeekSelector({
       {/* Botones de periodo */}
       <div className="flex items-center gap-1.5">
         {PERIODOS.map((p) => {
-          const Icon = p.icon;
           const active = periodo === p.value;
           return (
             <Button
@@ -64,13 +98,12 @@ export function WeekSelector({
               size="sm"
               onClick={() => onPeriodoChange(p.value)}
               className={cn(
-                "h-8 text-xs gap-1.5 glass transition-all",
+                "h-8 text-xs glass rounded-xl transition-all",
                 active
                   ? "border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] text-foreground shadow-[var(--glass-shadow)] font-semibold"
                   : "glass-hover text-muted-foreground hover:text-foreground"
               )}
             >
-              <Icon className="h-3.5 w-3.5" />
               {p.label}
             </Button>
           );
@@ -80,35 +113,23 @@ export function WeekSelector({
       {/* Selector de día rápido */}
       <div className="flex items-center gap-1.5">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Ver día:</span>
-        <Input
-          type="date"
+        <GlassDatePicker
           value=""
-          onChange={(e) => {
-            if (!e.target.value) return;
-            onCustomDesdeChange(e.target.value);
-            onCustomHastaChange(e.target.value);
+          onChange={(v) => {
+            onCustomDesdeChange(v);
+            onCustomHastaChange(v);
             onPeriodoChange("custom");
           }}
-          className="w-auto h-8 text-xs glass glass-hover cursor-pointer"
+          label="Elegir día"
         />
       </div>
 
       {/* Rango de fechas custom */}
       {periodo === "custom" && (
         <div className="flex items-center gap-2">
-          <Input
-            type="date"
-            value={customDesde}
-            onChange={(e) => onCustomDesdeChange(e.target.value)}
-            className="w-36 h-8 text-xs glass glass-hover"
-          />
+          <GlassDatePicker value={customDesde} onChange={onCustomDesdeChange} label="Desde" />
           <span className="text-muted-foreground text-xs">—</span>
-          <Input
-            type="date"
-            value={customHasta}
-            onChange={(e) => onCustomHastaChange(e.target.value)}
-            className="w-36 h-8 text-xs glass glass-hover"
-          />
+          <GlassDatePicker value={customHasta} onChange={onCustomHastaChange} label="Hasta" />
         </div>
       )}
     </div>
