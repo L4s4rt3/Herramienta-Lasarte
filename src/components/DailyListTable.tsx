@@ -4,7 +4,7 @@ import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, AlertTriangle } from "lucide-react";
+import { ChevronDown, AlertTriangle, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   groupLotesByDay, calcularSubtotalesDia, getDiaSemana, formatFechaCorta,
@@ -52,10 +52,12 @@ function DaySection({ date, lotes, defaultOpen = false }: DaySectionProps) {
           />
 
           {/* Fecha */}
-          <div className="shrink-0">
-            <Badge variant="outline" className="font-mono text-xs">
-              {diaSemana} {fechaCorta}
-            </Badge>
+          <div className="shrink-0 flex items-center gap-2 rounded-xl glass border border-[var(--glass-border)] px-3 py-1.5 shadow-[var(--glass-shadow)]">
+            <Calendar className="h-4 w-4 text-primary/75 shrink-0" />
+            <div className="flex flex-col">
+              <span className="text-sm font-bold leading-tight">{diaSemana}</span>
+              <span className="text-[10px] font-mono text-muted-foreground leading-tight">{fechaCorta}</span>
+            </div>
           </div>
 
           {/* Métricas con labels */}
