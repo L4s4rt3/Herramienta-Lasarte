@@ -248,12 +248,12 @@ function ClaseTabSummary({ clases, totalKg }: { clases: Array<{ clase: string; k
   }
 
   const CLASE_COLORS = {
-    Exportación:      { bg: "bg-success/8",   border: "border-success/25",   text: "text-success",   dot: "bg-success" },
-    Mercado:          { bg: "bg-info/8",      border: "border-info/25",      text: "text-info",      dot: "bg-info" },
-    "No exportación": { bg: "bg-warning/8",   border: "border-warning/25",   text: "text-warning",   dot: "bg-warning" },
-    "No comercial":   { bg: "bg-destructive/8", border: "border-destructive/25", text: "text-destructive", dot: "bg-destructive" },
-    Mujeres:          { bg: "bg-info/8",      border: "border-info/25",      text: "text-info",      dot: "bg-info" },
-    Otro:             { bg: "bg-muted/30",    border: "border-border",        text: "text-foreground", dot: "bg-muted-foreground" },
+    Exportación:      { bg: "bg-success/8",   border: "border-success/25",   pill: "bg-success text-success-foreground",  bar: "bg-success" },
+    Mercado:          { bg: "bg-info/8",      border: "border-info/25",      pill: "bg-info text-info-foreground",        bar: "bg-info" },
+    "No exportación": { bg: "bg-warning/8",   border: "border-warning/25",   pill: "bg-warning text-warning-foreground",  bar: "bg-warning" },
+    "No comercial":   { bg: "bg-destructive/8", border: "border-destructive/25", pill: "bg-destructive text-destructive-foreground", bar: "bg-destructive" },
+    Mujeres:          { bg: "bg-info/8",      border: "border-info/25",      pill: "bg-info text-info-foreground",        bar: "bg-info" },
+    Otro:             { bg: "bg-muted/30",    border: "border-border",        pill: "glass border border-[var(--glass-border)] text-muted-foreground", bar: "bg-muted-foreground/50" },
   } as const;
 
   return (
@@ -274,7 +274,7 @@ function ClaseTabSummary({ clases, totalKg }: { clases: Array<{ clase: string; k
             <div key={c.clase} className={cn("rounded-xl border p-5 space-y-3 shadow-[var(--glass-shadow)] backdrop-blur-xl", colors.bg, colors.border)}>
               {/* Nombre de categoría en pill */}
               <div className="flex items-center justify-between gap-3">
-                <span className={cn("inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm font-bold", colors.dot, "text-white")}>
+                <span className={cn("inline-flex items-center rounded-lg px-2.5 py-1 text-sm font-bold", colors.pill)}>
                   {c.clase}
                 </span>
                 <span className="text-sm font-semibold text-muted-foreground tabular-nums">{pct.toFixed(1)}%</span>
@@ -289,7 +289,7 @@ function ClaseTabSummary({ clases, totalKg }: { clases: Array<{ clase: string; k
               {/* Barra */}
               <div className="space-y-1.5">
                 <div className="h-2 w-full rounded-full bg-[var(--glass-bg-strong)] overflow-hidden">
-                  <div className={cn("h-full rounded-full transition-all duration-500", colors.dot)} style={{ width: `${pct}%` }} />
+                  <div className={cn("h-full rounded-full transition-all duration-500", colors.bar)} style={{ width: `${pct}%` }} />
                 </div>
                 <p className="text-[11px] text-muted-foreground">{c.n_registros} lotes · {c.n_dias} {c.n_dias === 1 ? "día" : "días"}</p>
               </div>
@@ -303,10 +303,10 @@ function ClaseTabSummary({ clases, totalKg }: { clases: Array<{ clase: string; k
                     const gc = CLASE_COLORS[g as keyof typeof CLASE_COLORS] ?? CLASE_COLORS.Otro;
                     return (
                       <div key={g} className="flex items-center gap-2.5">
-                        <div className={cn("h-2 w-2 rounded-full shrink-0", gc.dot)} />
+                        <div className={cn("h-2 w-2 rounded-full shrink-0", gc.bar)} />
                         <span className="text-sm font-medium w-28 shrink-0 truncate">{g}</span>
                         <div className="flex-1 h-1.5 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
-                          <div className={cn("h-full rounded-full transition-all duration-500", gc.dot)} style={{ width: `${barWidth}%` }} />
+                          <div className={cn("h-full rounded-full transition-all duration-500", gc.bar)} style={{ width: `${barWidth}%` }} />
                         </div>
                         <span className="text-xs font-mono tabular-nums text-muted-foreground w-16 text-right shrink-0">{formatKg(kg)}</span>
                         <span className="text-[10px] font-mono tabular-nums text-muted-foreground w-8 text-right shrink-0">{gPct.toFixed(0)}%</span>
@@ -337,12 +337,12 @@ function GrupoTabSummary({ grupos, totalKg }: { grupos: Array<{ grupo: string; k
   }
 
   const GRUPO_COLORS = {
-    Exportación:      { bg: "bg-success/8",   border: "border-success/25",   text: "text-success",   dot: "bg-success" },
-    Mercado:          { bg: "bg-info/8",      border: "border-info/25",      text: "text-info",      dot: "bg-info" },
-    "No exportación": { bg: "bg-warning/8",   border: "border-warning/25",   text: "text-warning",   dot: "bg-warning" },
-    "No comercial":   { bg: "bg-destructive/8", border: "border-destructive/25", text: "text-destructive", dot: "bg-destructive" },
-    Mujeres:          { bg: "bg-info/8",      border: "border-info/25",      text: "text-info",      dot: "bg-info" },
-    Otro:             { bg: "bg-muted/30",    border: "border-border",        text: "text-foreground", dot: "bg-muted-foreground" },
+    Exportación:      { bg: "bg-success/8",   border: "border-success/25",   pill: "bg-success text-success-foreground",  bar: "bg-success" },
+    Mercado:          { bg: "bg-info/8",      border: "border-info/25",      pill: "bg-info text-info-foreground",        bar: "bg-info" },
+    "No exportación": { bg: "bg-warning/8",   border: "border-warning/25",   pill: "bg-warning text-warning-foreground",  bar: "bg-warning" },
+    "No comercial":   { bg: "bg-destructive/8", border: "border-destructive/25", pill: "bg-destructive text-destructive-foreground", bar: "bg-destructive" },
+    Mujeres:          { bg: "bg-info/8",      border: "border-info/25",      pill: "bg-info text-info-foreground",        bar: "bg-info" },
+    Otro:             { bg: "bg-muted/30",    border: "border-border",        pill: "glass border border-[var(--glass-border)] text-muted-foreground", bar: "bg-muted-foreground/50" },
   } as const;
 
   const maxKg = grupos.length > 0 ? Math.max(...grupos.map((g) => g.kg_total)) : 1;
@@ -364,7 +364,7 @@ function GrupoTabSummary({ grupos, totalKg }: { grupos: Array<{ grupo: string; k
             <div key={g.grupo} className={cn("rounded-xl border p-5 space-y-3 shadow-[var(--glass-shadow)] backdrop-blur-xl", colors.bg, colors.border)}>
               {/* Nombre del grupo en pill */}
               <div className="flex items-center justify-between gap-3">
-                <span className={cn("inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm font-bold", colors.dot, "text-white")}>
+                <span className={cn("inline-flex items-center rounded-lg px-2.5 py-1 text-sm font-bold", colors.pill)}>
                   {g.grupo}
                 </span>
                 <span className="text-sm font-semibold text-muted-foreground tabular-nums">{pct.toFixed(1)}%</span>
@@ -379,7 +379,7 @@ function GrupoTabSummary({ grupos, totalKg }: { grupos: Array<{ grupo: string; k
               {/* Barra */}
               <div className="space-y-1.5">
                 <div className="h-2 w-full rounded-full bg-[var(--glass-bg-strong)] overflow-hidden">
-                  <div className={cn("h-full rounded-full transition-all duration-500", colors.dot)} style={{ width: `${barWidth}%` }} />
+                  <div className={cn("h-full rounded-full transition-all duration-500", colors.bar)} style={{ width: `${barWidth}%` }} />
                 </div>
                 <p className="text-[11px] text-muted-foreground">{g.n_registros} lotes · {g.n_dias} {g.n_dias === 1 ? "día" : "días"}</p>
               </div>
