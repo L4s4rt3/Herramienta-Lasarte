@@ -574,9 +574,12 @@ export function parseInformeProduccion(wb: XLSX.WorkBook): ParsedProduccion {
   }
 
   const kg_total = lotes.reduce((s, l) => s + l.kg_peso_total, 0);
+  const totalMin = lotes.reduce((s, l) => s + (l.duracion_min ?? 0), 0);
+  const totalHoras = totalMin / 60;
 
-  // Velocidad general: kg del dia repartidos entre 8 horas operativas.
-  const tph_promedio = calcularTphOperativa(kg_total);
+  // Velocidad general: kg del dia / horas reales trabajadas (o 8h si no hay datos)
+  const horasParaCalculo = totalHoras > 0 ? totalHoras : 8;
+  const tph_promedio = calcularTphOperativa(kg_total, horasParaCalculo);
 
   return {
     tipo: "produccion",

@@ -185,8 +185,13 @@ export function computeAnalisis(
 
   const lotes = produccion?.lotes ?? [];
   const lotesConTph = lotes.filter((l) => l.toneladas_hora && l.toneladas_hora > 0);
+  const totalMin = lotesConTph.reduce((s, l) => s + (l.duracion_min ?? 0), 0);
+  const totalHoras = totalMin / 60;
 
-  const tph_promedio = calcularTphOperativa(kg_calibrador);
+  // Usar horas reales si disponibles, sino estimar 8h por día
+  const nDiasEstimados = lotes.length > 0 ? new Set(lotes.map(l => l.fecha)).size : 1;
+  const horasParaCalculo = totalHoras > 0 ? totalHoras : nDiasEstimados * 8;
+  const tph_promedio = calcularTphOperativa(kg_calibrador, horasParaCalculo);
   let tph_min: number | null = null;
   let tph_max: number | null = null;
 

@@ -24,7 +24,7 @@ function lote(overrides: Partial<LoteProduccion>): LoteProduccion {
 }
 
 describe("computeAnalisis", () => {
-  it("calculates the general day T/h from total kg divided by 8 operational hours", () => {
+  it("calculates the general day T/h using real hours from lotes", () => {
     const produccion: ParsedProduccion = {
       tipo: "produccion",
       kg_total: 80000,
@@ -37,7 +37,8 @@ describe("computeAnalisis", () => {
 
     const result = computeAnalisis(produccion, null, null, null);
 
-    expect(result.kpis.tph_promedio).toBe(10);
+    // 80 toneladas / 1 hora (60 minutos totales) = 80 T/h
+    expect(result.kpis.tph_promedio).toBe(80);
     expect(result.productores.find((p) => p.productor === "Productor A")?.tph_avg).toBe(20);
     expect(result.productores.find((p) => p.productor === "Productor B")?.tph_avg).toBe(5);
   });
