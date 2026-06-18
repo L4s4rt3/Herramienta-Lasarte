@@ -169,22 +169,22 @@ export default function AnalisisDiario() {
         <>
           {/* KPIs */}
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <KPICard label="Kg totales" value={formatKg(data.totals.kg_lotes)} hint={`${data.totals.n_lotes} lotes`} icon={PackageCheck} />
+            <KPICard label="Kg totales" value={formatKg(data.totals.kg_lotes)} hint={`${data.totals.n_lotes} lotes procesados`} icon={PackageCheck} />
             <KPICard
               label="Velocidad media"
               value={data.totals.avg_tph ? `${data.totals.avg_tph.toFixed(1)} T/h` : "—"}
-              hint={`${data.totals.n_dias} dias operativos`}
+              hint={`${data.totals.n_dias} días de producción`}
               icon={Gauge}
               trend={data.totals.avg_tph ? (data.totals.avg_tph >= 16 ? "up" : "down") : "neutral"}
             />
             <KPICard
               label="Lotes lentos"
               value={String(data.totals.n_lotes_lentos)}
-              hint={`${formatHoras(data.totals.total_min)} total`}
+              hint={`${formatHoras(data.totals.total_min)} tiempo total`}
               icon={Timer}
               trend={data.totals.n_lotes_lentos <= 3 ? "up" : "down"}
             />
-            <KPICard label="Dias analizados" value={String(data.totals.n_dias)} icon={Calendar} />
+            <KPICard label="Días analizados" value={String(data.totals.n_dias)} hint="con datos de detalle" icon={Calendar} />
           </section>
 
           {/* Toolbar de busqueda */}
@@ -272,39 +272,40 @@ function ClaseTabSummary({ clases, totalKg }: { clases: Array<{ clase: string; k
         return (
           <Card key={c.clase} className="glass-accented overflow-hidden">
             <CardContent className="p-4 sm:p-5">
-              {/* Header: nombre + métricas */}
-              <div className="flex items-center justify-between gap-4 mb-3">
+              {/* Header: nombre + barra */}
+              <div className="flex items-center justify-between gap-4 mb-2">
+                <span className={`text-sm font-bold ${CLASE_TEXT_CLASSES[c.clase] ?? ""}`}>{c.clase}</span>
+                <span className="font-mono font-bold tabular-nums text-base">{formatKg(c.kg_total)}</span>
+              </div>
+
+              {/* Barra de progreso */}
+              <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                <div
+                  className="h-full rounded-full transition-all duration-500 bg-primary/40"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+
+              {/* Detalles debajo de la barra */}
+              <div className="flex items-center justify-between mt-2.5">
                 <div className="flex items-center gap-3">
-                  <span className={`text-sm font-semibold ${CLASE_TEXT_CLASSES[c.clase] ?? ""}`}>{c.clase}</span>
-                  <Badge variant="secondary" className="text-[10px]">{c.n_registros} registros</Badge>
-                  <Badge variant="secondary" className="text-[10px]">{c.n_dias} dias</Badge>
+                  <span className="text-xs text-muted-foreground">{c.n_registros} lotes</span>
+                  <span className="text-xs text-muted-foreground">·</span>
+                  <span className="text-xs text-muted-foreground">{c.n_dias} dias</span>
                 </div>
-                <div className="text-right">
-                  <span className="font-mono font-semibold tabular-nums text-sm">{formatKg(c.kg_total)}</span>
-                  <span className="text-xs text-muted-foreground ml-2">{pct.toFixed(1)}%</span>
-                </div>
+                <span className="text-xs text-muted-foreground font-mono tabular-nums">{pct.toFixed(1)}% del total</span>
               </div>
 
-              {/* Barra de progreso estilo SemaforoCard */}
-              <div className="space-y-2">
-                <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
-                  <div
-                    className="h-full rounded-full transition-all duration-500 bg-primary/40"
-                    style={{ width: `${pct}%` }}
-                  />
+              {/* Badges de grupos */}
+              {gruposOrdenados.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-[var(--glass-border)]">
+                  {gruposOrdenados.map(([g, kg]) => (
+                    <Badge key={g} variant="outline" className={`text-[10px] ${CLASE_BADGE_CLASSES[g] ?? CLASE_BADGE_CLASSES["Otro"]}`}>
+                      {g}: {formatKg(kg)}
+                    </Badge>
+                  ))}
                 </div>
-
-                {/* Badges de grupos */}
-                {gruposOrdenados.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {gruposOrdenados.map(([g, kg]) => (
-                      <Badge key={g} variant="outline" className={`text-[10px] ${CLASE_BADGE_CLASSES[g] ?? CLASE_BADGE_CLASSES["Otro"]}`}>
-                        {g}: {formatKg(kg)}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-              </div>
+              )}
             </CardContent>
           </Card>
         );
@@ -333,19 +334,14 @@ function GrupoTabSummary({ grupos, totalKg }: { grupos: Array<{ grupo: string; k
         return (
           <Card key={g.grupo} className="glass-accented overflow-hidden">
             <CardContent className="p-4 sm:p-5">
-              {/* Header */}
-              <div className="flex items-center justify-between gap-4 mb-3">
-                <div className="flex items-center gap-3">
-                  <Badge variant="outline" className={`text-xs ${CLASE_BADGE_CLASSES[g.grupo] ?? CLASE_BADGE_CLASSES["Otro"]}`}>
+              {/* Header: nombre + barra */}
+              <div className="flex items-center justify-between gap-4 mb-2">
+                <div className="flex items-center gap-2.5">
+                  <Badge variant="outline" className={`text-xs font-semibold ${CLASE_BADGE_CLASSES[g.grupo] ?? CLASE_BADGE_CLASSES["Otro"]}`}>
                     {g.grupo}
                   </Badge>
-                  <Badge variant="secondary" className="text-[10px]">{g.n_registros} registros</Badge>
-                  <Badge variant="secondary" className="text-[10px]">{g.n_dias} dias</Badge>
                 </div>
-                <div className="text-right">
-                  <span className="font-mono font-semibold tabular-nums text-sm">{formatKg(g.kg_total)}</span>
-                  <span className="text-xs text-muted-foreground ml-2">{pct.toFixed(1)}%</span>
-                </div>
+                <span className="font-mono font-bold tabular-nums text-base">{formatKg(g.kg_total)}</span>
               </div>
 
               {/* Barra de progreso */}
@@ -354,6 +350,16 @@ function GrupoTabSummary({ grupos, totalKg }: { grupos: Array<{ grupo: string; k
                   className="h-full rounded-full transition-all duration-500 bg-primary/40"
                   style={{ width: `${pct}%` }}
                 />
+              </div>
+
+              {/* Detalles debajo de la barra */}
+              <div className="flex items-center justify-between mt-2.5">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground">{g.n_registros} lotes</span>
+                  <span className="text-xs text-muted-foreground">·</span>
+                  <span className="text-xs text-muted-foreground">{g.n_dias} dias</span>
+                </div>
+                <span className="text-xs text-muted-foreground font-mono tabular-nums">{pct.toFixed(1)}% del total</span>
               </div>
             </CardContent>
           </Card>

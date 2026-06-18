@@ -38,23 +38,42 @@ function DaySection({ date, lotes, defaultOpen = false }: DaySectionProps) {
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <Card className="glass overflow-hidden">
-        <CollapsibleTrigger className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--glass-bg-strong)]">
+        <CollapsibleTrigger className="flex w-full items-center gap-4 px-4 py-3.5 text-left transition-colors hover:bg-[var(--glass-bg-strong)]">
           <ChevronDown
             className={cn(
               "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
               open && "rotate-180"
             )}
           />
-          <Badge variant="outline" className="font-mono text-xs shrink-0">
-            {diaSemana} {fechaCorta}
-          </Badge>
-          <span className="text-sm font-semibold tabular-nums">{formatKg(sub.kg)}</span>
-          <span className="text-xs text-muted-foreground">·</span>
-          <span className="text-xs text-muted-foreground">
-            {sub.avgTph !== null ? `${sub.avgTph.toFixed(1)} T/h` : "—"}
-          </span>
-          <span className="text-xs text-muted-foreground">·</span>
-          <span className="text-xs text-muted-foreground">{sub.nLotes} lotes</span>
+
+          {/* Fecha */}
+          <div className="shrink-0">
+            <Badge variant="outline" className="font-mono text-xs">
+              {diaSemana} {fechaCorta}
+            </Badge>
+          </div>
+
+          {/* Métricas con labels */}
+          <div className="flex items-center gap-5 ml-2">
+            <div className="flex flex-col">
+              <span className="text-base font-bold tabular-nums leading-tight">{formatKg(sub.kg)}</span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Kg</span>
+            </div>
+            <div className="w-px h-6 bg-[var(--glass-border)]" />
+            <div className="flex flex-col">
+              <span className="text-sm font-semibold tabular-nums leading-tight">
+                {sub.avgTph !== null ? `${sub.avgTph.toFixed(1)}` : "—"}
+              </span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">T/h</span>
+            </div>
+            <div className="w-px h-6 bg-[var(--glass-border)]" />
+            <div className="flex flex-col">
+              <span className="text-sm font-semibold tabular-nums leading-tight">{sub.nLotes}</span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Lotes</span>
+            </div>
+          </div>
+
+          {/* Alerta lotes lentos */}
           {sub.nLentes > 0 && (
             <span className="ml-auto flex items-center gap-1.5 text-xs font-semibold text-warning">
               <AlertTriangle className="h-3.5 w-3.5" />
