@@ -4,15 +4,14 @@
  * Histórico y alertas de calibre derivante.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KPICard } from "@/components/KPICard";
 import { formatKg } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Users, AlertTriangle, TrendingUp, Gauge, Search } from "lucide-react";
+import { Users, TrendingUp, Gauge, Search } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, AreaChart, Area,
@@ -197,10 +196,10 @@ export default function Productores() {
         <div>
           <h1 className="page-title flex items-center gap-2">
             <Users className="h-6 w-6 text-primary" />
-            Productores
+            Rendimiento por Productor
           </h1>
           <p className="page-subtitle">
-            Trazabilidad por productor · kg, T/h, peso fruta promedio — filtrado por fecha del parte
+            Análisis de rendimiento · velocidad (T/h), kg procesados, peso fruta — filtrado por fecha del parte
           </p>
         </div>
         <div className="flex items-center gap-2 rounded-xl glass border border-[var(--glass-border)] px-3 py-2 shadow-[var(--glass-shadow)]">
@@ -269,7 +268,8 @@ export default function Productores() {
                 <ul className="divide-y divide-[var(--glass-border)]">
                   {filtered.map((p) => {
                     const isSelected = selected === p.productor;
-                    const tphOk = p.tph_promedio !== null && p.tph_promedio >= 14;
+                    const tph = p.tph_promedio;
+                    const tphColor = tph === null ? "" : tph >= 16 ? "text-success" : tph >= 12 ? "text-warning" : "text-destructive";
                     return (
                       <li key={p.productor}>
                         <div
@@ -288,21 +288,14 @@ export default function Productores() {
                           )}
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-sm truncate">{p.productor}</span>
-                              <Link
-                                to={`/partes`}
-                                className="text-[10px] font-medium text-primary/70 hover:text-primary shrink-0"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                Ver partes →
-                              </Link>
-                            </div>
-                            {p.tph_promedio !== null && !tphOk && (
-                              <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0" />
+                            <span className="font-medium text-sm truncate">{p.productor}</span>
+                            {tph !== null && (
+                              <span className={cn("text-xs font-bold tabular-nums shrink-0", tphColor)}>
+                                {tph.toFixed(1)} T/h
+                              </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-3 mt-0.5">
+                          <div className="flex items-center gap-3 mt-1">
                             <span className="text-xs text-muted-foreground tabular-nums">
                               {formatKg(p.kg_total)}
                             </span>
@@ -310,10 +303,12 @@ export default function Productores() {
                             <span className="text-xs text-muted-foreground">
                               {p.n_lotes} lote{p.n_lotes !== 1 ? "s" : ""}
                             </span>
-                            {p.tph_promedio !== null && (
+                            {p.peso_fruta_promedio_g && (
                               <>
                                 <span className="text-xs text-muted-foreground">·</span>
-                                <TphBadge tph={p.tph_promedio} />
+                                <span className="text-xs text-muted-foreground tabular-nums">
+                                  {p.peso_fruta_promedio_g.toFixed(0)}g fruta
+                                </span>
                               </>
                             )}
                           </div>
@@ -379,8 +374,8 @@ export default function Productores() {
                   <div className="flex items-center gap-3">
                     <div className="h-7 w-1 rounded-full bg-primary" />
                     <div>
-                      <CardTitle className="text-lg font-semibold">Evolución T/h — {selectedStats.productor}</CardTitle>
-                      <p className="text-xs text-muted-foreground mt-0.5">Velocidad de procesamiento por lote</p>
+                      <CardTitle className="text-lg font-semibold">Rendimiento — {selectedStats.productor}</CardTitle>
+                      <p className="text-xs text-muted-foreground mt-0.5">Evolución de velocidad de procesamiento</p>
                     </div>
                   </div>
                 </CardHeader>
@@ -409,8 +404,8 @@ export default function Productores() {
                   <div className="flex items-center gap-3">
                     <div className="h-7 w-1 rounded-full bg-primary" />
                     <div>
-                      <CardTitle className="text-lg font-semibold">Producción diaria — {selectedStats.productor}</CardTitle>
-                      <p className="text-xs text-muted-foreground mt-0.5">Kg totales procesados por día</p>
+                      <CardTitle className="text-lg font-semibold">Producción — {selectedStats.productor}</CardTitle>
+                      <p className="text-xs text-muted-foreground mt-0.5">Kg procesados por día</p>
                     </div>
                   </div>
                 </CardHeader>
