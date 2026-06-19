@@ -1,8 +1,11 @@
+import { produccionRealParte } from "./asistenciaRendimiento";
+
 export type ConsumoRecurso = "agua" | "electricidad" | "gasoil" | "quimicos";
 export type ConsumoUnidad = "l" | "m3" | "kwh";
 export type ConsumoFuente = "contador" | "factura_detallada" | "albaran" | "estimacion_manual";
-export type BaseKgTipo = "ventas" | "manual";
+export type BaseKgTipo = "ventas" | "palets" | "manual";
 export type ConsumoConfianza = "real" | "estimado" | "mixto" | "incompleto";
+type PeriodGranularity = "monthly" | "weekly" | "daily";
 
 export interface ConsumoFisicoInput {
   id: string;
@@ -12,6 +15,8 @@ export interface ConsumoFisicoInput {
   cantidad: number | null | undefined;
   unidad: ConsumoUnidad;
   fuente: ConsumoFuente;
+  referencia?: string | null;
+  notas?: string | null;
 }
 
 export interface BaseKgInput {
@@ -24,6 +29,9 @@ export interface BaseKgInput {
 
 export interface ParteKgInput {
   date: string;
+  resumen_ia?: unknown;
+  cascade?: unknown;
+  cascada?: unknown;
   kg_produccion_calibrador?: number | null;
   kg_mujeres_calibrador?: number | null;
   kg_reciclado_malla_z1?: number | null;
@@ -35,12 +43,22 @@ export interface NormalizedConsumo {
   unidadBase: "l" | "kwh";
 }
 
+export interface DailyWaterMeterInput {
+  fecha: string;
+  contadorGeneralL: number | null | undefined;
+  lineaTratamientoL?: number | null;
+  drencherL?: number | null;
+}
+
+export type DailyWaterMeterConsumo = Omit<ConsumoFisicoInput, "id" | "cantidad"> & { cantidad: number };
+
 export interface ConsumoPeriodoRow {
   periodo: string;
   fechaInicio: string;
   fechaFin: string;
   kgBase: number;
   kgPartes: number;
+  kgPalets: number;
   kgVentas: number;
   kgManual: number;
   confianza: ConsumoConfianza;
@@ -90,37 +108,69 @@ export function normalizeConsumoCantidad(input: Pick<ConsumoFisicoInput, "recurs
   };
 }
 
+export function parseConsumoNumber(value: string): number {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return 0;
+  }
+
+  const withoutSpaces = trimmed.replace(/\s/g, "");
+  const hasComma = withoutSpaces.includes(",");
+  const normalized = hasComma
+    ? withoutSpaces.replace(/\./g, "").replace(",", ".")
+    : withoutSpaces;
+  const parsed = Number(normalized);
+
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export function kgProducidosParte(parte: ParteKgInput): number {
-  return (
-    finiteOrZero(parte.kg_produccion_calibrador)
-    - finiteOrZero(parte.kg_mujeres_calibrador)
-    - finiteOrZero(parte.kg_reciclado_malla_z1)
-    - finiteOrZero(parte.kg_reciclado_malla_z2)
-  );
+  return produccionRealParte(parte);
+}
+
+export function buildDailyWaterMeterConsumo(input: DailyWaterMeterInput): DailyWaterMeterConsumo {
+  const contadorGeneralL = finiteOrZero(input.contadorGeneralL);
+  const lineaTratamientoL = finiteOrZero(input.lineaTratamientoL);
+  const drencherL = finiteOrZero(input.drencherL);
+
+  return {
+    recurso: "agua",
+    fecha_inicio: input.fecha,
+    fecha_fin: input.fecha,
+    cantidad: contadorGeneralL,
+    unidad: "l",
+    fuente: "contador",
+    referencia: "agua-contador-general",
+    notas: `Contador general: ${contadorGeneralL} L. Linea tratamiento: ${lineaTratamientoL} L. Drencher: ${drencherL} L.`,
+  };
 }
 
 export function buildMonthlyConsumptionRows(input: BuildConsumptionRowsInput): ConsumoPeriodoRow[] {
-  return buildConsumptionRows(input, buildMonthPeriods(input.rangeStart, input.rangeEnd));
+  return buildConsumptionRows(input, buildMonthPeriods(input.rangeStart, input.rangeEnd), "monthly");
 }
 
 export function buildWeeklyConsumptionRows(input: BuildConsumptionRowsInput): ConsumoPeriodoRow[] {
-  return buildConsumptionRows(input, buildIsoWeekPeriods(input.rangeStart, input.rangeEnd));
+  return buildConsumptionRows(input, buildCampaignWeekPeriods(input.rangeStart, input.rangeEnd), "weekly");
 }
 
 export function buildDailyConsumptionRows(input: BuildConsumptionRowsInput): ConsumoPeriodoRow[] {
-  return buildConsumptionRows(input, buildDayPeriods(input.rangeStart, input.rangeEnd));
+  return buildConsumptionRows(input, buildDayPeriods(input.rangeStart, input.rangeEnd), "daily");
 }
 
-function buildConsumptionRows(input: BuildConsumptionRowsInput, periods: ConsumptionPeriod[]): ConsumoPeriodoRow[] {
-  const gasoilLByPeriod = distributeGasoilPurchases(input, periods);
+function buildConsumptionRows(input: BuildConsumptionRowsInput, periods: ConsumptionPeriod[], granularity: PeriodGranularity): ConsumoPeriodoRow[] {
+  const usePaletsAsProxy = shouldUsePaletsAsProxy(input, granularity);
+  const gasoilLByPeriod = distributeGasoilPurchases(input, periods, granularity, usePaletsAsProxy);
+  const aguaLByPeriod = distributeWaterConsumptions(input, periods, granularity, usePaletsAsProxy);
 
   return periods.map((period, index) => {
     const totals = totalConsumosForPeriod(input.consumos, period);
+    totals.aguaL = aguaLByPeriod[index] ?? 0;
     totals.gasoilL = gasoilLByPeriod[index] ?? 0;
     const kgPartes = totalPartesForPeriod(input.partes, period);
-    const kgVentas = totalBasesForPeriod(input.basesKg, period, "ventas");
-    const kgManual = totalBasesForPeriod(input.basesKg, period, "manual");
-    const proxyKg = kgVentas > 0 ? kgVentas : kgManual;
+    const kgPalets = totalBasesForPeriod(input.basesKg, period, "palets", granularity);
+    const kgVentas = totalBasesForPeriod(input.basesKg, period, "ventas", granularity);
+    const kgManual = totalBasesForPeriod(input.basesKg, period, "manual", granularity);
+    const proxyKg = usePaletsAsProxy && kgPalets > 0 ? kgPalets : kgVentas > 0 ? kgVentas : kgManual;
     const kgBase = kgPartes > 0 ? kgPartes : proxyKg;
     const hasConsumo = totals.aguaL > 0 || totals.electricidadKwh > 0 || totals.gasoilL > 0 || totals.quimicosL > 0;
     const hasProxyKg = kgVentas > 0 || kgManual > 0;
@@ -151,6 +201,7 @@ function buildConsumptionRows(input: BuildConsumptionRowsInput, periods: Consump
       fechaFin: period.fechaFin,
       kgBase,
       kgPartes,
+      kgPalets,
       kgVentas,
       kgManual,
       confianza,
@@ -193,7 +244,7 @@ function resolveConfianza(input: {
 function totalConsumosForPeriod(consumos: ConsumoFisicoInput[], period: ConsumptionPeriod) {
   return consumos.reduce(
     (acc, consumo) => {
-      if (consumo.recurso === "gasoil") {
+      if (consumo.recurso === "agua" || consumo.recurso === "gasoil") {
         return acc;
       }
 
@@ -224,7 +275,181 @@ function totalConsumosForPeriod(consumos: ConsumoFisicoInput[], period: Consumpt
   );
 }
 
-function distributeGasoilPurchases(input: BuildConsumptionRowsInput, periods: ConsumptionPeriod[]): number[] {
+function distributeWaterConsumptions(
+  input: BuildConsumptionRowsInput,
+  periods: ConsumptionPeriod[],
+  granularity: PeriodGranularity,
+  usePaletsAsProxy: boolean,
+): number[] {
+  const result = periods.map(() => 0);
+  const rangeStartMs = dateToUtcMs(input.rangeStart);
+  const rangeEndMs = dateToUtcMs(input.rangeEnd);
+  const exactReadings = dailyGeneralWaterMeterReadings(input.consumos, rangeStartMs, rangeEndMs);
+  const exactReadingDates = new Set(exactReadings.keys());
+
+  addDailyWaterReadingsToPeriods(result, periods, exactReadings);
+
+  input.consumos.forEach((consumo) => {
+    if (consumo.recurso !== "agua") {
+      return;
+    }
+
+    if (isDailyGeneralWaterMeterReading(consumo)) {
+      return;
+    }
+
+    const normalized = normalizeConsumoCantidad(consumo);
+    const litros = normalized.cantidadBase;
+    const startMs = Math.max(dateToUtcMs(consumo.fecha_inicio), rangeStartMs);
+    const endMs = Math.min(dateToUtcMs(consumo.fecha_fin), rangeEndMs);
+
+    if (litros <= 0 || endMs < startMs) {
+      return;
+    }
+
+    const remainingLitros = Math.max(0, litros - exactWaterLitersForRange(exactReadings, startMs, endMs));
+    if (remainingLitros <= 0) {
+      return;
+    }
+
+    const tramoKg = waterDistributionKgForRange(input, startMs, endMs, granularity, usePaletsAsProxy, exactReadingDates);
+
+    if (tramoKg <= 0) {
+      return;
+    }
+
+    periods.forEach((period, periodIndex) => {
+      const overlapStartMs = Math.max(startMs, period.startMs);
+      const overlapEndMs = Math.min(endMs, period.endMs);
+
+      if (overlapEndMs < overlapStartMs) {
+        return;
+      }
+
+      const overlapKg = waterDistributionKgForRange(input, overlapStartMs, overlapEndMs, granularity, usePaletsAsProxy, exactReadingDates);
+      if (overlapKg <= 0) {
+        return;
+      }
+
+      result[periodIndex] += remainingLitros * (overlapKg / tramoKg);
+    });
+  });
+
+  return result;
+}
+
+function dailyGeneralWaterMeterReadings(consumos: ConsumoFisicoInput[], rangeStartMs: number, rangeEndMs: number): Map<number, number> {
+  const readings = new Map<number, number>();
+
+  consumos.forEach((consumo) => {
+    if (!isDailyGeneralWaterMeterReading(consumo)) {
+      return;
+    }
+
+    const dateMs = dateToUtcMs(consumo.fecha_inicio);
+    if (dateMs < rangeStartMs || dateMs > rangeEndMs) {
+      return;
+    }
+
+    const normalized = normalizeConsumoCantidad(consumo);
+    readings.set(dateMs, (readings.get(dateMs) ?? 0) + normalized.cantidadBase);
+  });
+
+  return readings;
+}
+
+function isDailyGeneralWaterMeterReading(consumo: ConsumoFisicoInput): boolean {
+  return consumo.recurso === "agua"
+    && consumo.fuente === "contador"
+    && consumo.fecha_inicio === consumo.fecha_fin
+    && !isWaterBreakdownReference(consumo.referencia);
+}
+
+function isWaterBreakdownReference(reference: string | null | undefined): boolean {
+  const normalizedReference = normalizeText(reference ?? "");
+  return normalizedReference === "agua-linea-tratamiento"
+    || normalizedReference === "agua-drencher"
+    || normalizedReference === "linea-tratamiento"
+    || normalizedReference === "drencher";
+}
+
+function addDailyWaterReadingsToPeriods(result: number[], periods: ConsumptionPeriod[], readings: Map<number, number>): void {
+  readings.forEach((litros, dateMs) => {
+    periods.forEach((period, periodIndex) => {
+      if (dateMs >= period.startMs && dateMs <= period.endMs) {
+        result[periodIndex] += litros;
+      }
+    });
+  });
+}
+
+function exactWaterLitersForRange(readings: Map<number, number>, startMs: number, endMs: number): number {
+  let total = 0;
+
+  readings.forEach((litros, dateMs) => {
+    if (dateMs >= startMs && dateMs <= endMs) {
+      total += litros;
+    }
+  });
+
+  return total;
+}
+
+function waterDistributionKgForRange(
+  input: BuildConsumptionRowsInput,
+  startMs: number,
+  endMs: number,
+  granularity: PeriodGranularity,
+  usePaletsAsProxy: boolean,
+  excludedDateMs: Set<number>,
+): number {
+  if (excludedDateMs.size === 0 || !rangeHasAnyDate(startMs, endMs, excludedDateMs)) {
+    return kgBaseForRange(input, startMs, endMs, granularity, usePaletsAsProxy);
+  }
+
+  let total = 0;
+  let segmentStartMs: number | null = null;
+  let segmentEndMs: number | null = null;
+
+  const flushSegment = () => {
+    if (segmentStartMs != null && segmentEndMs != null) {
+      total += kgBaseForRange(input, segmentStartMs, segmentEndMs, granularity, usePaletsAsProxy);
+      segmentStartMs = null;
+      segmentEndMs = null;
+    }
+  };
+
+  for (let currentMs = startMs; currentMs <= endMs; currentMs += MS_PER_DAY) {
+    if (excludedDateMs.has(currentMs)) {
+      flushSegment();
+      continue;
+    }
+
+    segmentStartMs ??= currentMs;
+    segmentEndMs = currentMs;
+  }
+
+  flushSegment();
+
+  return total;
+}
+
+function rangeHasAnyDate(startMs: number, endMs: number, dates: Set<number>): boolean {
+  for (let currentMs = startMs; currentMs <= endMs; currentMs += MS_PER_DAY) {
+    if (dates.has(currentMs)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function distributeGasoilPurchases(
+  input: BuildConsumptionRowsInput,
+  periods: ConsumptionPeriod[],
+  granularity: PeriodGranularity,
+  usePaletsAsProxy: boolean,
+): number[] {
   const result = periods.map(() => 0);
   const purchases = gasoilPurchasesByDate(input.consumos);
   const rangeStartMs = dateToUtcMs(input.rangeStart);
@@ -240,9 +465,13 @@ function distributeGasoilPurchases(input: BuildConsumptionRowsInput, periods: Co
       return;
     }
 
-    const tramoKg = kgBaseForRange(input, startMs, endMs);
+    const tramoKg = kgBaseForRange(input, startMs, endMs, granularity, usePaletsAsProxy);
 
     if (tramoKg <= 0) {
+      if (granularity !== "monthly") {
+        return;
+      }
+
       addGasoilToPurchasePeriod(result, periods, startMs, purchase.litros);
       return;
     }
@@ -255,7 +484,7 @@ function distributeGasoilPurchases(input: BuildConsumptionRowsInput, periods: Co
         return;
       }
 
-      const overlapKg = kgBaseForRange(input, overlapStartMs, overlapEndMs);
+      const overlapKg = kgBaseForRange(input, overlapStartMs, overlapEndMs, granularity, usePaletsAsProxy);
       if (overlapKg <= 0) {
         return;
       }
@@ -285,17 +514,43 @@ function gasoilPurchasesByDate(consumos: ConsumoFisicoInput[]): Array<{ dateMs: 
     .sort((a, b) => a.dateMs - b.dateMs);
 }
 
-function kgBaseForRange(input: BuildConsumptionRowsInput, startMs: number, endMs: number): number {
+function kgBaseForRange(
+  input: BuildConsumptionRowsInput,
+  startMs: number,
+  endMs: number,
+  granularity: PeriodGranularity,
+  usePaletsAsProxy: boolean,
+): number {
   const period = periodFromRange(startMs, endMs);
   const kgPartes = totalPartesForPeriod(input.partes, period);
-  const kgVentas = totalBasesForPeriod(input.basesKg, period, "ventas");
-  const kgManual = totalBasesForPeriod(input.basesKg, period, "manual");
+  const kgPalets = totalBasesForPeriod(input.basesKg, period, "palets", granularity);
+  const kgVentas = totalBasesForPeriod(input.basesKg, period, "ventas", granularity);
+  const kgManual = totalBasesForPeriod(input.basesKg, period, "manual", granularity);
 
   if (kgPartes > 0) {
     return kgPartes;
   }
 
+  if (usePaletsAsProxy && kgPalets > 0) {
+    return kgPalets;
+  }
+
   return kgVentas > 0 ? kgVentas : kgManual;
+}
+
+function shouldUsePaletsAsProxy(input: BuildConsumptionRowsInput, granularity: PeriodGranularity): boolean {
+  if (granularity !== "monthly") {
+    return true;
+  }
+
+  const months = buildMonthPeriods(input.rangeStart, input.rangeEnd);
+  if (months.length === 0) {
+    return false;
+  }
+
+  return months.every((monthPeriod) => (
+    totalBasesForPeriod(input.basesKg, monthPeriod, "palets", "monthly") > 0
+  ));
 }
 
 function periodFromRange(startMs: number, endMs: number): ConsumptionPeriod {
@@ -326,14 +581,27 @@ function totalPartesForPeriod(partes: ParteKgInput[], period: ConsumptionPeriod)
   }, 0);
 }
 
-function totalBasesForPeriod(basesKg: BaseKgInput[], period: ConsumptionPeriod, tipoBase: BaseKgTipo): number {
+function totalBasesForPeriod(
+  basesKg: BaseKgInput[],
+  period: ConsumptionPeriod,
+  tipoBase: BaseKgTipo,
+  granularity: PeriodGranularity,
+): number {
   return basesKg.reduce((total, base) => {
     if (base.tipo_base !== tipoBase) {
       return total;
     }
 
+    if (tipoBase !== "palets" && granularity !== "monthly" && !sameDateRange(base.fecha_inicio, base.fecha_fin, period)) {
+      return total;
+    }
+
     return total + (finiteOrZero(base.kg) * overlapFactor(base.fecha_inicio, base.fecha_fin, period));
   }, 0);
+}
+
+function sameDateRange(fechaInicio: string, fechaFin: string, period: ConsumptionPeriod): boolean {
+  return dateToUtcMs(fechaInicio) === period.startMs && dateToUtcMs(fechaFin) === period.endMs;
 }
 
 function finiteOrZero(value: number | null | undefined): number {
@@ -371,22 +639,20 @@ function buildMonthPeriods(rangeStart: string, rangeEnd: string): ConsumptionPer
   return months;
 }
 
-function buildIsoWeekPeriods(rangeStart: string, rangeEnd: string): ConsumptionPeriod[] {
+function buildCampaignWeekPeriods(rangeStart: string, rangeEnd: string): ConsumptionPeriod[] {
   const rangeStartMs = dateToUtcMs(rangeStart);
   const rangeEndMs = dateToUtcMs(rangeEnd);
-  const current = new Date(startOfIsoWeekMs(rangeStartMs));
   const weeks: ConsumptionPeriod[] = [];
+  let weekNumber = 1;
 
-  while (current.getTime() <= rangeEndMs) {
-    const weekStartMs = current.getTime();
+  for (let weekStartMs = rangeStartMs; weekStartMs <= rangeEndMs; weekStartMs += 7 * MS_PER_DAY) {
     const weekEndMs = weekStartMs + (6 * MS_PER_DAY);
-    const startMs = Math.max(weekStartMs, rangeStartMs);
+    const startMs = weekStartMs;
     const endMs = Math.min(weekEndMs, rangeEndMs);
 
     if (startMs <= endMs) {
-      const iso = isoWeekFromUtcMs(weekStartMs);
       weeks.push({
-        periodo: `${iso.year}-W${pad2(iso.week)}`,
+        periodo: `S${pad2(weekNumber)}`,
         fechaInicio: utcMsToDateString(startMs),
         fechaFin: utcMsToDateString(endMs),
         startMs,
@@ -394,7 +660,7 @@ function buildIsoWeekPeriods(rangeStart: string, rangeEnd: string): ConsumptionP
       });
     }
 
-    current.setUTCDate(current.getUTCDate() + 7);
+    weekNumber += 1;
   }
 
   return weeks;
@@ -466,23 +732,16 @@ function parseDateParts(date: string): { year: number; month: number; day: numbe
   return { year, month, day };
 }
 
-function startOfIsoWeekMs(dateMs: number): number {
-  const date = new Date(dateMs);
-  const day = date.getUTCDay() || 7;
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - day + 1);
-}
-
-function isoWeekFromUtcMs(dateMs: number): { year: number; week: number } {
-  const thursday = new Date(dateMs);
-  const day = thursday.getUTCDay() || 7;
-  thursday.setUTCDate(thursday.getUTCDate() + 4 - day);
-  const year = thursday.getUTCFullYear();
-  const yearStart = Date.UTC(year, 0, 1);
-  const week = Math.ceil((((thursday.getTime() - yearStart) / MS_PER_DAY) + 1) / 7);
-
-  return { year, week };
-}
-
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
+}
+
+function normalizeText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }

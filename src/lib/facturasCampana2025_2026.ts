@@ -251,19 +251,23 @@ export function buildFacturasCampana2025_2026Rows(userId: string): ConsumoFisico
     notas: `Campana 2025/2026. Importado de facturas 2526. Articulo: ${row.articulo}. Precio: ${row.precio.toFixed(3)}. Importe: ${row.importe.toFixed(2)}.`,
     created_at: "2026-06-12T00:00:00.000Z",
   } satisfies ConsumoFisicoRow));
-  const aguaRows = FACTURAS_CAMPANA_2025_2026_AGUA_CONSUMOS.map((row) => ({
-    id: `factura-2025-2026-agua-${slug(row.factura)}`,
-    user_id: userId,
-    recurso: "agua",
-    fecha_inicio: row.fechaInicio,
-    fecha_fin: row.fechaFin,
-    cantidad: row.m3,
-    unidad: "m3",
-    fuente: "factura_detallada",
-    referencia: row.factura,
-    notas: `Campana 2025/2026. Aqua Campina ${row.facturacion}. Documento: ${row.documento}. Lecturas: ${row.lecturaAnterior} -> ${row.lecturaActual}. Dias: ${row.dias}. Fuente: ${row.fuenteImagen}.`,
-    created_at: "2026-06-12T00:00:00.000Z",
-  } satisfies ConsumoFisicoRow));
+  const aguaRows = FACTURAS_CAMPANA_2025_2026_AGUA_CONSUMOS.map((row) => {
+    const periodoFacturado = facturacionToRange(row.facturacion);
+
+    return {
+      id: `factura-2025-2026-agua-${slug(row.factura)}`,
+      user_id: userId,
+      recurso: "agua",
+      fecha_inicio: periodoFacturado.fechaInicio,
+      fecha_fin: periodoFacturado.fechaFin,
+      cantidad: row.m3,
+      unidad: "m3",
+      fuente: "factura_detallada",
+      referencia: row.factura,
+      notas: `Campana 2025/2026. Aqua Campina ${row.facturacion}. Documento: ${row.documento}. Lecturas: ${row.lecturaAnterior} -> ${row.lecturaActual}. Rango lectura: ${row.fechaInicio} -> ${row.fechaFin}. Dias: ${row.dias}. Fuente: ${row.fuenteImagen}.`,
+      created_at: "2026-06-12T00:00:00.000Z",
+    } satisfies ConsumoFisicoRow;
+  });
   const electricidadRows = FACTURAS_CAMPANA_2025_2026_ELECTRICIDAD_CONSUMOS.map((row) => ({
     id: `factura-2025-2026-electricidad-${slug(row.factura)}`,
     user_id: userId,
@@ -286,11 +290,11 @@ export function mergeFacturasCampana2025_2026Consumos(
   existing: ConsumoFisicoRow[],
 ): ConsumoFisicoRow[] {
   const shippedRows = buildFacturasCampana2025_2026Rows(userId);
-  const newRows = shippedRows.filter((shippedRow) => (
-    !existing.some((existingRow) => equivalentConsumo(existingRow, shippedRow))
+  const externalRows = existing.filter((existingRow) => (
+    !shippedRows.some((shippedRow) => equivalentConsumo(existingRow, shippedRow))
   ));
 
-  return [...existing, ...newRows];
+  return [...externalRows, ...shippedRows];
 }
 
 export function buildCampana2025_2026BasesKgRows(userId: string): ConsumoBaseKgRow[] {
@@ -312,14 +316,23 @@ export function mergeCampana2025_2026BasesKg(
   existing: ConsumoBaseKgRow[],
 ): ConsumoBaseKgRow[] {
   const shippedRows = buildCampana2025_2026BasesKgRows(userId);
-  const newRows = shippedRows.filter((shippedRow) => (
-    !existing.some((existingRow) => equivalentBaseKg(existingRow, shippedRow))
+  const externalRows = existing.filter((existingRow) => (
+    !shippedRows.some((shippedRow) => equivalentBaseKg(existingRow, shippedRow))
   ));
 
-  return [...existing, ...newRows];
+  return [...externalRows, ...shippedRows];
 }
 
 function equivalentConsumo(a: ConsumoFisicoRow, b: ConsumoFisicoRow): boolean {
+  if (
+    relatedReference(a, b)
+    && a.recurso === b.recurso
+    && a.unidad === b.unidad
+    && Math.abs(Number(a.cantidad) - Number(b.cantidad)) < 0.0001
+  ) {
+    return true;
+  }
+
   return (
     a.recurso === b.recurso
     && a.fecha_inicio === b.fecha_inicio
@@ -331,13 +344,36 @@ function equivalentConsumo(a: ConsumoFisicoRow, b: ConsumoFisicoRow): boolean {
 }
 
 function equivalentBaseKg(a: ConsumoBaseKgRow, b: ConsumoBaseKgRow): boolean {
+  if (a.tipo_base !== b.tipo_base || Math.abs(Number(a.kg) - Number(b.kg)) >= 0.0001) {
+    return false;
+  }
+
+  if (normalizeReference(a.referencia) && normalizeReference(a.referencia) === normalizeReference(b.referencia)) {
+    return true;
+  }
+
   return (
-    a.tipo_base === b.tipo_base
-    && a.fecha_inicio === b.fecha_inicio
+    a.fecha_inicio === b.fecha_inicio
     && a.fecha_fin === b.fecha_fin
-    && Math.abs(Number(a.kg) - Number(b.kg)) < 0.0001
-    && normalizeReference(a.referencia) === normalizeReference(b.referencia)
   );
+}
+
+function relatedReference(a: ConsumoFisicoRow, b: ConsumoFisicoRow): boolean {
+  const aRef = normalizeReference(a.referencia);
+  const bRef = normalizeReference(b.referencia);
+
+  if (!aRef || !bRef) {
+    return false;
+  }
+
+  if (aRef === bRef) {
+    return true;
+  }
+
+  const aText = normalizeReference(`${a.referencia ?? ""} ${a.notas ?? ""}`);
+  const bText = normalizeReference(`${b.referencia ?? ""} ${b.notas ?? ""}`);
+
+  return aText.includes(bRef) || bText.includes(aRef);
 }
 
 function normalizeReference(value: string | null): string {
@@ -346,6 +382,45 @@ function normalizeReference(value: string | null): string {
 
 function slug(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function facturacionToRange(facturacion: string): { fechaInicio: string; fechaFin: string } {
+  const [meses, yearText] = facturacion.split("/");
+  const [primerMes, segundoMes] = meses.split("-").map((value) => monthNumber(value));
+  const year = Number(yearText);
+
+  return {
+    fechaInicio: `${year}-${pad2(primerMes)}-01`,
+    fechaFin: `${year}-${pad2(segundoMes)}-${pad2(daysInMonth(year, segundoMes))}`,
+  };
+}
+
+function monthNumber(value: string): number {
+  const normalized = value.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const months: Record<string, number> = {
+    enero: 1,
+    febrero: 2,
+    marzo: 3,
+    abril: 4,
+    mayo: 5,
+    junio: 6,
+    julio: 7,
+    agosto: 8,
+    septiembre: 9,
+    octubre: 10,
+    noviembre: 11,
+    diciembre: 12,
+  };
+
+  return months[normalized] ?? 1;
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
 }
 
 function formatPeriodos(periodos: FacturaElectricidadCampana2025_2026["periodos"]): string {

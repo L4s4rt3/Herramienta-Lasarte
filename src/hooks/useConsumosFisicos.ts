@@ -8,6 +8,7 @@ import {
   buildWeeklyConsumptionRows,
   type ParteKgInput,
 } from "@/lib/consumosFisicos";
+import { toError } from "@/lib/errorMessage";
 import {
   mergeCampana2024_2025BasesKg,
   mergeFacturasCampana2024_2025Consumos,
@@ -16,6 +17,7 @@ import {
   mergeCampana2025_2026BasesKg,
   mergeFacturasCampana2025_2026Consumos,
 } from "@/lib/facturasCampana2025_2026";
+import { buildPaletsDesdeCampana2024BasesKgRows } from "@/lib/paletsDesdeCampana2024";
 import { today } from "@/lib/format";
 import type { ConsumoBaseKgRow, ConsumoFisicoRow } from "@/lib/types";
 
@@ -55,7 +57,7 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
         .order("fecha_inicio", { ascending: false });
 
       if (error) {
-        throw error;
+        throw toError(error);
       }
 
       return (data ?? []) as ConsumoFisicoRow[];
@@ -86,7 +88,7 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
         .order("fecha_inicio", { ascending: false });
 
       if (error) {
-        throw error;
+        throw toError(error);
       }
 
       return (data ?? []) as ConsumoBaseKgRow[];
@@ -103,7 +105,7 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
       return mergeCampana2025_2026BasesKg(
         user.id,
         mergeCampana2024_2025BasesKg(user.id, persistedBasesKg),
-      );
+      ).concat(buildPaletsDesdeCampana2024BasesKgRows(user.id));
     },
     [persistedBasesKg, user],
   );
@@ -113,12 +115,12 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
     queryFn: async () => {
       const { data, error } = await supabase
         .from("partes_diarios")
-        .select("date, kg_produccion_calibrador, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
+        .select("date, resumen_ia, kg_produccion_calibrador, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
         .gte("date", rangeStart)
         .lte("date", rangeEnd);
 
       if (error) {
-        throw error;
+        throw toError(error);
       }
 
       return (data ?? []) as ParteKgInput[];
@@ -132,13 +134,22 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
         throw new Error("No auth");
       }
 
-      const { error } = await supabase.from("consumos_fisicos").insert({
-        ...values,
+      const insertPayload = {
+        recurso: values.recurso,
+        fecha_inicio: values.fecha_inicio,
+        fecha_fin: values.fecha_fin,
+        cantidad: values.cantidad,
+        unidad: values.unidad,
+        fuente: values.fuente,
         user_id: user.id,
-      });
+        ...(values.referencia ? { referencia: values.referencia } : {}),
+        ...(values.notas ? { notas: values.notas } : {}),
+      };
+
+      const { error } = await supabase.from("consumos_fisicos").insert(insertPayload);
 
       if (error) {
-        throw error;
+        throw toError(error);
       }
     },
     onSuccess: () => {
@@ -158,7 +169,7 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
       });
 
       if (error) {
-        throw error;
+        throw toError(error);
       }
     },
     onSuccess: () => {
@@ -178,7 +189,7 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
         .eq("id", id);
 
       if (error) {
-        throw error;
+        throw toError(error);
       }
     },
     onSuccess: () => {
@@ -198,7 +209,7 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
         .eq("id", id);
 
       if (error) {
-        throw error;
+        throw toError(error);
       }
     },
     onSuccess: () => {

@@ -194,6 +194,7 @@ export function exportConsumoToExcel(data: ExportData) {
       "Fecha fin": row.fechaFin,
       Confianza: confianzaLabel[row.confianza],
       "Kg partes": row.kgPartes,
+      "Kg palets": row.kgPalets,
       "Kg ventas": row.kgVentas,
       "Kg manual": row.kgManual,
       "Kg base": row.kgBase,
@@ -207,7 +208,7 @@ export function exportConsumoToExcel(data: ExportData) {
       "Quimicos L": row.quimicosL,
       "Quimicos mL/kg": blankIfNull(row.quimicosMlKg),
       Observaciones: row.issues.join(" | "),
-    })), [14, 14, 14, 14, 14, 14, 14, 14, 12, 12, 16, 12, 12, 14, 12, 12, 14, 42], { freezeHeader: true });
+    })), [14, 14, 14, 14, 14, 14, 14, 14, 14, 12, 12, 16, 12, 12, 14, 12, 12, 14, 42], { freezeHeader: true });
 
     appendRowsSheet(wb, "Validacion consumos", periodos
       .filter((row) => row.issues.length > 0)
@@ -312,6 +313,7 @@ export function exportConsumoToPDF(data: ExportData) {
       row.periodo,
       confianzaLabel[row.confianza],
       formatNumber(row.kgBase, 0),
+      formatNumber(row.kgPalets, 0),
       row.aguaLKg == null ? "-" : formatNumber(row.aguaLKg, 2),
       row.electricidadKwhKg == null ? "-" : formatNumber(row.electricidadKwhKg, 3),
       row.gasoilMlKg == null ? "-" : formatNumber(row.gasoilMlKg, 1),
@@ -333,7 +335,7 @@ export function exportConsumoToPDF(data: ExportData) {
   autoTable(doc, {
     startY: y,
     head: hasPeriodos
-      ? [["Periodo", "Confianza", "Kg base", "Agua L/kg", "kWh/kg", "Gasoil mL/kg", "Quimicos mL/kg"]]
+      ? [["Periodo", "Confianza", "Kg base", "Kg palets", "Agua L/kg", "kWh/kg", "Gasoil mL/kg", "Quimicos mL/kg"]]
       : [["Periodo", "Kg", "Agua L/kg", "kWh/kg", "Gasoil mL/kg", "Quimicos mL/kg"]],
     body,
     ...pdfTableTheme(),

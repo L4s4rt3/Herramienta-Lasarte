@@ -30,7 +30,8 @@ import {
   GlassTooltip, legendStyle, C, GRID, XAXIS, YAXIS, MARGIN,
   CHART_LINE_CURSOR, CHART_PANEL_CLASS, lineStyle,
 } from "@/lib/chartTheme";
-import type { ConsumoPeriodoRow } from "@/lib/consumosFisicos";
+import { buildDailyWaterMeterConsumo, parseConsumoNumber, type ConsumoPeriodoRow } from "@/lib/consumosFisicos";
+import { errorMessage } from "@/lib/errorMessage";
 import { MaquinaRow, SesionConsumoRow, ConsumoMaquinaRow } from "@/lib/types";
 import { exportConsumoToExcel, exportConsumoToPDF } from "@/lib/exportConsumo";
 import {
@@ -66,14 +67,14 @@ type ConsumoUnidad = "l" | "m3" | "kwh";
 type ConsumoPeriodoVista = "semanal" | "mensual" | "diario";
 
 const UNIDADES_POR_RECURSO: Record<ConsumoRecurso, ConsumoUnidad[]> = {
-  agua: ["l", "m3"],
+  agua: ["l"],
   electricidad: ["kwh"],
   gasoil: ["l"],
   quimicos: ["l"],
 };
 
 const UNIDAD_LABEL: Record<ConsumoUnidad, string> = {
-  l: "l",
+  l: "Litros",
   m3: "m3",
   kwh: "kWh",
 };
@@ -136,6 +137,10 @@ interface PeriodBlock {
 }
 
 function periodShortLabel(periodo: string) {
+  if (/^S\d{2,}$/.test(periodo)) {
+    return periodo;
+  }
+
   if (/^\d{4}-W\d{2}$/.test(periodo)) {
     return `S${periodo.slice(-2)}`;
   }
@@ -217,6 +222,7 @@ export default function ConsumoCostes() {
   const [campanaId, setCampanaId] = useState<string>(FACTURAS_CAMPANA_2025_2026_RANGE.id);
   const [periodoVista, setPeriodoVista] = useState<ConsumoPeriodoVista>("semanal");
   const [periodBlockId, setPeriodBlockId] = useState("latest");
+  const isCurrentCampaign = campanaId === FACTURAS_CAMPANA_2025_2026_RANGE.id;
   const campanasConsumo = useMemo(() => [
     FACTURAS_CAMPANA_2024_2025_RANGE,
     {
@@ -225,6 +231,7 @@ export default function ConsumoCostes() {
     },
   ], []);
   const selectedCampana = campanasConsumo.find((campana) => campana.id === campanaId) ?? campanasConsumo[0];
+  const activePeriodoVista: ConsumoPeriodoVista = isCurrentCampaign ? periodoVista : "mensual";
   const consumosFisicos = useConsumosFisicos(selectedCampana.fechaInicio, selectedCampana.fechaFin);
   const maquinasQueryKey = ["maquinas", user?.id] as const;
   const sesionesConsumoQueryKey = ["sesiones_consumo", user?.id] as const;
@@ -246,6 +253,10 @@ export default function ConsumoCostes() {
   const [facturaImportResults, setFacturaImportResults] = useState<FacturaConsumoParseResult[]>([]);
   const [facturaImportLoading, setFacturaImportLoading] = useState(false);
   const [facturaImportSaving, setFacturaImportSaving] = useState(false);
+  const [aguaDiariaFecha, setAguaDiariaFecha] = useState(today());
+  const [aguaContadorGeneral, setAguaContadorGeneral] = useState("");
+  const [aguaLineaTratamiento, setAguaLineaTratamiento] = useState("");
+  const [aguaDrencher, setAguaDrencher] = useState("");
 
   useEffect(() => {
     setCfInicio(selectedCampana.fechaInicio);
@@ -256,7 +267,13 @@ export default function ConsumoCostes() {
 
   useEffect(() => {
     setPeriodBlockId("latest");
-  }, [campanaId, periodoVista]);
+  }, [campanaId, activePeriodoVista]);
+
+  useEffect(() => {
+    if (!isCurrentCampaign && periodoVista !== "mensual") {
+      setPeriodoVista("mensual");
+    }
+  }, [isCurrentCampaign, periodoVista]);
 
   const facturaRows = useMemo(
     () => facturaImportResults.flatMap((result) => result.rows),
@@ -283,7 +300,6 @@ export default function ConsumoCostes() {
     [facturaRows],
   );
   const facturasIntegradasResumen = useMemo(() => {
-    const isCurrentCampaign = campanaId === FACTURAS_CAMPANA_2025_2026_RANGE.id;
     const aguaConsumos = isCurrentCampaign
       ? FACTURAS_CAMPANA_2025_2026_AGUA_CONSUMOS
       : FACTURAS_CAMPANA_2024_2025_AGUA_CONSUMOS;
@@ -309,10 +325,10 @@ export default function ConsumoCostes() {
       ventasFuente: isCurrentCampaign ? "ventas campana 2526.xlsx" : "campana2425.xlsx",
       gasoilFuente: isCurrentCampaign ? "facturas 2526" : "2024-2025-GASOIL.xls",
     };
-  }, [campanaId]);
+  }, [isCurrentCampaign]);
 
   const guardarConsumoFisico = () => {
-    const cantidad = Number(cfCantidad) || 0;
+    const cantidad = parseConsumoNumber(cfCantidad);
     if (cantidad <= 0) {
       toast({ title: "Cantidad requerida", description: "Introduce una cantidad fisica mayor que cero.", variant: "destructive" });
       return;
@@ -326,7 +342,7 @@ export default function ConsumoCostes() {
       fecha_inicio: cfInicio,
       fecha_fin: cfFin,
       cantidad,
-      unidad: cfUnidad,
+      unidad: cfRecurso === "agua" ? "l" : cfUnidad,
       fuente: cfFuente,
       referencia: cfReferencia || null,
       notas: cfNotas || null,
@@ -338,6 +354,45 @@ export default function ConsumoCostes() {
         setCfNotas("");
       },
       onError: (e) => toast({ title: "Error", description: e instanceof Error ? e.message : String(e), variant: "destructive" }),
+    });
+  };
+
+  const guardarLecturaAguaDiaria = () => {
+    const contadorGeneralL = parseConsumoNumber(aguaContadorGeneral);
+    const lineaTratamientoL = parseConsumoNumber(aguaLineaTratamiento);
+    const drencherL = parseConsumoNumber(aguaDrencher);
+
+    if (contadorGeneralL <= 0) {
+      toast({ title: "Contador general requerido", description: "Introduce el gasto de agua del contador general.", variant: "destructive" });
+      return;
+    }
+
+    const alreadyExists = consumosFisicos.consumos.some((row) => (
+      row.recurso === "agua"
+      && row.fuente === "contador"
+      && row.fecha_inicio === aguaDiariaFecha
+      && row.fecha_fin === aguaDiariaFecha
+      && row.referencia === "agua-contador-general"
+    ));
+
+    if (alreadyExists) {
+      toast({ title: "Lectura ya registrada", description: "Ya existe una lectura de contador general para ese dia.", variant: "destructive" });
+      return;
+    }
+
+    consumosFisicos.addConsumo.mutate(buildDailyWaterMeterConsumo({
+      fecha: aguaDiariaFecha,
+      contadorGeneralL,
+      lineaTratamientoL,
+      drencherL,
+    }), {
+      onSuccess: () => {
+        toast({ title: "Lectura de agua guardada" });
+        setAguaContadorGeneral("");
+        setAguaLineaTratamiento("");
+        setAguaDrencher("");
+      },
+      onError: (e) => toast({ title: "Error", description: errorMessage(e), variant: "destructive" }),
     });
   };
 
@@ -363,7 +418,7 @@ export default function ConsumoCostes() {
     } catch (error) {
       toast({
         title: "No se pudieron leer las facturas",
-        description: error instanceof Error ? error.message : String(error),
+        description: errorMessage(error),
         variant: "destructive",
       });
     } finally {
@@ -393,7 +448,7 @@ export default function ConsumoCostes() {
     } catch (error) {
       toast({
         title: "Error al importar",
-        description: error instanceof Error ? error.message : String(error),
+        description: errorMessage(error),
         variant: "destructive",
       });
     } finally {
@@ -425,7 +480,7 @@ export default function ConsumoCostes() {
         setBaseReferencia("");
         setBaseNotas("");
       },
-      onError: (e) => toast({ title: "Error", description: e instanceof Error ? e.message : String(e), variant: "destructive" }),
+      onError: (e) => toast({ title: "Error", description: errorMessage(e), variant: "destructive" }),
     });
   };
 
@@ -498,20 +553,20 @@ export default function ConsumoCostes() {
 
   // ─── Métricas calculadas ──────────────────────────────────────────────────
   const allPeriodRows = useMemo(() => {
-    if (periodoVista === "diario") {
+    if (activePeriodoVista === "diario") {
       return consumosFisicos.dailyRows;
     }
 
-    if (periodoVista === "mensual") {
+    if (activePeriodoVista === "mensual") {
       return consumosFisicos.monthlyRows;
     }
 
     return consumosFisicos.weeklyRows;
-  }, [consumosFisicos.dailyRows, consumosFisicos.monthlyRows, consumosFisicos.weeklyRows, periodoVista]);
+  }, [activePeriodoVista, consumosFisicos.dailyRows, consumosFisicos.monthlyRows, consumosFisicos.weeklyRows]);
 
   const weeklyBlocks = useMemo(
-    () => (periodoVista === "semanal" ? buildPeriodBlocks(allPeriodRows) : []),
-    [allPeriodRows, periodoVista],
+    () => (isCurrentCampaign && activePeriodoVista === "semanal" ? buildPeriodBlocks(allPeriodRows) : []),
+    [activePeriodoVista, allPeriodRows, isCurrentCampaign],
   );
 
   const activeWeeklyBlock = useMemo(
@@ -520,7 +575,7 @@ export default function ConsumoCostes() {
   );
 
   const rows = useMemo(() => {
-    if (periodoVista !== "semanal") {
+    if (!isCurrentCampaign || activePeriodoVista !== "semanal") {
       return allPeriodRows;
     }
 
@@ -529,7 +584,7 @@ export default function ConsumoCostes() {
     }
 
     return activeWeeklyBlock?.rows ?? allPeriodRows.slice(-WEEK_BLOCK_SIZE);
-  }, [activeWeeklyBlock, allPeriodRows, periodBlockId, periodoVista]);
+  }, [activePeriodoVista, activeWeeklyBlock, allPeriodRows, isCurrentCampaign, periodBlockId]);
 
   const selectedRows = useMemo(
     () => rows.filter((row) => (
@@ -547,6 +602,7 @@ export default function ConsumoCostes() {
       (acc, row) => {
         acc.kgBase += row.kgBase;
         acc.kgPartes += row.kgPartes;
+        acc.kgPalets += row.kgPalets;
         acc.kgVentas += row.kgVentas;
         acc.kgManual += row.kgManual;
         acc.aguaL += row.aguaL;
@@ -558,6 +614,7 @@ export default function ConsumoCostes() {
       {
         kgBase: 0,
         kgPartes: 0,
+        kgPalets: 0,
         kgVentas: 0,
         kgManual: 0,
         aguaL: 0,
@@ -571,6 +628,7 @@ export default function ConsumoCostes() {
 
   const totalKg = selectedTotals.kgBase;
   const totalKgPartes = selectedTotals.kgPartes;
+  const totalKgPalets = selectedTotals.kgPalets;
   const totalKgVentas = selectedTotals.kgVentas;
   const totalKgManual = selectedTotals.kgManual;
   const totalAguaL = selectedTotals.aguaL;
@@ -588,11 +646,13 @@ export default function ConsumoCostes() {
   const monthsWithData = selectedRows.length;
   const monthsInRange = rows.length;
   const monthsCoveragePct = monthsInRange > 0 ? (monthsWithData / monthsInRange) * 100 : 0;
-  const periodDetailLabel = PERIODO_VISTA_DETAIL_LABEL[periodoVista];
-  const selectedPeriodLabel = PERIODO_VISTA_LABEL[periodoVista];
-  const currentPeriodRow = periodoVista === "semanal" ? allPeriodRows.at(-1) : null;
-  const previousPeriodRow = periodoVista === "semanal" && allPeriodRows.length > 1 ? allPeriodRows.at(-2) : null;
-  const visibleRangeLabel = periodoVista === "semanal"
+  const periodDetailLabel = PERIODO_VISTA_DETAIL_LABEL[activePeriodoVista];
+  const selectedPeriodLabel = PERIODO_VISTA_LABEL[activePeriodoVista];
+  const currentPeriodRow = isCurrentCampaign && activePeriodoVista === "semanal" ? allPeriodRows.at(-1) : null;
+  const previousPeriodRow = isCurrentCampaign && activePeriodoVista === "semanal" && allPeriodRows.length > 1 ? allPeriodRows.at(-2) : null;
+  const visibleRangeLabel = !isCurrentCampaign
+    ? "Toda la campana por mes"
+    : activePeriodoVista === "semanal"
     ? periodBlockId === "all"
       ? "Toda la campana"
       : activeWeeklyBlock?.label ?? "Ultimas semanas"
@@ -747,17 +807,21 @@ export default function ConsumoCostes() {
               ))}
             </SelectContent>
           </Select>
-          <Select value={periodoVista} onValueChange={(value) => setPeriodoVista(value as ConsumoPeriodoVista)}>
+          <Select
+            value={activePeriodoVista}
+            onValueChange={(value) => setPeriodoVista(value as ConsumoPeriodoVista)}
+            disabled={!isCurrentCampaign}
+          >
             <SelectTrigger className="glass glass-hover h-9 w-[130px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="semanal">Semanal</SelectItem>
+              {isCurrentCampaign && <SelectItem value="semanal">Semanal</SelectItem>}
               <SelectItem value="mensual">Mensual</SelectItem>
-              <SelectItem value="diario">Diario</SelectItem>
+              {isCurrentCampaign && <SelectItem value="diario">Diario</SelectItem>}
             </SelectContent>
           </Select>
-          {periodoVista === "semanal" && (
+          {isCurrentCampaign && activePeriodoVista === "semanal" && (
             <Select value={periodBlockId} onValueChange={setPeriodBlockId}>
               <SelectTrigger className="glass glass-hover h-9 w-[190px]">
                 <SelectValue />
@@ -829,6 +893,36 @@ export default function ConsumoCostes() {
           <TabsContent value="registrar" className="space-y-6">
             <Card className="glass-accented">
               <CardHeader>
+                <p className="panel-kicker">Agua diaria</p>
+                <CardTitle>Registrar lectura diaria de agua</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-5 md:grid-cols-4">
+                <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fecha</Label>
+                  <ConsumoDatePicker value={aguaDiariaFecha} onChange={setAguaDiariaFecha} />
+                </div>
+                <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Gasto agua contador general (Litros)</Label>
+                  <Input inputMode="decimal" value={aguaContadorGeneral} onChange={(e) => setAguaContadorGeneral(e.target.value)} placeholder="0" />
+                </div>
+                <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Consumo agua linea tratamiento (Litros)</Label>
+                  <Input inputMode="decimal" value={aguaLineaTratamiento} onChange={(e) => setAguaLineaTratamiento(e.target.value)} placeholder="0" />
+                </div>
+                <div className="glass p-4 space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Consumo agua drencher (Litros)</Label>
+                  <Input inputMode="decimal" value={aguaDrencher} onChange={(e) => setAguaDrencher(e.target.value)} placeholder="0" />
+                </div>
+                <div className="md:col-span-4 flex justify-end">
+                  <Button onClick={guardarLecturaAguaDiaria} disabled={consumosFisicos.addConsumo.isPending} className="glass glass-hover px-8">
+                    <Save className="h-4 w-4 mr-2" /> Guardar lectura
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="glass-accented">
+              <CardHeader>
                 <p className="panel-kicker">Consumo fisico</p>
                 <CardTitle>Registrar recurso medido</CardTitle>
               </CardHeader>
@@ -862,7 +956,7 @@ export default function ConsumoCostes() {
                 </div>
                 <div className="glass p-4 space-y-2">
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Cantidad fisica</Label>
-                  <Input type="number" step="0.1" min="0" value={cfCantidad} onChange={(e) => setCfCantidad(e.target.value)} placeholder="0" />
+                  <Input inputMode="decimal" value={cfCantidad} onChange={(e) => setCfCantidad(e.target.value)} placeholder="0" />
                 </div>
                 <div className="glass p-4 space-y-2">
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Unidad</Label>
@@ -1128,7 +1222,7 @@ export default function ConsumoCostes() {
                               {formatNumber(totalKg)} <span className="text-lg font-medium text-muted-foreground">kg</span>
                             </p>
                             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                              Ventas: {formatNumber(totalKgVentas)} kg · Partes: {formatNumber(totalKgPartes)} kg · Manual: {formatNumber(totalKgManual)} kg
+                              Partes: {formatNumber(totalKgPartes)} kg · Palets: {formatNumber(totalKgPalets)} kg · Ventas: {formatNumber(totalKgVentas)} kg · Manual: {formatNumber(totalKgManual)} kg
                             </p>
                           </div>
                           <div className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -1150,7 +1244,7 @@ export default function ConsumoCostes() {
                               <p className="mt-1 text-xs text-muted-foreground">Agua, luz, gasoil y quimicos</p>
                             </div>
                           </div>
-                          {periodoVista === "semanal" && (
+                          {isCurrentCampaign && activePeriodoVista === "semanal" && (
                             <div className="mt-4 grid gap-3 sm:grid-cols-2">
                               <div className="rounded-lg border border-primary/20 bg-primary/10 p-3">
                                 <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Semana actual</p>
@@ -1168,7 +1262,7 @@ export default function ConsumoCostes() {
                               </div>
                             </div>
                           )}
-                          {periodoVista === "semanal" && activeWeeklyBlock && periodBlockId !== "all" && (
+                          {isCurrentCampaign && activePeriodoVista === "semanal" && activeWeeklyBlock && periodBlockId !== "all" && (
                             <p className="mt-3 text-xs text-muted-foreground">
                               Bloque visible: {activeWeeklyBlock.detail}. Cambia el selector superior para revisar semanas anteriores.
                             </p>
@@ -1353,7 +1447,7 @@ export default function ConsumoCostes() {
                 <Card className="glass-accented overflow-hidden">
                   <CardHeader>
                     <p className="panel-kicker">Detalle {selectedPeriodLabel.toLowerCase()}</p>
-                    <CardTitle>Consumos y ratios por {periodoVista === "diario" ? "dia" : periodoVista === "semanal" ? "semana" : "mes"}</CardTitle>
+                    <CardTitle>Consumos y ratios por {activePeriodoVista === "diario" ? "dia" : activePeriodoVista === "semanal" ? "semana" : "mes"}</CardTitle>
                   </CardHeader>
                   <CardContent className="p-0">
                     <div className="overflow-x-auto">
@@ -1591,6 +1685,7 @@ export default function ConsumoCostes() {
                         <TableHead>Periodo</TableHead>
                         <TableHead>Confianza</TableHead>
                         <TableHead className="text-right">Kg partes</TableHead>
+                        <TableHead className="text-right">Kg palets</TableHead>
                         <TableHead className="text-right">Kg ventas</TableHead>
                         <TableHead className="text-right">Kg manual</TableHead>
                         <TableHead className="text-right">Kg base</TableHead>
@@ -1615,6 +1710,7 @@ export default function ConsumoCostes() {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right tabular-nums">{formatNumber(row.kgPartes)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{formatNumber(row.kgPalets)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatNumber(row.kgVentas)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatNumber(row.kgManual)}</TableCell>
                           <TableCell className="text-right tabular-nums font-medium">{formatNumber(row.kgBase)}</TableCell>

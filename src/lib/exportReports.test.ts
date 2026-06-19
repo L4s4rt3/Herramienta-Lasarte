@@ -15,6 +15,7 @@ describe("export report summaries", () => {
           fechaFin: "2026-06-30",
           confianza: "real",
           kgPartes: 1000,
+          kgPalets: 0,
           kgVentas: 0,
           kgManual: 0,
           kgBase: 1000,

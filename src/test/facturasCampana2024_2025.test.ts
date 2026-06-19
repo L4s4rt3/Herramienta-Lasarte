@@ -61,12 +61,21 @@ describe("facturas campana 2024/2025", () => {
     expect(rows.filter((row) => row.recurso === "electricidad")).toHaveLength(14);
     expect(rows.find((row) => row.id === "factura-2024-2025-agua-1778240ip0013217")).toMatchObject({
       recurso: "agua",
-      fecha_inicio: "2024-08-20",
-      fecha_fin: "2024-10-21",
+      fecha_inicio: "2024-09-01",
+      fecha_fin: "2024-10-31",
       cantidad: 179,
       unidad: "m3",
       referencia: "1778240IP0013217",
     });
+    expect(rows.find((row) => row.id === "factura-2024-2025-agua-1778250ip0005285")).toMatchObject({
+      recurso: "agua",
+      fecha_inicio: "2025-03-01",
+      fecha_fin: "2025-04-30",
+      cantidad: 947,
+      unidad: "m3",
+      referencia: "1778250IP0005285",
+    });
+    expect(rows.find((row) => row.id === "factura-2024-2025-agua-1778250ip0005285")?.notas).toContain("Lecturas: 35122 -> 36069. Rango lectura: 2025-02-18 -> 2025-04-15.");
     expect(rows.find((row) => row.id === "factura-2024-2025-electricidad-p24con039897073")).toMatchObject({
       recurso: "electricidad",
       fecha_inicio: "2024-09-01",
@@ -78,11 +87,46 @@ describe("facturas campana 2024/2025", () => {
   });
 
   it("does not add a shipped invoice row when Supabase already has the same invoice", () => {
-    const existing = [buildFacturasCampana2024_2025Rows("user-1")[0]];
+    const existing = [
+      buildFacturasCampana2024_2025Rows("user-1")[0],
+      {
+        ...buildFacturasCampana2024_2025Rows("user-1").find((row) => row.id === "factura-2024-2025-agua-1778250ip0005285")!,
+        fecha_inicio: "2025-02-18",
+        fecha_fin: "2025-04-15",
+      },
+    ];
     const merged = mergeFacturasCampana2024_2025Consumos("user-1", existing);
 
     expect(merged).toHaveLength(51);
     expect(merged.filter((row) => row.referencia === "24 1923 / 03 91827")).toHaveLength(1);
+    expect(merged.filter((row) => row.referencia === "1778250IP0005285")).toHaveLength(1);
+    expect(merged.find((row) => row.referencia === "1778250IP0005285")).toMatchObject({
+      fecha_inicio: "2025-03-01",
+      fecha_fin: "2025-04-30",
+    });
+  });
+
+  it("replaces an old water row identified by accounting reference with the canonical invoice row", () => {
+    const canonical = buildFacturasCampana2024_2025Rows("user-1").find((row) => row.id === "factura-2024-2025-agua-1778250ip0005285")!;
+    const existing = [
+      {
+        ...canonical,
+        id: "persisted-agua-p0037051",
+        fecha_inicio: "2025-02-18",
+        fecha_fin: "2025-04-15",
+        referencia: "P0037051",
+      },
+    ];
+    const merged = mergeFacturasCampana2024_2025Consumos("user-1", existing);
+
+    expect(merged).toHaveLength(51);
+    expect(merged.filter((row) => row.recurso === "agua" && row.cantidad === 947)).toHaveLength(1);
+    expect(merged.find((row) => row.recurso === "agua" && row.cantidad === 947)).toMatchObject({
+      id: "factura-2024-2025-agua-1778250ip0005285",
+      referencia: "1778250IP0005285",
+      fecha_inicio: "2025-03-01",
+      fecha_fin: "2025-04-30",
+    });
   });
 
   it("ships the monthly net sold kg from campana2425.xlsx as ventas base rows", () => {
@@ -116,6 +160,27 @@ describe("facturas campana 2024/2025", () => {
 
     expect(merged).toHaveLength(12);
     expect(merged.filter((row) => row.referencia === "campana2425.xlsx:2024-09")).toHaveLength(1);
+  });
+
+  it("replaces an old ventas kg base row for the same month with the canonical shipped row", () => {
+    const canonical = buildCampana2024_2025BasesKgRows("user-1")[0];
+    const existing = [
+      {
+        ...canonical,
+        id: "persisted-ventas-septiembre",
+        referencia: "ventas septiembre 2024",
+        notas: "Fila creada antes de integrar campana2425.xlsx.",
+      },
+    ];
+    const merged = mergeCampana2024_2025BasesKg("user-1", existing);
+
+    expect(merged).toHaveLength(12);
+    expect(merged.filter((row) => row.fecha_inicio === "2024-09-01" && row.fecha_fin === "2024-09-30" && row.tipo_base === "ventas")).toHaveLength(1);
+    expect(merged.find((row) => row.fecha_inicio === "2024-09-01" && row.fecha_fin === "2024-09-30" && row.tipo_base === "ventas")).toMatchObject({
+      id: "campana-2024-2025-ventas-2024-09",
+      referencia: "campana2425.xlsx:2024-09",
+      kg: 213813,
+    });
   });
 
   it("ships the accounting water and electricity invoice rows too", () => {

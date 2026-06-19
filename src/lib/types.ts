@@ -48,7 +48,7 @@ export interface ConsumoFisicoRow {
 export interface ConsumoBaseKgRow {
   id: string;
   user_id: string;
-  tipo_base: "ventas" | "manual";
+  tipo_base: "ventas" | "palets" | "manual";
   fecha_inicio: string;
   fecha_fin: string;
   kg: number;

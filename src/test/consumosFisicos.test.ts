@@ -1,11 +1,24 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDailyWaterMeterConsumo,
   buildDailyConsumptionRows,
   buildMonthlyConsumptionRows,
   buildWeeklyConsumptionRows,
   kgProducidosParte,
   normalizeConsumoCantidad,
+  parseConsumoNumber,
 } from "@/lib/consumosFisicos";
+import {
+  FACTURAS_CAMPANA_2024_2025_RANGE,
+  buildCampana2024_2025BasesKgRows,
+  buildFacturasCampana2024_2025Rows,
+} from "@/lib/facturasCampana2024_2025";
+import {
+  FACTURAS_CAMPANA_2025_2026_RANGE,
+  buildCampana2025_2026BasesKgRows,
+  buildFacturasCampana2025_2026Rows,
+} from "@/lib/facturasCampana2025_2026";
+import { buildPaletsDesdeCampana2024BasesKgRows } from "@/lib/paletsDesdeCampana2024";
 
 describe("consumos fisicos helpers", () => {
   it("normalizes physical units", () => {
@@ -19,6 +32,32 @@ describe("consumos fisicos helpers", () => {
     });
   });
 
+  it("parses water liter inputs written with Spanish decimal separators", () => {
+    expect(parseConsumoNumber("1234")).toBe(1234);
+    expect(parseConsumoNumber("1.234,5")).toBe(1234.5);
+    expect(parseConsumoNumber("1,5")).toBe(1.5);
+    expect(parseConsumoNumber("1 234,5")).toBe(1234.5);
+    expect(parseConsumoNumber("")).toBe(0);
+  });
+
+  it("builds a daily water meter consumption from general, treatment line and drencher readings", () => {
+    expect(buildDailyWaterMeterConsumo({
+      fecha: "2026-06-19",
+      contadorGeneralL: 1234.5,
+      lineaTratamientoL: 200,
+      drencherL: 35,
+    })).toEqual({
+      recurso: "agua",
+      fecha_inicio: "2026-06-19",
+      fecha_fin: "2026-06-19",
+      cantidad: 1234.5,
+      unidad: "l",
+      fuente: "contador",
+      referencia: "agua-contador-general",
+      notas: "Contador general: 1234.5 L. Linea tratamiento: 200 L. Drencher: 35 L.",
+    });
+  });
+
   it("uses the existing production kg formula from partes", () => {
     expect(kgProducidosParte({
       date: "2026-04-05",
@@ -27,6 +66,17 @@ describe("consumos fisicos helpers", () => {
       kg_reciclado_malla_z1: 300,
       kg_reciclado_malla_z2: 200,
     })).toBe(9000);
+  });
+
+  it("uses the audited cascade real production from partes when available", () => {
+    expect(kgProducidosParte({
+      date: "2026-04-05",
+      resumen_ia: { cascada: { produccion_real: 86750 } },
+      kg_produccion_calibrador: 100000,
+      kg_mujeres_calibrador: 5000,
+      kg_reciclado_malla_z1: 3000,
+      kg_reciclado_malla_z2: 2000,
+    })).toBe(86750);
   });
 
   it("builds real monthly ratios from partes kg", () => {
@@ -78,6 +128,300 @@ describe("consumos fisicos helpers", () => {
     expect(rows[1].kgBase).toBeCloseTo(15000);
     expect(rows[1].aguaLKg).toBeCloseTo(0.1);
     expect(rows[1].confianza).toBe("estimado");
+  });
+
+  it("spreads water invoice totals by daily parte kg when partes exist inside the invoice range", () => {
+    const dailyRows = buildDailyConsumptionRows({
+      rangeStart: "2026-01-01",
+      rangeEnd: "2026-01-04",
+      consumos: [
+        { id: "agua-bimensual", recurso: "agua", fecha_inicio: "2026-01-01", fecha_fin: "2026-01-04", cantidad: 100, unidad: "m3", fuente: "factura_detallada" },
+      ],
+      partes: [
+        { date: "2026-01-01", kg_produccion_calibrador: 1000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+        { date: "2026-01-02", kg_produccion_calibrador: 3000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+        { date: "2026-01-03", kg_produccion_calibrador: 0, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+        { date: "2026-01-04", kg_produccion_calibrador: 6000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+      ],
+      basesKg: [],
+    });
+
+    expect(dailyRows.map((row) => row.aguaL)).toEqual([
+      10000,
+      30000,
+      0,
+      60000,
+    ]);
+    expect(dailyRows.reduce((total, row) => total + row.aguaL, 0)).toBeCloseTo(100000);
+    expect(dailyRows[0].aguaLKg).toBeCloseTo(10);
+    expect(dailyRows[1].aguaLKg).toBeCloseTo(10);
+    expect(dailyRows[2].aguaLKg).toBeNull();
+    expect(dailyRows[3].aguaLKg).toBeCloseTo(10);
+  });
+
+  it("spreads water by audited daily cascade kg instead of raw calibrator kg", () => {
+    const dailyRows = buildDailyConsumptionRows({
+      rangeStart: "2026-01-01",
+      rangeEnd: "2026-01-02",
+      consumos: [
+        { id: "agua-bimensual", recurso: "agua", fecha_inicio: "2026-01-01", fecha_fin: "2026-01-02", cantidad: 100, unidad: "m3", fuente: "factura_detallada" },
+      ],
+      partes: [
+        {
+          date: "2026-01-01",
+          resumen_ia: { cascada: { produccion_real: 1000 } },
+          kg_produccion_calibrador: 10000,
+          kg_mujeres_calibrador: 0,
+          kg_reciclado_malla_z1: 0,
+          kg_reciclado_malla_z2: 0,
+        },
+        {
+          date: "2026-01-02",
+          resumen_ia: { cascada: { produccion_real: 3000 } },
+          kg_produccion_calibrador: 10000,
+          kg_mujeres_calibrador: 0,
+          kg_reciclado_malla_z1: 0,
+          kg_reciclado_malla_z2: 0,
+        },
+      ],
+      basesKg: [],
+    });
+
+    expect(dailyRows.map((row) => row.aguaL)).toEqual([
+      25000,
+      75000,
+    ]);
+    expect(dailyRows[0].kgBase).toBe(1000);
+    expect(dailyRows[1].kgBase).toBe(3000);
+  });
+
+  it("uses exact daily general meter readings before allocating the remaining invoice water", () => {
+    const dailyRows = buildDailyConsumptionRows({
+      rangeStart: "2026-01-01",
+      rangeEnd: "2026-01-04",
+      consumos: [
+        { id: "factura-agua", recurso: "agua", fecha_inicio: "2026-01-01", fecha_fin: "2026-01-04", cantidad: 100, unidad: "m3", fuente: "factura_detallada" },
+        { id: "contador-02", recurso: "agua", fecha_inicio: "2026-01-02", fecha_fin: "2026-01-02", cantidad: 30000, unidad: "l", fuente: "contador" },
+        { id: "contador-04", recurso: "agua", fecha_inicio: "2026-01-04", fecha_fin: "2026-01-04", cantidad: 10000, unidad: "l", fuente: "contador" },
+      ],
+      partes: [
+        { date: "2026-01-01", kg_produccion_calibrador: 1000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+        { date: "2026-01-02", kg_produccion_calibrador: 3000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+        { date: "2026-01-03", kg_produccion_calibrador: 2000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+        { date: "2026-01-04", kg_produccion_calibrador: 4000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+      ],
+      basesKg: [],
+    });
+
+    expect(dailyRows.map((row) => row.aguaL)).toEqual([
+      20000,
+      30000,
+      40000,
+      10000,
+    ]);
+    expect(dailyRows.reduce((total, row) => total + row.aguaL, 0)).toBeCloseTo(100000);
+  });
+
+  it("spreads water invoice totals by sales kg when daily partes are not available", () => {
+    const rows = buildMonthlyConsumptionRows({
+      rangeStart: "2026-03-01",
+      rangeEnd: "2026-04-30",
+      consumos: [
+        { id: "agua-marzo-abril", recurso: "agua", fecha_inicio: "2026-03-01", fecha_fin: "2026-04-30", cantidad: 100, unidad: "m3", fuente: "factura_detallada" },
+      ],
+      partes: [],
+      basesKg: [
+        { id: "ventas-marzo", tipo_base: "ventas", fecha_inicio: "2026-03-01", fecha_fin: "2026-03-31", kg: 1000 },
+        { id: "ventas-abril", tipo_base: "ventas", fecha_inicio: "2026-04-01", fecha_fin: "2026-04-30", kg: 3000 },
+      ],
+    });
+
+    expect(rows.map((row) => row.periodo)).toEqual(["2026-03", "2026-04"]);
+    expect(rows[0].aguaL).toBeCloseTo(25000);
+    expect(rows[1].aguaL).toBeCloseTo(75000);
+    expect(rows[0].aguaLKg).toBeCloseTo(25);
+    expect(rows[1].aguaLKg).toBeCloseTo(25);
+  });
+
+  it("does not use monthly sales kg as an exact weekly base", () => {
+    const rows = buildWeeklyConsumptionRows({
+      rangeStart: "2026-03-01",
+      rangeEnd: "2026-03-14",
+      consumos: [
+        { id: "agua-marzo", recurso: "agua", fecha_inicio: "2026-03-01", fecha_fin: "2026-03-31", cantidad: 100, unidad: "m3", fuente: "factura_detallada" },
+      ],
+      partes: [],
+      basesKg: [
+        { id: "ventas-marzo", tipo_base: "ventas", fecha_inicio: "2026-03-01", fecha_fin: "2026-03-31", kg: 31000 },
+      ],
+    });
+
+    expect(rows[0].kgVentas).toBe(0);
+    expect(rows[0].kgBase).toBe(0);
+    expect(rows[0].confianza).toBe("incompleto");
+    expect(rows[0].aguaL).toBe(0);
+  });
+
+  it("can use an exact weekly kg base for a weekly consumption view", () => {
+    const rows = buildWeeklyConsumptionRows({
+      rangeStart: "2026-03-01",
+      rangeEnd: "2026-03-07",
+      consumos: [
+        { id: "agua-semana", recurso: "agua", fecha_inicio: "2026-03-01", fecha_fin: "2026-03-07", cantidad: 10, unidad: "m3", fuente: "factura_detallada" },
+      ],
+      partes: [],
+      basesKg: [
+        { id: "ventas-semana", tipo_base: "ventas", fecha_inicio: "2026-03-01", fecha_fin: "2026-03-07", kg: 5000 },
+      ],
+    });
+
+    expect(rows[0].kgVentas).toBe(5000);
+    expect(rows[0].kgBase).toBe(5000);
+    expect(rows[0].aguaL).toBe(10000);
+    expect(rows[0].aguaLKg).toBe(2);
+  });
+
+  it("uses daily pallet kg as an exact weekly and monthly base", () => {
+    const input = {
+      rangeStart: "2026-03-01",
+      rangeEnd: "2026-03-02",
+      consumos: [
+        { id: "agua-palets", recurso: "agua" as const, fecha_inicio: "2026-03-01", fecha_fin: "2026-03-02", cantidad: 100, unidad: "m3" as const, fuente: "factura_detallada" as const },
+      ],
+      partes: [],
+      basesKg: [
+        { id: "palets-1", tipo_base: "palets" as const, fecha_inicio: "2026-03-01", fecha_fin: "2026-03-01", kg: 1000 },
+        { id: "palets-2", tipo_base: "palets" as const, fecha_inicio: "2026-03-02", fecha_fin: "2026-03-02", kg: 3000 },
+      ],
+    };
+
+    const weekly = buildWeeklyConsumptionRows(input);
+    const monthly = buildMonthlyConsumptionRows(input);
+    const daily = buildDailyConsumptionRows(input);
+
+    expect(weekly[0].kgPalets).toBe(4000);
+    expect(weekly[0].aguaL).toBe(100000);
+    expect(monthly[0].kgPalets).toBe(4000);
+    expect(monthly[0].aguaL).toBe(100000);
+    expect(daily.map((row) => row.kgPalets)).toEqual([1000, 3000]);
+    expect(daily.map((row) => row.aguaL)).toEqual([25000, 75000]);
+  });
+
+  it("does not dump a two-month water invoice into the only month with pallet kg", () => {
+    const rows = buildMonthlyConsumptionRows({
+      rangeStart: "2025-09-01",
+      rangeEnd: "2025-10-31",
+      consumos: [
+        { id: "agua-sep-oct", recurso: "agua", fecha_inicio: "2025-09-01", fecha_fin: "2025-10-31", cantidad: 190, unidad: "m3", fuente: "factura_detallada" },
+      ],
+      partes: [],
+      basesKg: [
+        { id: "palets-octubre", tipo_base: "palets", fecha_inicio: "2025-10-01", fecha_fin: "2025-10-01", kg: 75760 },
+      ],
+    });
+
+    expect(rows.map((row) => row.aguaL)).toEqual([0, 0]);
+    expect(rows[0].issues).toContain("Sin kg base para calcular ratios");
+    expect(rows[1].issues).toContain("Sin consumo fisico registrado");
+  });
+
+  it("does not use weekly kg as an exact daily base", () => {
+    const rows = buildDailyConsumptionRows({
+      rangeStart: "2026-03-01",
+      rangeEnd: "2026-03-02",
+      consumos: [
+        { id: "agua-semana", recurso: "agua", fecha_inicio: "2026-03-01", fecha_fin: "2026-03-07", cantidad: 10, unidad: "m3", fuente: "factura_detallada" },
+      ],
+      partes: [],
+      basesKg: [
+        { id: "ventas-semana", tipo_base: "ventas", fecha_inicio: "2026-03-01", fecha_fin: "2026-03-07", kg: 5000 },
+      ],
+    });
+
+    expect(rows[0].kgVentas).toBe(0);
+    expect(rows[0].kgBase).toBe(0);
+    expect(rows[0].aguaL).toBe(0);
+  });
+
+  it("does not split a real March-April water invoice equally when monthly kg differ", () => {
+    const rows = buildMonthlyConsumptionRows({
+      rangeStart: "2025-03-01",
+      rangeEnd: "2025-04-30",
+      consumos: [
+        { id: "agua-marzo-abril-2025", recurso: "agua", fecha_inicio: "2025-03-01", fecha_fin: "2025-04-30", cantidad: 947, unidad: "m3", fuente: "factura_detallada" },
+      ],
+      partes: [],
+      basesKg: [
+        { id: "ventas-marzo-2025", tipo_base: "ventas", fecha_inicio: "2025-03-01", fecha_fin: "2025-03-31", kg: 2862926 },
+        { id: "ventas-abril-2025", tipo_base: "ventas", fecha_inicio: "2025-04-01", fecha_fin: "2025-04-30", kg: 2596633 },
+      ],
+    });
+
+    expect(rows.map((row) => row.periodo)).toEqual(["2025-03", "2025-04"]);
+    expect(rows[0].aguaL).toBeCloseTo(496595.2235);
+    expect(rows[1].aguaL).toBeCloseTo(450404.7765);
+    expect(rows[0].aguaL).not.toBeCloseTo(rows[1].aguaL);
+  });
+
+  it("allocates the full 2024/2025 campaign water invoices by monthly sold kg", () => {
+    const rows = buildMonthlyConsumptionRows({
+      rangeStart: FACTURAS_CAMPANA_2024_2025_RANGE.fechaInicio,
+      rangeEnd: FACTURAS_CAMPANA_2024_2025_RANGE.fechaFin,
+      consumos: buildFacturasCampana2024_2025Rows("user-1"),
+      partes: [],
+      basesKg: buildCampana2024_2025BasesKgRows("user-1"),
+    });
+
+    const byPeriod = Object.fromEntries(rows.map((row) => [row.periodo, row]));
+
+    expect(rows.reduce((total, row) => total + row.aguaL, 0)).toBeCloseTo(3005000);
+    expect(byPeriod["2025-03"].kgVentas).toBe(2862926);
+    expect(byPeriod["2025-04"].kgVentas).toBe(2596633);
+    expect(byPeriod["2025-03"].aguaL).toBeCloseTo(496595.2235);
+    expect(byPeriod["2025-04"].aguaL).toBeCloseTo(450404.7765);
+    expect(byPeriod["2025-05"].aguaL).toBeCloseTo(276380.4529);
+    expect(byPeriod["2025-06"].aguaL).toBeCloseTo(231619.5471);
+  });
+
+  it("allocates only invoiced 2025/2026 water and leaves May-June pending until that invoice exists", () => {
+    const rows = buildMonthlyConsumptionRows({
+      rangeStart: FACTURAS_CAMPANA_2025_2026_RANGE.fechaInicio,
+      rangeEnd: "2026-06-30",
+      consumos: buildFacturasCampana2025_2026Rows("user-1"),
+      partes: [],
+      basesKg: buildCampana2025_2026BasesKgRows("user-1"),
+    });
+
+    const byPeriod = Object.fromEntries(rows.map((row) => [row.periodo, row]));
+
+    expect(rows.reduce((total, row) => total + row.aguaL, 0)).toBeCloseTo(1466000);
+    expect(byPeriod["2026-03"].kgVentas).toBe(2665698);
+    expect(byPeriod["2026-04"].kgVentas).toBeCloseTo(2223978.73);
+    expect(byPeriod["2026-03"].aguaL).toBeCloseTo(228970.7933);
+    expect(byPeriod["2026-04"].aguaL).toBeCloseTo(191029.2067);
+    expect(byPeriod["2026-05"].aguaL).toBe(0);
+    expect(byPeriod["2026-06"].aguaL).toBe(0);
+  });
+
+  it("does not create round monthly water artifacts or a March spike in the current campaign", () => {
+    const rows = buildMonthlyConsumptionRows({
+      rangeStart: FACTURAS_CAMPANA_2025_2026_RANGE.fechaInicio,
+      rangeEnd: "2026-06-30",
+      consumos: buildFacturasCampana2025_2026Rows("user-1"),
+      partes: [],
+      basesKg: [
+        ...buildCampana2025_2026BasesKgRows("user-1"),
+        ...buildPaletsDesdeCampana2024BasesKgRows("user-1"),
+      ],
+    });
+
+    const byPeriod = Object.fromEntries(rows.map((row) => [row.periodo, row]));
+
+    expect(byPeriod["2025-09"].aguaL).toBeCloseTo(121058.7192);
+    expect(byPeriod["2025-10"].aguaL).toBeCloseTo(68941.2808);
+    expect(byPeriod["2025-10"].aguaL).not.toBe(190000);
+    expect(byPeriod["2026-03"].aguaL).toBeCloseTo(228970.7933);
+    expect(byPeriod["2026-03"].aguaL).toBeLessThan(250000);
   });
 
   it("treats non-finite input numbers as zero", () => {
@@ -156,35 +500,43 @@ describe("consumos fisicos helpers", () => {
     expect(rows[0].issues).toContain("Sin kg base para calcular ratios");
   });
 
-  it("builds ISO weekly rows with week 24 from 2026-06-08 to 2026-06-14 and week 25 from 2026-06-15", () => {
+  it("builds campaign weekly rows from the campaign start date", () => {
     const rows = buildWeeklyConsumptionRows({
-      rangeStart: "2026-06-08",
-      rangeEnd: "2026-06-15",
+      rangeStart: "2025-09-01",
+      rangeEnd: "2025-09-15",
       consumos: [
-        { id: "agua-junio", recurso: "agua", fecha_inicio: "2026-06-08", fecha_fin: "2026-06-15", cantidad: 800, unidad: "l", fuente: "contador" },
+        { id: "agua-septiembre", recurso: "agua", fecha_inicio: "2025-09-01", fecha_fin: "2025-09-15", cantidad: 800, unidad: "l", fuente: "contador" },
       ],
       partes: [
-        { date: "2026-06-08", kg_produccion_calibrador: 1000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
-        { date: "2026-06-15", kg_produccion_calibrador: 500, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+        { date: "2025-09-01", kg_produccion_calibrador: 1000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+        { date: "2025-09-08", kg_produccion_calibrador: 500, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+        { date: "2025-09-15", kg_produccion_calibrador: 500, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
       ],
       basesKg: [],
     });
 
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows[0]).toMatchObject({
-      periodo: "2026-W24",
-      fechaInicio: "2026-06-08",
-      fechaFin: "2026-06-14",
+      periodo: "S01",
+      fechaInicio: "2025-09-01",
+      fechaFin: "2025-09-07",
       kgBase: 1000,
     });
-    expect(rows[0].aguaL).toBeCloseTo(700);
+    expect(rows[0].aguaL).toBeCloseTo(400);
     expect(rows[1]).toMatchObject({
-      periodo: "2026-W25",
-      fechaInicio: "2026-06-15",
-      fechaFin: "2026-06-15",
+      periodo: "S02",
+      fechaInicio: "2025-09-08",
+      fechaFin: "2025-09-14",
       kgBase: 500,
     });
-    expect(rows[1].aguaL).toBeCloseTo(100);
+    expect(rows[1].aguaL).toBeCloseTo(200);
+    expect(rows[2]).toMatchObject({
+      periodo: "S03",
+      fechaInicio: "2025-09-15",
+      fechaFin: "2025-09-15",
+      kgBase: 500,
+    });
+    expect(rows[2].aguaL).toBeCloseTo(200);
   });
 
   it("can split the same imported period into monthly, weekly and daily totals", () => {
@@ -194,7 +546,15 @@ describe("consumos fisicos helpers", () => {
       consumos: [
         { id: "gasoil-semana", recurso: "gasoil" as const, fecha_inicio: "2026-06-08", fecha_fin: "2026-06-14", cantidad: 700, unidad: "l" as const, fuente: "albaran" as const },
       ],
-      partes: [],
+      partes: [
+        { date: "2026-06-08", kg_produccion_calibrador: 1000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+        { date: "2026-06-09", kg_produccion_calibrador: 1000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+        { date: "2026-06-10", kg_produccion_calibrador: 1000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+        { date: "2026-06-11", kg_produccion_calibrador: 1000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+        { date: "2026-06-12", kg_produccion_calibrador: 1000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+        { date: "2026-06-13", kg_produccion_calibrador: 1000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+        { date: "2026-06-14", kg_produccion_calibrador: 1000, kg_mujeres_calibrador: 0, kg_reciclado_malla_z1: 0, kg_reciclado_malla_z2: 0 },
+      ],
       basesKg: [
         { id: "ventas-semana", tipo_base: "ventas" as const, fecha_inicio: "2026-06-08", fecha_fin: "2026-06-14", kg: 7000 },
       ],
@@ -206,7 +566,7 @@ describe("consumos fisicos helpers", () => {
     expect(monthly).toHaveLength(1);
     expect(weekly).toHaveLength(1);
     expect(daily).toHaveLength(7);
-    expect(weekly[0].periodo).toBe("2026-W24");
+    expect(weekly[0].periodo).toBe("S01");
     expect(weekly[0].gasoilL).toBeCloseTo(700);
     expect(weekly[0].kgBase).toBeCloseTo(7000);
     expect(daily.reduce((total, row) => total + row.gasoilL, 0)).toBeCloseTo(weekly[0].gasoilL);
@@ -248,10 +608,9 @@ describe("consumos fisicos helpers", () => {
       basesKg: [],
     });
 
-    expect(rows.map((row) => row.periodo)).toEqual(["2026-W01", "2026-W02", "2026-W03"]);
-    expect(rows[0].gasoilL).toBeCloseTo(360);
-    expect(rows[1].gasoilL).toBeCloseTo(660);
-    expect(rows[2].gasoilL).toBeCloseTo(180);
+    expect(rows.map((row) => row.periodo)).toEqual(["S01", "S02"]);
+    expect(rows[0].gasoilL).toBeCloseTo(684);
+    expect(rows[1].gasoilL).toBeCloseTo(516);
     expect(rows.reduce((total, row) => total + row.gasoilL, 0)).toBeCloseTo(1200);
   });
 });
