@@ -1,6 +1,10 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { calcularTphOperativa } from "@/lib/velocidadOperativa";
+import {
+  calcularProduccionRealParteAnalisis,
+  calcularProduccionRealPartesAnalisis,
+} from "@/lib/analisisDiarioProduccion";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -79,7 +83,7 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       // ── 1. Partes en el rango ──────────────────────────────────────────────
       const { data: partes, error: pErr } = await supabase
         .from("partes_diarios")
-        .select("id, date, cascade->produccion_real")
+        .select("id, date, resumen_ia, kg_produccion_calibrador, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
         .gte("date", desde)
         .lte("date", hasta)
         .order("date", { ascending: false });
@@ -202,7 +206,7 @@ export function useAnalisisDiario(desde: string, hasta: string) {
           toneladas_hora: l.toneladas_hora ? Number(l.toneladas_hora) : null,
           duracion_min: l.duracion_min ? Number(l.duracion_min) : null,
           peso_fruta_promedio_g: l.peso_fruta_promedio_g ? Number(l.peso_fruta_promedio_g) : null,
-          produccion_real_part: parte?.cascade?.produccion_real ?? null,
+          produccion_real_part: parte ? calcularProduccionRealParteAnalisis(parte) || null : null,
         };
       });
 
@@ -212,9 +216,10 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       const totalHoras = totalMin / 60;
       
       // Calcular producción real total desde los partes
-      const kg_produccion_real = (partes ?? []).reduce((s, p) => s + (p.cascade?.produccion_real ?? 0), 0);
-      // Usar producción real / 8 horas para T/h promedio
-      const avgTph = kg_produccion_real > 0 ? (kg_produccion_real / 1000) / (diasSet.size * 8) : null;
+      const kg_produccion_real = calcularProduccionRealPartesAnalisis(partes ?? []);
+      // Usar producción real / 8 horas para T/h promedio, o kg_lotes si no hay datos
+      const kgParaCalculo = kg_produccion_real > 0 ? kg_produccion_real : kg_lotes;
+      const avgTph = calcularTphOperativa(kgParaCalculo, diasSet.size);
 
       setData({
         totals: {
