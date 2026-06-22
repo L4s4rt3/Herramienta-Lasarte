@@ -112,6 +112,29 @@ export interface ParseVentasCategoriaWorkbookResult {
   validation: VentasCategoriaImportValidation;
 }
 
+export interface VentasCategoriaFilterSourceRow {
+  campana?: string | null;
+  mes?: string | null;
+  cliente_codigo?: string | null;
+  cliente_nombre?: string | null;
+  metodo_producto?: string | null;
+  kilos?: number | null;
+}
+
+export interface VentasCategoriaClienteFilterOption {
+  codigo: string;
+  nombre: string;
+  kilos: number;
+}
+
+export interface VentasCategoriaFilterOptions {
+  lineas: number;
+  campanas: string[];
+  meses: string[];
+  clientes: VentasCategoriaClienteFilterOption[];
+  metodos: string[];
+}
+
 export function calcularCampanaVentas(fecha: string): string {
   const { year, month } = parseDateParts(fecha);
   const startYear = month >= 9 ? year : year - 1;
@@ -246,6 +269,39 @@ export function parseVentasCategoriaWorkbookRows(sheets: VentasCategoriaWorkbook
     lineas,
     catalogo,
     validation: validateVentasCategoriaImport({ lineas, catalogo }),
+  };
+}
+
+export function buildVentasCategoriaFilterOptions(rows: VentasCategoriaFilterSourceRow[]): VentasCategoriaFilterOptions {
+  const campanas = new Set<string>();
+  const meses = new Set<string>();
+  const metodos = new Set<string>();
+  const clientes = new Map<string, VentasCategoriaClienteFilterOption>();
+
+  rows.forEach((row) => {
+    const campana = cellText(row.campana);
+    const mes = cellText(row.mes);
+    const metodo = cellText(row.metodo_producto);
+    const codigo = cellText(row.cliente_codigo);
+    const nombre = cellText(row.cliente_nombre);
+
+    if (campana) campanas.add(campana);
+    if (mes) meses.add(mes);
+    if (metodo) metodos.add(metodo);
+    if (codigo) {
+      const current = clientes.get(codigo) ?? { codigo, nombre, kilos: 0 };
+      current.nombre = current.nombre || nombre;
+      current.kilos += finiteOrZero(row.kilos);
+      clientes.set(codigo, current);
+    }
+  });
+
+  return {
+    lineas: rows.length,
+    campanas: Array.from(campanas).sort((a, b) => b.localeCompare(a)),
+    meses: Array.from(meses).sort((a, b) => b.localeCompare(a)),
+    clientes: Array.from(clientes.values()).sort((a, b) => b.kilos - a.kilos || a.nombre.localeCompare(b.nombre)),
+    metodos: Array.from(metodos).sort((a, b) => a.localeCompare(b)),
   };
 }
 

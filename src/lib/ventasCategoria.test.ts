@@ -5,6 +5,7 @@ import {
   calcularMesVentas,
   calcularPmVenta,
   calcularPrecioReal,
+  buildVentasCategoriaFilterOptions,
   normalizeVentasCategoriaLinea,
   parseVentasCategoriaWorkbookRows,
   validateVentasCategoriaImport,
@@ -120,5 +121,22 @@ describe("ventas categoria helpers", () => {
     });
     expect(parsed.catalogo[0]).toMatchObject({ metodo: "L1511", kilos: 1028, base_iva: 767.99 });
     expect(parsed.validation.status).toBe("ok");
+  });
+
+  it("prepara opciones de filtro unicas desde toda la base diaria", () => {
+    const options = buildVentasCategoriaFilterOptions([
+      { campana: "2526", mes: "2026-02", cliente_codigo: "C002", cliente_nombre: "Cliente Dos", metodo_producto: "L1020", kilos: 20 },
+      { campana: "2425", mes: "2025-01", cliente_codigo: "C001", cliente_nombre: "Cliente Uno", metodo_producto: "LN211", kilos: 100 },
+      { campana: "2526", mes: "2026-02", cliente_codigo: "C001", cliente_nombre: "Cliente Uno", metodo_producto: "LN211", kilos: 50 },
+    ]);
+
+    expect(options.lineas).toBe(3);
+    expect(options.campanas).toEqual(["2526", "2425"]);
+    expect(options.meses).toEqual(["2026-02", "2025-01"]);
+    expect(options.metodos).toEqual(["L1020", "LN211"]);
+    expect(options.clientes).toEqual([
+      { codigo: "C001", nombre: "Cliente Uno", kilos: 150 },
+      { codigo: "C002", nombre: "Cliente Dos", kilos: 20 },
+    ]);
   });
 });

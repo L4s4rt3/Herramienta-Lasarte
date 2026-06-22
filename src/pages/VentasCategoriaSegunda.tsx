@@ -12,6 +12,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { useVentasCategoria, useVentasCategoriaDetalle, type VentasCategoriaAjusteInput } from "@/hooks/useVentasCategoria";
 import { parseVentasCategoriaExcelFile } from "@/lib/ventasCategoriaExcel";
@@ -24,6 +27,8 @@ import type { ParseVentasCategoriaWorkbookResult } from "@/lib/ventasCategoria";
 
 const PAGE_SIZE = 100;
 const EMPTY_ROWS: never[] = [];
+const ALL_FILTER_VALUE = "__all__";
+const EMPTY_FILTER_OPTIONS = { lineas: 0, campanas: [], meses: [], clientes: [], metodos: [] };
 
 export default function VentasCategoriaSegunda() {
   const ventas = useVentasCategoria();
@@ -47,6 +52,7 @@ export default function VentasCategoriaSegunda() {
   const catalogo = ventas.catalogoQuery.data ?? EMPTY_ROWS;
   const ajustes = ventas.ajustesQuery.data ?? EMPTY_ROWS;
   const validacion = ventas.validacionQuery.data ?? EMPTY_ROWS;
+  const filterOptions = ventas.filterOptionsQuery.data ?? EMPTY_FILTER_OPTIONS;
 
   const monthlyTotals = useMemo(() => {
     const map = new Map<string, { mes: string; kilos: number; base: number; pm: number }>();
@@ -65,9 +71,16 @@ export default function VentasCategoriaSegunda() {
   const topClientes = rankingClientes.slice(0, 10);
   const topArticulos = articulos.slice(0, 25);
   const productMonthlyChart = useMemo(() => pivotMonthlyProducts(mensualProducto, catalogo.map((row) => row.metodo)), [catalogo, mensualProducto]);
-  const clienteOptions = useMemo(() => rankingClientes.slice(0, 300), [rankingClientes]);
-  const meses = useMemo(() => Array.from(new Set(monthlyTotals.map((row) => row.mes))), [monthlyTotals]);
-  const campanas = useMemo(() => Array.from(new Set((detalle.data?.rows ?? []).map((row) => row.campana))), [detalle.data?.rows]);
+  const activeFilters = Object.values(filters).filter(Boolean).length;
+  const hasImportedData = Number(resumen?.kilos ?? 0) > 0;
+  const setFilter = (key: keyof typeof filters, value: string) => {
+    setPage(0);
+    setFilters((current) => ({ ...current, [key]: value }));
+  };
+  const clearFilters = () => {
+    setPage(0);
+    setFilters({ campana: "", mes: "", cliente: "", metodo: "", articulo: "" });
+  };
 
   if (!ventas.accessQuery.isLoading && !ventas.hasAccess) {
     return (
@@ -120,31 +133,45 @@ export default function VentasCategoriaSegunda() {
   };
 
   return (
-    <div className="container mx-auto max-w-[1600px] space-y-6 p-4 md:p-6">
-      <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <p className="panel-kicker">Comercial</p>
-          <h1 className="text-3xl font-bold tracking-tight">Categoria segunda</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Ventas por cliente, producto, articulo, precio medio y ajustes reales de comision/transporte.
-          </p>
+    <div className="container mx-auto max-w-[1600px] space-y-5 p-4 md:p-6">
+      <header className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4 shadow-[var(--glass-shadow)] backdrop-blur-xl md:p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="panel-kicker">Comercial</p>
+              <Badge variant={hasImportedData ? "outline" : "destructive"} className="rounded-md">
+                {hasImportedData ? "Base cargada" : "Sin datos"}
+              </Badge>
+            </div>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight md:text-3xl">Categoria segunda</h1>
+            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+              Ventas por cliente, producto, articulo, precio medio y ajustes reales de comision/transporte.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex">
+              <Input className="hidden" type="file" accept=".xlsx,.xls" onChange={handleImportFile} />
+              <span className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent">
+                <Upload className="h-4 w-4" />
+                {parsing ? "Leyendo..." : "Importar Excel"}
+              </span>
+            </label>
+            <Badge variant="outline" className="h-10 rounded-md px-3">
+              {ventas.categoria?.nombre ?? "Sin categoria"}
+            </Badge>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="inline-flex">
-            <Input className="hidden" type="file" accept=".xlsx,.xls" onChange={handleImportFile} />
-            <span className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent">
-              <Upload className="h-4 w-4" />
-              {parsing ? "Leyendo..." : "Importar Excel"}
-            </span>
-          </label>
-          <Badge variant="outline" className="h-10 rounded-md px-3">
-            {ventas.categoria?.nombre ?? "Sin categoria"}
-          </Badge>
-        </div>
+        <section className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <StatusItem label="Lineas base" value={formatNumber(filterOptions.lineas)} loading={ventas.filterOptionsQuery.isLoading} />
+          <StatusItem label="Campanas" value={formatNumber(filterOptions.campanas.length)} loading={ventas.filterOptionsQuery.isLoading} />
+          <StatusItem label="Clientes" value={formatNumber(filterOptions.clientes.length || resumen?.clientes)} loading={ventas.filterOptionsQuery.isLoading} />
+          <StatusItem label="Metodos" value={formatNumber(filterOptions.metodos.length || resumen?.productos)} loading={ventas.filterOptionsQuery.isLoading} />
+          <StatusItem label="Total categoria" value={catalogoIsValid(validacion) ? "Cuadra" : "Revisar"} tone={catalogoIsValid(validacion) ? "ok" : "warn"} />
+        </section>
       </header>
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-5">
-        <TabsList className="flex h-auto flex-wrap justify-start">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-lg p-1 sm:grid-cols-3 xl:w-auto xl:grid-cols-6">
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="clientes">Clientes</TabsTrigger>
           <TabsTrigger value="productos">Productos</TabsTrigger>
@@ -156,9 +183,9 @@ export default function VentasCategoriaSegunda() {
         <TabsContent value="dashboard" className="space-y-5">
           <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
             <Kpi title="Kilos total" value={formatKg(resumen?.kilos)} />
-            <Kpi title="Base IVA" value={`${formatNumber(resumen?.base_iva, 2)} €`} />
-            <Kpi title="PM bruto" value={`${formatNumber(resumen?.pm_bruto, 3)} €/kg`} />
-            <Kpi title="PM real" value={`${formatNumber(resumen?.pm_real, 3)} €/kg`} />
+            <Kpi title="Base IVA" value={`${formatNumber(resumen?.base_iva, 2)} EUR`} />
+            <Kpi title="PM bruto" value={`${formatNumber(resumen?.pm_bruto, 3)} EUR/kg`} />
+            <Kpi title="PM real" value={`${formatNumber(resumen?.pm_real, 3)} EUR/kg`} />
             <Kpi title="Clientes" value={formatNumber(resumen?.clientes)} />
             <Kpi title="Productos" value={formatNumber(resumen?.productos)} />
           </section>
@@ -194,8 +221,8 @@ export default function VentasCategoriaSegunda() {
               <LineChart data={monthlyTotals} margin={MARGIN}>
                 <CartesianGrid {...GRID} />
                 <XAxis dataKey="mes" {...XAXIS} />
-                <YAxis {...YAXIS} tickFormatter={(v) => `${formatNumber(Number(v), 2)} €`} />
-                <Tooltip cursor={CHART_LINE_CURSOR} content={<GlassTooltip formatter={(v) => `${formatNumber(Number(v), 3)} €/kg`} />} />
+                <YAxis {...YAXIS} tickFormatter={(v) => `${formatNumber(Number(v), 2)} EUR`} />
+                <Tooltip cursor={CHART_LINE_CURSOR} content={<GlassTooltip formatter={(v) => `${formatNumber(Number(v), 3)} EUR/kg`} />} />
                 <Line dataKey="pm" name="PM bruto" {...lineStyle(C.info)} />
               </LineChart>
             </ResponsiveContainer>
@@ -205,7 +232,7 @@ export default function VentasCategoriaSegunda() {
         <TabsContent value="clientes" className="space-y-5">
           <section className="grid gap-5 xl:grid-cols-2">
             <RankingTable title="Ranking por kilos" rows={rankingClientes.slice(0, 20)} valueKey="kilos" valueLabel="Kilos" formatter={(v) => formatKg(v)} />
-            <RankingTable title="Ranking por PM real" rows={[...rankingClientes].sort((a, b) => Number(b.pm_real ?? 0) - Number(a.pm_real ?? 0)).slice(0, 20)} valueKey="pm_real" valueLabel="PM real" formatter={(v) => `${formatNumber(v, 3)} €/kg`} />
+            <RankingTable title="Ranking por PM real" rows={[...rankingClientes].sort((a, b) => Number(b.pm_real ?? 0) - Number(a.pm_real ?? 0)).slice(0, 20)} valueKey="pm_real" valueLabel="PM real" formatter={(v) => `${formatNumber(v, 3)} EUR/kg`} />
           </section>
 
           <Card className="glass-accented overflow-hidden">
@@ -265,8 +292,8 @@ export default function VentasCategoriaSegunda() {
                   <TableCell className="font-semibold">{row.metodo}</TableCell>
                   <TableCell>{row.descripcion}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatKg(row.kilos)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatNumber(row.base_iva / Math.max(row.kilos, 1), 3)} €/kg</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatNumber(row.base_iva, 2)} €</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatNumber(row.base_iva / Math.max(row.kilos, 1), 3)} EUR/kg</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatNumber(row.base_iva, 2)} EUR</TableCell>
                 </TableRow>
               ))}
             </DataTable>
@@ -307,7 +334,7 @@ export default function VentasCategoriaSegunda() {
                 <TableCell>{row.referencia}</TableCell>
                 <TableCell className="min-w-[360px] font-medium">{row.articulo}</TableCell>
                 <TableCell className="text-right tabular-nums">{formatKg(row.kilos)}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatNumber(row.pm_bruto, 3)} €/kg</TableCell>
+                <TableCell className="text-right tabular-nums">{formatNumber(row.pm_bruto, 3)} EUR/kg</TableCell>
                 <TableCell className="text-right tabular-nums">{formatNumber(row.lineas)}</TableCell>
               </TableRow>
             ))}
@@ -316,22 +343,68 @@ export default function VentasCategoriaSegunda() {
 
         <TabsContent value="base" className="space-y-5">
           <Card className="glass-accented">
-            <CardContent className="grid gap-3 p-4 md:grid-cols-6">
-              <FilterInput label="Campaña" value={filters.campana} onChange={(v) => { setPage(0); setFilters((f) => ({ ...f, campana: v })); }} placeholder={campanas[0] ?? "2526"} />
-              <FilterInput label="Mes" value={filters.mes} onChange={(v) => { setPage(0); setFilters((f) => ({ ...f, mes: v })); }} placeholder={meses.at(-1) ?? "2026-06"} />
-              <FilterInput label="Cliente codigo" value={filters.cliente} onChange={(v) => { setPage(0); setFilters((f) => ({ ...f, cliente: v })); }} placeholder={String(clienteOptions[0]?.cliente_codigo ?? "")} />
-              <FilterInput label="Metodo" value={filters.metodo} onChange={(v) => { setPage(0); setFilters((f) => ({ ...f, metodo: v })); }} placeholder="LN211" />
-              <FilterInput label="Articulo" value={filters.articulo} onChange={(v) => { setPage(0); setFilters((f) => ({ ...f, articulo: v })); }} placeholder="NAVELINA" />
-              <div className="flex items-end">
-                <Button variant="outline" className="w-full gap-2" onClick={() => setFilters({ campana: "", mes: "", cliente: "", metodo: "", articulo: "" })}>
+            <CardHeader className="pb-2">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <CardTitle className="text-lg">Filtros de base diaria</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    {activeFilters > 0
+                      ? `${activeFilters} filtro${activeFilters === 1 ? "" : "s"} activo${activeFilters === 1 ? "" : "s"}`
+                      : "Vista completa paginada, sin cargar todo el detalle en pantalla."}
+                  </p>
+                </div>
+                <Button variant="outline" className="gap-2" disabled={activeFilters === 0} onClick={clearFilters}>
                   <Search className="h-4 w-4" />
-                  Limpiar
+                  Limpiar filtros
                 </Button>
               </div>
+            </CardHeader>
+            <CardContent className="grid gap-3 p-4 pt-2 md:grid-cols-2 xl:grid-cols-5">
+              <SelectFilter
+                label="Campana"
+                value={filters.campana}
+                options={filterOptions.campanas.map((value) => ({ value, label: value }))}
+                placeholder="Todas"
+                onChange={(value) => setFilter("campana", value)}
+              />
+              <SelectFilter
+                label="Mes"
+                value={filters.mes}
+                options={filterOptions.meses.map((value) => ({ value, label: value }))}
+                placeholder="Todos"
+                onChange={(value) => setFilter("mes", value)}
+              />
+              <SelectFilter
+                label="Cliente"
+                value={filters.cliente}
+                options={filterOptions.clientes.map((cliente) => ({
+                  value: cliente.codigo,
+                  label: `${cliente.nombre} - ${cliente.codigo}`,
+                }))}
+                placeholder="Todos"
+                onChange={(value) => setFilter("cliente", value)}
+              />
+              <SelectFilter
+                label="Metodo"
+                value={filters.metodo}
+                options={filterOptions.metodos.map((value) => ({ value, label: value }))}
+                placeholder="Todos"
+                onChange={(value) => setFilter("metodo", value)}
+              />
+              <FilterInput
+                label="Articulo"
+                value={filters.articulo}
+                onChange={(value) => setFilter("articulo", value)}
+                placeholder="Buscar texto"
+              />
             </CardContent>
           </Card>
 
-          <DataTable title={`Base diaria (${formatNumber(detalle.data?.count)} lineas filtradas)`} headers={["Fecha", "Campaña", "Cliente", "Articulo", "Metodo", "Kilos", "PM", "Base"]}>
+          <DataTable
+            title={`Base diaria (${formatNumber(detalle.data?.count ?? 0)} lineas filtradas)`}
+            description={`Pagina ${page + 1} - ${formatNumber(detalle.data?.rows.length ?? 0)} lineas visibles`}
+            headers={["Fecha", "Campana", "Cliente", "Articulo", "Metodo", "Kilos", "PM", "Base"]}
+          >
             {(detalle.data?.rows ?? []).map((row) => (
               <TableRow key={row.id}>
                 <TableCell className="whitespace-nowrap">{formatDate(`${row.fecha}T12:00:00`)}</TableCell>
@@ -343,12 +416,19 @@ export default function VentasCategoriaSegunda() {
                 <TableCell className="min-w-[320px]">{row.articulo}</TableCell>
                 <TableCell>{row.metodo_producto ?? "Sin clasificar"}</TableCell>
                 <TableCell className="text-right tabular-nums">{formatKg(row.kilos)}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatNumber(row.pm_venta, 3)} €/kg</TableCell>
-                <TableCell className="text-right tabular-nums">{formatNumber(row.base_iva, 2)} €</TableCell>
+                <TableCell className="text-right tabular-nums">{formatNumber(row.pm_venta, 3)} EUR/kg</TableCell>
+                <TableCell className="text-right tabular-nums">{formatNumber(row.base_iva, 2)} EUR</TableCell>
               </TableRow>
             ))}
+            {!detalle.isLoading && (detalle.data?.rows.length ?? 0) === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} className="h-28 text-center text-sm text-muted-foreground">
+                  No hay lineas con estos filtros.
+                </TableCell>
+              </TableRow>
+            ) : null}
           </DataTable>
-          <div className="flex justify-between">
+          <div className="flex items-center justify-between rounded-lg border border-[var(--glass-border)] bg-background/60 px-3 py-2">
             <Button variant="outline" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>Anterior</Button>
             <span className="text-sm text-muted-foreground">Pagina {page + 1}</span>
             <Button variant="outline" disabled={(detalle.data?.rows.length ?? 0) < PAGE_SIZE} onClick={() => setPage((p) => p + 1)}>Siguiente</Button>
@@ -406,6 +486,21 @@ function Kpi({ title, value }: { title: string; value: string }) {
   );
 }
 
+function StatusItem({ label, value, loading = false, tone = "neutral" }: { label: string; value: string; loading?: boolean; tone?: "neutral" | "ok" | "warn" }) {
+  const toneClass = tone === "ok"
+    ? "text-success"
+    : tone === "warn"
+      ? "text-warning"
+      : "text-foreground";
+
+  return (
+    <div className="rounded-md border border-[var(--glass-border)] bg-background/60 px-3 py-2">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className={`mt-1 text-lg font-bold tabular-nums ${toneClass}`}>{loading ? "..." : value}</p>
+    </div>
+  );
+}
+
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <Card className="glass-accented">
@@ -415,10 +510,13 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
-function DataTable({ title, headers, children }: { title: string; headers: string[]; children: React.ReactNode }) {
+function DataTable({ title, description, headers, children }: { title: string; description?: string; headers: string[]; children: React.ReactNode }) {
   return (
     <Card className="glass-accented overflow-hidden">
-      <CardHeader><CardTitle>{title}</CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
+      </CardHeader>
       <CardContent className="p-0">
         <div className="max-h-[620px] overflow-auto">
           <Table>
@@ -449,8 +547,8 @@ function RankingTable({ title, rows, valueKey, valueLabel, formatter }: {
             <div className="text-xs text-muted-foreground">{String(row.cliente_codigo ?? "")}</div>
           </TableCell>
           <TableCell className="text-right tabular-nums">{formatter(Number(row[valueKey] ?? 0))}</TableCell>
-          <TableCell className="text-right tabular-nums">{formatNumber(Number(row.pm_bruto ?? 0), 3)} €/kg</TableCell>
-          <TableCell className="text-right tabular-nums">{formatNumber(Number(row.pm_real ?? 0), 3)} €/kg</TableCell>
+          <TableCell className="text-right tabular-nums">{formatNumber(Number(row.pm_bruto ?? 0), 3)} EUR/kg</TableCell>
+          <TableCell className="text-right tabular-nums">{formatNumber(Number(row.pm_real ?? 0), 3)} EUR/kg</TableCell>
         </TableRow>
       ))}
     </DataTable>
@@ -504,6 +602,33 @@ function FilterInput({ label, value, onChange, placeholder }: { label: string; v
   );
 }
 
+function SelectFilter({ label, value, options, placeholder, onChange }: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</Label>
+      <Select value={value || ALL_FILTER_VALUE} onValueChange={(nextValue) => onChange(nextValue === ALL_FILTER_VALUE ? "" : nextValue)}>
+        <SelectTrigger>
+          <SelectValue placeholder={placeholder} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL_FILTER_VALUE}>{placeholder}</SelectItem>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 function OkBadge() {
   return <Badge variant="outline" className="gap-1 border-success/30 bg-success/10 text-success"><CheckCircle2 className="h-3 w-3" /> OK</Badge>;
 }
@@ -523,6 +648,11 @@ function pivotMonthlyProducts(rows: Array<Record<string, unknown>>, methods: str
     map.set(mes, current);
   });
   return Array.from(map.values()).sort((a, b) => String(a.mes).localeCompare(String(b.mes)));
+}
+
+function catalogoIsValid(rows: Array<Record<string, unknown>>) {
+  const diferenciaTotal = rows.reduce((total, row) => total + Number(row.diferencia_kilos ?? 0), 0);
+  return rows.length > 0 && Math.abs(diferenciaTotal) < 0.01;
 }
 
 function shortName(value: string, max = 22) {

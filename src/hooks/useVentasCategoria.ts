@@ -7,6 +7,7 @@ import type {
   ParseVentasCategoriaWorkbookResult,
   VentasCategoriaLinea,
 } from "@/lib/ventasCategoria";
+import { buildVentasCategoriaFilterOptions } from "@/lib/ventasCategoria";
 import type {
   VentasCategoriaClienteAjusteRow,
   VentasCategoriaLineaRow,
@@ -203,6 +204,21 @@ export function useVentasCategoria() {
     enabled: Boolean(user && categoriaId && hasAccess),
   });
 
+  const filterOptionsQuery = useQuery({
+    queryKey: [...baseKey, categoriaId, "filter-options"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("ventas_categoria_lineas")
+        .select("campana, mes, cliente_codigo, cliente_nombre, metodo_producto, kilos")
+        .eq("categoria_id", categoriaId)
+        .range(0, 19999);
+      if (error) throw toError(error);
+      return buildVentasCategoriaFilterOptions(data ?? []);
+    },
+    enabled: Boolean(user && categoriaId && hasAccess),
+    staleTime: 5 * 60 * 1000,
+  });
+
   const updateAjuste = useMutation({
     mutationFn: async (input: VentasCategoriaAjusteInput) => {
       if (!categoriaId || !hasAccess) throw new Error("No tienes acceso a esta seccion.");
@@ -284,6 +300,7 @@ export function useVentasCategoria() {
     catalogoQuery,
     ajustesQuery,
     validacionQuery,
+    filterOptionsQuery,
     updateAjuste,
     importWorkbook,
   };
