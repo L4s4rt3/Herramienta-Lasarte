@@ -16,11 +16,13 @@ import {
   BarChart3,
   Sprout,
   Droplet,
+  FileSpreadsheet,
   Users,
   Plus,
   Loader2,
 } from "lucide-react";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
+import { useVentasCategoriaAccess } from "@/hooks/useVentasCategoria";
 
 const PAGES = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, keywords: "panel inicio dashboard" },
@@ -28,6 +30,7 @@ const PAGES = [
   { to: "/partes", label: "Partes diarios", icon: FileText, keywords: "partes produccion diario" },
   { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3, keywords: "analisis diario lotes calibres" },
   { to: "/productores", label: "Productores", icon: Sprout, keywords: "productores proveedores origen" },
+  { to: "/ventas/categoria-segunda", label: "Categoria segunda", icon: FileSpreadsheet, keywords: "ventas comercial categoria segunda clientes productos precios" },
   { to: "/costes/consumos", label: "Consumos", icon: Droplet, keywords: "consumos costes agua energia gasoil" },
   { to: "/costes/asistencia", label: "Asistencia", icon: Users, keywords: "asistencia trabajadores turnos" },
 ];
@@ -46,6 +49,10 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const { data: searchResults, isLoading } = useGlobalSearch(searchQuery);
+  const ventasCategoriaAccess = useVentasCategoriaAccess();
+  const visiblePages = PAGES.filter((page) => (
+    page.to !== "/ventas/categoria-segunda" || ventasCategoriaAccess.hasAccess
+  ));
 
   const handleSelect = useCallback(
     (to: string) => {
@@ -105,7 +112,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
         </CommandGroup>
         <CommandSeparator />
         <CommandGroup heading="Navegación">
-          {PAGES.map((page) => (
+          {visiblePages.map((page) => (
             <CommandItem
               key={page.to}
               onSelect={() => handleSelect(page.to)}

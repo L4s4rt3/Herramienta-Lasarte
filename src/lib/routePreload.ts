@@ -10,6 +10,7 @@ export const pageLoaders = {
   notFound: () => import("@/pages/NotFound"),
   productores: () => import("@/pages/Productores"),
   analisisDiario: () => import("@/pages/AnalisisDiario"),
+  ventasCategoriaSegunda: () => import("@/pages/VentasCategoriaSegunda"),
 };
 
 const preloadByPath: Record<string, () => Promise<unknown>> = {
@@ -21,6 +22,7 @@ const preloadByPath: Record<string, () => Promise<unknown>> = {
   "/costes/asistencia/comparativa": pageLoaders.asistenciaComparativa,
   "/productores": pageLoaders.productores,
   "/analisis/diario": pageLoaders.analisisDiario,
+  "/ventas/categoria-segunda": pageLoaders.ventasCategoriaSegunda,
 };
 
 export function preloadRoute(path: string) {

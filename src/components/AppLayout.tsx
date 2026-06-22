@@ -6,6 +6,7 @@ import {
   LogOut,
   Citrus,
   Droplet,
+  FileSpreadsheet,
   Users,
   BarChart3,
   Sprout,
@@ -34,6 +35,7 @@ import { TopBar } from "@/components/TopBar";
 import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
 import { ChatBot } from "@/components/ChatBot";
 import { useDataWarmup } from "@/hooks/useDataWarmup";
+import { useVentasCategoriaAccess } from "@/hooks/useVentasCategoria";
 import { preloadRoute } from "@/lib/routePreload";
 
 type NavItem = {
@@ -65,6 +67,12 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
     ],
   },
   {
+    label: "Comercial",
+    items: [
+      { to: "/ventas/categoria-segunda", label: "Categoria segunda", icon: FileSpreadsheet },
+    ],
+  },
+  {
     label: "Operaciones",
     items: [
       { to: "/costes/consumos", label: "Consumos", icon: Droplet },
@@ -83,6 +91,7 @@ export default function AppLayout() {
 
 function AppLayoutContent() {
   const { signOut, user } = useAuth();
+  const ventasCategoriaAccess = useVentasCategoriaAccess();
   const { isMobile, setOpenMobile } = useSidebar();
   useDataWarmup();
 
@@ -125,7 +134,9 @@ function AppLayoutContent() {
             <SidebarGroup key={group.label}>
               <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
               <SidebarMenu>
-                {group.items.map((item) => {
+                {group.items.filter((item) => (
+                  item.to !== "/ventas/categoria-segunda" || ventasCategoriaAccess.hasAccess
+                )).map((item) => {
                   const Icon = item.icon;
                   const active = item.match
                     ? item.match(location.pathname)

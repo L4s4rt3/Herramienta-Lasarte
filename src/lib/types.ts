@@ -57,6 +57,67 @@ export interface ConsumoBaseKgRow {
   created_at: string;
 }
 
+export interface VentasCategoriaRow {
+  id: string;
+  user_id: string | null;
+  nombre: string;
+  descripcion: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VentasCategoriaAutorizadoRow {
+  id: string;
+  email: string;
+  nombre: string | null;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VentasCategoriaProductoRow {
+  id: string;
+  categoria_id: string;
+  metodo: string;
+  descripcion: string | null;
+  lineas: number;
+  kilos: number;
+  base_iva: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VentasCategoriaLineaRow {
+  id: string;
+  categoria_id: string;
+  fecha: string;
+  campana: string;
+  mes: string;
+  cliente_codigo: string;
+  cliente_nombre: string;
+  referencia: string | null;
+  articulo: string;
+  metodo_producto: string | null;
+  kilos: number;
+  pvp: number;
+  base_iva: number;
+  pm_venta: number;
+  created_at: string;
+}
+
+export interface VentasCategoriaClienteAjusteRow {
+  id: string;
+  categoria_id: string;
+  cliente_codigo: string;
+  cliente_nombre: string;
+  comision_pct: number;
+  comision_cent_kg: number;
+  transporte_pct: number;
+  transporte_cent_kg: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ParteRow {
   id: string;
   user_id: string;

@@ -801,9 +801,302 @@ export type Database = {
         }
         Relationships: []
       }
+      ventas_categorias: {
+        Row: {
+          id: string
+          user_id: string | null
+          nombre: string
+          descripcion: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id?: string | null
+          nombre: string
+          descripcion?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string | null
+          nombre?: string
+          descripcion?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ventas_categoria_autorizados: {
+        Row: {
+          id: string
+          email: string
+          nombre: string | null
+          activo: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          email: string
+          nombre?: string | null
+          activo?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          email?: string
+          nombre?: string | null
+          activo?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ventas_categoria_productos: {
+        Row: {
+          id: string
+          categoria_id: string
+          metodo: string
+          descripcion: string | null
+          lineas: number
+          kilos: number
+          base_iva: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          categoria_id: string
+          metodo: string
+          descripcion?: string | null
+          lineas?: number
+          kilos?: number
+          base_iva?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          categoria_id?: string
+          metodo?: string
+          descripcion?: string | null
+          lineas?: number
+          kilos?: number
+          base_iva?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ventas_categoria_productos_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "ventas_categorias"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ventas_categoria_lineas: {
+        Row: {
+          id: string
+          categoria_id: string
+          fecha: string
+          campana: string
+          mes: string
+          cliente_codigo: string
+          cliente_nombre: string
+          referencia: string | null
+          articulo: string
+          metodo_producto: string | null
+          kilos: number
+          pvp: number
+          base_iva: number
+          pm_venta: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          categoria_id: string
+          fecha: string
+          campana: string
+          mes: string
+          cliente_codigo: string
+          cliente_nombre: string
+          referencia?: string | null
+          articulo: string
+          metodo_producto?: string | null
+          kilos?: number
+          pvp?: number
+          base_iva?: number
+          pm_venta?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          categoria_id?: string
+          fecha?: string
+          campana?: string
+          mes?: string
+          cliente_codigo?: string
+          cliente_nombre?: string
+          referencia?: string | null
+          articulo?: string
+          metodo_producto?: string | null
+          kilos?: number
+          pvp?: number
+          base_iva?: number
+          pm_venta?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ventas_categoria_lineas_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "ventas_categorias"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ventas_categoria_clientes_ajustes: {
+        Row: {
+          id: string
+          categoria_id: string
+          cliente_codigo: string
+          cliente_nombre: string
+          comision_pct: number
+          comision_cent_kg: number
+          transporte_pct: number
+          transporte_cent_kg: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          categoria_id: string
+          cliente_codigo: string
+          cliente_nombre: string
+          comision_pct?: number
+          comision_cent_kg?: number
+          transporte_pct?: number
+          transporte_cent_kg?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          categoria_id?: string
+          cliente_codigo?: string
+          cliente_nombre?: string
+          comision_pct?: number
+          comision_cent_kg?: number
+          transporte_pct?: number
+          transporte_cent_kg?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ventas_categoria_clientes_ajustes_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "ventas_categorias"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
-      [_ in never]: never
+      ventas_categoria_resumen: {
+        Row: {
+          categoria_id: string | null
+          lineas: number | null
+          kilos: number | null
+          base_iva: number | null
+          pm_bruto: number | null
+          pm_real: number | null
+          clientes: number | null
+          productos: number | null
+          articulos: number | null
+          fecha_min: string | null
+          fecha_max: string | null
+        }
+        Relationships: []
+      }
+      ventas_categoria_mensual_cliente: {
+        Row: {
+          categoria_id: string | null
+          mes: string | null
+          cliente_codigo: string | null
+          cliente_nombre: string | null
+          lineas: number | null
+          kilos: number | null
+          base_iva: number | null
+          pm_bruto: number | null
+          pm_real: number | null
+        }
+        Relationships: []
+      }
+      ventas_categoria_mensual_producto: {
+        Row: {
+          categoria_id: string | null
+          mes: string | null
+          metodo_producto: string | null
+          lineas: number | null
+          kilos: number | null
+          base_iva: number | null
+          pm_bruto: number | null
+          pm_real: number | null
+        }
+        Relationships: []
+      }
+      ventas_categoria_ranking_clientes: {
+        Row: {
+          categoria_id: string | null
+          cliente_codigo: string | null
+          cliente_nombre: string | null
+          lineas: number | null
+          kilos: number | null
+          base_iva: number | null
+          pm_bruto: number | null
+          pm_real: number | null
+          precio_real_max: number | null
+          precio_bruto_max: number | null
+        }
+        Relationships: []
+      }
+      ventas_categoria_resumen_articulo: {
+        Row: {
+          categoria_id: string | null
+          referencia: string | null
+          articulo: string | null
+          lineas: number | null
+          kilos: number | null
+          base_iva: number | null
+          pm_bruto: number | null
+          pm_real: number | null
+        }
+        Relationships: []
+      }
+      ventas_categoria_validacion_catalogo: {
+        Row: {
+          categoria_id: string | null
+          metodo: string | null
+          descripcion: string | null
+          lineas_catalogo: number | null
+          lineas_detectadas: number | null
+          kilos_catalogo: number | null
+          kilos_lineas: number | null
+          diferencia_kilos: number | null
+          base_iva_catalogo: number | null
+          base_iva_lineas: number | null
+          diferencia_base_iva: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       has_role: {
@@ -811,6 +1104,10 @@ export type Database = {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
+        Returns: boolean
+      }
+      can_access_ventas_categoria: {
+        Args: Record<PropertyKey, never>
         Returns: boolean
       }
     }
