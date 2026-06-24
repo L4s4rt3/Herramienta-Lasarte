@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><title>Rediseño Categoria Segunda</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #0f1219; color: #e2e8f0; padding: 2rem; max-width: 900px; margin: 0 auto; }
+  h2 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+  .subtitle { color: #94a3b8; margin-bottom: 1.5rem; }
+  .section { margin-bottom: 2rem; }
+  h3 { font-size: 1.1rem; margin-bottom: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+  .mockup { border: 1px solid #1e293b; border-radius: 12px; overflow: hidden; background: #1a1f2e; margin-bottom: 1.5rem; }
+  .mockup-header { background: #1e293b; padding: 8px 16px; font-size: 0.85rem; color: #64748b; border-bottom: 1px solid #1e293b; }
+  .mockup-body { padding: 16px; }
+  .options { display: flex; flex-direction: column; gap: 8px; }
+  .option { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; border: 1px solid #1e293b; border-radius: 10px; cursor: pointer; transition: all 0.15s; }
+  .option:hover { border-color: #3b82f6; background: #1e293b; }
+  .option.selected { border-color: #3b82f6; background: rgba(59,130,246,0.1); }
+  .letter { width: 28px; height: 28px; border-radius: 50%; background: #1e293b; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem; flex-shrink: 0; }
+  .option.selected .letter { background: #3b82f6; color: #fff; }
+  .content h4 { font-size: 0.95rem; margin-bottom: 2px; }
+  .content p { font-size: 0.8rem; color: #94a3b8; }
+  .kpi-row { display: flex; gap: 12px; margin-bottom: 16px; }
+  .kpi { background: #1e293b; border-radius: 8px; padding: 12px 16px; flex: 1; }
+  .kpi-label { font-size: 0.7rem; text-transform: uppercase; color: #64748b; }
+  .kpi-value { font-size: 1.3rem; font-weight: 700; margin-top: 4px; }
+  .table-placeholder { background: #1e293b; border-radius: 8px; height: 200px; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 0.85rem; }
+  .chart-placeholder { background: #1e293b; border-radius: 8px; height: 150px; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+
+<h2>Rediseño de Categoria Segunda</h2>
+<p class="subtitle">El Dashboard te gusta. Ahora vamos a mejorar el resto. Empiezo preguntando por la pestaña <strong>Clientes</strong>.</p>
+
+<div class="section">
+  <h3>Layout actual de Clientes</h3>
+  <div class="mockup">
+    <div class="mockup-header">Clientes</div>
+    <div class="mockup-body">
+      <div class="kpi-row">
+        <div class="kpi"><div class="kpi-label">Ranking por kilos</div><div class="table-placeholder" style="height:120px">Tabla de clientes</div></div>
+        <div class="kpi"><div class="kpi-label">Ranking por PM real</div><div class="table-placeholder" style="height:120px">Tabla por PM</div></div>
+      </div>
+      <div class="kpi"><div class="kpi-label">Ajustes de comisión y transporte</div><div class="table-placeholder" style="height:80px">Tabla de ajustes</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>¿Qué te gustaría para Clientes?</h3>
+  <div class="options">
+    <div class="option" onclick="this.classList.toggle('selected')">
+      <div class="letter">A</div>
+      <div class="content">
+        <h4>Vista detalle de cliente</h4>
+        <p>Poder hacer click en un cliente y ver: sus productos, artículos, histórico de volumen y PM en gráficas, ajustes</p>
+      </div>
+    </div>
+    <div class="option" onclick="this.classList.toggle('selected')">
+      <div class="letter">B</div>
+      <div class="content">
+        <h4>Más KPIs + mini gráficas</h4>
+        <p>Mantener tabla de ranking pero añadir mini sparklines de evolución por cliente (volumen últimos meses)</p>
+      </div>
+    </div>
+    <div class="option" onclick="this.classList.toggle('selected')">
+      <div class="letter">C</div>
+      <div class="content">
+        <h4>Un solo ranking con más columnas</h4>
+        <p>Unificar las dos tablas en una sola con columnas: Cliente, Kilos, PM bruto, PM real, Comisión, Transporte. Más compacto</p>
+      </div>
+    </div>
+    <div class="option" onclick="this.classList.toggle('selected')">
+      <div class="letter">D</div>
+      <div class="content">
+        <h4>Está bien así</h4>
+        <p>La pestaña Clientes me sirve como está, céntrate en las otras pestañas</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p style="color:#64748b; margin-top:1rem; font-size:0.85rem;">Selecciona una opción (o varias) y responde en el terminal qué te parece.</p>
+</body>
+</html>

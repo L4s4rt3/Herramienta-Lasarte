@@ -1,0 +1,58 @@
+<h2>Rediseño de Categoria Segunda</h2>
+<p class="subtitle">El Dashboard te gusta. Ahora vamos a mejorar el resto. ¿Qué te gustaría cambiar?</p>
+
+<div class="section">
+  <h3>Pestaña Clientes (actual)</h3>
+  <div class="mockup" style="max-width: 800px;">
+    <div class="mockup-header">Clientes</div>
+    <div class="mockup-body" style="padding: 16px; display: flex; flex-direction: column; gap: 16px;">
+      <div style="display: flex; gap: 12px;">
+        <div style="flex: 1; border: 1px dashed #888; border-radius: 8px; padding: 12px;">
+          <div style="font-weight: 600; margin-bottom: 8px;">Ranking por kilos</div>
+          <div style="height: 120px; background: linear-gradient(180deg, #e2e8f0 0%, #f1f5f9 100%); border-radius: 4px;"></div>
+        </div>
+        <div style="flex: 1; border: 1px dashed #888; border-radius: 8px; padding: 12px;">
+          <div style="font-weight: 600; margin-bottom: 8px;">Ranking por PM real</div>
+          <div style="height: 120px; background: linear-gradient(180deg, #e2e8f0 0%, #f1f5f9 100%); border-radius: 4px;"></div>
+        </div>
+      </div>
+      <div style="border: 1px dashed #888; border-radius: 8px; padding: 12px;">
+        <div style="font-weight: 600; margin-bottom: 8px;">Ajustes de comisión y transporte</div>
+        <div style="height: 80px; background: linear-gradient(180deg, #e2e8f0 0%, #f1f5f9 100%); border-radius: 4px;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="tablas" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Solo tablas, más compactas</h3>
+      <p>Las tablas están bien pero quiero ver más datos de cada cliente en menos espacio</p>
+    </div>
+  </div>
+  <div class="option" data-choice="graficos" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Más gráficos por cliente</h3>
+      <p>Quiero ver evolución histórica de cada cliente (volumen, PM) en gráficas</p>
+    </div>
+  </div>
+  <div class="option" data-choice="detalle" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Vista detalle de cliente</h3>
+      <p>Poder hacer click en un cliente y ver todo su detalle: productos, artículos, histórico</p>
+    </div>
+  </div>
+  <div class="option" data-choice="ninguno" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Está bien así</h3>
+      <p>La pestaña Clientes me sirve como está, céntrate en las otras</p>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top: 20px; color: #888;">Selecciona una opción y responde en el terminal.</p>
