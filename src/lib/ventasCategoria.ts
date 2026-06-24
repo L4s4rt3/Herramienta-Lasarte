@@ -112,6 +112,14 @@ export interface ParseVentasCategoriaWorkbookResult {
   validation: VentasCategoriaImportValidation;
 }
 
+export interface VentasCategoriaDetalleFilters {
+  campana?: string;
+  mes?: string;
+  cliente?: string;
+  metodo?: string;
+  articulo?: string;
+}
+
 export interface VentasCategoriaFilterSourceRow {
   campana?: string | null;
   mes?: string | null;
@@ -303,6 +311,23 @@ export function buildVentasCategoriaFilterOptions(rows: VentasCategoriaFilterSou
     clientes: Array.from(clientes.values()).sort((a, b) => b.kilos - a.kilos || a.nombre.localeCompare(b.nombre)),
     metodos: Array.from(metodos).sort((a, b) => a.localeCompare(b)),
   };
+}
+
+export function applyVentasCategoriaFilters(
+  lines: VentasCategoriaLinea[],
+  filters: VentasCategoriaDetalleFilters
+): VentasCategoriaLinea[] {
+  return lines.filter((line) => {
+    if (filters.campana && line.campana !== filters.campana) return false;
+    if (filters.mes && line.mes !== filters.mes) return false;
+    if (filters.cliente && line.cliente_codigo !== filters.cliente) return false;
+    if (filters.metodo && line.metodo_producto !== filters.metodo) return false;
+    if (filters.articulo) {
+      const search = filters.articulo.toLowerCase();
+      if (!line.articulo.toLowerCase().includes(search)) return false;
+    }
+    return true;
+  });
 }
 
 function parseBaseDiariaRows(rows: unknown[][]): VentasCategoriaLinea[] {

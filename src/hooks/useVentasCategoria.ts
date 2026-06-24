@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
 import type {
   ParseVentasCategoriaWorkbookResult,
+  VentasCategoriaDetalleFilters,
   VentasCategoriaLinea,
 } from "@/lib/ventasCategoria";
 import { buildVentasCategoriaFilterOptions } from "@/lib/ventasCategoria";
@@ -14,14 +15,6 @@ import type {
   VentasCategoriaProductoRow,
   VentasCategoriaRow,
 } from "@/lib/types";
-
-export interface VentasCategoriaDetalleFilters {
-  campana?: string;
-  mes?: string;
-  cliente?: string;
-  metodo?: string;
-  articulo?: string;
-}
 
 export interface VentasCategoriaDetalleOptions {
   filters: VentasCategoriaDetalleFilters;

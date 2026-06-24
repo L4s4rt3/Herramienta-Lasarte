@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   aggregateVentasCategoria,
+  applyVentasCategoriaFilters,
   calcularCampanaVentas,
   calcularMesVentas,
   calcularPmVenta,
@@ -138,5 +139,59 @@ describe("ventas categoria helpers", () => {
       { codigo: "C001", nombre: "Cliente Uno", kilos: 150 },
       { codigo: "C002", nombre: "Cliente Dos", kilos: 20 },
     ]);
+  });
+
+  describe("applyVentasCategoriaFilters", () => {
+    const lines = [
+      normalizeVentasCategoriaLinea({ ...baseLine, fecha: "2025-10-05", cliente_codigo: "C001", metodo_producto: "LN211", articulo: "NARANJA VALENCIA" }),
+      normalizeVentasCategoriaLinea({ ...baseLine, fecha: "2025-11-05", cliente_codigo: "C002", metodo_producto: "LN210", articulo: "LIMON VERNA" }),
+      normalizeVentasCategoriaLinea({ ...baseLine, fecha: "2025-01-05", cliente_codigo: "C001", metodo_producto: "LN211", articulo: "NARANJA NAVEL" }),
+    ];
+
+    it("filtra por campana exacta", () => {
+      const result = applyVentasCategoriaFilters(lines, { campana: "2526" });
+      expect(result).toHaveLength(2);
+      expect(result.every((l) => l.campana === "2526")).toBe(true);
+    });
+
+    it("filtra por mes exacto", () => {
+      const result = applyVentasCategoriaFilters(lines, { mes: "2025-10" });
+      expect(result).toHaveLength(1);
+      expect(result[0].mes).toBe("2025-10");
+    });
+
+    it("filtra por cliente (codigo)", () => {
+      const result = applyVentasCategoriaFilters(lines, { cliente: "C001" });
+      expect(result).toHaveLength(2);
+      expect(result.every((l) => l.cliente_codigo === "C001")).toBe(true);
+    });
+
+    it("filtra por metodo/producto", () => {
+      const result = applyVentasCategoriaFilters(lines, { metodo: "LN210" });
+      expect(result).toHaveLength(1);
+      expect(result[0].metodo_producto).toBe("LN210");
+    });
+
+    it("filtra por texto de articulo (busqueda parcial)", () => {
+      const result = applyVentasCategoriaFilters(lines, { articulo: "NARANJA" });
+      expect(result).toHaveLength(2);
+      expect(result.every((l) => l.articulo.includes("NARANJA"))).toBe(true);
+    });
+
+    it("combina multiples filtros (AND)", () => {
+      const result = applyVentasCategoriaFilters(lines, { campana: "2526", cliente: "C001" });
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({ campana: "2526", cliente_codigo: "C001" });
+    });
+
+    it("devuelve todas las lineas si no hay filtros", () => {
+      const result = applyVentasCategoriaFilters(lines, {});
+      expect(result).toHaveLength(3);
+    });
+
+    it("devuelve array vacio si ningun filtro coincide", () => {
+      const result = applyVentasCategoriaFilters(lines, { campana: "NO_EXISTE" });
+      expect(result).toHaveLength(0);
+    });
   });
 });
