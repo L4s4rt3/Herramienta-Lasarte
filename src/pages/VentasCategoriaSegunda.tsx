@@ -44,7 +44,7 @@ export default function VentasCategoriaSegunda() {
   const [selectedProductoDesc, setSelectedProductoDesc] = useState<string>("");
   const [selectedArticulo, setSelectedArticulo] = useState<string | null>(null);
   const [selectedArticuloRef, setSelectedArticuloRef] = useState<string | null>(null);
-  const [rankingTab, setRankingTab] = useState("kilos");
+  const [clientesView, setClientesView] = useState("kilos");
 
   const resumen = ventas.resumenQuery.data;
   const rankingClientes = ventas.rankingClientesQuery.data ?? EMPTY_ROWS;
@@ -311,99 +311,150 @@ export default function VentasCategoriaSegunda() {
             </div>
           ) : (
             <>
-              <Card className="glass-accented overflow-hidden">
-                <CardHeader className="pb-0">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">Ranking de clientes</CardTitle>
-                    <div className="flex rounded-lg border border-[var(--glass-border)] p-0.5">
-                      <button
-                        className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${rankingTab === "kilos" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-                        onClick={() => setRankingTab("kilos")}
-                      >
-                        Ranking por kilos
-                      </button>
-                      <button
-                        className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${rankingTab === "pm" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-                        onClick={() => setRankingTab("pm")}
-                      >
-                        Ranking por PM real
-                      </button>
+              <div className="flex rounded-lg border border-[var(--glass-border)] p-0.5 w-fit">
+                <button
+                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${clientesView === "kilos" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  onClick={() => setClientesView("kilos")}
+                >
+                  Ranking por kilos
+                </button>
+                <button
+                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${clientesView === "pm" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  onClick={() => setClientesView("pm")}
+                >
+                  Ranking por PM real
+                </button>
+                <button
+                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${clientesView === "ajustes" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  onClick={() => setClientesView("ajustes")}
+                >
+                  Ajustes
+                </button>
+                <button
+                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${clientesView === "todos" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  onClick={() => setClientesView("todos")}
+                >
+                  Todos
+                </button>
+              </div>
+              {clientesView === "ajustes" ? (
+                <Card className="glass-accented overflow-hidden">
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Cliente</TableHead>
+                            <TableHead className="text-right">Kilos</TableHead>
+                            <TableHead className="w-28">Comision %</TableHead>
+                            <TableHead className="w-32">Comision cent/kg</TableHead>
+                            <TableHead className="w-30">Transporte %</TableHead>
+                            <TableHead className="w-36">Transporte cent/kg</TableHead>
+                            <TableHead></TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {displayRanking.slice(0, 80).map((cliente: Record<string, unknown>) => (
+                            <AjusteTableRow
+                              key={String(cliente.cliente_codigo)}
+                              cliente={cliente}
+                              ajuste={ajustes.find((a: Record<string, unknown>) => a.cliente_codigo === cliente.cliente_codigo)}
+                              onSave={(input) => ventas.updateAjuste.mutate(input)}
+                            />
+                          ))}
+                        </TableBody>
+                      </Table>
                     </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-8">#</TableHead>
-                          <TableHead>Cliente</TableHead>
-                          <TableHead className="text-right">{rankingTab === "kilos" ? "Kilos" : "PM real"}</TableHead>
-                          <TableHead className="text-right">{rankingTab === "kilos" ? "PM" : "Kilos"}</TableHead>
-                          <TableHead className="text-right">Evolucion</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {(rankingTab === "kilos" ? displayRanking : [...displayRanking].sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
-                          Number(b.pm_real ?? b.pm_venta ?? 0) - Number(a.pm_real ?? a.pm_venta ?? 0)
-                        )).slice(0, 30).map((row, i) => {
-                          const spark = getSparklineData(String(row.cliente_codigo ?? ""));
-                          return (
+                  </CardContent>
+                </Card>
+              ) : clientesView === "todos" ? (
+                <Card className="glass-accented overflow-hidden">
+                  <CardHeader className="pb-0">
+                    <CardTitle className="text-base">Todos los clientes</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="max-h-[800px] overflow-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Cliente</TableHead>
+                            <TableHead className="text-right">Kilos</TableHead>
+                            <TableHead className="text-right">PM</TableHead>
+                            <TableHead className="text-right">Base IVA</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {[...displayRanking].sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
+                            Number(b.kilos ?? 0) - Number(a.kilos ?? 0)
+                          ).map((row) => (
                             <TableRow
                               key={String(row.cliente_codigo)}
                               className="cursor-pointer hover:bg-[var(--glass-bg-strong)]"
                               onClick={() => { setSelectedCliente(String(row.cliente_codigo)); setSelectedClienteNombre(String(row.cliente_nombre ?? "")); }}
                             >
-                              <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
                               <TableCell className="min-w-[240px]">
                                 <div className="font-medium">{String(row.cliente_nombre ?? "")}</div>
                                 <div className="text-xs text-muted-foreground">{String(row.cliente_codigo ?? "")}</div>
                               </TableCell>
-                              <TableCell className="text-right tabular-nums">
-                                {rankingTab === "kilos" ? formatKg(Number(row.kilos ?? 0)) : `${formatNumber(Number(row.pm_real ?? row.pm_venta ?? 0), 3)} EUR/kg`}
-                              </TableCell>
-                              <TableCell className="text-right tabular-nums">
-                                {rankingTab === "kilos" ? `${formatNumber(Number(row.pm_real ?? row.pm_venta ?? 0), 3)} EUR/kg` : formatKg(Number(row.kilos ?? 0))}
-                              </TableCell>
-                              <TableCell><SparklineCell data={spark.points} maxKilos={spark.maxKilos} /></TableCell>
+                              <TableCell className="text-right tabular-nums">{formatKg(Number(row.kilos ?? 0))}</TableCell>
+                              <TableCell className="text-right tabular-nums">{formatNumber(Number(row.pm_real ?? row.pm_venta ?? 0), 3)} EUR/kg</TableCell>
+                              <TableCell className="text-right tabular-nums">{formatNumber(Number(row.base_iva ?? 0), 2)} EUR</TableCell>
                             </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card className="glass-accented overflow-hidden">
-                <CardHeader><CardTitle>Ajustes de comision y transporte</CardTitle></CardHeader>
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Cliente</TableHead>
-                          <TableHead className="text-right">Kilos</TableHead>
-                          <TableHead className="w-28">Comision %</TableHead>
-                          <TableHead className="w-32">Comision cent/kg</TableHead>
-                          <TableHead className="w-30">Transporte %</TableHead>
-                          <TableHead className="w-36">Transporte cent/kg</TableHead>
-                          <TableHead></TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {displayRanking.slice(0, 80).map((cliente: Record<string, unknown>) => (
-                          <AjusteTableRow
-                            key={String(cliente.cliente_codigo)}
-                            cliente={cliente}
-                            ajuste={ajustes.find((a: Record<string, unknown>) => a.cliente_codigo === cliente.cliente_codigo)}
-                            onSave={(input) => ventas.updateAjuste.mutate(input)}
-                          />
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              </Card>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card className="glass-accented overflow-hidden">
+                  <CardHeader className="pb-0">
+                    <CardTitle className="text-base">Ranking de clientes</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-8">#</TableHead>
+                            <TableHead>Cliente</TableHead>
+                            <TableHead className="text-right">{clientesView === "kilos" ? "Kilos" : "PM real"}</TableHead>
+                            <TableHead className="text-right">{clientesView === "kilos" ? "PM" : "Kilos"}</TableHead>
+                            <TableHead className="text-right">Evolucion</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {(clientesView === "kilos" ? displayRanking : [...displayRanking].sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
+                            Number(b.pm_real ?? b.pm_venta ?? 0) - Number(a.pm_real ?? a.pm_venta ?? 0)
+                          )).slice(0, 30).map((row, i) => {
+                            const spark = getSparklineData(String(row.cliente_codigo ?? ""));
+                            return (
+                              <TableRow
+                                key={String(row.cliente_codigo)}
+                                className="cursor-pointer hover:bg-[var(--glass-bg-strong)]"
+                                onClick={() => { setSelectedCliente(String(row.cliente_codigo)); setSelectedClienteNombre(String(row.cliente_nombre ?? "")); }}
+                              >
+                                <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
+                                <TableCell className="min-w-[240px]">
+                                  <div className="font-medium">{String(row.cliente_nombre ?? "")}</div>
+                                  <div className="text-xs text-muted-foreground">{String(row.cliente_codigo ?? "")}</div>
+                                </TableCell>
+                                <TableCell className="text-right tabular-nums">
+                                  {clientesView === "kilos" ? formatKg(Number(row.kilos ?? 0)) : `${formatNumber(Number(row.pm_real ?? row.pm_venta ?? 0), 3)} EUR/kg`}
+                                </TableCell>
+                                <TableCell className="text-right tabular-nums">
+                                  {clientesView === "kilos" ? `${formatNumber(Number(row.pm_real ?? row.pm_venta ?? 0), 3)} EUR/kg` : formatKg(Number(row.kilos ?? 0))}
+                                </TableCell>
+                                <TableCell><SparklineCell data={spark.points} maxKilos={spark.maxKilos} /></TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </>
           )}
         </TabsContent>
