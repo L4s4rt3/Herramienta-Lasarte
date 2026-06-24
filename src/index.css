@@ -75,6 +75,17 @@
     --color-border:       var(--glass-border);
     --blur:               blur(24px);
     --shadow:             var(--glass-shadow);
+
+    /* ── Auth page tokens ─────────────────────────────────── */
+    --auth-bg: #F8F6EF;
+    --auth-text: #17231A;
+    --auth-muted: #6B756A;
+    --auth-green: #173A27;
+    --auth-olive: #8A9A5B;
+    --auth-orange: #F97316;
+    --auth-orange-hover: #EA580C;
+    --auth-border: #E5E2D8;
+    --auth-input-bg: #FFFFFF;
   }
 
   .dark {
@@ -130,6 +141,17 @@
     --color-border:       var(--glass-border);
     --blur:               blur(24px);
     --shadow:             var(--glass-shadow);
+
+    /* ── Auth page tokens (dark) ──────────────────────────── */
+    --auth-bg: #F8F6EF;
+    --auth-text: #17231A;
+    --auth-muted: #6B756A;
+    --auth-green: #173A27;
+    --auth-olive: #8A9A5B;
+    --auth-orange: #F97316;
+    --auth-orange-hover: #EA580C;
+    --auth-border: #E5E2D8;
+    --auth-input-bg: #FFFFFF;
   }
 }
 
@@ -405,7 +427,67 @@
   from { opacity: 0; transform: scale(0.95); }
   to   { opacity: 1; transform: scale(1); }
 }
-/* Premium glass scrollbar � macOS inspired */
+/* ── Auth page animations ─────────────────────────────────── */
+@keyframes float {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  33% { transform: translateY(-12px) rotate(1deg); }
+  66% { transform: translateY(6px) rotate(-0.5deg); }
+}
+@keyframes float-delayed {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-16px); }
+}
+@keyframes ken-burns {
+  0%   { transform: scale(1) translateX(0); }
+  100% { transform: scale(1.08) translateX(-2%); }
+}
+@keyframes shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+@keyframes fade-slide-up {
+  0%   { opacity: 0; transform: translateY(24px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes particle-drift {
+  0%   { transform: translate(0, 0) rotate(0deg); }
+  25%  { transform: translate(8px, -6px) rotate(90deg); }
+  50%  { transform: translate(-4px, 4px) rotate(180deg); }
+  75%  { transform: translate(6px, -2px) rotate(270deg); }
+  100% { transform: translate(0, 0) rotate(360deg); }
+}
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.15); }
+}
+
+.animate-float          { animation: float 5s ease-in-out infinite; }
+.animate-float-delayed  { animation: float-delayed 7s ease-in-out infinite; }
+.animate-float-slow     { animation: float 8s ease-in-out infinite; }
+.animate-ken-burns      { animation: ken-burns 25s ease-in-out infinite alternate; }
+.animate-fade-slide-up  { animation: fade-slide-up 0.7s ease-out forwards; }
+.animate-fade-in        { animation: fade-in 1.2s ease-out forwards; }
+.animate-shimmer        { animation: shimmer 2.2s ease-in-out infinite; }
+.animate-particle       { animation: particle-drift 18s linear infinite; }
+.animate-particle-reverse { animation: particle-drift 22s linear infinite reverse; }
+.animate-glow-pulse     { animation: glow-pulse 2s ease-in-out infinite; }
+
+@keyframes form-enter-stagger {
+  0%   { opacity: 0; transform: translateY(16px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.form-stagger-1 { animation: form-enter-stagger 0.5s 0.1s ease-out both; }
+.form-stagger-2 { animation: form-enter-stagger 0.5s 0.2s ease-out both; }
+.form-stagger-3 { animation: form-enter-stagger 0.5s 0.3s ease-out both; }
+.form-stagger-4 { animation: form-enter-stagger 0.5s 0.4s ease-out both; }
+.form-stagger-5 { animation: form-enter-stagger 0.5s 0.5s ease-out both; }
+.form-stagger-6 { animation: form-enter-stagger 0.5s 0.6s ease-out both; }
+
+/* Premium glass scrollbar macOS inspired */
 * {
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.18) transparent;

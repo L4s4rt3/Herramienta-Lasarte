@@ -143,6 +143,46 @@ export interface VentasCategoriaFilterOptions {
   metodos: string[];
 }
 
+export interface VentasCategoriaMonthlyTotal {
+  mes: string;
+  kilos: number;
+  base: number;
+  pm: number;
+}
+
+export interface VentasCategoriaDashboardKpisInput {
+  resumen?: Partial<VentasCategoriaResumen & { pm_real: number | null }> | null;
+  clientes: Array<Partial<VentasCategoriaClienteRow>>;
+  monthlyTotals: VentasCategoriaMonthlyTotal[];
+}
+
+export interface VentasCategoriaDashboardKpis {
+  totalKilos: number;
+  totalBaseIva: number;
+  pmVenta: number;
+  pmReal: number;
+  clientes: number;
+  productos: number;
+  articulos: number;
+  totalLineas: number;
+  kilosPorCliente: number;
+  eurosPorLinea: number;
+  articulosPorProducto: number;
+  mesesActivos: number;
+  topCliente: {
+    codigo: string;
+    nombre: string;
+    kilos: number;
+    cuotaPct: number;
+  } | null;
+  mejorMes: {
+    mes: string;
+    kilos: number;
+    base: number;
+    pm: number;
+  } | null;
+}
+
 export function calcularCampanaVentas(fecha: string): string {
   const { year, month } = parseDateParts(fecha);
   const startYear = month >= 9 ? year : year - 1;
@@ -310,6 +350,47 @@ export function buildVentasCategoriaFilterOptions(rows: VentasCategoriaFilterSou
     meses: Array.from(meses).sort((a, b) => b.localeCompare(a)),
     clientes: Array.from(clientes.values()).sort((a, b) => b.kilos - a.kilos || a.nombre.localeCompare(b.nombre)),
     metodos: Array.from(metodos).sort((a, b) => a.localeCompare(b)),
+  };
+}
+
+export function buildVentasCategoriaDashboardKpis(input: VentasCategoriaDashboardKpisInput): VentasCategoriaDashboardKpis {
+  const totalKilos = finiteOrZero(input.resumen?.kilos);
+  const totalBaseIva = finiteOrZero(input.resumen?.base_iva);
+  const clientes = Math.round(finiteOrZero(input.resumen?.clientes));
+  const productos = Math.round(finiteOrZero(input.resumen?.productos));
+  const articulos = Math.round(finiteOrZero(input.resumen?.articulos));
+  const totalLineas = input.clientes.reduce((sum, row) => sum + finiteOrZero(row.lineas), 0);
+  const topClienteRow = input.clientes.reduce<Partial<VentasCategoriaClienteRow> | null>(
+    (top, row) => (!top || finiteOrZero(row.kilos) > finiteOrZero(top.kilos) ? row : top),
+    null,
+  );
+  const mejorMes = input.monthlyTotals.reduce<VentasCategoriaMonthlyTotal | null>(
+    (best, row) => (!best || row.kilos > best.kilos ? row : best),
+    null,
+  );
+
+  return {
+    totalKilos,
+    totalBaseIva,
+    pmVenta: finiteOrZero(input.resumen?.pm_venta) || calcularPmVenta(totalBaseIva, totalKilos),
+    pmReal: finiteOrZero(input.resumen?.pm_real) || finiteOrZero(input.resumen?.pm_venta) || calcularPmVenta(totalBaseIva, totalKilos),
+    clientes,
+    productos,
+    articulos,
+    totalLineas,
+    kilosPorCliente: clientes > 0 ? roundNumber(totalKilos / clientes, 2) : 0,
+    eurosPorLinea: totalLineas > 0 ? roundNumber(totalBaseIva / totalLineas, 2) : 0,
+    articulosPorProducto: productos > 0 ? roundNumber(articulos / productos, 2) : 0,
+    mesesActivos: input.monthlyTotals.filter((row) => row.kilos > 0).length,
+    topCliente: topClienteRow
+      ? {
+          codigo: topClienteRow.cliente_codigo ?? "",
+          nombre: topClienteRow.cliente_nombre ?? "",
+          kilos: finiteOrZero(topClienteRow.kilos),
+          cuotaPct: totalKilos > 0 ? roundNumber((finiteOrZero(topClienteRow.kilos) / totalKilos) * 100, 1) : 0,
+        }
+      : null,
+    mejorMes: mejorMes ? { ...mejorMes } : null,
   };
 }
 

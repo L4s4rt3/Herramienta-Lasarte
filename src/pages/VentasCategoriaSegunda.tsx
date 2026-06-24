@@ -2,11 +2,12 @@ import { useMemo, useState, type ChangeEvent } from "react";
 import {
   Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { AlertTriangle, CheckCircle2, Database, FileSpreadsheet, Save, Upload } from "lucide-react";
+import { AlertTriangle, BarChart3, CheckCircle2, ChevronDown, ChevronRight, Database, Euro, FileSpreadsheet, Gauge, Package, Save, Search, Trophy, Upload, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { KPICard } from "@/components/KPICard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -15,9 +16,9 @@ import { toast } from "@/hooks/use-toast";
 import { useVentasCategoria, type VentasCategoriaAjusteInput } from "@/hooks/useVentasCategoria";
 import { parseVentasCategoriaExcelFile } from "@/lib/ventasCategoriaExcel";
 import { VentasCategoriaFilterBar } from "@/components/VentasCategoriaFilterBar";
-import { applyVentasCategoriaFilters, aggregateVentasCategoria } from "@/lib/ventasCategoria";
+import { applyVentasCategoriaFilters, aggregateVentasCategoria, buildVentasCategoriaDashboardKpis } from "@/lib/ventasCategoria";
 import { errorMessage } from "@/lib/errorMessage";
-import { formatDate, formatKg, formatNumber } from "@/lib/format";
+import { formatKg, formatNumber, formatPct } from "@/lib/format";
 import {
   BAR_STYLE, C, CHART_LINE_CURSOR, CHART_PANEL_CLASS, GlassTooltip, GRID, legendStyle, lineStyle, MARGIN, SERIES_PALETTE, XAXIS, YAXIS,
 } from "@/lib/chartTheme";
@@ -46,6 +47,9 @@ export default function VentasCategoriaSegunda() {
   const [selectedArticuloRef, setSelectedArticuloRef] = useState<string | null>(null);
   const [clientesView, setClientesView] = useState("kilos");
   const [clienteSearch, setClienteSearch] = useState("");
+  const [articuloSearch, setArticuloSearch] = useState("");
+  const [articuloLimit, setArticuloLimit] = useState(10);
+  const [expandedRefs, setExpandedRefs] = useState<Set<string>>(new Set());
 
   const resumen = ventas.resumenQuery.data;
   const rankingClientes = ventas.rankingClientesQuery.data ?? EMPTY_ROWS;
@@ -94,6 +98,15 @@ export default function VentasCategoriaSegunda() {
     });
     return Array.from(map.values()).sort((a, b) => a.mes.localeCompare(b.mes));
   }, [hasActiveFilters, displayMensualProducto, mensualProducto]);
+
+  const dashboardKpis = useMemo(
+    () => buildVentasCategoriaDashboardKpis({
+      resumen: displayResumen,
+      clientes: displayRanking,
+      monthlyTotals,
+    }),
+    [displayResumen, displayRanking, monthlyTotals],
+  );
 
   const topClientes = (hasActiveFilters ? displayRanking : rankingClientes).slice(0, 10);
   const topArticulos = (hasActiveFilters ? displayArticulos : articulos).slice(0, 25);
@@ -193,40 +206,41 @@ export default function VentasCategoriaSegunda() {
 
   return (
     <div className="container mx-auto max-w-[1600px] space-y-5 p-4 md:p-6">
-      <header className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4 shadow-[var(--glass-shadow)] backdrop-blur-xl md:p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="panel-kicker">Comercial</p>
-              <Badge variant={hasImportedData ? "outline" : "destructive"} className="rounded-md">
+      <Tabs value={tab} onValueChange={setTab} className="space-y-5">
+      <header className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3 shadow-[var(--glass-shadow)] backdrop-blur-xl md:p-4">
+        <div className="flex flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="panel-kicker text-xs">Comercial</p>
+              <Badge variant={hasImportedData ? "outline" : "destructive"} className="rounded-md text-xs px-2 py-0">
                 {hasImportedData ? "Base cargada" : "Sin datos"}
               </Badge>
             </div>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight md:text-3xl">Categoria segunda</h1>
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              Ventas por cliente, producto, articulo, precio medio y ajustes reales de comision/transporte.
-            </p>
+            <h1 className="text-lg font-bold tracking-tight md:text-xl">Categoria segunda</h1>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="inline-flex">
-              <Input className="hidden" type="file" accept=".xlsx,.xls" onChange={handleImportFile} />
-              <span className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent">
-                <Upload className="h-4 w-4" />
+          <div className="flex items-center gap-2 shrink-0">
+            <Button asChild variant="outline" size="sm" className="h-8 cursor-pointer rounded-md px-3 text-xs">
+              <label>
+                <Input className="hidden" type="file" accept=".xlsx,.xls" onChange={handleImportFile} />
+                <Upload className="h-3.5 w-3.5" />
                 {parsing ? "Leyendo..." : "Importar Excel"}
-              </span>
-            </label>
-            <Badge variant="outline" className="h-10 rounded-md px-3">
+              </label>
+            </Button>
+            <Badge variant="outline" className="h-8 rounded-md px-2 text-xs">
               {ventas.categoria?.nombre ?? "Sin categoria"}
             </Badge>
           </div>
         </div>
-        <section className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <StatusItem label="Lineas base" value={formatNumber(filterOptions.lineas)} loading={ventas.filterOptionsQuery.isLoading} />
-          <StatusItem label="Campanas" value={formatNumber(filterOptions.campanas.length)} loading={ventas.filterOptionsQuery.isLoading} />
-          <StatusItem label="Clientes" value={formatNumber(filterOptions.clientes.length || resumen?.clientes)} loading={ventas.filterOptionsQuery.isLoading} />
-          <StatusItem label="Metodos" value={formatNumber(filterOptions.metodos.length || resumen?.productos)} loading={ventas.filterOptionsQuery.isLoading} />
-          <StatusItem label="Total categoria" value={catalogoIsValid(validacion) ? "Cuadra" : "Revisar"} tone={catalogoIsValid(validacion) ? "ok" : "warn"} />
-        </section>
+        <div className="mt-3">
+          <TabsList className="inline-flex h-auto gap-1 rounded-xl bg-[var(--glass-bg-strong)] p-1">
+            <TabsTrigger value="dashboard" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Dashboard</TabsTrigger>
+            <TabsTrigger value="clientes" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Clientes</TabsTrigger>
+            <TabsTrigger value="productos" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Productos</TabsTrigger>
+            <TabsTrigger value="articulos" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Articulos</TabsTrigger>
+            <TabsTrigger value="base" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Base diaria</TabsTrigger>
+            <TabsTrigger value="importar" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Importar</TabsTrigger>
+          </TabsList>
+        </div>
       </header>
 
       <VentasCategoriaFilterBar
@@ -237,24 +251,57 @@ export default function VentasCategoriaSegunda() {
         activeCount={activeFilters}
       />
 
-      <Tabs value={tab} onValueChange={setTab} className="space-y-5">
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-lg p-1 sm:grid-cols-3 xl:w-auto xl:grid-cols-6">
-          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-          <TabsTrigger value="clientes">Clientes</TabsTrigger>
-          <TabsTrigger value="productos">Productos</TabsTrigger>
-          <TabsTrigger value="articulos">Articulos</TabsTrigger>
-          <TabsTrigger value="base">Base diaria</TabsTrigger>
-          <TabsTrigger value="importar">Importar</TabsTrigger>
-        </TabsList>
-
         <TabsContent value="dashboard" className="space-y-5">
-          <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
-            <Kpi title="Kilos total" value={formatKg(displayResumen?.kilos)} />
-            <Kpi title="Base IVA" value={`${formatNumber(displayResumen?.base_iva, 2)} EUR`} />
-            <Kpi title="PM bruto" value={`${formatNumber(displayResumen?.pm_venta ?? displayResumen?.pm_bruto, 3)} EUR/kg`} />
-            <Kpi title="PM real" value={`${formatNumber(displayResumen?.pm_real ?? displayResumen?.pm_venta, 3)} EUR/kg`} />
-            <Kpi title="Clientes" value={formatNumber(displayResumen?.clientes)} />
-            <Kpi title="Productos" value={formatNumber(displayResumen?.productos)} />
+          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <KPICard
+              className="glass-accented"
+              label="Volumen vendido"
+              value={formatKg(dashboardKpis.totalKilos)}
+              hint={`${formatNumber(dashboardKpis.totalLineas)} lineas · ${formatKg(dashboardKpis.kilosPorCliente)} / cliente`}
+              icon={Package}
+            />
+            <KPICard
+              className="glass-accented"
+              label="Facturacion base"
+              value={`${formatNumber(dashboardKpis.totalBaseIva, 2)} EUR`}
+              hint={`${formatNumber(dashboardKpis.eurosPorLinea, 2)} EUR / linea`}
+              icon={Euro}
+            />
+            <KPICard
+              className="glass-accented"
+              label="Precio medio real"
+              value={`${formatNumber(dashboardKpis.pmReal, 3)} EUR/kg`}
+              hint={`Bruto ${formatNumber(dashboardKpis.pmVenta, 3)} EUR/kg`}
+              icon={Gauge}
+              trend={dashboardKpis.pmReal < dashboardKpis.pmVenta ? "down" : "neutral"}
+            />
+            <KPICard
+              className="glass-accented"
+              label="Actividad comercial"
+              value={`${formatNumber(dashboardKpis.clientes)} clientes`}
+              hint={`${formatNumber(dashboardKpis.productos)} productos · ${formatNumber(dashboardKpis.articulos)} articulos`}
+              icon={BarChart3}
+            />
+            <KPICard
+              className="glass-accented"
+              label="Cliente principal"
+              value={dashboardKpis.topCliente ? shortName(dashboardKpis.topCliente.nombre, 18) : "Sin datos"}
+              hint={dashboardKpis.topCliente ? `${formatPct(dashboardKpis.topCliente.cuotaPct)} del volumen · ${formatKg(dashboardKpis.topCliente.kilos)}` : "Sin ventas"}
+              icon={Users}
+            />
+            <KPICard
+              className="glass-accented"
+              label="Mes mas fuerte"
+              value={dashboardKpis.mejorMes ? formatMonthLabel(dashboardKpis.mejorMes.mes) : "Sin datos"}
+              hint={dashboardKpis.mejorMes ? `${formatKg(dashboardKpis.mejorMes.kilos)} · ${formatNumber(dashboardKpis.mejorMes.pm, 3)} EUR/kg` : `${formatNumber(dashboardKpis.mesesActivos)} meses activos`}
+              icon={Trophy}
+            />
+          </section>
+
+          <section className="grid gap-3 md:grid-cols-3">
+            <Kpi title="Meses con venta" value={formatNumber(dashboardKpis.mesesActivos)} />
+            <Kpi title="Articulos / producto" value={formatNumber(dashboardKpis.articulosPorProducto, 2)} />
+            <Kpi title="Ultima lectura" value={dashboardKpis.mejorMes ? `${formatMonthLabel(monthlyTotals.at(-1)?.mes ?? "")}` : "Sin datos"} />
           </section>
 
           <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
@@ -312,31 +359,43 @@ export default function VentasCategoriaSegunda() {
             </div>
           ) : (
             <>
-              <div className="flex rounded-lg border border-[var(--glass-border)] p-0.5 w-fit">
-                <button
-                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${clientesView === "kilos" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              <div className="flex w-fit rounded-lg border border-[var(--glass-border)] p-0.5">
+                <Button
+                  type="button"
+                  variant={clientesView === "kilos" ? "default" : "ghost"}
+                  size="sm"
+                  className="h-8 rounded-md px-3 text-xs"
                   onClick={() => setClientesView("kilos")}
                 >
                   Ranking por kilos
-                </button>
-                <button
-                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${clientesView === "pm" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                </Button>
+                <Button
+                  type="button"
+                  variant={clientesView === "pm" ? "default" : "ghost"}
+                  size="sm"
+                  className="h-8 rounded-md px-3 text-xs"
                   onClick={() => setClientesView("pm")}
                 >
                   Ranking por PM real
-                </button>
-                <button
-                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${clientesView === "ajustes" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                </Button>
+                <Button
+                  type="button"
+                  variant={clientesView === "ajustes" ? "default" : "ghost"}
+                  size="sm"
+                  className="h-8 rounded-md px-3 text-xs"
                   onClick={() => setClientesView("ajustes")}
                 >
                   Ajustes
-                </button>
-                <button
-                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${clientesView === "todos" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                </Button>
+                <Button
+                  type="button"
+                  variant={clientesView === "todos" ? "default" : "ghost"}
+                  size="sm"
+                  className="h-8 rounded-md px-3 text-xs"
                   onClick={() => setClientesView("todos")}
                 >
                   Todos
-                </button>
+                </Button>
               </div>
               {clientesView === "ajustes" ? (
                 <Card className="glass-accented overflow-hidden">
@@ -564,51 +623,110 @@ export default function VentasCategoriaSegunda() {
             </div>
           ) : (
             (() => {
-              const grouped = new Map<string, { referencia: string; articulos: Array<Record<string, unknown>>; totalKilos: number }>();
-              displayArticulos.forEach((row: Record<string, unknown>) => {
+              const searchTerm = articuloSearch.toLowerCase();
+              const filtered = searchTerm
+                ? displayArticulos.filter((row: Record<string, unknown>) =>
+                    String(row.articulo ?? "").toLowerCase().includes(searchTerm)
+                  )
+                : displayArticulos;
+              const grouped = new Map<string, { referencia: string; articulos: Array<Record<string, unknown>>; totalKilos: number; totalPm: number }>();
+              filtered.forEach((row: Record<string, unknown>) => {
                 const ref = String(row.referencia ?? "SIN REF");
-                if (!grouped.has(ref)) grouped.set(ref, { referencia: ref, articulos: [], totalKilos: 0 });
+                if (!grouped.has(ref)) grouped.set(ref, { referencia: ref, articulos: [], totalKilos: 0, totalPm: 0 });
                 const group = grouped.get(ref)!;
                 group.articulos.push(row);
                 group.totalKilos += Number(row.kilos ?? 0);
+                group.totalPm += Number(row.base_iva ?? 0);
               });
+              const sortedGroups = Array.from(grouped.values()).sort((a, b) => b.totalKilos - a.totalKilos);
+              const totalArticulos = filtered.length;
+              const totalRefs = sortedGroups.length;
+              const totalKilos = sortedGroups.reduce((s, g) => s + g.totalKilos, 0);
+              const totalBase = sortedGroups.reduce((s, g) => s + g.totalPm, 0);
+              const pmMedio = totalKilos > 0 ? totalBase / totalKilos : 0;
+              const limited = sortedGroups.slice(0, articuloLimit);
+              const hasMore = sortedGroups.length > articuloLimit;
               return (
-                <div className="space-y-3">
-                  {Array.from(grouped.values()).sort((a, b) => b.totalKilos - a.totalKilos).map((group) => (
-                    <Card key={group.referencia} className="glass-accented overflow-hidden">
-                      <CardHeader className="py-3 px-4">
-                        <CardTitle className="text-sm font-semibold">
-                          {group.referencia} ({group.articulos.length} articulos | {formatKg(group.totalKilos)})
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="p-0">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Articulo</TableHead>
-                              <TableHead className="text-right">Kilos</TableHead>
-                              <TableHead className="text-right">PM</TableHead>
-                              <TableHead className="text-right">Lineas</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {group.articulos.sort((a, b) => Number(b.kilos ?? 0) - Number(a.kilos ?? 0)).map((row) => (
-                              <TableRow
-                                key={`${row.referencia}-${row.articulo}`}
-                                className="cursor-pointer hover:bg-[var(--glass-bg-strong)]"
-                                onClick={() => { setSelectedArticulo(String(row.articulo)); setSelectedArticuloRef(String(row.referencia ?? "")); }}
-                              >
-                                <TableCell className="min-w-[320px] font-medium">{String(row.articulo)}</TableCell>
-                                <TableCell className="text-right tabular-nums">{formatKg(Number(row.kilos))}</TableCell>
-                                <TableCell className="text-right tabular-nums">{formatNumber(Number(row.pm_bruto ?? row.pm_venta ?? 0), 3)} EUR/kg</TableCell>
-                                <TableCell className="text-right tabular-nums">{formatNumber(Number(row.lineas))}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </CardContent>
-                    </Card>
-                  ))}
+                <div className="space-y-4">
+                  <section className="grid gap-3 md:grid-cols-4">
+                    <Kpi title="Articulos" value={formatNumber(totalArticulos)} />
+                    <Kpi title="Referencias" value={formatNumber(totalRefs)} />
+                    <Kpi title="Kilos total" value={formatKg(totalKilos)} />
+                    <Kpi title="PM medio" value={`${formatNumber(pmMedio, 3)} EUR/kg`} />
+                  </section>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      className="pl-9"
+                      placeholder="Buscar articulo..."
+                      value={articuloSearch}
+                      onChange={(e) => { setArticuloSearch(e.target.value); setArticuloLimit(10); }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    {limited.map((group) => {
+                      const expanded = expandedRefs.has(group.referencia);
+                      return (
+                        <Card key={group.referencia} className="glass-accented overflow-hidden">
+                          <CardHeader
+                            className="cursor-pointer py-3 px-4 hover:bg-[var(--glass-bg-strong)]"
+                            onClick={() => {
+                              const next = new Set(expandedRefs);
+                              if (expanded) next.delete(group.referencia);
+                              else next.add(group.referencia);
+                              setExpandedRefs(next);
+                            }}
+                          >
+                            <div className="flex items-center justify-between">
+                              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                                {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                {group.referencia}
+                              </CardTitle>
+                              <div className="flex items-center gap-4 text-xs text-muted-foreground tabular-nums">
+                                <span>{group.articulos.length} articulos</span>
+                                <span>{formatKg(group.totalKilos)}</span>
+                              </div>
+                            </div>
+                          </CardHeader>
+                          {expanded && (
+                            <CardContent className="p-0">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Articulo</TableHead>
+                                    <TableHead className="text-right">Kilos</TableHead>
+                                    <TableHead className="text-right">PM</TableHead>
+                                    <TableHead className="text-right">Lineas</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {group.articulos.sort((a, b) => Number(b.kilos ?? 0) - Number(a.kilos ?? 0)).map((row) => (
+                                    <TableRow
+                                      key={`${row.referencia}-${row.articulo}`}
+                                      className="cursor-pointer hover:bg-[var(--glass-bg-strong)]"
+                                      onClick={() => { setSelectedArticulo(String(row.articulo)); setSelectedArticuloRef(String(row.referencia ?? "")); }}
+                                    >
+                                      <TableCell className="min-w-[320px] font-medium">{String(row.articulo)}</TableCell>
+                                      <TableCell className="text-right tabular-nums">{formatKg(Number(row.kilos))}</TableCell>
+                                      <TableCell className="text-right tabular-nums">{formatNumber(Number(row.pm_bruto ?? row.pm_venta ?? 0), 3)} EUR/kg</TableCell>
+                                      <TableCell className="text-right tabular-nums">{formatNumber(Number(row.lineas))}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </CardContent>
+                          )}
+                        </Card>
+                      );
+                    })}
+                  </div>
+                  {hasMore && (
+                    <div className="text-center">
+                      <Button variant="outline" size="sm" onClick={() => setArticuloLimit(9999)}>
+                        Mostrar todos ({sortedGroups.length} referencias)
+                      </Button>
+                    </div>
+                  )}
                 </div>
               );
             })()
@@ -667,21 +785,6 @@ function Kpi({ title, value }: { title: string; value: string }) {
         <p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>
       </CardContent>
     </Card>
-  );
-}
-
-function StatusItem({ label, value, loading = false, tone = "neutral" }: { label: string; value: string; loading?: boolean; tone?: "neutral" | "ok" | "warn" }) {
-  const toneClass = tone === "ok"
-    ? "text-success"
-    : tone === "warn"
-      ? "text-warning"
-      : "text-foreground";
-
-  return (
-    <div className="rounded-md border border-[var(--glass-border)] bg-background/60 px-3 py-2">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className={`mt-1 text-lg font-bold tabular-nums ${toneClass}`}>{loading ? "..." : value}</p>
-    </div>
   );
 }
 
@@ -798,11 +901,15 @@ function pivotMonthlyProducts(rows: Array<Record<string, unknown>>, methods: str
   return Array.from(map.values()).sort((a, b) => String(a.mes).localeCompare(String(b.mes)));
 }
 
-function catalogoIsValid(rows: Array<Record<string, unknown>>) {
-  const diferenciaTotal = rows.reduce((total, row) => total + Number(row.diferencia_kilos ?? 0), 0);
-  return rows.length > 0 && Math.abs(diferenciaTotal) < 0.01;
-}
-
 function shortName(value: string, max = 22) {
   return value.length > max ? `${value.slice(0, max - 1)}...` : value;
+}
+
+function formatMonthLabel(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return value || "Sin datos";
+  const monthNames = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+  const month = Number(match[2]);
+  if (month < 1 || month > 12) return value;
+  return `${monthNames[month - 1]} ${match[1]}`;
 }

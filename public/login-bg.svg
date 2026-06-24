@@ -1,0 +1,205 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FEF9E7"/>
+      <stop offset="40%" stop-color="#FFF3D6"/>
+      <stop offset="100%" stop-color="#F5E6C8"/>
+    </linearGradient>
+    <linearGradient id="groundGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#D4C5A9"/>
+      <stop offset="100%" stop-color="#A89A7A"/>
+    </linearGradient>
+    <radialGradient id="orange1" cx="50%" cy="40%" r="50%">
+      <stop offset="0%" stop-color="#FBBF24"/>
+      <stop offset="60%" stop-color="#F97316"/>
+      <stop offset="100%" stop-color="#EA580C"/>
+    </radialGradient>
+    <radialGradient id="orange2" cx="50%" cy="40%" r="50%">
+      <stop offset="0%" stop-color="#FDE68A"/>
+      <stop offset="50%" stop-color="#FB923C"/>
+      <stop offset="100%" stop-color="#EA580C"/>
+    </radialGradient>
+    <radialGradient id="orange3" cx="50%" cy="40%" r="50%">
+      <stop offset="0%" stop-color="#FDBA74"/>
+      <stop offset="60%" stop-color="#F97316"/>
+      <stop offset="100%" stop-color="#C2410C"/>
+    </radialGradient>
+    <linearGradient id="leafGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4A7C3F"/>
+      <stop offset="100%" stop-color="#2D5A27"/>
+    </linearGradient>
+    <linearGradient id="leafGrad2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5C8D4F"/>
+      <stop offset="100%" stop-color="#3D6E32"/>
+    </linearGradient>
+    <filter id="softGlow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="bigGlow">
+      <feGaussianBlur stdDeviation="40"/>
+    </filter>
+    <filter id="warmGlow">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Sky -->
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+
+  <!-- Warm sun glow -->
+  <ellipse cx="1200" cy="200" rx="600" ry="400" fill="#FDE68A" opacity="0.3" filter="url(#bigGlow)"/>
+  <ellipse cx="1200" cy="180" rx="200" ry="160" fill="#FDBA74" opacity="0.15" filter="url(#bigGlow)"/>
+
+  <!-- Ground -->
+  <ellipse cx="960" cy="1200" rx="1200" ry="400" fill="url(#groundGrad)" opacity="0.4"/>
+
+  <!-- Distant tree silhouettes -->
+  <g opacity="0.15">
+    <!-- Far tree 1 -->
+    <path d="M150,600 Q160,500 180,480 Q200,460 210,480 Q230,500 240,520 Q250,540 250,600 Z" fill="#5C7A4A"/>
+    <circle cx="195" cy="490" r="40" fill="#5C7A4A" opacity="0.6"/>
+    <circle cx="210" cy="475" r="30" fill="#6B8C56" opacity="0.5"/>
+
+    <!-- Far tree 2 -->
+    <path d="M400,620 Q415,510 435,490 Q455,470 465,490 Q485,510 495,540 Q500,560 500,620 Z" fill="#4D6E3E"/>
+    <circle cx="445" cy="500" r="45" fill="#4D6E3E" opacity="0.6"/>
+    <circle cx="460" cy="485" r="32" fill="#5A8048" opacity="0.5"/>
+
+    <!-- Far tree 3 -->
+    <path d="M1550,590 Q1565,480 1585,460 Q1605,440 1615,460 Q1635,480 1645,510 Q1650,530 1650,590 Z" fill="#5C7A4A"/>
+    <circle cx="1595" cy="470" r="42" fill="#5C7A4A" opacity="0.6"/>
+
+    <!-- Far tree 4 -->
+    <path d="M1720,610 Q1730,520 1745,505 Q1760,490 1770,505 Q1785,520 1790,540 Q1795,560 1795,610 Z" fill="#4D6E3E"/>
+    <circle cx="1755" cy="510" r="32" fill="#4D6E3E" opacity="0.6"/>
+  </g>
+
+  <!-- Mid-ground citrus trees -->
+  <g opacity="0.25">
+    <!-- Tree canopy clusters -->
+    <circle cx="100" cy="520" r="70" fill="#4A7C3F"/>
+    <circle cx="150" cy="490" r="55" fill="#5C8D4F"/>
+    <circle cx="60" cy="510" r="45" fill="#3D6E32"/>
+    <circle cx="180" cy="540" r="40" fill="#5C8D4F" opacity="0.7"/>
+
+    <circle cx="450" cy="550" r="65" fill="#4A7C3F"/>
+    <circle cx="500" cy="520" r="50" fill="#5C8D4F"/>
+    <circle cx="410" cy="530" r="40" fill="#3D6E32"/>
+
+    <circle cx="1400" cy="530" r="75" fill="#4A7C3F"/>
+    <circle cx="1460" cy="500" r="55" fill="#5C8D4F"/>
+    <circle cx="1360" cy="520" r="45" fill="#3D6E32"/>
+
+    <circle cx="1650" cy="550" r="60" fill="#4A7C3F"/>
+    <circle cx="1700" cy="520" r="45" fill="#5C8D4F"/>
+
+    <circle cx="300" cy="580" r="55" fill="#4A7C3F"/>
+    <circle cx="250" cy="560" r="40" fill="#5C8D4F"/>
+
+    <circle cx="750" cy="560" r="80" fill="#4A7C3F"/>
+    <circle cx="700" cy="530" r="55" fill="#5C8D4F"/>
+    <circle cx="810" cy="540" r="45" fill="#3D6E32"/>
+
+    <circle cx="1100" cy="550" r="70" fill="#4A7C3F"/>
+    <circle cx="1050" cy="520" r="50" fill="#5C8D4F"/>
+    <circle cx="1150" cy="530" r="40" fill="#3D6E32"/>
+  </g>
+
+  <!-- Foreground large citrus tree (left side) -->
+  <g opacity="0.35">
+    <!-- Trunk -->
+    <path d="M240,680 Q245,600 250,560 Q255,530 260,510" stroke="#7C6B4A" stroke-width="14" fill="none" stroke-linecap="round"/>
+    <path d="M245,680 Q250,610 255,570 Q258,540 262,520" stroke="#8C7B5A" stroke-width="8" fill="none" stroke-linecap="round" opacity="0.6"/>
+
+    <!-- Branches -->
+    <path d="M260,510 Q290,480 330,460" stroke="#7C6B4A" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <path d="M258,520 Q220,490 180,475" stroke="#7C6B4A" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <path d="M255,540 Q230,520 200,510" stroke="#7C6B4A" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+    <!-- Canopy -->
+    <circle cx="260" cy="470" r="75" fill="url(#leafGrad)" opacity="0.7"/>
+    <circle cx="320" cy="455" r="55" fill="url(#leafGrad2)" opacity="0.6"/>
+    <circle cx="200" cy="465" r="50" fill="url(#leafGrad)" opacity="0.5"/>
+    <circle cx="260" cy="430" r="45" fill="url(#leafGrad2)" opacity="0.5"/>
+    <circle cx="220" cy="450" r="35" fill="url(#leafGrad)" opacity="0.6"/>
+
+    <!-- Oranges on tree -->
+    <circle cx="285" cy="445" r="10" fill="url(#orange1)" filter="url(#softGlow)"/>
+    <circle cx="310" cy="460" r="8" fill="url(#orange2)" filter="url(#softGlow)"/>
+    <circle cx="245" cy="440" r="9" fill="url(#orange3)" filter="url(#softGlow)"/>
+    <circle cx="220" cy="455" r="8" fill="url(#orange1)" filter="url(#softGlow)"/>
+    <circle cx="270" cy="420" r="7" fill="url(#orange2)" filter="url(#softGlow)"/>
+    <circle cx="200" cy="470" r="9" fill="url(#orange3)" filter="url(#softGlow)"/>
+  </g>
+
+  <!-- Foreground citrus tree (right side) -->
+  <g opacity="0.35">
+    <!-- Trunk -->
+    <path d="M1650,650 Q1645,580 1640,540 Q1638,510 1635,490" stroke="#7C6B4A" stroke-width="12" fill="none" stroke-linecap="round"/>
+    <path d="M1648,650 Q1643,590 1638,550 Q1636,520 1633,500" stroke="#8C7B5A" stroke-width="7" fill="none" stroke-linecap="round" opacity="0.6"/>
+
+    <!-- Branches -->
+    <path d="M1635,490 Q1600,460 1560,445" stroke="#7C6B4A" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <path d="M1633,500 Q1660,470 1700,455" stroke="#7C6B4A" stroke-width="5" fill="none" stroke-linecap="round"/>
+
+    <!-- Canopy -->
+    <circle cx="1635" cy="450" r="70" fill="url(#leafGrad)" opacity="0.7"/>
+    <circle cx="1560" cy="435" r="50" fill="url(#leafGrad2)" opacity="0.6"/>
+    <circle cx="1700" cy="445" r="45" fill="url(#leafGrad)" opacity="0.5"/>
+    <circle cx="1635" cy="415" r="40" fill="url(#leafGrad2)" opacity="0.5"/>
+
+    <!-- Oranges -->
+    <circle cx="1605" cy="435" r="9" fill="url(#orange1)" filter="url(#softGlow)"/>
+    <circle cx="1580" cy="450" r="8" fill="url(#orange2)" filter="url(#softGlow)"/>
+    <circle cx="1655" cy="425" r="8" fill="url(#orange3)" filter="url(#softGlow)"/>
+    <circle cx="1680" cy="445" r="7" fill="url(#orange1)" filter="url(#softGlow)"/>
+  </g>
+
+  <!-- Floating oranges on ground -->
+  <g filter="url(#warmGlow)" opacity="0.3">
+    <circle cx="120" cy="650" r="14" fill="url(#orange1)"/>
+    <circle cx="350" cy="670" r="12" fill="url(#orange2)"/>
+    <circle cx="550" cy="640" r="10" fill="url(#orange3)"/>
+    <circle cx="680" cy="660" r="13" fill="url(#orange1)"/>
+    <circle cx="900" cy="645" r="11" fill="url(#orange2)"/>
+    <circle cx="1250" cy="655" r="12" fill="url(#orange3)"/>
+    <circle cx="1480" cy="640" r="10" fill="url(#orange1)"/>
+    <circle cx="1580" cy="665" r="11" fill="url(#orange2)"/>
+    <circle cx="1780" cy="650" r="13" fill="url(#orange3)"/>
+  </g>
+
+  <!-- Fallen oranges scattered -->
+  <g opacity="0.2">
+    <circle cx="200" cy="690" r="8" fill="url(#orange1)"/>
+    <circle cx="420" cy="700" r="7" fill="url(#orange2)"/>
+    <circle cx="600" cy="685" r="6" fill="url(#orange3)"/>
+    <circle cx="850" cy="710" r="8" fill="url(#orange1)"/>
+    <circle cx="1050" cy="695" r="7" fill="url(#orange2)"/>
+    <circle cx="1300" cy="705" r="6" fill="url(#orange3)"/>
+    <circle cx="1550" cy="690" r="8" fill="url(#orange1)"/>
+    <circle cx="1750" cy="700" r="7" fill="url(#orange2)"/>
+  </g>
+
+  <!-- Light beams from sun -->
+  <g opacity="0.08">
+    <polygon points="1200,180 500,1080 600,1080" fill="#FDE68A"/>
+    <polygon points="1200,180 800,1080 900,1080" fill="#FDE68A"/>
+    <polygon points="1200,180 1500,1080 1600,1080" fill="#FDE68A"/>
+    <polygon points="1200,180 1700,1080 1800,1080" fill="#FDE68A"/>
+  </g>
+
+  <!-- Subtle vignette -->
+  <radialGradient id="vignette" cx="50%" cy="50%" r="70%">
+    <stop offset="0%" stop-color="transparent"/>
+    <stop offset="100%" stop-color="rgba(15,10,5,0.15)"/>
+  </radialGradient>
+  <rect width="1920" height="1080" fill="url(#vignette)"/>
+</svg>

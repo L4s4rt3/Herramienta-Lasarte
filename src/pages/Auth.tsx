@@ -1,15 +1,10 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthProvider";
-import { Citrus, ShieldCheck } from "lucide-react";
-import { useI18n } from "@/lib/i18n";
 import { z } from "zod";
 
 const emailSchema = z.string().trim().email().max(255);
@@ -23,11 +18,12 @@ function getErrorMessage(err: unknown, fallback: string) {
 export default function Auth() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { t } = useI18n();
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
   useEffect(() => {
     if (user) navigate("/", { replace: true });
@@ -41,6 +37,12 @@ export default function Auth() {
       passwordSchema.parse(password);
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
+      if (!rememberMe) {
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const key = localStorage.key(i);
+          if (key?.startsWith("sb-")) localStorage.removeItem(key);
+        }
+      }
       navigate("/", { replace: true });
     } catch (err: unknown) {
       toast({
@@ -84,106 +86,289 @@ export default function Auth() {
     }
   }
 
-  async function handleGoogle() {
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/` },
-    });
-  }
+  const particles = [
+    { size: 16, left: "8%", top: "15%", delay: "0s", duration: "18s", color: "rgba(249,115,22,0.12)" },
+    { size: 40, left: "15%", top: "60%", delay: "-3s", duration: "22s", color: "rgba(138,154,91,0.10)" },
+    { size: 24, left: "28%", top: "30%", delay: "-6s", duration: "16s", color: "rgba(249,115,22,0.08)" },
+    { size: 56, left: "35%", top: "75%", delay: "-9s", duration: "24s", color: "rgba(23,58,39,0.08)" },
+    { size: 12, left: "5%", top: "85%", delay: "-4s", duration: "20s", color: "rgba(138,154,91,0.12)" },
+    { size: 32, left: "22%", top: "10%", delay: "-7s", duration: "19s", color: "rgba(249,115,22,0.06)" },
+    { size: 48, left: "12%", top: "45%", delay: "-2s", duration: "26s", color: "rgba(23,58,39,0.06)" },
+    { size: 20, left: "30%", top: "90%", delay: "-5s", duration: "17s", color: "rgba(249,115,22,0.09)" },
+  ];
+
+  const inputStyle: React.CSSProperties = {
+    border: "1.5px solid var(--auth-border)",
+    borderRadius: "10px",
+    backgroundColor: "#fff",
+    padding: "12px 16px",
+    fontSize: "15px",
+    color: "var(--auth-text)",
+    transition: "border-color 0.3s, box-shadow 0.3s",
+  };
 
   return (
-    <div className="grid min-h-screen bg-[var(--color-bg)] lg:grid-cols-[1fr_480px]">
-      <section className="hidden border-r bg-sidebar p-10 text-sidebar-foreground lg:flex lg:flex-col lg:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground shadow-[var(--glass-shadow-lg)]">
-            <Citrus className="h-6 w-6" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold">{t("app_name")}</p>
-            <p className="text-xs text-sidebar-foreground/55">Dashboard</p>
-          </div>
-        </div>
+    <div className="relative h-screen overflow-hidden bg-[#0F1A12]">
+      {/* Ken Burns background photo */}
+      <img
+        src="/login-bg.png"
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover animate-ken-burns"
+      />
 
-        <div className="max-w-xl">
-          <div className="mb-5 inline-flex items-center gap-2 rounded-xl border border-sidebar-border bg-sidebar-accent/50 px-3 py-1 text-xs font-medium text-sidebar-foreground/80">
-            <ShieldCheck className="h-3.5 w-3.5 text-sidebar-primary" />
-            Acceso seguro
-          </div>
-          <h1 className="text-4xl font-semibold tracking-tight">
-            Dashboard citrícola.
-          </h1>
-          <p className="mt-4 text-sm leading-6 text-sidebar-foreground/68">
-            Producción diaria, DJPMN, stock, consumos y asistencia en una herramienta de control para planta.
-          </p>
-        </div>
+      {/* Dark gradient overlay */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background: "linear-gradient(90deg, rgba(15,26,18,0.75) 0%, rgba(15,26,18,0.30) 40%, rgba(15,26,18,0.05) 65%)",
+        }}
+      />
 
-        <p className="text-xs text-sidebar-foreground/45">Lasarte SAT</p>
-      </section>
+      {/* Floating particles */}
+      {particles.map((p, i) => (
+        <div
+          key={i}
+          className="absolute rounded-full animate-particle"
+          style={{
+            width: p.size,
+            height: p.size,
+            left: p.left,
+            top: p.top,
+            backgroundColor: p.color,
+            animationDelay: p.delay,
+            animationDuration: p.duration,
+            filter: "blur(2px)",
+          }}
+        />
+      ))}
 
-      <div className="flex min-h-screen items-center justify-center p-4 sm:p-8">
-        <Card className="w-full max-w-md shadow-[var(--shadow-elegant)]">
-          <CardHeader className="text-center">
-            <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-[var(--shadow-elegant)] lg:hidden">
-              <Citrus className="h-6 w-6" />
+      {/* Left column - Form */}
+      <div className="absolute inset-y-0 left-0 flex w-full items-center justify-center lg:w-[520px]">
+        <div
+          className="relative w-full max-w-[460px] rounded-2xl px-10 py-12 shadow-2xl mx-6 animate-fade-slide-up"
+          style={{
+            backgroundColor: "rgba(248, 246, 239, 0.93)",
+            backdropFilter: "blur(20px)",
+            WebkitBackdropFilter: "blur(20px)",
+          }}
+        >
+          {/* Accent top bar */}
+          <div
+            className="absolute top-0 left-6 right-6 h-[2px] rounded-full"
+            style={{
+              background: "linear-gradient(90deg, transparent, #F97316, transparent)",
+            }}
+          />
+
+          {/* Brand */}
+          <div className="mb-6 flex items-center gap-3 form-stagger-1">
+            <img
+              src="/logo.jpg"
+              alt="Lasarte SAT"
+              width={44}
+              height={44}
+              style={{ borderRadius: "10px" }}
+            />
+            <div>
+              <p className="text-base font-semibold" style={{ color: "var(--auth-text)" }}>
+                Lasarte SAT
+              </p>
+              <p className="text-xs" style={{ color: "var(--auth-muted)" }}>
+                Control de producción citrícola
+              </p>
             </div>
-            <CardTitle>{t("app_name")}</CardTitle>
-            <CardDescription>Dashboard citrícola</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="signin">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="signin">{t("login")}</TabsTrigger>
-                <TabsTrigger value="signup">{t("signup")}</TabsTrigger>
-              </TabsList>
+          </div>
 
-              <TabsContent value="signin">
-                <form onSubmit={handleSignIn} className="space-y-4 mt-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="email">{t("email")}</Label>
-                    <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="password">{t("password")}</Label>
-                    <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-                  </div>
-                  <Button type="submit" className="w-full glass glass-hover" disabled={loading}>
-                    {loading ? "..." : t("login")}
-                  </Button>
-                </form>
-              </TabsContent>
+          {/* Title */}
+          <div className="form-stagger-2">
+            <h1 className="mb-1 text-[28px] font-semibold" style={{ color: "var(--auth-text)", letterSpacing: "-0.3px" }}>
+              Bienvenido
+            </h1>
+            <p className="mb-8 text-sm" style={{ color: "var(--auth-muted)" }}>
+              Accede al panel de control de producción
+            </p>
+          </div>
 
-              <TabsContent value="signup">
-                <form onSubmit={handleSignUp} className="space-y-4 mt-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">{t("full_name")}</Label>
-                    <Input id="name" value={fullName} onChange={(e) => setFullName(e.target.value)} required maxLength={100} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="email2">{t("email")}</Label>
-                    <Input id="email2" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="password2">{t("password")}</Label>
-                    <Input id="password2" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
-                  </div>
-                  <Button type="submit" className="w-full glass glass-hover" disabled={loading}>
-                    {loading ? "..." : t("signup")}
-                  </Button>
-                </form>
-              </TabsContent>
-            </Tabs>
-
-            <div className="relative my-6">
-              <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-[var(--glass-bg-strong)] px-2 text-muted-foreground backdrop-blur-sm">o</span>
+          {/* Form */}
+          {!isSignUp ? (
+            <form onSubmit={handleSignIn} className="space-y-5">
+              <div className="space-y-2 form-stagger-3">
+                <Label className="text-sm font-medium" style={{ color: "var(--auth-text)" }}>Correo electrónico</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="h-12 transition-shadow duration-300 focus:shadow-[0_0_0_4px_rgba(249,115,22,0.15)]"
+                  style={inputStyle}
+                  onFocus={(e) => { e.target.style.borderColor = "#F97316"; e.target.style.boxShadow = "0 0 0 4px rgba(249,115,22,0.15)"; }}
+                  onBlur={(e) => { e.target.style.borderColor = "var(--auth-border)"; e.target.style.boxShadow = "none"; }}
+                />
               </div>
-            </div>
-            <Button variant="outline" className="glass glass-hover w-full" onClick={handleGoogle}>
-              Continuar con Google
-            </Button>
-          </CardContent>
-        </Card>
+              <div className="space-y-2 form-stagger-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium" style={{ color: "var(--auth-text)" }}>Contraseña</Label>
+                  <button
+                    type="button"
+                    className="text-xs font-medium transition-colors hover:brightness-110"
+                    style={{ color: "var(--auth-orange)" }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      toast({
+                        title: "Restablecer contraseña",
+                        description: "Funcionalidad próximamente.",
+                      });
+                    }}
+                  >
+                    ¿Olvidaste tu contraseña?
+                  </button>
+                </div>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="h-12 transition-shadow duration-300"
+                  style={inputStyle}
+                  onFocus={(e) => { e.target.style.borderColor = "#F97316"; e.target.style.boxShadow = "0 0 0 4px rgba(249,115,22,0.15)"; }}
+                  onBlur={(e) => { e.target.style.borderColor = "var(--auth-border)"; e.target.style.boxShadow = "none"; }}
+                />
+              </div>
+              <div className="flex items-center gap-2 form-stagger-4">
+                <input
+                  id="remember"
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="h-4 w-4 rounded transition-transform duration-200 active:scale-90"
+                  style={{ accentColor: "var(--auth-orange)" }}
+                />
+                <Label htmlFor="remember" className="text-sm font-normal" style={{ color: "var(--auth-muted)" }}>
+                  Recordarme
+                </Label>
+              </div>
+              <div className="form-stagger-5">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="relative h-12 w-full overflow-hidden rounded-[10px] text-base font-semibold text-white transition-all duration-200 hover:brightness-110 active:scale-[0.98]"
+                  style={{ backgroundColor: "var(--auth-orange)" }}
+                >
+                  {loading ? "..." : "Iniciar sesión"}
+                  {!loading && (
+                    <span
+                      className="absolute inset-0 animate-shimmer"
+                      style={{
+                        background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent)",
+                      }}
+                    />
+                  )}
+                </button>
+              </div>
+
+              <p className="text-center text-sm form-stagger-6" style={{ color: "var(--auth-muted)" }}>
+                ¿No tienes cuenta?{" "}
+                <button
+                  type="button"
+                  className="font-medium transition-colors hover:brightness-110"
+                  style={{ color: "var(--auth-orange)" }}
+                  onClick={() => setIsSignUp(true)}
+                >
+                  Crear cuenta
+                </button>
+              </p>
+            </form>
+          ) : (
+            <form onSubmit={handleSignUp} className="space-y-5">
+              <div className="space-y-2 form-stagger-3">
+                <Label className="text-sm font-medium" style={{ color: "var(--auth-text)" }}>Nombre completo</Label>
+                <Input
+                  id="name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  required
+                  maxLength={100}
+                  className="h-12 transition-shadow duration-300"
+                  style={inputStyle}
+                  onFocus={(e) => { e.target.style.borderColor = "#F97316"; e.target.style.boxShadow = "0 0 0 4px rgba(249,115,22,0.15)"; }}
+                  onBlur={(e) => { e.target.style.borderColor = "var(--auth-border)"; e.target.style.boxShadow = "none"; }}
+                />
+              </div>
+              <div className="space-y-2 form-stagger-3">
+                <Label className="text-sm font-medium" style={{ color: "var(--auth-text)" }}>Correo electrónico</Label>
+                <Input
+                  id="email2"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="h-12 transition-shadow duration-300"
+                  style={inputStyle}
+                  onFocus={(e) => { e.target.style.borderColor = "#F97316"; e.target.style.boxShadow = "0 0 0 4px rgba(249,115,22,0.15)"; }}
+                  onBlur={(e) => { e.target.style.borderColor = "var(--auth-border)"; e.target.style.boxShadow = "none"; }}
+                />
+              </div>
+              <div className="space-y-2 form-stagger-3">
+                <Label className="text-sm font-medium" style={{ color: "var(--auth-text)" }}>Contraseña</Label>
+                <Input
+                  id="password2"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  className="h-12 transition-shadow duration-300"
+                  style={inputStyle}
+                  onFocus={(e) => { e.target.style.borderColor = "#F97316"; e.target.style.boxShadow = "0 0 0 4px rgba(249,115,22,0.15)"; }}
+                  onBlur={(e) => { e.target.style.borderColor = "var(--auth-border)"; e.target.style.boxShadow = "none"; }}
+                />
+              </div>
+              <div className="form-stagger-5">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="relative h-12 w-full overflow-hidden rounded-[10px] text-base font-semibold text-white transition-all duration-200 hover:brightness-110 active:scale-[0.98]"
+                  style={{ backgroundColor: "var(--auth-orange)" }}
+                >
+                  {loading ? "..." : "Crear cuenta"}
+                  {!loading && (
+                    <span
+                      className="absolute inset-0 animate-shimmer"
+                      style={{
+                        background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent)",
+                      }}
+                    />
+                  )}
+                </button>
+              </div>
+
+              <p className="text-center text-sm form-stagger-6" style={{ color: "var(--auth-muted)" }}>
+                ¿Ya tienes cuenta?{" "}
+                <button
+                  type="button"
+                  className="font-medium transition-colors hover:brightness-110"
+                  style={{ color: "var(--auth-orange)" }}
+                  onClick={() => setIsSignUp(false)}
+                >
+                  Iniciar sesión
+                </button>
+              </p>
+            </form>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom-right info */}
+      <div className="pointer-events-none absolute bottom-0 right-0 hidden animate-fade-in p-8 lg:block" style={{ animationDelay: "1s" }}>
+        <p className="text-sm leading-relaxed text-white/90 max-w-[280px] mb-6">
+          Producción diaria, DJPMN, stock, consumos y asistencia en una sola herramienta de control para planta.
+        </p>
+        <div className="flex items-center justify-between gap-6">
+          <span className="text-xs text-white/60">&copy; 2026 Lasarte SAT</span>
+          <span className="text-xs text-white/60">Contacto &middot; Documentaci&oacute;n</span>
+        </div>
       </div>
     </div>
   );

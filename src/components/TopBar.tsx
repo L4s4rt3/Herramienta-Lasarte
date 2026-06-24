@@ -53,6 +53,12 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/",
     parentLabel: "Operaciones",
   },
+  "/ventas/categoria-segunda": {
+    label: "Categoria segunda",
+    subtitle: "Ventas por cliente, producto, articulo, precio medio y ajustes reales de comision/transporte.",
+    parent: "/",
+    parentLabel: "Comercial",
+  },
 };
 
 function TopBar() {

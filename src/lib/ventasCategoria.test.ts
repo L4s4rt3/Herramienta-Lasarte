@@ -7,6 +7,7 @@ import {
   calcularPmVenta,
   calcularPrecioReal,
   buildVentasCategoriaFilterOptions,
+  buildVentasCategoriaDashboardKpis,
   normalizeVentasCategoriaLinea,
   parseVentasCategoriaWorkbookRows,
   validateVentasCategoriaImport,
@@ -77,6 +78,36 @@ describe("ventas categoria helpers", () => {
     expect(result.productos.map((row) => row.kilos).reduce((sum, kg) => sum + kg, 0)).toBe(150);
     expect(result.articulos.map((row) => row.kilos).reduce((sum, kg) => sum + kg, 0)).toBe(150);
     expect(result.mensualCliente[0]).toMatchObject({ mes: "2025-10", cliente_codigo: "C001", kilos: 100 });
+  });
+
+  it("construye KPIs ejecutivos para el dashboard de categoria segunda", () => {
+    const kpis = buildVentasCategoriaDashboardKpis({
+      resumen: {
+        kilos: 300,
+        base_iva: 210,
+        pm_venta: 0.7,
+        clientes: 3,
+        productos: 2,
+        articulos: 5,
+      },
+      clientes: [
+        { key: "C001", cliente_codigo: "C001", cliente_nombre: "Cliente Uno", kilos: 180, base_iva: 126, pm_venta: 0.7, lineas: 6 },
+        { key: "C002", cliente_codigo: "C002", cliente_nombre: "Cliente Dos", kilos: 90, base_iva: 63, pm_venta: 0.7, lineas: 3 },
+        { key: "C003", cliente_codigo: "C003", cliente_nombre: "Cliente Tres", kilos: 30, base_iva: 21, pm_venta: 0.7, lineas: 1 },
+      ],
+      monthlyTotals: [
+        { mes: "2025-10", kilos: 80, base: 56, pm: 0.7 },
+        { mes: "2025-11", kilos: 220, base: 154, pm: 0.7 },
+      ],
+    });
+
+    expect(kpis.totalLineas).toBe(10);
+    expect(kpis.topCliente).toMatchObject({ codigo: "C001", nombre: "Cliente Uno", kilos: 180, cuotaPct: 60 });
+    expect(kpis.mejorMes).toMatchObject({ mes: "2025-11", kilos: 220 });
+    expect(kpis.mesesActivos).toBe(2);
+    expect(kpis.kilosPorCliente).toBe(100);
+    expect(kpis.eurosPorLinea).toBe(21);
+    expect(kpis.articulosPorProducto).toBe(2.5);
   });
 
   it("valida que lineas y catalogo cuadren por kilos y base IVA", () => {
