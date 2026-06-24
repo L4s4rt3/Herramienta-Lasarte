@@ -1,4 +1,4 @@
-import { Bar, BarChart, ResponsiveContainer } from "recharts";
+import { Bar, BarChart, ResponsiveContainer, YAxis } from "recharts";
 
 interface SparklinePoint {
   mes: string;
@@ -23,6 +23,7 @@ export function SparklineCell({ data, maxKilos, width = 80, height = 24 }: Spark
     <div style={{ width, height }} title={`Tendencia: ${trend > 0 ? "subiendo" : trend < 0 ? "bajando" : "estable"}`}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+          <YAxis domain={[0, max]} hide />
           <Bar dataKey="kilos" fill={color} radius={[1, 1, 0, 0]} maxBarSize={6} />
         </BarChart>
       </ResponsiveContainer>
