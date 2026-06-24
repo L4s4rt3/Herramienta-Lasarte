@@ -212,6 +212,22 @@ export function useVentasCategoria() {
     staleTime: 5 * 60 * 1000,
   });
 
+  const allLinesQuery = useQuery({
+    queryKey: [...baseKey, categoriaId, "all-lines"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("ventas_categoria_lineas")
+        .select("*")
+        .eq("categoria_id", categoriaId)
+        .order("fecha", { ascending: false })
+        .limit(20000);
+      if (error) throw toError(error);
+      return (data ?? []) as VentasCategoriaLineaRow[];
+    },
+    enabled: Boolean(user && categoriaId && hasAccess),
+    staleTime: 5 * 60 * 1000,
+  });
+
   const updateAjuste = useMutation({
     mutationFn: async (input: VentasCategoriaAjusteInput) => {
       if (!categoriaId || !hasAccess) throw new Error("No tienes acceso a esta seccion.");
@@ -294,6 +310,7 @@ export function useVentasCategoria() {
     ajustesQuery,
     validacionQuery,
     filterOptionsQuery,
+    allLinesQuery,
     updateAjuste,
     importWorkbook,
   };
