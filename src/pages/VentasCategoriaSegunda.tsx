@@ -45,6 +45,7 @@ export default function VentasCategoriaSegunda() {
   const [selectedArticulo, setSelectedArticulo] = useState<string | null>(null);
   const [selectedArticuloRef, setSelectedArticuloRef] = useState<string | null>(null);
   const [clientesView, setClientesView] = useState("kilos");
+  const [clienteSearch, setClienteSearch] = useState("");
 
   const resumen = ventas.resumenQuery.data;
   const rankingClientes = ventas.rankingClientesQuery.data ?? EMPTY_ROWS;
@@ -371,6 +372,14 @@ export default function VentasCategoriaSegunda() {
                 <Card className="glass-accented overflow-hidden">
                   <CardHeader className="pb-0">
                     <CardTitle className="text-base">Todos los clientes</CardTitle>
+                    <div className="mt-2">
+                      <Input
+                        placeholder="Buscar por nombre de cliente..."
+                        value={clienteSearch}
+                        onChange={(e) => setClienteSearch(e.target.value)}
+                        className="max-w-sm"
+                      />
+                    </div>
                   </CardHeader>
                   <CardContent className="p-0">
                     <div className="max-h-[800px] overflow-auto">
@@ -386,7 +395,12 @@ export default function VentasCategoriaSegunda() {
                         <TableBody>
                           {[...displayRanking].sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
                             Number(b.kilos ?? 0) - Number(a.kilos ?? 0)
-                          ).map((row) => (
+                          ).filter((row) => {
+                            const nombre = String(row.cliente_nombre ?? "").toLowerCase();
+                            const codigo = String(row.cliente_codigo ?? "").toLowerCase();
+                            const q = clienteSearch.toLowerCase();
+                            return !q || nombre.includes(q) || codigo.includes(q);
+                          }).map((row) => (
                             <TableRow
                               key={String(row.cliente_codigo)}
                               className="cursor-pointer hover:bg-[var(--glass-bg-strong)]"
