@@ -2,32 +2,33 @@ import { useMemo, useState, type ChangeEvent } from "react";
 import {
   Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { AlertTriangle, CheckCircle2, Database, FileSpreadsheet, Save, Search, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Database, FileSpreadsheet, Save, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
-import { useVentasCategoria, useVentasCategoriaDetalle, type VentasCategoriaAjusteInput } from "@/hooks/useVentasCategoria";
+import { useVentasCategoria, type VentasCategoriaAjusteInput } from "@/hooks/useVentasCategoria";
 import { parseVentasCategoriaExcelFile } from "@/lib/ventasCategoriaExcel";
+import { VentasCategoriaFilterBar } from "@/components/VentasCategoriaFilterBar";
+import { applyVentasCategoriaFilters, aggregateVentasCategoria } from "@/lib/ventasCategoria";
 import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatKg, formatNumber } from "@/lib/format";
 import {
   BAR_STYLE, C, CHART_LINE_CURSOR, CHART_PANEL_CLASS, GlassTooltip, GRID, legendStyle, lineStyle, MARGIN, SERIES_PALETTE, XAXIS, YAXIS,
 } from "@/lib/chartTheme";
 import type { ParseVentasCategoriaWorkbookResult } from "@/lib/ventasCategoria";
+import { SparklineCell } from "@/components/SparklineCell";
+import { DailyGroupTable } from "@/components/DailyGroupTable";
+import { VentasCategoriaClienteDetail } from "@/components/VentasCategoriaClienteDetail";
+import { VentasCategoriaProductoDetail } from "@/components/VentasCategoriaProductoDetail";
+import { VentasCategoriaArticuloDetail } from "@/components/VentasCategoriaArticuloDetail";
 
-const PAGE_SIZE = 100;
 const EMPTY_ROWS: never[] = [];
-const ALL_FILTER_VALUE = "__all__";
 const EMPTY_FILTER_OPTIONS = { lineas: 0, campanas: [], meses: [], clientes: [], metodos: [] };
 
 export default function VentasCategoriaSegunda() {
@@ -37,12 +38,12 @@ export default function VentasCategoriaSegunda() {
   const [filters, setFilters] = useState({ campana: "", mes: "", cliente: "", metodo: "", articulo: "" });
   const [parsedImport, setParsedImport] = useState<ParseVentasCategoriaWorkbookResult | null>(null);
   const [parsing, setParsing] = useState(false);
-  const detalle = useVentasCategoriaDetalle(ventas.categoriaId, {
-    filters,
-    page,
-    pageSize: PAGE_SIZE,
-    enabled: tab === "base",
-  });
+  const [selectedCliente, setSelectedCliente] = useState<string | null>(null);
+  const [selectedClienteNombre, setSelectedClienteNombre] = useState<string>("");
+  const [selectedProducto, setSelectedProducto] = useState<string | null>(null);
+  const [selectedProductoDesc, setSelectedProductoDesc] = useState<string>("");
+  const [selectedArticulo, setSelectedArticulo] = useState<string | null>(null);
+  const [selectedArticuloRef, setSelectedArticuloRef] = useState<string | null>(null);
 
   const resumen = ventas.resumenQuery.data;
   const rankingClientes = ventas.rankingClientesQuery.data ?? EMPTY_ROWS;
@@ -54,9 +55,33 @@ export default function VentasCategoriaSegunda() {
   const validacion = ventas.validacionQuery.data ?? EMPTY_ROWS;
   const filterOptions = ventas.filterOptionsQuery.data ?? EMPTY_FILTER_OPTIONS;
 
+  // Client-side filtered data
+  const allLines = ventas.allLinesQuery.data ?? EMPTY_ROWS;
+  const activeFilters = Object.values(filters).filter(Boolean).length;
+  const hasActiveFilters = activeFilters > 0;
+  const hasImportedData = Number(resumen?.kilos ?? 0) > 0;
+
+  const filteredLines = useMemo(
+    () => applyVentasCategoriaFilters(allLines, filters),
+    [allLines, filters]
+  );
+
+  const filteredAggregation = useMemo(
+    () => aggregateVentasCategoria(filteredLines),
+    [filteredLines]
+  );
+
+  // Use filtered aggregation when filters active, otherwise use view queries
+  const displayResumen = hasActiveFilters ? filteredAggregation.resumen : resumen;
+  const displayRanking = hasActiveFilters ? filteredAggregation.clientes : rankingClientes;
+  const displayMensualProducto = hasActiveFilters ? filteredAggregation.mensualProducto : mensualProducto;
+  const displayMensualCliente = hasActiveFilters ? filteredAggregation.mensualCliente : mensualCliente;
+  const displayArticulos = hasActiveFilters ? filteredAggregation.articulos : articulos;
+
   const monthlyTotals = useMemo(() => {
+    const source = hasActiveFilters ? displayMensualProducto : mensualProducto;
     const map = new Map<string, { mes: string; kilos: number; base: number; pm: number }>();
-    mensualProducto.forEach((row) => {
+    source.forEach((row) => {
       const mes = String(row.mes ?? "");
       if (!mes) return;
       const current = map.get(mes) ?? { mes, kilos: 0, base: 0, pm: 0 };
@@ -66,13 +91,45 @@ export default function VentasCategoriaSegunda() {
       map.set(mes, current);
     });
     return Array.from(map.values()).sort((a, b) => a.mes.localeCompare(b.mes));
-  }, [mensualProducto]);
+  }, [hasActiveFilters, displayMensualProducto, mensualProducto]);
 
-  const topClientes = rankingClientes.slice(0, 10);
-  const topArticulos = articulos.slice(0, 25);
-  const productMonthlyChart = useMemo(() => pivotMonthlyProducts(mensualProducto, catalogo.map((row) => row.metodo)), [catalogo, mensualProducto]);
-  const activeFilters = Object.values(filters).filter(Boolean).length;
-  const hasImportedData = Number(resumen?.kilos ?? 0) > 0;
+  const topClientes = (hasActiveFilters ? displayRanking : rankingClientes).slice(0, 10);
+  const topArticulos = (hasActiveFilters ? displayArticulos : articulos).slice(0, 25);
+  const productMonthlyChart = useMemo(() => pivotMonthlyProducts(
+    hasActiveFilters ? displayMensualProducto : mensualProducto,
+    catalogo.map((row) => row.metodo)
+  ), [catalogo, hasActiveFilters, displayMensualProducto, mensualProducto]);
+
+  // Monthly evolution data for sparklines
+  const monthlyEvolution = useMemo(() => {
+    const byCliente = new Map<string, Map<string, number>>();
+    const source = hasActiveFilters ? displayMensualCliente : mensualCliente;
+    source.forEach((row: Record<string, unknown>) => {
+      const codigo = String(row.cliente_codigo ?? "");
+      const mes = String(row.mes ?? "");
+      const kilos = Number(row.kilos ?? 0);
+      if (!codigo || !mes) return;
+      if (!byCliente.has(codigo)) byCliente.set(codigo, new Map());
+      byCliente.get(codigo)!.set(mes, kilos);
+    });
+    return byCliente;
+  }, [hasActiveFilters, displayMensualCliente, mensualCliente]);
+
+  const getSparklineData = (codigo: string) => {
+    const clientData = monthlyEvolution.get(codigo);
+    if (!clientData) return { points: [], maxKilos: 0 };
+    const allMonths = hasActiveFilters
+      ? displayMensualCliente.map((r: Record<string, unknown>) => String(r.mes ?? "")).filter(Boolean)
+      : mensualCliente.map((r: Record<string, unknown>) => String(r.mes ?? "")).filter(Boolean);
+    const uniqueMonths = [...new Set(allMonths)].sort();
+    const last6 = uniqueMonths.slice(-6);
+    const max = Math.max(...last6.map((m) => clientData.get(m) ?? 0), 1);
+    return {
+      points: last6.map((mes) => ({ mes, kilos: clientData.get(mes) ?? 0 })),
+      maxKilos: max,
+    };
+  };
+
   const setFilter = (key: keyof typeof filters, value: string) => {
     setPage(0);
     setFilters((current) => ({ ...current, [key]: value }));
@@ -170,6 +227,14 @@ export default function VentasCategoriaSegunda() {
         </section>
       </header>
 
+      <VentasCategoriaFilterBar
+        filters={filters}
+        filterOptions={filterOptions}
+        onChange={setFilter}
+        onClear={clearFilters}
+        activeCount={activeFilters}
+      />
+
       <Tabs value={tab} onValueChange={setTab} className="space-y-5">
         <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-lg p-1 sm:grid-cols-3 xl:w-auto xl:grid-cols-6">
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
@@ -182,12 +247,12 @@ export default function VentasCategoriaSegunda() {
 
         <TabsContent value="dashboard" className="space-y-5">
           <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
-            <Kpi title="Kilos total" value={formatKg(resumen?.kilos)} />
-            <Kpi title="Base IVA" value={`${formatNumber(resumen?.base_iva, 2)} EUR`} />
-            <Kpi title="PM bruto" value={`${formatNumber(resumen?.pm_bruto, 3)} EUR/kg`} />
-            <Kpi title="PM real" value={`${formatNumber(resumen?.pm_real, 3)} EUR/kg`} />
-            <Kpi title="Clientes" value={formatNumber(resumen?.clientes)} />
-            <Kpi title="Productos" value={formatNumber(resumen?.productos)} />
+            <Kpi title="Kilos total" value={formatKg(displayResumen?.kilos)} />
+            <Kpi title="Base IVA" value={`${formatNumber(displayResumen?.base_iva, 2)} EUR`} />
+            <Kpi title="PM bruto" value={`${formatNumber(displayResumen?.pm_venta ?? displayResumen?.pm_bruto, 3)} EUR/kg`} />
+            <Kpi title="PM real" value={`${formatNumber(displayResumen?.pm_real ?? displayResumen?.pm_venta, 3)} EUR/kg`} />
+            <Kpi title="Clientes" value={formatNumber(displayResumen?.clientes)} />
+            <Kpi title="Productos" value={formatNumber(displayResumen?.productos)} />
           </section>
 
           <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
@@ -230,209 +295,245 @@ export default function VentasCategoriaSegunda() {
         </TabsContent>
 
         <TabsContent value="clientes" className="space-y-5">
-          <section className="grid gap-5 xl:grid-cols-2">
-            <RankingTable title="Ranking por kilos" rows={rankingClientes.slice(0, 20)} valueKey="kilos" valueLabel="Kilos" formatter={(v) => formatKg(v)} />
-            <RankingTable title="Ranking por PM real" rows={[...rankingClientes].sort((a, b) => Number(b.pm_real ?? 0) - Number(a.pm_real ?? 0)).slice(0, 20)} valueKey="pm_real" valueLabel="PM real" formatter={(v) => `${formatNumber(v, 3)} EUR/kg`} />
-          </section>
-
-          <Card className="glass-accented overflow-hidden">
-            <CardHeader>
-              <CardTitle>Ajustes de comision y transporte</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Cliente</TableHead>
-                      <TableHead className="text-right">Kilos</TableHead>
-                      <TableHead className="w-28">Comision %</TableHead>
-                      <TableHead className="w-32">Comision cent/kg</TableHead>
-                      <TableHead className="w-30">Transporte %</TableHead>
-                      <TableHead className="w-36">Transporte cent/kg</TableHead>
-                      <TableHead></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {rankingClientes.slice(0, 80).map((cliente) => (
-                      <AjusteTableRow
-                        key={cliente.cliente_codigo}
-                        cliente={cliente}
-                        ajuste={ajustes.find((row) => row.cliente_codigo === cliente.cliente_codigo)}
-                        onSave={(input) => ventas.updateAjuste.mutate(input)}
-                      />
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
+          {selectedCliente ? (
+            <div className="space-y-4">
+              <Button variant="outline" size="sm" onClick={() => setSelectedCliente(null)}>
+                ← Volver al ranking
+              </Button>
+              <VentasCategoriaClienteDetail
+                clienteCodigo={selectedCliente}
+                clienteNombre={selectedClienteNombre}
+                allLines={allLines}
+                ajuste={ajustes.find((a: Record<string, unknown>) => a.cliente_codigo === selectedCliente) as never}
+                onSaveAjuste={(input) => ventas.updateAjuste.mutate(input)}
+              />
+            </div>
+          ) : (
+            <>
+              <section className="grid gap-5 xl:grid-cols-2">
+                <DataTable title="Ranking por kilos" headers={["#", "Cliente", "Kilos", "PM", "Evolucion"]}>
+                  {displayRanking.slice(0, 30).map((row, i) => {
+                    const spark = getSparklineData(String(row.cliente_codigo ?? ""));
+                    return (
+                      <TableRow
+                        key={String(row.cliente_codigo)}
+                        className="cursor-pointer hover:bg-[var(--glass-bg-strong)]"
+                        onClick={() => { setSelectedCliente(String(row.cliente_codigo)); setSelectedClienteNombre(String(row.cliente_nombre ?? "")); }}
+                      >
+                        <TableCell className="text-xs text-muted-foreground w-6">{i + 1}</TableCell>
+                        <TableCell className="min-w-[240px]">
+                          <div className="font-medium">{String(row.cliente_nombre ?? "")}</div>
+                          <div className="text-xs text-muted-foreground">{String(row.cliente_codigo ?? "")}</div>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{formatKg(Number(row.kilos ?? 0))}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(Number(row.pm_real ?? row.pm_venta ?? 0), 3)} EUR/kg</TableCell>
+                        <TableCell><SparklineCell data={spark.points} maxKilos={spark.maxKilos} /></TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </DataTable>
+                <DataTable title="Ranking por PM real" headers={["#", "Cliente", "PM real", "Kilos", "Evolucion"]}>
+                  {[...displayRanking].sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
+                    Number(b.pm_real ?? b.pm_venta ?? 0) - Number(a.pm_real ?? a.pm_venta ?? 0)
+                  ).slice(0, 30).map((row, i) => {
+                    const spark = getSparklineData(String(row.cliente_codigo ?? ""));
+                    return (
+                      <TableRow
+                        key={String(row.cliente_codigo)}
+                        className="cursor-pointer hover:bg-[var(--glass-bg-strong)]"
+                        onClick={() => { setSelectedCliente(String(row.cliente_codigo)); setSelectedClienteNombre(String(row.cliente_nombre ?? "")); }}
+                      >
+                        <TableCell className="text-xs text-muted-foreground w-6">{i + 1}</TableCell>
+                        <TableCell className="min-w-[240px]">
+                          <div className="font-medium">{String(row.cliente_nombre ?? "")}</div>
+                          <div className="text-xs text-muted-foreground">{String(row.cliente_codigo ?? "")}</div>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(Number(row.pm_real ?? row.pm_venta ?? 0), 3)} EUR/kg</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatKg(Number(row.kilos ?? 0))}</TableCell>
+                        <TableCell><SparklineCell data={spark.points} maxKilos={spark.maxKilos} /></TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </DataTable>
+              </section>
+              <Card className="glass-accented overflow-hidden">
+                <CardHeader><CardTitle>Ajustes de comision y transporte</CardTitle></CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Cliente</TableHead>
+                          <TableHead className="text-right">Kilos</TableHead>
+                          <TableHead className="w-28">Comision %</TableHead>
+                          <TableHead className="w-32">Comision cent/kg</TableHead>
+                          <TableHead className="w-30">Transporte %</TableHead>
+                          <TableHead className="w-36">Transporte cent/kg</TableHead>
+                          <TableHead></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {displayRanking.slice(0, 80).map((cliente: Record<string, unknown>) => (
+                          <AjusteTableRow
+                            key={String(cliente.cliente_codigo)}
+                            cliente={cliente}
+                            ajuste={ajustes.find((a: Record<string, unknown>) => a.cliente_codigo === cliente.cliente_codigo)}
+                            onSave={(input) => ventas.updateAjuste.mutate(input)}
+                          />
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="productos" className="space-y-5">
-          <ChartCard title="Productos catalogo por mes">
-            <ResponsiveContainer width="100%" height={360}>
-              <BarChart data={productMonthlyChart} margin={MARGIN}>
-                <CartesianGrid {...GRID} />
-                <XAxis dataKey="mes" {...XAXIS} />
-                <YAxis {...YAXIS} tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
-                <Tooltip content={<GlassTooltip formatter={(v) => formatKg(Number(v))} />} />
-                <Legend wrapperStyle={legendStyle} />
-                {catalogo.map((producto, index) => (
-                  <Bar key={producto.metodo} dataKey={producto.metodo} stackId="kg" name={producto.metodo} fill={SERIES_PALETTE[index % SERIES_PALETTE.length]} />
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartCard>
-
-          <section className="grid gap-5 xl:grid-cols-2">
-            <DataTable title="Productos catalogo" headers={["Metodo", "Descripcion", "Kilos", "PM", "Base IVA"]}>
-              {catalogo.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="font-semibold">{row.metodo}</TableCell>
-                  <TableCell>{row.descripcion}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatKg(row.kilos)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatNumber(row.base_iva / Math.max(row.kilos, 1), 3)} EUR/kg</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatNumber(row.base_iva, 2)} EUR</TableCell>
-                </TableRow>
-              ))}
-            </DataTable>
-
-            <DataTable title="Validacion catalogo vs lineas" headers={["Metodo", "Kg catalogo", "Kg lineas", "Dif.", "Estado"]}>
-              {validacion.map((row) => {
-                const diff = Number(row.diferencia_kilos ?? 0);
-                return (
-                  <TableRow key={row.metodo ?? "sin"}>
-                    <TableCell className="font-semibold">{row.metodo}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatKg(row.kilos_catalogo)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatKg(row.kilos_lineas)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatKg(diff)}</TableCell>
-                    <TableCell>{Math.abs(diff) < 0.01 ? <OkBadge /> : <WarnBadge />}</TableCell>
-                  </TableRow>
-                );
-              })}
-            </DataTable>
-          </section>
+          {selectedProducto ? (
+            <div className="space-y-4">
+              <Button variant="outline" size="sm" onClick={() => setSelectedProducto(null)}>
+                ← Volver al ranking
+              </Button>
+              <VentasCategoriaProductoDetail
+                metodo={selectedProducto}
+                descripcion={selectedProductoDesc}
+                allLines={allLines}
+              />
+            </div>
+          ) : (
+            <>
+              <ChartCard title="Productos catalogo por mes">
+                <ResponsiveContainer width="100%" height={360}>
+                  <BarChart data={productMonthlyChart} margin={MARGIN}>
+                    <CartesianGrid {...GRID} />
+                    <XAxis dataKey="mes" {...XAXIS} />
+                    <YAxis {...YAXIS} tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
+                    <Tooltip content={<GlassTooltip formatter={(v) => formatKg(Number(v))} />} />
+                    <Legend wrapperStyle={legendStyle} />
+                    {catalogo.map((producto, index) => (
+                      <Bar key={producto.metodo} dataKey={producto.metodo} stackId="kg" name={producto.metodo} fill={SERIES_PALETTE[index % SERIES_PALETTE.length]} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+              <section className="grid gap-5 xl:grid-cols-2">
+                <DataTable title="Productos catalogo" headers={["Metodo", "Descripcion", "Kilos", "PM", "Clientes"]}>
+                  {catalogo.map((row) => (
+                    <TableRow
+                      key={String(row.id)}
+                      className="cursor-pointer hover:bg-[var(--glass-bg-strong)]"
+                      onClick={() => { setSelectedProducto(String(row.metodo)); setSelectedProductoDesc(String(row.descripcion ?? "")); }}
+                    >
+                      <TableCell className="font-semibold">{String(row.metodo)}</TableCell>
+                      <TableCell>{String(row.descripcion ?? "")}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatKg(Number(row.kilos))}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatNumber(Number(row.base_iva) / Math.max(Number(row.kilos), 1), 3)} EUR/kg</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatNumber(filterOptions.metodos.length)}</TableCell>
+                    </TableRow>
+                  ))}
+                </DataTable>
+                <DataTable title="Validacion catalogo vs lineas" headers={["Metodo", "Kg catalogo", "Kg lineas", "Dif.", "Estado"]}>
+                  {validacion.map((row) => {
+                    const diff = Number(row.diferencia_kilos ?? 0);
+                    return (
+                      <TableRow key={row.metodo ?? "sin"}>
+                        <TableCell className="font-semibold">{row.metodo}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatKg(row.kilos_catalogo)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatKg(row.kilos_lineas)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatKg(diff)}</TableCell>
+                        <TableCell>{Math.abs(diff) < 0.01 ? <OkBadge /> : <WarnBadge />}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </DataTable>
+              </section>
+              <ChartCard title="Comparativa de precio medio por producto">
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={productMonthlyChart} margin={MARGIN}>
+                    <CartesianGrid {...GRID} />
+                    <XAxis dataKey="mes" {...XAXIS} />
+                    <YAxis {...YAXIS} tickFormatter={(v) => `${formatNumber(Number(v), 2)} EUR`} />
+                    <Tooltip cursor={CHART_LINE_CURSOR} content={<GlassTooltip formatter={(v) => `${formatNumber(Number(v), 3)} EUR/kg`} />} />
+                    <Legend wrapperStyle={legendStyle} />
+                    {catalogo.map((producto, index) => (
+                      <Line key={String(producto.metodo)} type="monotone" dataKey={String(producto.metodo)} name={String(producto.metodo)} stroke={SERIES_PALETTE[index % SERIES_PALETTE.length]} strokeWidth={2} dot={false} />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="articulos" className="space-y-5">
-          <ChartCard title="Top 25 articulos exactos por kg">
-            <ResponsiveContainer width="100%" height={420}>
-              <BarChart data={topArticulos.map((row) => ({ ...row, nombre: shortName(row.articulo ?? "", 34) }))} layout="vertical" margin={{ ...MARGIN, left: 150 }}>
-                <CartesianGrid {...GRID} />
-                <XAxis type="number" {...XAXIS} tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
-                <YAxis type="category" dataKey="nombre" width={160} {...YAXIS} />
-                <Tooltip content={<GlassTooltip formatter={(v) => formatKg(Number(v))} />} />
-                <Bar dataKey="kilos" name="Kilos" fill={C.warning} stroke={C.warning} {...BAR_STYLE} />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartCard>
-
-          <DataTable title={`Todos los articulos exactos (${formatNumber(articulos.length)})`} headers={["Referencia", "Articulo", "Kilos", "PM bruto", "Lineas"]}>
-            {articulos.map((row) => (
-              <TableRow key={`${row.referencia}-${row.articulo}`}>
-                <TableCell>{row.referencia}</TableCell>
-                <TableCell className="min-w-[360px] font-medium">{row.articulo}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatKg(row.kilos)}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatNumber(row.pm_bruto, 3)} EUR/kg</TableCell>
-                <TableCell className="text-right tabular-nums">{formatNumber(row.lineas)}</TableCell>
-              </TableRow>
-            ))}
-          </DataTable>
+          {selectedArticulo ? (
+            <div className="space-y-4">
+              <Button variant="outline" size="sm" onClick={() => setSelectedArticulo(null)}>
+                ← Volver al listado
+              </Button>
+              <VentasCategoriaArticuloDetail
+                articulo={selectedArticulo}
+                referencia={selectedArticuloRef}
+                allLines={allLines}
+              />
+            </div>
+          ) : (
+            (() => {
+              const grouped = new Map<string, { referencia: string; articulos: Array<Record<string, unknown>>; totalKilos: number }>();
+              displayArticulos.forEach((row: Record<string, unknown>) => {
+                const ref = String(row.referencia ?? "SIN REF");
+                if (!grouped.has(ref)) grouped.set(ref, { referencia: ref, articulos: [], totalKilos: 0 });
+                const group = grouped.get(ref)!;
+                group.articulos.push(row);
+                group.totalKilos += Number(row.kilos ?? 0);
+              });
+              return (
+                <div className="space-y-3">
+                  {Array.from(grouped.values()).sort((a, b) => b.totalKilos - a.totalKilos).map((group) => (
+                    <Card key={group.referencia} className="glass-accented overflow-hidden">
+                      <CardHeader className="py-3 px-4">
+                        <CardTitle className="text-sm font-semibold">
+                          {group.referencia} ({group.articulos.length} articulos | {formatKg(group.totalKilos)})
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-0">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Articulo</TableHead>
+                              <TableHead className="text-right">Kilos</TableHead>
+                              <TableHead className="text-right">PM</TableHead>
+                              <TableHead className="text-right">Lineas</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {group.articulos.sort((a, b) => Number(b.kilos ?? 0) - Number(a.kilos ?? 0)).map((row) => (
+                              <TableRow
+                                key={`${row.referencia}-${row.articulo}`}
+                                className="cursor-pointer hover:bg-[var(--glass-bg-strong)]"
+                                onClick={() => { setSelectedArticulo(String(row.articulo)); setSelectedArticuloRef(String(row.referencia ?? "")); }}
+                              >
+                                <TableCell className="min-w-[320px] font-medium">{String(row.articulo)}</TableCell>
+                                <TableCell className="text-right tabular-nums">{formatKg(Number(row.kilos))}</TableCell>
+                                <TableCell className="text-right tabular-nums">{formatNumber(Number(row.pm_bruto ?? row.pm_venta ?? 0), 3)} EUR/kg</TableCell>
+                                <TableCell className="text-right tabular-nums">{formatNumber(Number(row.lineas))}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              );
+            })()
+          )}
         </TabsContent>
 
         <TabsContent value="base" className="space-y-5">
-          <Card className="glass-accented">
-            <CardHeader className="pb-2">
-              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <CardTitle className="text-lg">Filtros de base diaria</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    {activeFilters > 0
-                      ? `${activeFilters} filtro${activeFilters === 1 ? "" : "s"} activo${activeFilters === 1 ? "" : "s"}`
-                      : "Vista completa paginada, sin cargar todo el detalle en pantalla."}
-                  </p>
-                </div>
-                <Button variant="outline" className="gap-2" disabled={activeFilters === 0} onClick={clearFilters}>
-                  <Search className="h-4 w-4" />
-                  Limpiar filtros
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="grid gap-3 p-4 pt-2 md:grid-cols-2 xl:grid-cols-5">
-              <SelectFilter
-                label="Campana"
-                value={filters.campana}
-                options={filterOptions.campanas.map((value) => ({ value, label: value }))}
-                placeholder="Todas"
-                onChange={(value) => setFilter("campana", value)}
-              />
-              <SelectFilter
-                label="Mes"
-                value={filters.mes}
-                options={filterOptions.meses.map((value) => ({ value, label: value }))}
-                placeholder="Todos"
-                onChange={(value) => setFilter("mes", value)}
-              />
-              <SelectFilter
-                label="Cliente"
-                value={filters.cliente}
-                options={filterOptions.clientes.map((cliente) => ({
-                  value: cliente.codigo,
-                  label: `${cliente.nombre} - ${cliente.codigo}`,
-                }))}
-                placeholder="Todos"
-                onChange={(value) => setFilter("cliente", value)}
-              />
-              <SelectFilter
-                label="Metodo"
-                value={filters.metodo}
-                options={filterOptions.metodos.map((value) => ({ value, label: value }))}
-                placeholder="Todos"
-                onChange={(value) => setFilter("metodo", value)}
-              />
-              <FilterInput
-                label="Articulo"
-                value={filters.articulo}
-                onChange={(value) => setFilter("articulo", value)}
-                placeholder="Buscar texto"
-              />
-            </CardContent>
-          </Card>
-
-          <DataTable
-            title={`Base diaria (${formatNumber(detalle.data?.count ?? 0)} lineas filtradas)`}
-            description={`Pagina ${page + 1} - ${formatNumber(detalle.data?.rows.length ?? 0)} lineas visibles`}
-            headers={["Fecha", "Campana", "Cliente", "Articulo", "Metodo", "Kilos", "PM", "Base"]}
-          >
-            {(detalle.data?.rows ?? []).map((row) => (
-              <TableRow key={row.id}>
-                <TableCell className="whitespace-nowrap">{formatDate(`${row.fecha}T12:00:00`)}</TableCell>
-                <TableCell>{row.campana}</TableCell>
-                <TableCell className="min-w-[220px]">
-                  <div className="font-medium">{row.cliente_nombre}</div>
-                  <div className="text-xs text-muted-foreground">{row.cliente_codigo}</div>
-                </TableCell>
-                <TableCell className="min-w-[320px]">{row.articulo}</TableCell>
-                <TableCell>{row.metodo_producto ?? "Sin clasificar"}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatKg(row.kilos)}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatNumber(row.pm_venta, 3)} EUR/kg</TableCell>
-                <TableCell className="text-right tabular-nums">{formatNumber(row.base_iva, 2)} EUR</TableCell>
-              </TableRow>
-            ))}
-            {!detalle.isLoading && (detalle.data?.rows.length ?? 0) === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} className="h-28 text-center text-sm text-muted-foreground">
-                  No hay lineas con estos filtros.
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </DataTable>
-          <div className="flex items-center justify-between rounded-lg border border-[var(--glass-border)] bg-background/60 px-3 py-2">
-            <Button variant="outline" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>Anterior</Button>
-            <span className="text-sm text-muted-foreground">Pagina {page + 1}</span>
-            <Button variant="outline" disabled={(detalle.data?.rows.length ?? 0) < PAGE_SIZE} onClick={() => setPage((p) => p + 1)}>Siguiente</Button>
-          </div>
+          <DailyGroupTable lines={filteredLines} pageSize={5} />
         </TabsContent>
 
         <TabsContent value="importar" className="space-y-5">
@@ -547,8 +648,8 @@ function RankingTable({ title, rows, valueKey, valueLabel, formatter }: {
             <div className="text-xs text-muted-foreground">{String(row.cliente_codigo ?? "")}</div>
           </TableCell>
           <TableCell className="text-right tabular-nums">{formatter(Number(row[valueKey] ?? 0))}</TableCell>
-          <TableCell className="text-right tabular-nums">{formatNumber(Number(row.pm_bruto ?? 0), 3)} EUR/kg</TableCell>
-          <TableCell className="text-right tabular-nums">{formatNumber(Number(row.pm_real ?? 0), 3)} EUR/kg</TableCell>
+          <TableCell className="text-right tabular-nums">{formatNumber(Number(row.pm_bruto ?? row.pm_venta ?? 0), 3)} EUR/kg</TableCell>
+          <TableCell className="text-right tabular-nums">{formatNumber(Number(row.pm_real ?? row.pm_venta ?? 0), 3)} EUR/kg</TableCell>
         </TableRow>
       ))}
     </DataTable>
@@ -590,42 +691,6 @@ function AjusteTableRow({ cliente, ajuste, onSave }: {
         </Button>
       </TableCell>
     </TableRow>
-  );
-}
-
-function FilterInput({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
-  return (
-    <div className="space-y-2">
-      <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</Label>
-      <Input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
-    </div>
-  );
-}
-
-function SelectFilter({ label, value, options, placeholder, onChange }: {
-  label: string;
-  value: string;
-  options: Array<{ value: string; label: string }>;
-  placeholder: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="space-y-2">
-      <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</Label>
-      <Select value={value || ALL_FILTER_VALUE} onValueChange={(nextValue) => onChange(nextValue === ALL_FILTER_VALUE ? "" : nextValue)}>
-        <SelectTrigger>
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ALL_FILTER_VALUE}>{placeholder}</SelectItem>
-          {options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
   );
 }
 
