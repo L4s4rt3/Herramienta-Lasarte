@@ -41,11 +41,50 @@ export type Database = {
         }
         Relationships: []
       }
+      asistencia_bajas_laborales: {
+        Row: {
+          created_at: string
+          fecha_fin: string | null
+          fecha_inicio: string
+          id: string
+          motivo: string
+          trabajador_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          fecha_fin?: string | null
+          fecha_inicio: string
+          id?: string
+          motivo?: string
+          trabajador_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          fecha_fin?: string | null
+          fecha_inicio?: string
+          id?: string
+          motivo?: string
+          trabajador_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "asistencia_bajas_laborales_trabajador_id_fkey"
+            columns: ["trabajador_id"]
+            isOneToOne: false
+            referencedRelation: "trabajadores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       asistencia_detalle: {
         Row: {
           created_at: string
           date: string
           id: string
+          motivo_ausencia: string | null
           presente: boolean
           trabajador_id: string
           user_id: string
@@ -54,6 +93,7 @@ export type Database = {
           created_at?: string
           date: string
           id?: string
+          motivo_ausencia?: string | null
           presente?: boolean
           trabajador_id: string
           user_id: string
@@ -62,6 +102,7 @@ export type Database = {
           created_at?: string
           date?: string
           id?: string
+          motivo_ausencia?: string | null
           presente?: boolean
           trabajador_id?: string
           user_id?: string

@@ -1,3 +1,5 @@
+import { ASISTENCIA_PLANTILLA_ZONAS } from "./asistenciaPlantilla";
+
 export const ASISTENCIA_GROUPS_STORAGE_KEY = "lasarte.asistencia.grupos";
 export const SIN_GRUPO_LABEL = "Sin grupo";
 
@@ -11,11 +13,13 @@ export const DEFAULT_ASISTENCIA_GRUPOS = [
   "Mecanica",
   "Mantenimiento",
   "Envasadoras",
+  "Industria",
   "Mallas",
   "Carretilla",
   "Graneleras",
   "Mozos",
   "Carga y descarga",
+  ...ASISTENCIA_PLANTILLA_ZONAS,
 ];
 
 function groupKey(value: string) {

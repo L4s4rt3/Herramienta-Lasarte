@@ -157,6 +157,17 @@ export interface AsistenciaDetalleRow {
   date: string;
   trabajador_id: string;
   presente: boolean;
+  motivo_ausencia?: string | null;
+  created_at: string;
+}
+
+export interface AsistenciaBajaLaboralRow {
+  id: string;
+  user_id: string;
+  trabajador_id: string;
+  fecha_inicio: string;
+  fecha_fin: string | null;
+  motivo: string;
   created_at: string;
 }
 

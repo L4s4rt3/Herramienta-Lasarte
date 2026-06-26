@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthProvider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -31,7 +32,7 @@ import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import * as XLSX from "xlsx";
-import type { TrabajadorRow } from "@/lib/types";
+import type { AsistenciaBajaLaboralRow, TrabajadorRow } from "@/lib/types";
 import {
   buildAttendanceRecords,
   extractDailyAttendanceNames,
@@ -41,7 +42,13 @@ import {
   calcularResumenKgPersonaOperacion,
   calcularRendimientoGrupos,
   produccionRealParte,
+  RENDIMIENTO_GRUPOS,
 } from "@/lib/asistenciaRendimiento";
+import {
+  enumerateIsoDateRange,
+  previousIsoDate,
+  shouldApplyBajaLaboralToDate,
+} from "@/lib/asistenciaBajasLaborales";
 import {
   ASISTENCIA_COMPARATIVA_RANGE_DAYS,
   buildSemanasAsistenciaComparativa,
@@ -57,12 +64,51 @@ import {
   sanitizeAsistenciaGroups,
   SIN_GRUPO_LABEL,
 } from "@/lib/asistenciaGrupos";
-import { darBajaTrabajadorPreservandoHistorial } from "@/lib/asistenciaTrabajadores";
+import {
+  aplicarZonasOperativasTrabajadores,
+  darBajaTrabajadorPreservandoHistorial,
+  resolveTrabajadoresPorNombre,
+} from "@/lib/asistenciaTrabajadores";
+import {
+  calcularRendimientoZonasAlmacen,
+} from "@/lib/asistenciaPlantilla";
+import { clasificarProductoInforme } from "@/lib/asistenciaProductoClasificacion";
 
-type WorkerFilter = "todos" | "presentes" | "ausentes" | "sinRegistro" | "conKg" | "fueraKg";
+type WorkerFilter = "todos" | "presentes" | "ausentes" | "bajaLaboral" | "sinRegistro" | "conKg" | "fueraKg";
+
+const BAJA_LABORAL_MOTIVO = "baja_laboral";
+const RENDIMIENTO_GROUP_LABELS: Record<string, string> = {
+  Envasadoras: "Mesas",
+  Industria: "Industria",
+  Mallas: "Mallas",
+  Graneleras: "Graneleras",
+};
+const DEFAULT_BAJA_LABORAL_NAMES = [
+  "Anais Castells Sanchez",
+  "Lucia Ferrero Martinez",
+  "Monserrat Garcia Alcazar",
+  "Cristobalina Pigner Garcia",
+  "Cristobalina Reyes Cadiz",
+].join("\n");
 
 function formatoEntero(value: number) {
   return new Intl.NumberFormat("es-ES").format(Math.round(value));
+}
+
+function formatoPorcentaje(value: number) {
+  return `${new Intl.NumberFormat("es-ES", { maximumFractionDigits: 1 }).format(value)}%`;
+}
+
+function kgProductoInforme(item: ProductoConfeccionDia) {
+  return Number(item.kg ?? item.kg_neto) || 0;
+}
+
+function zonaProductoBadgeClass(zona: string) {
+  if (zona === "Mallas") return "border-emerald-300 bg-emerald-50 text-emerald-900";
+  if (zona === "Graneleras") return "border-sky-300 bg-sky-50 text-sky-900";
+  if (zona === "Mesas") return "border-amber-300 bg-amber-50 text-amber-900";
+  if (zona === "Industria") return "border-violet-300 bg-violet-50 text-violet-900";
+  return "border-slate-300 bg-slate-50 text-slate-700";
 }
 
 function errorMessage(err: unknown) {
@@ -70,21 +116,16 @@ function errorMessage(err: unknown) {
   return typeof err === "string" ? err : "Error desconocido";
 }
 
+function appendJsonSheet(workbook: XLSX.WorkBook, sheetName: string, rows: Record<string, unknown>[]) {
+  const safeName = sheetName.slice(0, 31);
+  const worksheet = XLSX.utils.json_to_sheet(rows.length > 0 ? rows : [{ Sin_datos: "" }]);
+  XLSX.utils.book_append_sheet(workbook, worksheet, safeName);
+}
+
 function inicialesTrabajador(nombre: string) {
   const partes = nombre.trim().split(/\s+/).filter(Boolean);
   if (partes.length === 0) return "?";
   return partes.slice(0, 2).map((parte) => parte[0]?.toLocaleUpperCase("es")).join("");
-}
-
-function esAntonioMantenimiento(trabajador: Pick<TrabajadorRow, "nombre">) {
-  return trabajador.nombre.trim().toLocaleLowerCase("es") === "antonio";
-}
-
-function normalizarGrupoTrabajador(trabajador: TrabajadorRow): TrabajadorRow {
-  if (esAntonioMantenimiento(trabajador) && trabajador.zona !== "Mantenimiento") {
-    return { ...trabajador, zona: "Mantenimiento" };
-  }
-  return trabajador;
 }
 
 interface ParteDiarioRendimiento {
@@ -151,7 +192,7 @@ function loadStoredGrupos() {
   try {
     const parsed = JSON.parse(rawGroups);
     if (!Array.isArray(parsed)) return [...DEFAULT_ASISTENCIA_GRUPOS];
-    const sanitized = sanitizeAsistenciaGroups(parsed);
+    const sanitized = sanitizeAsistenciaGroups([...parsed, ...DEFAULT_ASISTENCIA_GRUPOS]);
     return sanitized.length > 0 ? sanitized : [...DEFAULT_ASISTENCIA_GRUPOS];
   } catch {
     return [...DEFAULT_ASISTENCIA_GRUPOS];
@@ -164,6 +205,8 @@ export default function Asistencia() {
   const [trabajadores, setTrabajadores] = useState<TrabajadorRow[]>([]);
   const [selectedDate, setSelectedDate] = useState(today());
   const [asistencia, setAsistencia] = useState<Record<string, boolean>>({});
+  const [asistenciaMotivos, setAsistenciaMotivos] = useState<Record<string, string | null>>({});
+  const [bajasLaborales, setBajasLaborales] = useState<AsistenciaBajaLaboralRow[]>([]);
   const [loadingTrabajadores, setLoadingTrabajadores] = useState(true);
   const [loadingAsistencia, setLoadingAsistencia] = useState(false);
   const [newWorkerName, setNewWorkerName] = useState("");
@@ -180,7 +223,11 @@ export default function Asistencia() {
   const [workerFilter, setWorkerFilter] = useState<WorkerFilter>("todos");
   const [selectedGroup, setSelectedGroup] = useState("todos");
   const [parteDelDia, setParteDelDia] = useState<ParteDiarioRendimiento | null>(null);
-  const [exportingAsistencia, setExportingAsistencia] = useState<"excel" | "pdf" | null>(null);
+  const [exportingAsistencia, setExportingAsistencia] = useState<"excel" | "pdf" | "lista" | "parte" | null>(null);
+  const [bajaLaboralNamesInput, setBajaLaboralNamesInput] = useState(DEFAULT_BAJA_LABORAL_NAMES);
+  const [bajaLaboralStartDate, setBajaLaboralStartDate] = useState(today());
+  const [bajaLaboralEndDate, setBajaLaboralEndDate] = useState("");
+  const [applyingBajaLaboral, setApplyingBajaLaboral] = useState(false);
 
   // ─── Load trabajadores ──────────────────────────────────────────────────
 
@@ -193,14 +240,7 @@ export default function Asistencia() {
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } else {
-      setTrabajadores((data ?? []).map(normalizarGrupoTrabajador));
-      const antonioSinGrupo = (data ?? []).find((t) => esAntonioMantenimiento(t) && t.zona !== "Mantenimiento");
-      if (antonioSinGrupo && user) {
-        await supabase
-          .from("trabajadores")
-          .update({ zona: "Mantenimiento" })
-          .eq("id", antonioSinGrupo.id);
-      }
+      setTrabajadores(aplicarZonasOperativasTrabajadores(data ?? []));
     }
     setLoadingTrabajadores(false);
   }
@@ -212,17 +252,36 @@ export default function Asistencia() {
     setLoadingAsistencia(true);
     const { data, error } = await supabase
       .from("asistencia_detalle")
-      .select("trabajador_id, presente")
+      .select("trabajador_id, presente, motivo_ausencia")
       .eq("date", date)
       .eq("user_id", user.id);
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+    const { data: bajasData, error: bajasError } = await supabase
+      .from("asistencia_bajas_laborales")
+      .select("*")
+      .eq("user_id", user.id)
+      .lte("fecha_inicio", date)
+      .or(`fecha_fin.is.null,fecha_fin.gte.${date}`);
+
+    if (error || bajasError) {
+      const message = error?.message ?? bajasError?.message ?? "Error desconocido";
+      toast({ title: "Error", description: message, variant: "destructive" });
     } else {
+      const bajasDelDia = (bajasData ?? []).filter((baja) => shouldApplyBajaLaboralToDate(baja, date));
       const map: Record<string, boolean> = {};
+      const motivos: Record<string, string | null> = {};
       for (const r of data ?? []) {
         map[r.trabajador_id] = r.presente;
+        motivos[r.trabajador_id] = r.motivo_ausencia ?? null;
       }
+      for (const baja of bajasDelDia) {
+        if (map[baja.trabajador_id] !== true) {
+          map[baja.trabajador_id] = false;
+          motivos[baja.trabajador_id] = BAJA_LABORAL_MOTIVO;
+        }
+      }
+      setBajasLaborales(bajasDelDia);
       setAsistencia(map);
+      setAsistenciaMotivos(motivos);
     }
     setLoadingAsistencia(false);
   }
@@ -310,6 +369,117 @@ export default function Asistencia() {
     }
   }
 
+  function estadoTrabajadorExport(trabajador: TrabajadorRow) {
+    const presente = asistencia[trabajador.id];
+    if (presente === true) return "Presente";
+    if (presente === false && asistenciaMotivos[trabajador.id] === BAJA_LABORAL_MOTIVO) return "Baja laboral";
+    if (presente === false) return "Ausente";
+    return "Sin marcar";
+  }
+
+  function exportarListaTrabajadores() {
+    setExportingAsistencia("lista");
+    try {
+      const workbook = XLSX.utils.book_new();
+      const rows = [...trabajadores]
+        .sort((a, b) => (a.zona ?? "").localeCompare(b.zona ?? "", "es") || a.nombre.localeCompare(b.nombre, "es"))
+        .map((trabajador) => ({
+          Nombre: trabajador.nombre,
+          Zona: trabajador.zona || "Sin grupo",
+          Estado: trabajador.activo ? "Activo" : "Inactivo",
+        }));
+      const resumen = Array.from(
+        rows.reduce<Map<string, { Zona: string; Activos: number; Inactivos: number; Total: number }>>((map, row) => {
+          const current = map.get(row.Zona) ?? { Zona: row.Zona, Activos: 0, Inactivos: 0, Total: 0 };
+          current.Total += 1;
+          if (row.Estado === "Activo") current.Activos += 1;
+          else current.Inactivos += 1;
+          map.set(row.Zona, current);
+          return map;
+        }, new Map()).values(),
+      ).sort((a, b) => a.Zona.localeCompare(b.Zona, "es"));
+
+      appendJsonSheet(workbook, "Resumen zonas", resumen);
+      appendJsonSheet(workbook, "Trabajadores", rows);
+      XLSX.writeFile(workbook, `lista_trabajadores_${selectedDate}.xlsx`, { compression: true });
+      toast({ title: "Lista de trabajadores descargada" });
+    } catch (err) {
+      toast({ title: "Error al exportar trabajadores", description: errorMessage(err), variant: "destructive" });
+    } finally {
+      setExportingAsistencia(null);
+    }
+  }
+
+  function exportarParteDiarioAsistencia() {
+    setExportingAsistencia("parte");
+    try {
+      const workbook = XLSX.utils.book_new();
+      appendJsonSheet(workbook, "Resumen", [
+        { Campo: "Fecha", Valor: selectedDate },
+        { Campo: "Trabajadores activos", Valor: totalActivos },
+        { Campo: "Presentes", Valor: presentesCount },
+        { Campo: "Ausentes", Valor: ausentesSinBajaTrabajadores.length },
+        { Campo: "Baja laboral", Valor: bajaLaboralTrabajadores.length },
+        { Campo: "Sin marcar", Valor: sinRegistro },
+        { Campo: "Presentes kg/persona", Valor: presentesComputables },
+        { Campo: "Kg produccion", Valor: Math.round(kgProduccionDia) },
+        { Campo: "Kg/persona general", Valor: Math.round(kgPersonaLista) },
+      ]);
+      appendJsonSheet(workbook, "Rendimiento zonas", kgPorConfeccion.map((zona) => ({
+        Zona: zona.label,
+        Kg: Math.round(zona.kg),
+        Porcentaje_kg: formatoPorcentaje(zona.porcentajeKg),
+        Personas_presentes: zona.personas,
+        Personas_objetivo: zona.objetivo ?? "",
+        Kg_persona: Math.round(zona.kgPersona),
+      })));
+      appendJsonSheet(workbook, "Faltas", [
+        ...ausentesSinBajaTrabajadores.map((trabajador) => ({
+          Tipo: "Ausente",
+          Nombre: trabajador.nombre,
+          Zona: trabajador.zona || "Sin grupo",
+        })),
+        ...bajaLaboralTrabajadores.map((trabajador) => ({
+          Tipo: "Baja laboral",
+          Nombre: trabajador.nombre,
+          Zona: trabajador.zona || "Sin grupo",
+        })),
+        ...sinRegistroTrabajadores.map((trabajador) => ({
+          Tipo: "Sin marcar",
+          Nombre: trabajador.nombre,
+          Zona: trabajador.zona || "Sin grupo",
+        })),
+      ]);
+      appendJsonSheet(workbook, "Trabajadores dia", activos
+        .slice()
+        .sort((a, b) => (a.zona ?? "").localeCompare(b.zona ?? "", "es") || a.nombre.localeCompare(b.nombre, "es"))
+        .map((trabajador) => {
+          const metric = listaKgPersonaById.get(trabajador.id);
+          return {
+            Nombre: trabajador.nombre,
+            Zona: trabajador.zona || "Sin grupo",
+            Estado: estadoTrabajadorExport(trabajador),
+            Coste: metric?.coste ?? "",
+            Calculo: metric?.calculo ?? "",
+            Kg_persona_ref: metric?.kgRef != null ? Math.round(metric.kgRef) : "",
+          };
+        }));
+      appendJsonSheet(workbook, "Productos clasificados", productosInformeClasificados.map((producto) => ({
+        Producto: producto.producto,
+        Empaque: producto.empaque,
+        Zona: producto.zona,
+        Computa_kg_zona: producto.computa ? "Si" : "No",
+        Kg: Math.round(producto.kg),
+      })));
+      XLSX.writeFile(workbook, `parte_asistencia_${selectedDate}.xlsx`, { compression: true });
+      toast({ title: "Parte diario descargado", description: selectedDate });
+    } catch (err) {
+      toast({ title: "Error al exportar parte diario", description: errorMessage(err), variant: "destructive" });
+    } finally {
+      setExportingAsistencia(null);
+    }
+  }
+
   useEffect(() => { loadTrabajadores(); loadEficiencia(); }, []);
   useEffect(() => { loadAsistencia(selectedDate); }, [selectedDate, user]);
   useEffect(() => { loadParteDelDia(selectedDate); }, [selectedDate]);
@@ -365,6 +535,73 @@ export default function Asistencia() {
     }
     setTrabajadores((prev) => darBajaTrabajadorPreservandoHistorial(prev, id));
     toast({ title: "Trabajador dado de baja", description: "Se conserva su asistencia histórica." });
+  }
+
+  async function aplicarBajaLaboralPorNombre() {
+    if (!user) return;
+
+    const fechaInicio = bajaLaboralStartDate || selectedDate;
+    const fechaFin = bajaLaboralEndDate || null;
+    if (fechaFin && fechaFin < fechaInicio) {
+      toast({ title: "Fechas no validas", description: "La fecha fin no puede ser anterior al inicio.", variant: "destructive" });
+      return;
+    }
+
+    const preview = resolveTrabajadoresPorNombre(trabajadores, bajaLaboralNamesInput);
+    const ids = preview.matches.map((match) => match.trabajador.id);
+    if (ids.length === 0) {
+      toast({
+        title: "Sin ausencias para aplicar",
+        description: preview.inputs.length === 0 ? "Pega al menos un nombre." : "No hay coincidencias activas en la lista.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setApplyingBajaLaboral(true);
+    const periodRows = ids.map((id) => ({
+      user_id: user.id,
+      trabajador_id: id,
+      fecha_inicio: fechaInicio,
+      fecha_fin: fechaFin,
+      motivo: BAJA_LABORAL_MOTIVO,
+    }));
+    const { error: periodError } = await supabase
+      .from("asistencia_bajas_laborales")
+      .insert(periodRows);
+
+    if (periodError) {
+      setApplyingBajaLaboral(false);
+      toast({ title: "Error", description: periodError.message, variant: "destructive" });
+      return;
+    }
+
+    const attendanceEnd = fechaFin ?? (selectedDate >= fechaInicio ? selectedDate : fechaInicio);
+    const dates = enumerateIsoDateRange(fechaInicio, attendanceEnd);
+    const records = ids.flatMap((id) => dates.map((date) => ({
+      user_id: user.id,
+      date,
+      trabajador_id: id,
+      presente: false,
+      motivo_ausencia: BAJA_LABORAL_MOTIVO,
+    })));
+    const { error } = await supabase
+      .from("asistencia_detalle")
+      .upsert(records, { onConflict: "user_id,date,trabajador_id" });
+    setApplyingBajaLaboral(false);
+
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      return;
+    }
+
+    await loadAsistencia(selectedDate);
+    toast({
+      title: `${ids.length} baja(s) laboral(es) registrada(s)`,
+      description: preview.missing.length > 0
+        ? `No encontrados: ${preview.missing.slice(0, 3).join(", ")}${preview.missing.length > 3 ? "..." : ""}`
+        : fechaFin ? `${fechaInicio} a ${fechaFin}.` : `Desde ${fechaInicio}, sin fecha fin.`,
+    });
   }
 
   function startEditingTrabajador(trabajador: TrabajadorRow) {
@@ -510,10 +747,11 @@ export default function Asistencia() {
 
   // ─── Asistencia CRUD ──────────────────────────────────────────────────
 
-  async function toggleAsistencia(trabajadorId: string, presente: boolean) {
+  async function toggleAsistencia(trabajadorId: string, presente: boolean, motivoAusencia: string | null = null) {
     if (!user) return;
 
     setAsistencia((prev) => ({ ...prev, [trabajadorId]: presente }));
+    setAsistenciaMotivos((prev) => ({ ...prev, [trabajadorId]: presente ? null : motivoAusencia }));
 
     const { error } = await supabase
       .from("asistencia_detalle")
@@ -523,6 +761,7 @@ export default function Asistencia() {
           date: selectedDate,
           trabajador_id: trabajadorId,
           presente,
+          motivo_ausencia: presente ? null : motivoAusencia,
         },
         { onConflict: "user_id,date,trabajador_id" }
       );
@@ -530,14 +769,54 @@ export default function Asistencia() {
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
       loadAsistencia(selectedDate);
+      return;
     }
+
+    if (presente) {
+      await cerrarBajaLaboralAbierta(trabajadorId, selectedDate);
+    }
+  }
+
+  async function cerrarBajaLaboralAbierta(trabajadorId: string, date: string) {
+    const abiertas = bajasLaborales.filter((baja) =>
+      baja.trabajador_id === trabajadorId &&
+      baja.fecha_fin == null &&
+      baja.fecha_inicio <= date
+    );
+    if (abiertas.length === 0) return;
+
+    for (const baja of abiertas) {
+      if (baja.fecha_inicio >= date) {
+        const { error } = await supabase
+          .from("asistencia_bajas_laborales")
+          .delete()
+          .eq("id", baja.id);
+        if (error) {
+          toast({ title: "No se pudo cerrar la baja", description: error.message, variant: "destructive" });
+          return;
+        }
+      } else {
+        const { error } = await supabase
+          .from("asistencia_bajas_laborales")
+          .update({ fecha_fin: previousIsoDate(date) })
+          .eq("id", baja.id);
+        if (error) {
+          toast({ title: "No se pudo cerrar la baja", description: error.message, variant: "destructive" });
+          return;
+        }
+      }
+    }
+
+    setBajasLaborales((prev) => prev.filter((baja) => !abiertas.some((item) => item.id === baja.id)));
   }
 
   async function limpiarAsistenciaDia() {
     if (!user) return;
 
     const previous = asistencia;
+    const previousMotivos = asistenciaMotivos;
     setAsistencia({});
+    setAsistenciaMotivos({});
 
     const { error } = await supabase
       .from("asistencia_detalle")
@@ -547,6 +826,7 @@ export default function Asistencia() {
 
     if (error) {
       setAsistencia(previous);
+      setAsistenciaMotivos(previousMotivos);
       toast({ title: "Error", description: error.message, variant: "destructive" });
       loadAsistencia(selectedDate);
       return;
@@ -563,6 +843,7 @@ export default function Asistencia() {
       date: selectedDate,
       trabajador_id: t.id,
       presente: true,
+      motivo_ausencia: null,
     }));
     const { error } = await supabase
       .from("asistencia_detalle")
@@ -574,6 +855,10 @@ export default function Asistencia() {
     const map: Record<string, boolean> = {};
     for (const t of activos) map[t.id] = true;
     setAsistencia(map);
+    setAsistenciaMotivos({});
+    for (const trabajador of activos) {
+      await cerrarBajaLaboralAbierta(trabajador.id, selectedDate);
+    }
     toast({ title: "Todos marcados como presentes" });
   }
 
@@ -611,7 +896,8 @@ export default function Asistencia() {
         return;
       }
 
-      const records = buildAttendanceRecords(nombresImport, activos, user.id, selectedDate);
+      const records = buildAttendanceRecords(nombresImport, activos, user.id, selectedDate)
+        .map((record) => ({ ...record, motivo_ausencia: null }));
 
       const { error } = await supabase
         .from("asistencia_detalle")
@@ -661,7 +947,9 @@ export default function Asistencia() {
         return;
       }
 
-      const records = days.flatMap((day) => buildAttendanceRecords(day.names, activos, user.id, day.date));
+      const records = days
+        .flatMap((day) => buildAttendanceRecords(day.names, activos, user.id, day.date))
+        .map((record) => ({ ...record, motivo_ausencia: null }));
       if (records.length === 0) {
         toast({ title: "No hay registros para importar", variant: "destructive" });
         setImportingMode(null);
@@ -722,14 +1010,22 @@ export default function Asistencia() {
     return ordered;
   }, [gruposDisponibles]);
   const activos = useMemo(() => trabajadores.filter((t) => t.activo), [trabajadores]);
+  const bajaLaboralPreview = useMemo(
+    () => resolveTrabajadoresPorNombre(trabajadores, bajaLaboralNamesInput),
+    [trabajadores, bajaLaboralNamesInput],
+  );
   const totalActivos = activos.length;
   const presentesCount = activos.filter((t) => asistencia[t.id] === true).length;
-  const ausentesCount = activos.filter(
-    (t) => asistencia[t.id] === false
-  ).length;
   const sinRegistro = activos.filter((t) => asistencia[t.id] === undefined).length;
   const asistenciaPct = totalActivos > 0 ? Math.round((presentesCount / totalActivos) * 100) : 0;
-  const ausentesTrabajadores = useMemo(() => activos.filter((t) => asistencia[t.id] === false), [activos, asistencia]);
+  const bajaLaboralTrabajadores = useMemo(
+    () => activos.filter((t) => asistencia[t.id] === false && asistenciaMotivos[t.id] === BAJA_LABORAL_MOTIVO),
+    [activos, asistencia, asistenciaMotivos],
+  );
+  const ausentesSinBajaTrabajadores = useMemo(
+    () => activos.filter((t) => asistencia[t.id] === false && asistenciaMotivos[t.id] !== BAJA_LABORAL_MOTIVO),
+    [activos, asistencia, asistenciaMotivos],
+  );
   const sinRegistroTrabajadores = useMemo(() => activos.filter((t) => asistencia[t.id] === undefined), [activos, asistencia]);
 
   // ─── Kg/persona de lista y coste operativo ───────────────────────────────
@@ -748,14 +1044,35 @@ export default function Asistencia() {
     () => calcularRendimientoGrupos({ parte: parteDelDia, trabajadores: activos, asistencia }),
     [parteDelDia, activos, asistencia]
   );
-  const kgPorConfeccion = useMemo(() => {
-    const maxKg = Math.max(rendimientoConfeccion.Envasadoras.kg, rendimientoConfeccion.Mallas.kg, rendimientoConfeccion.Graneleras.kg, 1);
-    return [
-      { label: "Envasado", kg: rendimientoConfeccion.Envasadoras.kg, pct: rendimientoConfeccion.Envasadoras.kg / maxKg },
-      { label: "Mallas", kg: rendimientoConfeccion.Mallas.kg, pct: rendimientoConfeccion.Mallas.kg / maxKg },
-      { label: "Graneleras", kg: rendimientoConfeccion.Graneleras.kg, pct: rendimientoConfeccion.Graneleras.kg / maxKg },
-    ];
-  }, [rendimientoConfeccion]);
+  const productosInformeClasificados = useMemo(() => (
+    (parteDelDia?.producto_dia ?? [])
+      .filter((item) => item.producto?.trim())
+      .map((item) => {
+        const clasificacion = clasificarProductoInforme({
+          producto: item.producto,
+          empaque: item.formato_caja,
+          formato_caja: item.formato_caja,
+          grupo_destino: item.grupo_destino,
+          linea: item.linea,
+        });
+        return {
+          producto: item.producto?.trim() || "Sin producto",
+          empaque: item.formato_caja?.trim() || "Sin empaque",
+          kg: kgProductoInforme(item),
+          zona: clasificacion.zona,
+          computa: clasificacion.computaKgZona,
+        };
+      })
+      .filter((item) => item.kg > 0)
+      .sort((a, b) => {
+        if (a.computa !== b.computa) return a.computa ? -1 : 1;
+        return b.kg - a.kg || a.producto.localeCompare(b.producto, "es");
+      })
+  ), [parteDelDia]);
+  const productosInformeKgComputable = useMemo(
+    () => productosInformeClasificados.reduce((total, item) => total + (item.computa ? item.kg : 0), 0),
+    [productosInformeClasificados]
+  );
   const resumenCosteOperativo = kgPersonaResumen.costes;
   const listaKgPersona = kgPersonaResumen.rows;
   const listaKgPersonaById = useMemo(() => new Map(listaKgPersona.map((row) => [row.trabajador.id, row])), [listaKgPersona]);
@@ -774,10 +1091,48 @@ export default function Asistencia() {
       };
     })
   ), [activos, asistencia, groupByZona]);
+  const rendimientoZonasAlmacen = useMemo(() => calcularRendimientoZonasAlmacen({
+    trabajadores: activos,
+    asistencia,
+    kgPorZona: {
+      mallas: rendimientoConfeccion.Mallas.kg,
+      granelRp: rendimientoConfeccion.Graneleras.kg,
+      mesas: rendimientoConfeccion.Envasadoras.kg,
+      industria: rendimientoConfeccion.Industria.kg,
+    },
+  }), [activos, asistencia, rendimientoConfeccion]);
+  const rendimientoZonaByGrupo = useMemo(() => new Map([
+    ["Envasadoras", rendimientoZonasAlmacen.zonas.find((zona) => zona.id === "mesas")],
+    ["Industria", rendimientoZonasAlmacen.zonas.find((zona) => zona.id === "industria")],
+    ["Mallas", rendimientoZonasAlmacen.zonas.find((zona) => zona.id === "mallas")],
+    ["Graneleras", rendimientoZonasAlmacen.zonas.find((zona) => zona.id === "granelRp")],
+  ]), [rendimientoZonasAlmacen]);
+  const kgPorConfeccion = useMemo(() => {
+    const maxKg = Math.max(...RENDIMIENTO_GRUPOS.map((grupo) => rendimientoConfeccion[grupo].kg), 1);
+    const totalKgGrupos = RENDIMIENTO_GRUPOS.reduce((total, grupo) => total + rendimientoConfeccion[grupo].kg, 0);
+    return RENDIMIENTO_GRUPOS.map((grupo) => {
+      const zona = rendimientoZonaByGrupo.get(grupo);
+      const kg = rendimientoConfeccion[grupo].kg;
+      return {
+        label: RENDIMIENTO_GROUP_LABELS[grupo] ?? grupo,
+        kg,
+        pct: kg / maxKg,
+        porcentajeKg: totalKgGrupos > 0 ? (kg / totalKgGrupos) * 100 : 0,
+        personas: zona?.presentes ?? rendimientoConfeccion[grupo].personas,
+        objetivo: zona?.objetivo ?? null,
+        kgPersona: zona?.kgPersonaPresentes ?? (
+          rendimientoConfeccion[grupo].personas > 0
+            ? kg / rendimientoConfeccion[grupo].personas
+            : 0
+        ),
+      };
+    });
+  }, [rendimientoConfeccion, rendimientoZonaByGrupo]);
   const filterOptions: { id: WorkerFilter; label: string; count: number }[] = [
     { id: "todos", label: "Todos", count: activos.length },
     { id: "presentes", label: "Presentes", count: presentesCount },
-    { id: "ausentes", label: "Ausentes", count: ausentesCount },
+    { id: "ausentes", label: "Ausentes", count: ausentesSinBajaTrabajadores.length },
+    { id: "bajaLaboral", label: "Baja laboral", count: bajaLaboralTrabajadores.length },
     { id: "sinRegistro", label: "Sin registro", count: sinRegistro },
     { id: "conKg", label: "Entra kg/p", count: presentesComputables },
     { id: "fueraKg", label: "Fuera kg/p", count: resumenCosteOperativo["No computa kg/p"] },
@@ -793,7 +1148,9 @@ export default function Asistencia() {
         case "presentes":
           return asistencia[trabajador.id] === true;
         case "ausentes":
-          return asistencia[trabajador.id] === false;
+          return asistencia[trabajador.id] === false && asistenciaMotivos[trabajador.id] !== BAJA_LABORAL_MOTIVO;
+        case "bajaLaboral":
+          return asistencia[trabajador.id] === false && asistenciaMotivos[trabajador.id] === BAJA_LABORAL_MOTIVO;
         case "sinRegistro":
           return asistencia[trabajador.id] === undefined;
         case "conKg":
@@ -804,7 +1161,7 @@ export default function Asistencia() {
           return true;
       }
     });
-  }, [activos, asistencia, gruposDisponibles, listaKgPersonaById, searchQuery, selectedGroup, workerFilter]);
+  }, [activos, asistencia, asistenciaMotivos, gruposDisponibles, listaKgPersonaById, searchQuery, selectedGroup, workerFilter]);
   const gruposVisibles = useMemo(() => groupByZona(trabajadoresVisibles), [groupByZona, trabajadoresVisibles]);
   const fueraKgTrabajadores = useMemo(
     () => presentes.filter((trabajador) => listaKgPersonaById.get(trabajador.id)?.coste === "No computa kg/p"),
@@ -814,21 +1171,32 @@ export default function Asistencia() {
     {
       label: "Sin marcar",
       value: sinRegistro,
-      detail: sinRegistroTrabajadores.slice(0, 3).map((t) => t.nombre).join(", ") || "Todo marcado",
+      detail: "Todo marcado",
+      names: sinRegistroTrabajadores.map((t) => t.nombre),
       filter: "sinRegistro" as WorkerFilter,
       tone: "border-amber-300/50 bg-amber-50/60 text-amber-950",
     },
     {
       label: "Ausentes",
-      value: ausentesCount,
-      detail: ausentesTrabajadores.slice(0, 3).map((t) => t.nombre).join(", ") || "Sin ausencias",
+      value: ausentesSinBajaTrabajadores.length,
+      detail: "Sin ausencias",
+      names: ausentesSinBajaTrabajadores.map((t) => t.nombre),
       filter: "ausentes" as WorkerFilter,
       tone: "border-rose-300/50 bg-rose-50/60 text-rose-950",
     },
     {
+      label: "Baja laboral",
+      value: bajaLaboralTrabajadores.length,
+      detail: "Sin bajas laborales",
+      names: bajaLaboralTrabajadores.map((t) => t.nombre),
+      filter: "bajaLaboral" as WorkerFilter,
+      tone: "border-sky-300/50 bg-sky-50/70 text-sky-950",
+    },
+    {
       label: "Fuera kg/p",
       value: fueraKgTrabajadores.length,
-      detail: fueraKgTrabajadores.slice(0, 3).map((t) => t.nombre).join(", ") || "Nadie fuera",
+      detail: "Nadie fuera",
+      names: fueraKgTrabajadores.map((t) => t.nombre),
       filter: "fueraKg" as WorkerFilter,
       tone: "border-slate-300/60 bg-slate-50/70 text-slate-950",
     },
@@ -938,6 +1306,14 @@ export default function Asistencia() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem disabled={exportingAsistencia !== null} onSelect={exportarListaTrabajadores}>
+                <Users className="mr-2 h-4 w-4" />
+                Lista de trabajadores
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={exportingAsistencia !== null} onSelect={exportarParteDiarioAsistencia}>
+                <FileText className="mr-2 h-4 w-4" />
+                Parte diario Excel
+              </DropdownMenuItem>
               <DropdownMenuItem disabled={exportingAsistencia !== null} onSelect={() => exportarAsistencia("excel")}>
                 <FileText className="mr-2 h-4 w-4" />
                 Comparativa semanal Excel
@@ -1201,6 +1577,75 @@ export default function Asistencia() {
                     <Plus className="h-4 w-4 mr-1" /> Añadir
                   </Button>
                 </div>
+                <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div>
+                        <p className="text-sm font-semibold">Ausencias por baja laboral</p>
+                        <p className="text-xs text-muted-foreground">Define inicio y fin opcional. Si no hay fin, queda abierta hasta marcar presente.</p>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div>
+                          <p className="mb-1 text-xs font-medium text-muted-foreground">Desde</p>
+                          <Input
+                            type="date"
+                            value={bajaLaboralStartDate}
+                            onChange={(event) => setBajaLaboralStartDate(event.target.value)}
+                            className="h-9 bg-background/60"
+                          />
+                        </div>
+                        <div>
+                          <p className="mb-1 text-xs font-medium text-muted-foreground">Hasta</p>
+                          <Input
+                            type="date"
+                            value={bajaLaboralEndDate}
+                            onChange={(event) => setBajaLaboralEndDate(event.target.value)}
+                            className="h-9 bg-background/60"
+                            placeholder="Sin fecha fin"
+                          />
+                        </div>
+                      </div>
+                      <Textarea
+                        value={bajaLaboralNamesInput}
+                        onChange={(event) => setBajaLaboralNamesInput(event.target.value)}
+                        placeholder={"Anais Castells Sanchez\nLucia Ferrero Martinez"}
+                        className="min-h-[88px] bg-background/60"
+                      />
+                    </div>
+                    <div className="flex w-full flex-col gap-2 lg:w-56">
+                      <Button
+                        type="button"
+                        className="h-9"
+                        onClick={() => void aplicarBajaLaboralPorNombre()}
+                        disabled={applyingBajaLaboral || bajaLaboralPreview.matches.length === 0}
+                      >
+                        <UserX className="h-4 w-4" />
+                        {applyingBajaLaboral ? "Aplicando..." : "Marcar baja laboral"}
+                      </Button>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <Badge variant="outline" className="justify-center rounded-md">
+                          {bajaLaboralPreview.matches.length} encontradas
+                        </Badge>
+                        <Badge variant="secondary" className="justify-center rounded-md">
+                          {bajaLaboralPreview.inactive.length} inactivas
+                        </Badge>
+                        <Badge variant={bajaLaboralPreview.missing.length > 0 ? "destructive" : "outline"} className="col-span-2 justify-center rounded-md">
+                          {bajaLaboralPreview.missing.length} sin encontrar
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                  {bajaLaboralPreview.missing.length > 0 ? (
+                    <p className="mt-2 text-xs text-destructive">
+                      Sin encontrar: {bajaLaboralPreview.missing.slice(0, 4).join(", ")}{bajaLaboralPreview.missing.length > 4 ? "..." : ""}
+                    </p>
+                  ) : null}
+                  {bajaLaboralPreview.ambiguous.length > 0 ? (
+                    <p className="mt-2 text-xs text-warning">
+                      Revisa duplicados: {bajaLaboralPreview.ambiguous.map((item) => item.input).join(", ")}
+                    </p>
+                  ) : null}
+                </div>
                 {loadingTrabajadores ? (
                   <div className="space-y-2">
                     {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10" />)}
@@ -1346,7 +1791,7 @@ export default function Asistencia() {
 
       <Card className="glass-accented glass-accent-top overflow-hidden">
         <CardContent className="p-0">
-          <div className="grid xl:grid-cols-[1.05fr_0.8fr_1.05fr]">
+          <div className="grid xl:grid-cols-[0.92fr_1.58fr]">
             <div className="border-b border-[var(--glass-border)] p-5 xl:border-b-0 xl:border-r">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -1368,7 +1813,7 @@ export default function Asistencia() {
               </div>
               <div className="mt-4 grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2 py-2">
-                  <p className="text-lg font-semibold tabular-nums">{ausentesCount}</p>
+                  <p className="text-lg font-semibold tabular-nums">{ausentesSinBajaTrabajadores.length}</p>
                   <p className="text-[11px] text-muted-foreground">ausentes</p>
                 </div>
                 <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2 py-2">
@@ -1380,74 +1825,172 @@ export default function Asistencia() {
                   <p className="text-[11px] text-muted-foreground">kg/p</p>
                 </div>
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3 border-b border-[var(--glass-border)] p-5 xl:grid-cols-1 xl:border-b-0 xl:border-r">
-              <div className="rounded-xl border border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] p-4 shadow-[var(--glass-shadow)]">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="panel-kicker">Kg/persona</p>
-                  <CheckCircle2 className="h-4 w-4 text-primary" />
+              <div className="mt-4 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold">Revisar primero</p>
+                  <p className="text-xs text-muted-foreground">atajos</p>
                 </div>
-                <p className="mt-2 text-3xl font-semibold tabular-nums">{formatoEntero(kgPersonaLista)}</p>
-                <p className="text-xs text-muted-foreground">media general del dia</p>
-              </div>
-              <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="panel-kicker">Produccion</p>
-                  <PackageCheck className="h-4 w-4 text-primary" />
+                <div className="grid gap-2">
+                  {revisionItems.map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => {
+                        setWorkerFilter(item.filter);
+                        setSelectedGroup("todos");
+                      }}
+                      className={cn(
+                        "rounded-lg border px-3 py-2 text-left transition hover:-translate-y-0.5 hover:shadow-[var(--glass-shadow)]",
+                        item.tone
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="text-xs font-semibold uppercase tracking-wide">{item.label}</span>
+                        <span className="text-xl font-semibold tabular-nums">{item.value}</span>
+                      </div>
+                      {item.names.length > 0 ? (
+                        <div className="mt-2 max-h-28 space-y-1 overflow-y-auto rounded-md border border-current/10 bg-white/35 p-2 text-xs leading-snug opacity-85">
+                          {item.names.map((name) => (
+                            <p key={name} className="whitespace-normal break-words">
+                              {name}
+                            </p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-1 text-xs opacity-75">{item.detail}</p>
+                      )}
+                    </button>
+                  ))}
                 </div>
-                <p className="mt-2 text-3xl font-semibold tabular-nums">{formatoEntero(kgProduccionDia)}</p>
-                <p className="text-xs text-muted-foreground">kg reales del parte</p>
               </div>
             </div>
-            <div className="p-5">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <p className="panel-kicker">Confeccion</p>
-                <p className="text-xs text-muted-foreground">kg por salida</p>
+            <div className="space-y-5 p-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="panel-kicker">Rendimiento del dia</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Produccion real, media general y lectura por zona.</p>
+                </div>
+                <Badge variant="secondary" className="w-fit rounded-full tabular-nums">
+                  {productosInformeClasificados.length} productos clasificados
+                </Badge>
               </div>
-              <div className="space-y-2">
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] p-4 shadow-[var(--glass-shadow)]">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="panel-kicker">Kg/persona general</p>
+                      <p className="text-xs text-muted-foreground">media de trabajadores computables</p>
+                    </div>
+                    <CheckCircle2 className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="mt-4 flex items-end justify-between gap-3">
+                    <p className="text-4xl font-semibold leading-none tabular-nums">{formatoEntero(kgPersonaLista)}</p>
+                    <p className="pb-1 text-xs text-muted-foreground">{presentesComputables} personas kg/p</p>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="panel-kicker">Kg produccion</p>
+                      <p className="text-xs text-muted-foreground">kg reales del parte</p>
+                    </div>
+                    <PackageCheck className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="mt-4 flex items-end justify-between gap-3">
+                    <p className="text-4xl font-semibold leading-none tabular-nums">{formatoEntero(kgProduccionDia)}</p>
+                    <p className="pb-1 text-xs text-muted-foreground">total dia</p>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold">Kg/persona por zona</p>
+                  <p className="text-xs text-muted-foreground">segun informe producto</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
                 {kgPorConfeccion.map((item) => (
-                    <div key={item.label} className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2.5">
-                      <div className="flex items-center justify-between gap-3">
+                    <div key={item.label} className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
+                      <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold">{item.label}</p>
-                          <p className="text-xs text-muted-foreground">kg del parte</p>
+                          <p className="text-xs text-muted-foreground">
+                            {item.objetivo ? `${item.personas}/${item.objetivo} presentes` : "kg del informe"}
+                          </p>
                         </div>
-                        <p className="text-lg font-semibold tabular-nums text-primary">{formatoEntero(item.kg)} kg</p>
+                        <div className="shrink-0 text-right">
+                          <p className="text-sm font-semibold tabular-nums text-primary">{formatoEntero(item.kg)} kg</p>
+                          <p className="text-[11px] font-semibold tabular-nums text-muted-foreground">
+                            {formatoPorcentaje(item.porcentajeKg)}
+                          </p>
+                        </div>
                       </div>
+                      {item.objetivo ? (
+                        <div className="mt-3">
+                          <p className="text-2xl font-semibold leading-none tabular-nums">{formatoEntero(item.kgPersona)}</p>
+                          <p className="mt-1 text-[11px] text-muted-foreground">kg/persona zona</p>
+                        </div>
+                      ) : (
+                        <p className="mt-3 rounded-lg border border-[var(--glass-border)] bg-background/45 px-2 py-1.5 text-xs text-muted-foreground">
+                          Sin dotacion propia de zona
+                        </p>
+                      )}
                       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
                         <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(5, item.pct * 100)}%` }} />
                       </div>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {formatoPorcentaje(item.porcentajeKg)} de los kg clasificados
+                      </p>
                     </div>
                 ))}
+                </div>
               </div>
-            </div>
-          </div>
-          <div className="border-t border-[var(--glass-border)] bg-[var(--glass-bg)] p-3 sm:p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <p className="text-sm font-semibold">Revisar primero</p>
-              <p className="text-xs text-muted-foreground">atajos para cerrar el dia</p>
-            </div>
-            <div className="grid gap-2 lg:grid-cols-3">
-              {revisionItems.map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  onClick={() => {
-                    setWorkerFilter(item.filter);
-                    setSelectedGroup("todos");
-                  }}
-                  className={cn(
-                    "rounded-lg border px-3 py-2 text-left transition hover:-translate-y-0.5 hover:shadow-[var(--glass-shadow)]",
-                    item.tone
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs font-semibold uppercase tracking-wide">{item.label}</span>
-                    <span className="text-xl font-semibold tabular-nums">{item.value}</span>
+
+              <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)]">
+                <div className="flex flex-col gap-2 border-b border-[var(--glass-border)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold">Productos clasificados</p>
+                    <p className="text-xs text-muted-foreground">lineas del informe producto agrupadas por zona</p>
                   </div>
-                  <p className="mt-1 truncate text-xs opacity-75">{item.detail}</p>
-                </button>
-              ))}
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="secondary" className="rounded-full tabular-nums">
+                      {productosInformeClasificados.length} lineas
+                    </Badge>
+                    <Badge variant="outline" className="rounded-full tabular-nums">
+                      {formatoEntero(productosInformeKgComputable)} kg computables
+                    </Badge>
+                  </div>
+                </div>
+                {productosInformeClasificados.length === 0 ? (
+                  <p className="px-3 py-4 text-sm text-muted-foreground">Sin lineas de producto cargadas.</p>
+                ) : (
+                  <div className="max-h-[280px] overflow-y-auto">
+                    {productosInformeClasificados.map((item, index) => (
+                      <div
+                        key={`${item.producto}-${item.empaque}-${index}`}
+                        className="grid gap-2 border-b border-[var(--glass-border)] px-3 py-2.5 last:border-b-0 md:grid-cols-[minmax(0,1fr)_160px_110px]"
+                      >
+                        <div className="min-w-0">
+                          <p className="line-clamp-1 text-sm font-semibold">{item.producto}</p>
+                          <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{item.empaque}</p>
+                        </div>
+                        <div className="flex items-center gap-2 md:justify-start">
+                          <Badge variant="outline" className={cn("rounded-full", zonaProductoBadgeClass(item.zona))}>
+                            {item.zona}
+                          </Badge>
+                          {!item.computa ? (
+                            <span className="text-xs text-muted-foreground">fuera kg/zona</span>
+                          ) : null}
+                        </div>
+                        <p className="text-sm font-semibold tabular-nums text-primary md:text-right">
+                          {formatoEntero(item.kg)} kg
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </CardContent>
@@ -1639,6 +2182,7 @@ export default function Asistencia() {
                             {workers.map((t) => {
                               const presente = asistencia[t.id];
                               const metric = listaKgPersonaById.get(t.id);
+                              const bajaLaboral = asistenciaMotivos[t.id] === BAJA_LABORAL_MOTIVO;
                               const estadoLabel = presente === true ? "Presente" : presente === false ? "Ausente" : "Pendiente";
                               return (
                                 <div
@@ -1679,6 +2223,11 @@ export default function Asistencia() {
                                           {formatoEntero(metric.kgRef)} kg/p
                                         </p>
                                       )}
+                                      {presente === false && bajaLaboral ? (
+                                        <p className="mt-2 inline-flex rounded-lg border border-destructive/15 bg-destructive/10 px-2 py-1 text-xs font-semibold text-destructive">
+                                          Baja laboral
+                                        </p>
+                                      ) : null}
                                     </div>
                                   </div>
                                   <div className="flex shrink-0 flex-col items-end gap-2">

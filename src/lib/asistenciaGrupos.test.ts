@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addAsistenciaGroup,
+  DEFAULT_ASISTENCIA_GRUPOS,
   removeAsistenciaGroup,
   renameAsistenciaGroup,
   sanitizeAsistenciaGroups,
@@ -26,5 +27,9 @@ describe("asistenciaGrupos", () => {
 
   it("sanitizes empty, duplicated and reserved names", () => {
     expect(sanitizeAsistenciaGroups(["", "Mallas", " mallas ", "Sin grupo", "Mozos"])).toEqual(["Mallas", "Mozos"]);
+  });
+
+  it("includes Industria as a default asistencia group", () => {
+    expect(DEFAULT_ASISTENCIA_GRUPOS).toContain("Industria");
   });
 });

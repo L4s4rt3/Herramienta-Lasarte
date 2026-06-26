@@ -1,5 +1,24 @@
-export const RENDIMIENTO_GRUPOS = ["Envasadoras", "Mallas", "Graneleras"] as const;
-export const TRATAMIENTO_GRUPOS = ["Produccion", "Aereo", "Tria podrido", "Punta", "Volcador", "Mecanica", "Carretilla"] as const;
+import {
+  clasificarProductoInforme,
+  zonaRendimientoDesdeClasificacion,
+} from "./asistenciaProductoClasificacion";
+
+export const RENDIMIENTO_GRUPOS = ["Envasadoras", "Industria", "Mallas", "Graneleras"] as const;
+export const TRATAMIENTO_GRUPOS = [
+  "Encargadas",
+  "Produccion",
+  "Aereo",
+  "Tria podrido",
+  "Carretillero inicio linea",
+  "Carretillero final linea",
+  "Transpaletas mecanicas",
+  "Responsable mantenimiento",
+  "Punta",
+  "Volcador",
+  "Mecanica",
+  "Mantenimiento",
+  "Carretilla",
+] as const;
 export const EXCLUIDOS_KG_PERSONA = ["Carga y descarga"] as const;
 
 export type RendimientoGrupoKey = typeof RENDIMIENTO_GRUPOS[number];
@@ -103,16 +122,6 @@ function normalizarTexto(value: unknown): string {
     .trim();
 }
 
-function textoExclusionItem(item: ProductoRendimiento): string {
-  return [
-    item.producto,
-    item.grupo_destino,
-    item.linea,
-    item.destino,
-    item.situacion,
-  ].map(normalizarTexto).filter(Boolean).join(" ");
-}
-
 function esLineaTotal(value: unknown): boolean {
   const text = normalizarTexto(value);
   return /\b(total|totales|subtotal|suma|gran total)\b/.test(text);
@@ -129,22 +138,13 @@ function esFilaTotal(item: ProductoRendimiento): boolean {
   ].some(esLineaTotal);
 }
 
-function esExcluidoRendimiento(item: ProductoRendimiento): boolean {
-  const text = textoExclusionItem(item);
-  if (!text) return true;
-  return (
-    /\b(industria|industr|muestra|podrido|podrida|punta|reciclado|campo|egipto)\b/.test(text) ||
-    /\b(citrica|citricas|citrico|citricos|citrus|cit)\b/.test(text) ||
-    /\b(pre|precal|precalibrado|prec|precalibrada)\b/.test(text)
-  );
-}
-
 function normalizarGrupoConfeccion(value: unknown): RendimientoGrupoKey | null {
   const text = normalizarTexto(value);
   if (!text) return null;
-  if (/\b(granel|granelera|graneleras|bulk)\b/.test(text)) return "Graneleras";
+  if (/\b(industria|industr)\b/.test(text)) return "Industria";
+  if (/\b(granel|granelera|graneleras|bulk|rpack)\b/.test(text)) return "Graneleras";
   if (/\b(malla|mallas|malladora|malladoras)\b/.test(text)) return "Mallas";
-  if (/\b(envasado|envasados|envasadora|envasadoras|encajado|caja|empacado|empaque)\b/.test(text)) {
+  if (/\b(envasado|envasados|envasadora|envasadoras|encajado|caja|empacado|empaque|empaquetadora|empaquetadoras)\b/.test(text)) {
     return "Envasadoras";
   }
   return null;
@@ -159,7 +159,12 @@ export function tipoCosteTrabajador(trabajador: TrabajadorRendimiento): TipoCost
   const zona = normalizarTexto(trabajador.zona);
   if (!zona) return "sin_grupo";
   if (EXCLUIDOS_KG_PERSONA.some((grupo) => normalizarTexto(grupo) === zona)) return "no_computa";
-  return TRATAMIENTO_GRUPOS.some((grupo) => normalizarTexto(grupo) === zona) ? "tratamiento" : "general";
+  const esTratamiento =
+    TRATAMIENTO_GRUPOS.some((grupo) => normalizarTexto(grupo) === zona) ||
+    /\b(carretillero|transpaleta|transpaletas|mecanica|mecanicas|mantenimiento)\b/.test(zona) ||
+    /\btria\b.*\bpodrido\b/.test(zona) ||
+    /\bpuesto de mando\b/.test(zona);
+  return esTratamiento ? "tratamiento" : "general";
 }
 
 export function etiquetaTipoCoste(tipo: TipoCostePersona) {
@@ -240,27 +245,23 @@ export function calcularResumenKgPersonaOperacion<TTrabajador extends Trabajador
   };
 }
 
-function grupoProductoNombre(producto: unknown): RendimientoGrupoKey | null {
-  const text = normalizarTexto(producto);
-  if (!text) return null;
-  if (/\b(granel|granelera|bulk)\b/.test(text)) return "Graneleras";
-  if (/\b(malla|malladora|mdna|mercadona)\b/.test(text) || /\bd[-\s]?pack\b/.test(text)) return "Mallas";
-  return null;
-}
-
 function grupoProductoDia(item: ProductoRendimiento): RendimientoGrupoKey | null {
-  if (esFilaTotal(item) || esExcluidoRendimiento(item)) return null;
-
-  const grupoProducto = grupoProductoNombre(item.producto);
-  if (grupoProducto) return grupoProducto;
+  if (esFilaTotal(item)) return null;
 
   const explicit =
     normalizarGrupoConfeccion(item.grupo_destino) ??
-    normalizarGrupoConfeccion(item.linea) ??
-    normalizarGrupoConfeccion(item.formato_caja);
+    normalizarGrupoConfeccion(item.linea);
   if (explicit) return explicit;
 
-  return normalizarTexto(item.producto) ? "Envasadoras" : null;
+  return zonaRendimientoDesdeClasificacion(clasificarProductoInforme({
+    producto: item.producto,
+    empaque: item.empaque,
+    formato_caja: item.formato_caja,
+    categoria: item.categoria,
+    category: item.category,
+    destino: item.destino,
+    situacion: item.situacion,
+  }).zona) as RendimientoGrupoKey | null;
 }
 
 function kgProducto(item: ProductoRendimiento): number {
@@ -281,20 +282,21 @@ function getPaletsFallback(parte: ParteRendimiento | null | undefined): Producto
 }
 
 function gruposVacios(): RendimientoGrupos {
-  return {
-    Envasadoras: { kg: 0, personas: 0 },
-    Mallas: { kg: 0, personas: 0 },
-    Graneleras: { kg: 0, personas: 0 },
-  };
+  return Object.fromEntries(
+    RENDIMIENTO_GRUPOS.map((grupo) => [grupo, { kg: 0, personas: 0 }]),
+  ) as RendimientoGrupos;
 }
 
 function ajustarGruposAProduccionReal(grupos: RendimientoGrupos, parte: ParteRendimiento | null | undefined) {
   const produccionReal = produccionRealParte(parte);
-  const totalGrupos = totalKgRendimiento(grupos);
-  if (produccionReal <= 0 || totalGrupos <= 0) return;
+  const gruposEscalables = RENDIMIENTO_GRUPOS.filter((grupo) => grupo !== "Industria");
+  const kgIndustria = grupos.Industria?.kg ?? 0;
+  const totalEscalable = gruposEscalables.reduce((sum, grupo) => sum + grupos[grupo].kg, 0);
+  const produccionEscalable = Math.max(0, produccionReal - kgIndustria);
+  if (produccionReal <= 0 || totalEscalable <= 0 || produccionEscalable <= 0) return;
 
-  const factor = produccionReal / totalGrupos;
-  for (const grupo of RENDIMIENTO_GRUPOS) {
+  const factor = produccionEscalable / totalEscalable;
+  for (const grupo of gruposEscalables) {
     grupos[grupo].kg *= factor;
   }
 }
@@ -315,7 +317,6 @@ export function calcularRendimientoGrupos({
     for (const item of detalle) {
       addKg(grupoProductoDia(item), kgProducto(item));
     }
-    ajustarGruposAProduccionReal(grupos, parte);
   } else {
     for (const item of getPaletsFallback(parte)) {
       addKg(grupoProductoDia(item), kgProducto(item));
