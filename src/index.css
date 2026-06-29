@@ -157,9 +157,14 @@
 
 @layer base {
   * { @apply border-border; }
-  html { @apply antialiased; }
+  html {
+    @apply antialiased;
+    overflow-x: hidden;
+  }
   body {
     @apply text-foreground;
+    min-width: 320px;
+    overflow-x: hidden;
     font-feature-settings: "cv11", "ss01";
     background:
       radial-gradient(ellipse 65% 50% at 10% -10%, hsl(27 80% 55% / 0.07) 0%, transparent 60%),
@@ -233,7 +238,7 @@
   }
 
   .page-header {
-    @apply flex flex-col items-stretch gap-4 rounded-xl glass-accented p-4 sm:p-5 lg:flex-row lg:items-start lg:justify-between;
+    @apply flex flex-col items-stretch gap-3 rounded-xl glass-accented p-3 sm:gap-4 sm:p-5 lg:flex-row lg:items-start lg:justify-between;
   }
 
   .page-header > * {
@@ -249,7 +254,7 @@
   }
 
   .page-title {
-    @apply text-xl font-semibold leading-tight tracking-tight text-foreground sm:text-2xl md:text-3xl;
+    @apply text-xl font-semibold leading-tight text-foreground sm:text-2xl md:text-3xl;
   }
 
   .page-subtitle {
@@ -322,7 +327,7 @@
   }
 
   .panel-title {
-    @apply text-base font-semibold tracking-tight text-foreground;
+    @apply text-base font-semibold text-foreground;
   }
 
   .panel-kicker {
@@ -367,6 +372,19 @@
   }
 
   @media (max-width: 640px) {
+    .page-shell {
+      @apply space-y-3;
+    }
+
+    .page-header {
+      max-width: 100%;
+    }
+
+    .page-title,
+    .panel-title {
+      overflow-wrap: anywhere;
+    }
+
     .page-header .button-row,
     .section-toolbar .button-row {
       width: 100%;
@@ -388,6 +406,10 @@
     .section-toolbar button,
     .section-toolbar [role="combobox"] {
       width: 100%;
+    }
+
+    .chart-panel {
+      @apply p-2;
     }
   }
   input[type="date"]::-webkit-calendar-picker-indicator:hover {

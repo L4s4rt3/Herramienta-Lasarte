@@ -27,9 +27,9 @@ interface VentasCategoriaFilterBarProps {
 
 export function VentasCategoriaFilterBar({ filters, filterOptions, onChange, onClear, activeCount }: VentasCategoriaFilterBarProps) {
   return (
-    <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4 shadow-[var(--glass-shadow)] backdrop-blur-xl">
+    <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3 shadow-[var(--glass-shadow)] backdrop-blur-xl sm:p-4">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>
+        <div className="min-w-0">
           <h2 className="text-sm font-semibold">Filtros globales</h2>
           <p className="text-xs text-muted-foreground">
             {activeCount > 0
@@ -37,7 +37,7 @@ export function VentasCategoriaFilterBar({ filters, filterOptions, onChange, onC
               : "Sin filtros — mostrando todos los datos"}
           </p>
         </div>
-        <Button variant="outline" size="sm" className="gap-1.5" disabled={activeCount === 0} onClick={onClear}>
+        <Button variant="outline" size="sm" className="min-h-9 gap-1.5 md:min-h-0" disabled={activeCount === 0} onClick={onClear}>
           <X className="h-3.5 w-3.5" />
           Limpiar
         </Button>
@@ -46,7 +46,7 @@ export function VentasCategoriaFilterBar({ filters, filterOptions, onChange, onC
         <div className="space-y-1.5">
           <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Campana</Label>
           <Select value={filters.campana || ALL_FILTER_VALUE} onValueChange={(v) => onChange("campana", v === ALL_FILTER_VALUE ? "" : v)}>
-            <SelectTrigger><SelectValue placeholder="Todas" /></SelectTrigger>
+            <SelectTrigger className="min-h-10"><SelectValue placeholder="Todas" /></SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL_FILTER_VALUE}>Todas</SelectItem>
               {filterOptions.campanas.map((c) => (
@@ -58,7 +58,7 @@ export function VentasCategoriaFilterBar({ filters, filterOptions, onChange, onC
         <div className="space-y-1.5">
           <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mes</Label>
           <Select value={filters.mes || ALL_FILTER_VALUE} onValueChange={(v) => onChange("mes", v === ALL_FILTER_VALUE ? "" : v)}>
-            <SelectTrigger><SelectValue placeholder="Todos" /></SelectTrigger>
+            <SelectTrigger className="min-h-10"><SelectValue placeholder="Todos" /></SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL_FILTER_VALUE}>Todos</SelectItem>
               {filterOptions.meses.map((m) => (
@@ -70,7 +70,7 @@ export function VentasCategoriaFilterBar({ filters, filterOptions, onChange, onC
         <div className="space-y-1.5">
           <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cliente</Label>
           <Select value={filters.cliente || ALL_FILTER_VALUE} onValueChange={(v) => onChange("cliente", v === ALL_FILTER_VALUE ? "" : v)}>
-            <SelectTrigger><SelectValue placeholder="Todos" /></SelectTrigger>
+            <SelectTrigger className="min-h-10"><SelectValue placeholder="Todos" /></SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL_FILTER_VALUE}>Todos</SelectItem>
               {filterOptions.clientes.map((c) => (
@@ -82,7 +82,7 @@ export function VentasCategoriaFilterBar({ filters, filterOptions, onChange, onC
         <div className="space-y-1.5">
           <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Producto</Label>
           <Select value={filters.metodo || ALL_FILTER_VALUE} onValueChange={(v) => onChange("metodo", v === ALL_FILTER_VALUE ? "" : v)}>
-            <SelectTrigger><SelectValue placeholder="Todos" /></SelectTrigger>
+            <SelectTrigger className="min-h-10"><SelectValue placeholder="Todos" /></SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL_FILTER_VALUE}>Todos</SelectItem>
               {filterOptions.metodos.map((m) => (
@@ -96,7 +96,7 @@ export function VentasCategoriaFilterBar({ filters, filterOptions, onChange, onC
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              className="pl-8"
+              className="min-h-10 pl-8"
               value={filters.articulo}
               onChange={(e) => onChange("articulo", e.target.value)}
               placeholder="Buscar texto..."

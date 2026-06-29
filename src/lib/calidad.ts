@@ -5,8 +5,24 @@ import { appendAoaSheet, appendDictionarySheet, appendRowsSheet, createWorkbook,
 import { PDF_THEME } from "@/lib/exportTheme";
 import { formatDate } from "@/lib/format";
 
-export const CALIDAD_OPTIONS = ["Bueno", "Regular", "Deficiente", "Rechazado"] as const;
+export const CALIDAD_OPTIONS = ["Excelente", "Bueno", "Regular", "Deficiente", "Pésimo"] as const;
 export type CalidadEstado = typeof CALIDAD_OPTIONS[number];
+
+export const DEFECTO_OPTIONS = [
+  "Rameado",
+  "Golpe",
+  "Podrido",
+  "Mancha",
+  "Calibre irregular",
+  "Color verde",
+  "Piel blanda",
+  "Deshidratado",
+  "Plaga",
+  "Otro",
+] as const;
+export type CalidadDefecto = typeof DEFECTO_OPTIONS[number];
+
+export type CalidadInformeEstado = "borrador" | "generado" | "validado" | "reabierto";
 
 export interface CalidadJornada {
   id: string;
@@ -27,6 +43,7 @@ export interface CalidadProductor {
 export interface CalidadLote {
   id: string;
   jornada_id: string;
+  user_id: string;
   fecha: string;
   numero_lote: string;
   productor_finca_id: string | null;
@@ -38,10 +55,22 @@ export interface CalidadLote {
   aerobotics_realizado: boolean;
   calidad: CalidadEstado;
   defectos: string[];
+  defecto_otro: string;
   observacion: string;
   accion_recomendada: string;
-  created_at?: string;
-  updated_at?: string;
+  informe_estado: CalidadInformeEstado;
+  informe_generado: string;
+  ia_calidad: string | null;
+  ia_defectos: string[];
+  ia_resumen: string;
+  ia_accion_recomendada: string;
+  validado_at: string | null;
+  validado_by: string | null;
+  reabierto_at: string | null;
+  reabierto_by: string | null;
+  motivo_reapertura: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface CalidadAdjunto {
@@ -147,6 +176,68 @@ export function splitComentarioCalidad(value: string) {
   };
 }
 
+export interface CalidadValidationResult {
+  ok: boolean;
+  reason?: string;
+}
+
+export function canValidateCalidadLote(lote: CalidadLote, photoCount: number): CalidadValidationResult {
+  if (photoCount < 1) {
+    return { ok: false, reason: "Se requiere al menos 1 foto para validar el informe." };
+  }
+  if (lote.defectos.includes("Otro") && !lote.defecto_otro.trim()) {
+    return { ok: false, reason: "Seleccionaste Otro como defecto. Describe manualmente el defecto antes de validar." };
+  }
+  return { ok: true };
+}
+
+export function isCalidadLoteLocked(lote: CalidadLote): boolean {
+  return lote.informe_estado === "validado";
+}
+
+export function validateCalidadLote(lote: CalidadLote, userId: string, isoDate: string): CalidadLote {
+  return { ...lote, informe_estado: "validado", validado_at: isoDate, validado_by: userId };
+}
+
+export function reopenCalidadLote(lote: CalidadLote, userId: string, isoDate: string): CalidadLote {
+  return {
+    ...lote,
+    informe_estado: "reabierto",
+    reabierto_at: isoDate,
+    reabierto_by: userId,
+    validado_at: null,
+    validado_by: null,
+  };
+}
+
+export interface DraftReport {
+  informe: string;
+  accion_recomendada: string;
+}
+
+export function createCalidadDraftReport(lote: CalidadLote, photoCount: number, _history: CalidadLote[]): DraftReport {
+  const trace = [
+    lote.productor_finca_nombre || "productor/finca pendiente",
+    lote.variedad || lote.producto || "variedad pendiente",
+    lote.cantidad || "box pendiente",
+    lote.hora ? `${lote.hora} h` : "hora pendiente",
+  ].join(" - ");
+  const defects = lote.defectos.length > 0 ? ` Defectos marcados: ${lote.defectos.join(", ")}.` : "";
+  const photoText = photoCount === 1 ? "1 foto adjunta" : `${photoCount} fotos adjuntas`;
+  const actionByQuality: Record<CalidadEstado, string> = {
+    Excelente: "Mantener trazabilidad del lote y liberar si la inspeccion visual coincide con la calidad marcada.",
+    Bueno: "Mantener trazabilidad del lote y liberar si la inspeccion visual coincide con la calidad marcada.",
+    Regular: "Revisar en linea, controlar calibre/color y dejar seguimiento en el parte.",
+    Deficiente: "Separar para seguimiento, reforzar control visual y avisar a produccion antes de mezclar.",
+    Pésimo: "Bloquear el lote, documentar con fotos y escalar a responsable de calidad antes de procesar.",
+  };
+
+  return {
+    informe: `Entrada ${lote.calidad.toLocaleLowerCase("es")} de ${trace}. ${photoText} como evidencia.${defects}`,
+    accion_recomendada: actionByQuality[lote.calidad] || "Revisar lote antes de procesar.",
+  };
+}
+
 export function findCalidadHistoricoSimilar(current: CalidadLote, history: CalidadLote[]) {
   return history
     .filter((lote) => lote.id !== current.id)
@@ -173,10 +264,11 @@ export function buildCalidadComentarioSugerido(current: CalidadLote, history: Ca
     ? ` Historico similar: ${similar.map((lote) => `${lote.fecha} ${lote.calidad}`).join("; ")}.`
     : " Sin historico similar registrado para comparar.";
   const actionByQuality: Record<CalidadEstado, string> = {
+    Excelente: "Mantener trazabilidad del lote y liberar si la inspeccion visual coincide con la calidad marcada.",
     Bueno: "Mantener trazabilidad del lote y liberar si la inspeccion visual coincide con la calidad marcada.",
     Regular: "Revisar en linea, controlar calibre/color y dejar seguimiento en el parte.",
     Deficiente: "Separar para seguimiento, reforzar control visual y avisar a produccion antes de mezclar.",
-    Rechazado: "Bloquear el lote, documentar con fotos y escalar a responsable de calidad antes de procesar.",
+    Pésimo: "Bloquear el lote, documentar con fotos y escalar a responsable de calidad antes de procesar.",
   };
 
   return normalizeComentario(
@@ -205,7 +297,7 @@ export function attachmentCountMap(adjuntos: CalidadAdjunto[]) {
   }, {});
 }
 
-export function buildCalidadExcelRows(lotes: CalidadLote[], attachmentCounts: Record<string, number> = {}) {
+  export function buildCalidadExcelRows(lotes: CalidadLote[], attachmentCounts: Record<string, number> = {}) {
   return lotes.map((lote) => ({
     Fecha: formatCalidadDate(lote.fecha),
     Lote: lote.numero_lote,
@@ -217,17 +309,24 @@ export function buildCalidadExcelRows(lotes: CalidadLote[], attachmentCounts: Re
     "Aerobotics realizado": lote.aerobotics_realizado ? "Si" : "No",
     Calidad: lote.calidad,
     Defectos: lote.defectos.join(", "),
+    "Otro defecto": lote.defecto_otro,
+    "Estado informe": lote.informe_estado,
+    "Informe generado": lote.informe_generado,
+    "IA calidad": lote.ia_calidad ?? "",
+    "IA defectos": lote.ia_defectos.join(", "),
     Observacion: lote.observacion,
     "Accion recomendada": lote.accion_recomendada,
+    Validado: lote.validado_at ? `${lote.validado_at} por ${lote.validado_by ?? "-"}` : "",
+    Reabierto: lote.reabierto_at ? `${lote.reabierto_at} por ${lote.reabierto_by ?? "-"}` : "",
     Fotos: attachmentCounts[lote.id] ?? 0,
   }));
 }
 
 export function buildCalidadIncidentRows(lotes: CalidadLote[], attachmentCounts: Record<string, number> = {}) {
   return lotes
-    .filter((lote) => lote.calidad !== "Bueno" || lote.defectos.length > 0 || lote.observacion.trim() || lote.accion_recomendada.trim())
+    .filter((lote) => (lote.calidad !== "Excelente" && lote.calidad !== "Bueno") || lote.defectos.length > 0 || lote.observacion.trim() || lote.accion_recomendada.trim())
     .map((lote) => ({
-      Prioridad: lote.calidad === "Rechazado" ? "Alta" : lote.calidad === "Deficiente" ? "Media" : "Seguimiento",
+      Prioridad: lote.calidad === "Pésimo" ? "Alta" : lote.calidad === "Deficiente" ? "Media" : "Seguimiento",
       Fecha: formatCalidadDate(lote.fecha),
       Lote: lote.numero_lote,
       "Productor/Finca": lote.productor_finca_nombre,
@@ -237,8 +336,13 @@ export function buildCalidadIncidentRows(lotes: CalidadLote[], attachmentCounts:
       Hora: lote.hora ?? "",
       Calidad: lote.calidad,
       Defectos: lote.defectos.join(", "),
+      "Otro defecto": lote.defecto_otro,
+      "Estado informe": lote.informe_estado,
+      "Informe generado": lote.informe_generado,
       Observacion: lote.observacion,
       "Accion recomendada": lote.accion_recomendada,
+      Validado: lote.validado_at ? `${lote.validado_at} por ${lote.validado_by ?? "-"}` : "",
+      Reabierto: lote.reabierto_at ? `${lote.reabierto_at} por ${lote.reabierto_by ?? "-"}` : "",
       Fotos: attachmentCounts[lote.id] ?? 0,
     }));
 }
@@ -268,17 +372,19 @@ function safePdf(value: unknown): string {
 }
 
 const QUALITY_PDF_COLORS: Record<CalidadEstado, [number, number, number]> = {
+  Excelente: PDF_THEME.success,
   Bueno: PDF_THEME.success,
   Regular: PDF_THEME.warning,
   Deficiente: PDF_THEME.primary,
-  Rechazado: PDF_THEME.destructive,
+  Pésimo: PDF_THEME.destructive,
 };
 
 const QUALITY_SOFT_COLORS: Record<CalidadEstado, [number, number, number]> = {
+  Excelente: [232, 246, 237],
   Bueno: [232, 246, 237],
   Regular: [255, 246, 222],
   Deficiente: [255, 237, 221],
-  Rechazado: [255, 235, 234],
+  Pésimo: [255, 235, 234],
 };
 
 function percentageLabel(value: number, total: number) {
@@ -297,21 +403,6 @@ function styleRange(ws: XLSX.WorkSheet, range: string, style: Record<string, unk
       setCellStyle(ws, XLSX.utils.encode_cell({ r: row, c: col }), style);
     }
   }
-}
-
-function polishWorksheet(ws: XLSX.WorkSheet, headerRow = 0, widthHint?: number[]) {
-  if (widthHint) ws["!cols"] = widthHint.map((wch) => ({ wch }));
-  const range = ws["!ref"];
-  if (!range) return;
-  const decoded = XLSX.utils.decode_range(range);
-  ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: headerRow, c: 0 }, e: decoded.e }) };
-  ws["!freeze"] = { xSplit: 0, ySplit: headerRow + 1 };
-  ws["!rows"] = Array.from({ length: decoded.e.r + 1 }, (_, row) => ({ hpt: row === headerRow ? 24 : 20 }));
-  styleRange(ws, XLSX.utils.encode_range({ s: { r: headerRow, c: 0 }, e: { r: headerRow, c: decoded.e.c } }), {
-    font: { bold: true, color: { rgb: "FFFFFF" } },
-    fill: { fgColor: { rgb: "1F5039" } },
-    alignment: { vertical: "center", horizontal: "center", wrapText: true },
-  });
 }
 
 function drawQualityPill(doc: jsPDF, x: number, y: number, label: string, color: [number, number, number], fill: [number, number, number], width = 24) {
@@ -460,59 +551,55 @@ export function exportCalidadToExcel(jornada: CalidadJornada, lotes: CalidadLote
     wb,
     "Resumen",
     [
-      ["LASARTE SAT", "", "", "", ""],
+      ["", "", "", "", ""],
       ["Jornada de Calidad", "", "", "", ""],
-      [formatCalidadDate(jornada.fecha), "", `Responsable: ${jornada.responsable || "-"}`, "", `Generado: ${new Date().toLocaleString("es-ES")}`],
-      [],
       ["Indicador", "Valor", "Lectura", "Calidad", "Lotes"],
+      ["Fecha", formatCalidadDate(jornada.fecha), `Responsable: ${jornada.responsable || "-"}`, "Generado", new Date().toLocaleString("es-ES")],
       ["Lotes anotados", summary.total, "Total de entradas revisadas", "Bueno", summary.byQuality.Bueno],
       ["Aerobotics realizados", summary.aerobotics, percentageLabel(summary.aerobotics, summary.total), "Regular", summary.byQuality.Regular],
       ["Fotos adjuntas", summary.fotos, "Evidencias guardadas", "Deficiente", summary.byQuality.Deficiente],
-      ["Lotes con incidencia", buildCalidadIncidentRows(lotes, counts).length, "Regular, deficiente, rechazado o con notas", "Rechazado", summary.byQuality.Rechazado],
+      ["Lotes con incidencia", buildCalidadIncidentRows(lotes, counts).length, "Regular, deficiente, pesimo o con notas", "Pésimo", summary.byQuality.Pésimo],
       [],
       ["Uso del informe", "Abrir Lotes para filtrar todos los registros. Abrir Incidencias para revisar solo lo que necesita seguimiento.", "", "", ""],
     ],
     [24, 12, 48, 18, 12],
   );
   resumen["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 4 } },
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
     { s: { r: 1, c: 0 }, e: { r: 1, c: 4 } },
-    { s: { r: 10, c: 1 }, e: { r: 10, c: 4 } },
+    { s: { r: 9, c: 1 }, e: { r: 9, c: 4 } },
   ];
   styleRange(resumen, "A1:E2", {
     font: { bold: true, color: { rgb: "FFFFFF" } },
     fill: { fgColor: { rgb: "1F5039" } },
     alignment: { horizontal: "center", vertical: "center" },
   });
-  styleRange(resumen, "A5:E5", {
+  styleRange(resumen, "A3:E3", {
     font: { bold: true, color: { rgb: "FFFFFF" } },
     fill: { fgColor: { rgb: "C96B21" } },
     alignment: { horizontal: "center" },
   });
-  resumen["!rows"] = [{ hpt: 24 }, { hpt: 32 }, { hpt: 22 }, { hpt: 8 }, { hpt: 24 }];
+  resumen["!rows"] = [{ hpt: 72 }, { hpt: 24 }, { hpt: 19 }];
 
-  const lotesSheet = appendRowsSheet(wb, "Lotes", buildCalidadExcelRows(lotes, counts), [14, 16, 30, 18, 22, 16, 12, 20, 14, 34, 58, 50, 10], {
+  appendRowsSheet(wb, "Lotes", buildCalidadExcelRows(lotes, counts), [14, 16, 30, 18, 22, 16, 12, 20, 14, 34, 22, 16, 34, 22, 58, 50, 28, 28, 10], {
     freezeHeader: true,
   });
-  polishWorksheet(lotesSheet, 0, [14, 16, 30, 18, 22, 16, 12, 20, 14, 34, 58, 50, 10]);
 
-  const incidenciasSheet = appendRowsSheet(
+  appendRowsSheet(
     wb,
     "Incidencias",
     buildCalidadIncidentRows(lotes, counts),
-    [16, 14, 16, 30, 18, 22, 16, 12, 14, 34, 58, 50, 10],
+    [16, 14, 16, 30, 18, 22, 16, 12, 14, 34, 22, 16, 34, 58, 50, 28, 28, 10],
     { freezeHeader: true },
   );
-  polishWorksheet(incidenciasSheet, 0, [16, 14, 16, 30, 18, 22, 16, 12, 14, 34, 58, 50, 10]);
 
-  const adjuntosSheet = appendRowsSheet(
+  appendRowsSheet(
     wb,
     "Adjuntos",
     buildCalidadAttachmentRows(jornada, lotes, adjuntos),
     [14, 16, 30, 14, 36, 22, 80],
     { freezeHeader: true },
   );
-  polishWorksheet(adjuntosSheet, 0, [14, 16, 30, 14, 36, 22, 80]);
 
   appendDictionarySheet(wb, [
     { Hoja: "Resumen", Campo: "Indicador", Descripcion: "Lectura rapida del dia de calidad con KPIs y distribucion por estado.", Uso: "Informe diario." },
@@ -524,9 +611,16 @@ export function exportCalidadToExcel(jornada: CalidadJornada, lotes: CalidadLote
   saveWorkbook(wb, `calidad_${jornada.fecha}.xlsx`);
 }
 
-export function exportCalidadToPDF(jornada: CalidadJornada, lotes: CalidadLote[], adjuntos: CalidadAdjunto[]) {
+export function exportCalidadToPDF(
+  jornada: CalidadJornada,
+  lotes: CalidadLote[],
+  adjuntos: CalidadAdjunto[],
+  options: { mode?: "borrador" | "oficial" } = {},
+) {
+  const mode = options.mode ?? "borrador";
+  const filteredLotes = mode === "oficial" ? lotes.filter((l) => l.informe_estado === "validado") : lotes;
   const counts = attachmentCountMap(adjuntos);
-  const summary = calidadSummary(lotes, counts);
+  const summary = calidadSummary(filteredLotes, counts);
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageRef = { value: 1 };
   drawCalidadHeader(doc, jornada, summary, pageRef.value);
@@ -549,11 +643,18 @@ export function exportCalidadToPDF(jornada: CalidadJornada, lotes: CalidadLote[]
   doc.setFontSize(7.5);
   doc.text(safePdf(`Responsable: ${jornada.responsable || "-"}`), 278, 47, { align: "right" });
 
+  if (mode === "oficial") {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(...PDF_THEME.success);
+    doc.text("INFORME OFICIAL - VALIDADO", 278, 54, { align: "right" });
+  }
+
   [
     { label: "LOTES", value: String(summary.total), sub: "anotados", color: PDF_THEME.forest },
     { label: "AEROBOTICS", value: String(summary.aerobotics), sub: percentageLabel(summary.aerobotics, summary.total), color: PDF_THEME.info },
     { label: "BUENO", value: String(summary.byQuality.Bueno), sub: percentageLabel(summary.byQuality.Bueno, summary.total), color: PDF_THEME.success },
-    { label: "REVISAR", value: String(summary.byQuality.Regular + summary.byQuality.Deficiente + summary.byQuality.Rechazado), sub: "con seguimiento", color: PDF_THEME.warning },
+    { label: "REVISAR", value: String(summary.byQuality.Regular + summary.byQuality.Deficiente + summary.byQuality.Pésimo), sub: "con seguimiento", color: PDF_THEME.warning },
     { label: "FOTOS", value: String(summary.fotos), sub: "adjuntas", color: PDF_THEME.primary },
   ].forEach((metric, index) => drawMetricTile(doc, 10 + index * 56.4, 66, 52, metric.label, metric.value, metric.sub, metric.color));
 
@@ -574,7 +675,7 @@ export function exportCalidadToPDF(jornada: CalidadJornada, lotes: CalidadLote[]
   doc.text("Detalle de lotes", 10, 119);
 
   let y = 124;
-  lotes.forEach((lote, index) => {
+  filteredLotes.forEach((lote, index) => {
     const photoCount = counts[lote.id] ?? 0;
     const previewObs = doc.splitTextToSize(safePdf(lote.observacion || "Sin observacion registrada."), 128).slice(0, 4);
     const previewAction = doc.splitTextToSize(safePdf(lote.accion_recomendada || "Sin accion recomendada."), 118).slice(0, 4);
@@ -584,7 +685,7 @@ export function exportCalidadToPDF(jornada: CalidadJornada, lotes: CalidadLote[]
     y += height + 6;
   });
 
-  if (lotes.length === 0) {
+  if (filteredLotes.length === 0) {
     doc.setFillColor(...PDF_THEME.cream);
     doc.roundedRect(10, y, 277, 24, 2, 2, "F");
     doc.setFont("helvetica", "normal");
@@ -593,5 +694,18 @@ export function exportCalidadToPDF(jornada: CalidadJornada, lotes: CalidadLote[]
     doc.text("No hay lotes anotados para esta jornada.", 148.5, y + 14, { align: "center" });
   }
 
-  doc.save(`calidad_${jornada.fecha}.pdf`);
+  if (mode === "borrador") {
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    for (let i = 1; i <= doc.getNumberOfPages(); i++) {
+      doc.setPage(i);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(48);
+      doc.setTextColor(200, 200, 200);
+      doc.text("BORRADOR", pageWidth / 2, pageHeight / 2, { align: "center", angle: 45 });
+    }
+  }
+
+  const suffix = mode === "oficial" ? "oficial" : "borrador";
+  doc.save(`calidad_${jornada.fecha}_${suffix}.pdf`);
 }

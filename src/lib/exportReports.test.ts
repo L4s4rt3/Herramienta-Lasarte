@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildConsumoReportSummary, type ExportData } from "./exportConsumo";
-import { buildPartesReportSummary, type ParteRow } from "./exportPartes";
+import { buildPartesReportSummary, buildPartesWorkbook, type ParteRow } from "./exportPartes";
 
 describe("export report summaries", () => {
   it("builds consumo KPIs from period rows", () => {
@@ -63,5 +63,34 @@ describe("export report summaries", () => {
     expect(summary.meta.periodLabel).toContain("15/06/2026");
     expect(summary.kpis.map((kpi) => kpi.label)).toContain("Dias criticos");
     expect(summary.insights.some((insight) => insight.label === "Dia a revisar")).toBe(true);
+  });
+
+  it("builds partes workbook with the branded table layout", () => {
+    const partes: ParteRow[] = [
+      {
+        id: "p1",
+        date: "2026-06-15",
+        estado: "procesado",
+        kg_produccion_calibrador: 1000,
+        kg_mujeres_calibrador: 50,
+        kg_palets_brutos: 900,
+        kg_palets_egipto: 0,
+        kg_inventario_sin_alta: 25,
+        kg_podrido_bolsa_basura: 10,
+      },
+    ];
+
+    const wb = buildPartesWorkbook(partes, "2026-06-15", "2026-06-15");
+    const detalle = wb.Sheets["Detalle diario"];
+
+    expect(wb.SheetNames).toContain("Portada");
+    expect(wb.SheetNames).toContain("Detalle diario");
+    expect(wb.SheetNames).toContain("Cascada DJPMN");
+    expect(detalle["A2"].v).toBe("Detalle diario");
+    expect(detalle["A3"].v).toBe("Fecha");
+    expect(detalle["D3"].v).toBe("Produccion real kg");
+    expect(detalle["A4"].v).toBe("15 jun 2026");
+    expect(detalle["!autofilter"]?.ref).toBe("A3:P4");
+    expect(detalle["!freeze"]).toMatchObject({ xSplit: 0, ySplit: 3 });
   });
 });

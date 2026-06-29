@@ -257,41 +257,41 @@ export default function VentasCategoriaSegunda() {
   };
 
   return (
-    <div className="container mx-auto max-w-[1600px] space-y-5 p-4 md:p-6">
+    <div className="mx-auto w-full max-w-[1600px] space-y-4 px-0 sm:space-y-5 md:p-6">
       <Tabs value={tab} onValueChange={setTab} className="space-y-5">
-      <header className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3 shadow-[var(--glass-shadow)] backdrop-blur-xl md:p-4">
-        <div className="flex flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex items-center gap-2">
+      <header className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3 shadow-[var(--glass-shadow)] backdrop-blur-xl md:p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <div className="flex min-w-0 items-center gap-2">
               <p className="panel-kicker text-xs">Comercial</p>
               <Badge variant={hasImportedData ? "outline" : "destructive"} className="rounded-md text-xs px-2 py-0">
                 {hasImportedData ? "Base cargada" : "Sin datos"}
               </Badge>
             </div>
-            <h1 className="text-lg font-bold tracking-tight md:text-xl">Categoria segunda</h1>
+            <h1 className="min-w-0 text-lg font-bold leading-tight md:text-xl">Categoria segunda</h1>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <Button asChild variant="outline" size="sm" className="h-8 cursor-pointer rounded-md px-3 text-xs">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Button asChild variant="outline" size="sm" className="h-9 flex-1 cursor-pointer rounded-md px-3 text-xs sm:h-8 sm:flex-none">
               <label>
                 <Input className="hidden" type="file" accept=".xlsx,.xls" onChange={handleImportFile} />
                 <Upload className="h-3.5 w-3.5" />
                 {parsing ? "Leyendo..." : "Importar Excel"}
               </label>
             </Button>
-            <Badge variant="outline" className="h-8 rounded-md px-2 text-xs">
+            <Badge variant="outline" className="h-9 min-w-0 rounded-md px-2 text-xs sm:h-8">
               {ventas.categoria?.nombre ?? "Sin categoria"}
             </Badge>
           </div>
         </div>
         <div className="mt-3">
-          <TabsList className="inline-flex h-auto flex-wrap gap-1 rounded-xl bg-[var(--glass-bg-strong)] p-1">
-            <TabsTrigger value="dashboard" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Dashboard</TabsTrigger>
-            <TabsTrigger value="comparar" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Comparar</TabsTrigger>
-            <TabsTrigger value="clientes" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Clientes</TabsTrigger>
-            <TabsTrigger value="productos" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Productos</TabsTrigger>
-            <TabsTrigger value="articulos" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Articulos</TabsTrigger>
-            <TabsTrigger value="base" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Base diaria</TabsTrigger>
-            <TabsTrigger value="importar" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Importar</TabsTrigger>
+          <TabsList className="flex h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto rounded-xl bg-[var(--glass-bg-strong)] p-1 sm:inline-flex sm:w-auto sm:flex-wrap">
+            <TabsTrigger value="dashboard" className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground sm:px-4 sm:py-1.5">Dashboard</TabsTrigger>
+            <TabsTrigger value="comparar" className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground sm:px-4 sm:py-1.5">Comparar</TabsTrigger>
+            <TabsTrigger value="clientes" className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground sm:px-4 sm:py-1.5">Clientes</TabsTrigger>
+            <TabsTrigger value="productos" className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground sm:px-4 sm:py-1.5">Productos</TabsTrigger>
+            <TabsTrigger value="articulos" className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground sm:px-4 sm:py-1.5">Articulos</TabsTrigger>
+            <TabsTrigger value="base" className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground sm:px-4 sm:py-1.5">Base diaria</TabsTrigger>
+            <TabsTrigger value="importar" className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground sm:px-4 sm:py-1.5">Importar</TabsTrigger>
           </TabsList>
         </div>
       </header>
@@ -985,9 +985,9 @@ export default function VentasCategoriaSegunda() {
 function Kpi({ title, value }: { title: string; value: string }) {
   return (
     <Card className="glass-accented">
-      <CardContent className="p-4">
+      <CardContent className="p-3 sm:p-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
-        <p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>
+        <p className="mt-1 break-words text-xl font-bold leading-tight tabular-nums sm:text-2xl">{value}</p>
       </CardContent>
     </Card>
   );
@@ -995,9 +995,9 @@ function Kpi({ title, value }: { title: string; value: string }) {
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <Card className="glass-accented">
-      <CardHeader className="pb-2"><CardTitle>{title}</CardTitle></CardHeader>
-      <CardContent><div className={CHART_PANEL_CLASS}>{children}</div></CardContent>
+    <Card className="glass-accented overflow-hidden">
+      <CardHeader className="px-4 pb-2 pt-4 sm:px-6"><CardTitle className="text-base sm:text-lg">{title}</CardTitle></CardHeader>
+      <CardContent className="px-3 pb-3 sm:px-6 sm:pb-6"><div className={CHART_PANEL_CLASS}>{children}</div></CardContent>
     </Card>
   );
 }
@@ -1026,12 +1026,12 @@ function DeltaBadge({ value, formatter }: { value: number | null; formatter: (va
 function DataTable({ title, description, headers, children }: { title: string; description?: string; headers: string[]; children: React.ReactNode }) {
   return (
     <Card className="glass-accented overflow-hidden">
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
+      <CardHeader className="px-4 py-4 sm:px-6">
+        <CardTitle className="text-base sm:text-lg">{title}</CardTitle>
         {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
       </CardHeader>
       <CardContent className="p-0">
-        <div className="max-h-[620px] overflow-auto">
+        <div className="max-h-[620px] overflow-auto px-1 pb-1">
           <Table>
             <TableHeader>
               <TableRow>{headers.map((header) => <TableHead key={header}>{header}</TableHead>)}</TableRow>

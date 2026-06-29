@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import * as XLSX from "xlsx";
+import { appendRowsSheet, createWorkbook, saveWorkbook } from "@/lib/exportWorkbook";
 import type { AsistenciaBajaLaboralRow, TrabajadorRow } from "@/lib/types";
 import {
   buildAttendanceRecords,
@@ -73,6 +74,12 @@ import {
   calcularRendimientoZonasAlmacen,
 } from "@/lib/asistenciaPlantilla";
 import { clasificarProductoInforme } from "@/lib/asistenciaProductoClasificacion";
+import {
+  buildProductoClasificadoExportRow,
+  buildRendimientoZonaExportRow,
+  buildTrabajadorDiaExportRow,
+  normalizeAsistenciaExportZona,
+} from "@/lib/asistenciaExport";
 
 type WorkerFilter = "todos" | "presentes" | "ausentes" | "bajaLaboral" | "sinRegistro" | "conKg" | "fueraKg";
 
@@ -116,10 +123,26 @@ function errorMessage(err: unknown) {
   return typeof err === "string" ? err : "Error desconocido";
 }
 
+function inferExportColumnWidths(rows: Record<string, unknown>[]) {
+  const headers = Array.from(rows.reduce<Set<string>>((set, row) => {
+    Object.keys(row).forEach((key) => set.add(key));
+    return set;
+  }, new Set()));
+
+  if (headers.length === 0) return [18];
+
+  return headers.map((header) => {
+    const maxContent = rows.reduce((max, row) => {
+      const value = row[header];
+      return Math.max(max, String(value ?? "").length);
+    }, header.length);
+    return Math.min(Math.max(maxContent + 3, 12), 46);
+  });
+}
+
 function appendJsonSheet(workbook: XLSX.WorkBook, sheetName: string, rows: Record<string, unknown>[]) {
-  const safeName = sheetName.slice(0, 31);
-  const worksheet = XLSX.utils.json_to_sheet(rows.length > 0 ? rows : [{ Sin_datos: "" }]);
-  XLSX.utils.book_append_sheet(workbook, worksheet, safeName);
+  const safeRows = rows.length > 0 ? rows : [{ Sin_datos: "" }];
+  return appendRowsSheet(workbook, sheetName, safeRows, inferExportColumnWidths(safeRows), { freezeHeader: true });
 }
 
 function inicialesTrabajador(nombre: string) {
@@ -380,12 +403,12 @@ export default function Asistencia() {
   function exportarListaTrabajadores() {
     setExportingAsistencia("lista");
     try {
-      const workbook = XLSX.utils.book_new();
+      const workbook = createWorkbook("Lasarte SAT - Lista de trabajadores", "Plantilla operativa de trabajadores");
       const rows = [...trabajadores]
         .sort((a, b) => (a.zona ?? "").localeCompare(b.zona ?? "", "es") || a.nombre.localeCompare(b.nombre, "es"))
         .map((trabajador) => ({
           Nombre: trabajador.nombre,
-          Zona: trabajador.zona || "Sin grupo",
+          Zona: normalizeAsistenciaExportZona(trabajador.zona),
           Estado: trabajador.activo ? "Activo" : "Inactivo",
         }));
       const resumen = Array.from(
@@ -401,7 +424,7 @@ export default function Asistencia() {
 
       appendJsonSheet(workbook, "Resumen zonas", resumen);
       appendJsonSheet(workbook, "Trabajadores", rows);
-      XLSX.writeFile(workbook, `lista_trabajadores_${selectedDate}.xlsx`, { compression: true });
+      saveWorkbook(workbook, `lista_trabajadores_${selectedDate}.xlsx`);
       toast({ title: "Lista de trabajadores descargada" });
     } catch (err) {
       toast({ title: "Error al exportar trabajadores", description: errorMessage(err), variant: "destructive" });
@@ -413,7 +436,7 @@ export default function Asistencia() {
   function exportarParteDiarioAsistencia() {
     setExportingAsistencia("parte");
     try {
-      const workbook = XLSX.utils.book_new();
+      const workbook = createWorkbook("Lasarte SAT - Parte diario asistencia", "Informe de ausencias y rendimiento");
       appendJsonSheet(workbook, "Resumen", [
         { Campo: "Fecha", Valor: selectedDate },
         { Campo: "Trabajadores activos", Valor: totalActivos },
@@ -426,28 +449,23 @@ export default function Asistencia() {
         { Campo: "Kg/persona general", Valor: Math.round(kgPersonaLista) },
       ]);
       appendJsonSheet(workbook, "Rendimiento zonas", kgPorConfeccion.map((zona) => ({
-        Zona: zona.label,
-        Kg: Math.round(zona.kg),
-        Porcentaje_kg: formatoPorcentaje(zona.porcentajeKg),
-        Personas_presentes: zona.personas,
-        Personas_objetivo: zona.objetivo ?? "",
-        Kg_persona: Math.round(zona.kgPersona),
+        ...buildRendimientoZonaExportRow(zona, formatoPorcentaje(zona.porcentajeKg)),
       })));
       appendJsonSheet(workbook, "Faltas", [
         ...ausentesSinBajaTrabajadores.map((trabajador) => ({
           Tipo: "Ausente",
           Nombre: trabajador.nombre,
-          Zona: trabajador.zona || "Sin grupo",
+          Zona: normalizeAsistenciaExportZona(trabajador.zona),
         })),
         ...bajaLaboralTrabajadores.map((trabajador) => ({
           Tipo: "Baja laboral",
           Nombre: trabajador.nombre,
-          Zona: trabajador.zona || "Sin grupo",
+          Zona: normalizeAsistenciaExportZona(trabajador.zona),
         })),
         ...sinRegistroTrabajadores.map((trabajador) => ({
           Tipo: "Sin marcar",
           Nombre: trabajador.nombre,
-          Zona: trabajador.zona || "Sin grupo",
+          Zona: normalizeAsistenciaExportZona(trabajador.zona),
         })),
       ]);
       appendJsonSheet(workbook, "Trabajadores dia", activos
@@ -455,23 +473,17 @@ export default function Asistencia() {
         .sort((a, b) => (a.zona ?? "").localeCompare(b.zona ?? "", "es") || a.nombre.localeCompare(b.nombre, "es"))
         .map((trabajador) => {
           const metric = listaKgPersonaById.get(trabajador.id);
-          return {
-            Nombre: trabajador.nombre,
-            Zona: trabajador.zona || "Sin grupo",
-            Estado: estadoTrabajadorExport(trabajador),
-            Coste: metric?.coste ?? "",
-            Calculo: metric?.calculo ?? "",
-            Kg_persona_ref: metric?.kgRef != null ? Math.round(metric.kgRef) : "",
-          };
+          return buildTrabajadorDiaExportRow({
+            nombre: trabajador.nombre,
+            zona: trabajador.zona,
+            estado: estadoTrabajadorExport(trabajador),
+            coste: metric?.coste ?? "",
+            calculo: metric?.calculo ?? "",
+            kgRef: metric?.kgRef,
+          });
         }));
-      appendJsonSheet(workbook, "Productos clasificados", productosInformeClasificados.map((producto) => ({
-        Producto: producto.producto,
-        Empaque: producto.empaque,
-        Zona: producto.zona,
-        Computa_kg_zona: producto.computa ? "Si" : "No",
-        Kg: Math.round(producto.kg),
-      })));
-      XLSX.writeFile(workbook, `parte_asistencia_${selectedDate}.xlsx`, { compression: true });
+      appendJsonSheet(workbook, "Productos clasificados", productosInformeClasificados.map(buildProductoClasificadoExportRow));
+      saveWorkbook(workbook, `parte_asistencia_${selectedDate}.xlsx`);
       toast({ title: "Parte diario descargado", description: selectedDate });
     } catch (err) {
       toast({ title: "Error al exportar parte diario", description: errorMessage(err), variant: "destructive" });

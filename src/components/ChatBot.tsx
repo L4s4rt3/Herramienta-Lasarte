@@ -112,8 +112,8 @@ export function ChatBot() {
       {/* Panel lateral derecho */}
       <aside
         className={cn(
-          "fixed right-0 top-16 bottom-0 z-40 flex flex-col",
-          "w-full sm:w-[420px]",
+          "fixed inset-y-0 right-0 z-40 flex flex-col pt-[env(safe-area-inset-top)] sm:bottom-0 sm:top-16 sm:pt-0",
+          "w-full max-w-full sm:w-[420px]",
           "border-l border-[var(--glass-border-accent)]",
           "bg-[var(--glass-bg-strong)] backdrop-blur-2xl",
           "shadow-[-8px_0_32px_hsl(150_18%_14%/0.08)]",
@@ -126,18 +126,18 @@ export function ChatBot() {
           {/* Línea de acento superior */}
           <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
 
-          <div className="flex items-center justify-between px-5 py-4">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5 sm:py-4">
+            <div className="flex min-w-0 items-center gap-3">
               {/* Avatar del bot */}
               <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
                 <Sparkles className="h-4 w-4 text-primary" />
                 <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-success ring-2 ring-[var(--glass-bg-strong)]" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm font-semibold leading-none text-foreground">
                   Vadim
                 </p>
-                <p className="mt-1 text-[10px] text-muted-foreground">
+                <p className="mt-1 truncate text-[10px] text-muted-foreground">
                   OpenCode · Ring 2.6 · acceso a datos en vivo
                 </p>
               </div>
@@ -166,7 +166,7 @@ export function ChatBot() {
         </div>
 
         {/* ── Mensajes ────────────────────────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <div className="flex-1 space-y-4 overflow-y-auto px-3 py-4 sm:px-4">
           {/* Empty state */}
           {!userHasMessages && !isLoading && messages.length <= 1 && (
             <div className="flex flex-col items-center gap-3 py-6 text-center">
@@ -197,7 +197,7 @@ export function ChatBot() {
 
               <div
                 className={cn(
-                  "max-w-[82%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
+                  "max-w-[86%] break-words rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed sm:max-w-[82%]",
                   msg.role === "user"
                     ? "rounded-tr-sm bg-primary/12 border border-primary/20 text-foreground"
                     : msg.error
@@ -216,7 +216,7 @@ export function ChatBot() {
               <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-primary/10 mt-0.5">
                 <Sparkles className="h-3 w-3 text-primary" />
               </div>
-              <div className="max-w-[82%] rounded-2xl rounded-tl-sm bg-[var(--glass-bg)] border border-[var(--glass-border)] px-3.5 py-2.5 text-sm leading-relaxed text-foreground">
+              <div className="max-w-[86%] break-words rounded-2xl rounded-tl-sm bg-[var(--glass-bg)] border border-[var(--glass-border)] px-3.5 py-2.5 text-sm leading-relaxed text-foreground sm:max-w-[82%]">
                 {streaming ? <MessageContent text={streaming} /> : <TypingDots />}
               </div>
             </div>
@@ -227,7 +227,7 @@ export function ChatBot() {
 
         {/* ── Sugerencias (solo si no hay conversación) ───────────────── */}
         {!userHasMessages && !isLoading && (
-          <div className="shrink-0 px-4 pb-2 grid grid-cols-2 gap-2">
+          <div className="grid shrink-0 grid-cols-1 gap-2 px-3 pb-2 min-[380px]:grid-cols-2 sm:px-4">
             {SUGGESTIONS.map((q) => (
               <button
                 key={q}
@@ -246,7 +246,7 @@ export function ChatBot() {
         )}
 
         {/* ── Input ───────────────────────────────────────────────────── */}
-        <div className="shrink-0 px-4 pb-4 pt-3 border-t border-[var(--glass-border)]">
+        <div className="shrink-0 border-t border-[var(--glass-border)] px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 sm:px-4">
           <div className={cn(
             "flex items-center gap-2 rounded-xl px-3 py-2",
             "border border-[var(--glass-border-accent)] bg-[var(--glass-bg)]",

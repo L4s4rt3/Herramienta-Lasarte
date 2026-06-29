@@ -81,11 +81,12 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 return (
                   <CommandItem
                     key={`${result.type}-${result.id}`}
+                    className="flex-wrap gap-x-2 gap-y-1"
                     onSelect={() => handleSelect(result.to)}
                   >
                     <Icon className="mr-2 h-4 w-4" />
-                    <span>{result.label}</span>
-                    <span className="ml-auto text-xs text-muted-foreground">
+                    <span className="min-w-0 flex-1 truncate">{result.label}</span>
+                    <span className="w-full truncate pl-6 text-xs text-muted-foreground sm:ml-auto sm:w-auto sm:pl-0">
                       {result.subtitle}
                     </span>
                   </CommandItem>

@@ -1,10 +1,9 @@
-import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { computeCascade, CascadeInput, CascadeResult } from "./cascade";
 import { formatDate, formatKg } from "./format";
 import { PDF_THEME, drawExportHeader, drawExportFooter, drawKpiCard, pdfTableTheme } from "./exportTheme";
-import { appendDictionarySheet, createWorkbook, excelText, saveWorkbook, splitExcelText } from "./exportWorkbook";
+import { appendDictionarySheet, appendRowsSheet, createWorkbook, excelText, saveWorkbook, splitExcelText } from "./exportWorkbook";
 import {
   appendReportCoverSheet,
   buildReportFilename,
@@ -15,9 +14,6 @@ import {
   type ReportKpi,
   type ReportMeta,
 } from "./reportKit";
-
-type SheetCellValue = string | number | boolean | null | undefined;
-type SheetRow = Record<string, SheetCellValue>;
 
 interface ProductoDetalleIA extends Record<string, unknown> {
   linea?: unknown;
@@ -127,25 +123,6 @@ function semLabel(s: "verde" | "amarillo" | "rojo"): string {
 
 function semColor(s: "verde" | "amarillo" | "rojo"): [number, number, number] {
   return s === "verde" ? PDF_THEME.success : s === "amarillo" ? PDF_THEME.warning : PDF_THEME.destructive;
-}
-
-function sanitizeRow(row: SheetRow): SheetRow {
-  return Object.fromEntries(
-    Object.entries(row).map(([key, value]) => [key, typeof value === "string" ? excelText(value, "IA fragmentos") : value]),
-  ) as SheetRow;
-}
-
-function sheetFromRows(rows: SheetRow[], cols: number[]) {
-  const safeRows = rows.map(sanitizeRow);
-  const ws = safeRows.length > 0 ? XLSX.utils.json_to_sheet(safeRows) : XLSX.utils.aoa_to_sheet([["Sin datos"]]);
-  ws["!cols"] = cols.map((wch) => ({ wch }));
-  if (safeRows.length > 0) {
-    const headers = Object.keys(safeRows[0]);
-    ws["!autofilter"] = {
-      ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: safeRows.length, c: headers.length - 1 } }),
-    };
-  }
-  return ws;
 }
 
 function flattenProducto(partes: ParteRow[]) {
@@ -261,7 +238,7 @@ export function buildPartesReportSummary(partes: ParteRow[], from: string, to: s
   };
 }
 
-export function exportPartesToExcel(partes: ParteRow[], from: string, to: string) {
+export function buildPartesWorkbook(partes: ParteRow[], from: string, to: string) {
   const enriched = partes.map((p) => ({ p, c: buildCascade(p) }));
   const wb = createWorkbook("Lasarte SAT - Informe de partes", "Control de produccion y DJPMN");
   const summary = buildPartesReportSummary(partes, from, to);
@@ -275,6 +252,9 @@ export function exportPartesToExcel(partes: ParteRow[], from: string, to: string
   } = summary.totals;
 
   appendReportCoverSheet(wb, summary.meta, summary.kpis);
+
+  const appendPartesSheet = (name: string, rows: Record<string, unknown>[], cols: number[]) =>
+    appendRowsSheet(wb, name, rows, cols, { freezeHeader: true, overflowSheetName: "IA fragmentos" });
 
   const detalleRows = enriched.map(({ p, c }) => ({
     Fecha: formatDate(p.date),
@@ -294,7 +274,7 @@ export function exportPartesToExcel(partes: ParteRow[], from: string, to: string
     "Abs DJPMN %": +Math.abs(c.dsj_pct).toFixed(3),
     "Notas generales": p.notas_generales ?? "",
   }));
-  XLSX.utils.book_append_sheet(wb, sheetFromRows(detalleRows, [14, 16, 14, 18, 18, 18, 18, 18, 18, 14, 12, 14, 20, 18, 14, 45]), "Detalle diario");
+  appendPartesSheet("Detalle diario", detalleRows, [14, 16, 14, 18, 18, 18, 18, 18, 18, 14, 12, 14, 20, 18, 14, 45]);
 
   const cascadeRows = enriched.flatMap(({ p, c }) => [
     { Fecha: formatDate(p.date), Bloque: "Produccion real", Concepto: "Calibrador", Op: "=", "Kg": kg(c.produccion_calibrador, 2), "Resultado": "" },
@@ -309,7 +289,7 @@ export function exportPartesToExcel(partes: ParteRow[], from: string, to: string
     { Fecha: formatDate(p.date), Bloque: "Mermas y DJPMN", Concepto: "Podrido manual", Op: "-", "Kg": kg(c.podrido_manual, 2), "Resultado": kg(c.mermas_totales, 2) },
     { Fecha: formatDate(p.date), Bloque: "Resultado", Concepto: "DJPMN", Op: "=", "Kg": kg(c.dsj, 2), "Resultado": `${c.dsj_pct.toFixed(3)}%` },
   ]);
-  XLSX.utils.book_append_sheet(wb, sheetFromRows(cascadeRows, [14, 22, 28, 8, 14, 16]), "Cascada DJPMN");
+  appendPartesSheet("Cascada DJPMN", cascadeRows, [14, 22, 28, 8, 14, 16]);
 
   const rawRows = enriched.map(({ p }) => ({
     Fecha: formatDate(p.date),
@@ -326,13 +306,13 @@ export function exportPartesToExcel(partes: ParteRow[], from: string, to: string
     "Podrido calibrador kg": n(p.kg_podrido_calibrador_auto),
     "Podrido manual kg": n(p.kg_podrido_bolsa_basura),
   }));
-  XLSX.utils.book_append_sheet(wb, sheetFromRows(rawRows, [14, 16, 18, 14, 16, 16, 16, 16, 16, 20, 18, 20, 18]), "Datos entrada");
+  appendPartesSheet("Datos entrada", rawRows, [14, 16, 18, 14, 16, 16, 16, 16, 16, 20, 18, 20, 18]);
 
   const productoRows = flattenProducto(partes);
-  XLSX.utils.book_append_sheet(wb, sheetFromRows(productoRows, [14, 14, 36, 18, 18, 14, 12]), "Producto");
+  appendPartesSheet("Producto", productoRows, [14, 14, 36, 18, 18, 14, 12]);
 
   const paletsRows = flattenPalets(partes);
-  XLSX.utils.book_append_sheet(wb, sheetFromRows(paletsRows, [14, 16, 36, 24, 18, 18, 14, 12]), "Palets");
+  appendPartesSheet("Palets", paletsRows, [14, 16, 36, 24, 18, 18, 14, 12]);
 
   const notasRows = partes.map((p) => ({
     Fecha: formatDate(p.date),
@@ -342,7 +322,7 @@ export function exportPartesToExcel(partes: ParteRow[], from: string, to: string
     "Analisis IA": p.resumen_ia?.analisis ? String(p.resumen_ia.analisis) : "",
     "Resumen IA completo": p.resumen_ia ? excelText(JSON.stringify(p.resumen_ia)) : "",
   }));
-  XLSX.utils.book_append_sheet(wb, sheetFromRows(notasRows, [14, 16, 55, 55, 70, 55]), "Notas e IA");
+  appendPartesSheet("Notas e IA", notasRows, [14, 16, 55, 55, 70, 55]);
 
   const iaFragmentRows = partes.flatMap((p) => {
     const raw = p.resumen_ia ? JSON.stringify(p.resumen_ia, null, 2) : "";
@@ -354,7 +334,7 @@ export function exportPartesToExcel(partes: ParteRow[], from: string, to: string
     }));
   });
   if (iaFragmentRows.length > 0) {
-    XLSX.utils.book_append_sheet(wb, sheetFromRows(iaFragmentRows, [14, 18, 12, 100]), "IA fragmentos");
+    appendPartesSheet("IA fragmentos", iaFragmentRows, [14, 18, 12, 100]);
   }
 
   appendDictionarySheet(wb, [
@@ -368,6 +348,11 @@ export function exportPartesToExcel(partes: ParteRow[], from: string, to: string
     { Hoja: "Notas e IA", Campo: "Notas y resumen IA", Descripcion: "Texto operativo del parte. Los textos largos se fragmentan.", Uso: "Contexto de revision." },
   ]);
 
+  return wb;
+}
+
+export function exportPartesToExcel(partes: ParteRow[], from: string, to: string) {
+  const wb = buildPartesWorkbook(partes, from, to);
   saveWorkbook(wb, buildReportFilename(`informe-partes-${from}-${to}`, "xlsx"));
 }
 

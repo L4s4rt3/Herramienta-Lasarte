@@ -19,7 +19,6 @@ import {
   FileText, Clock, User, AlertCircle,
 } from "lucide-react";
 import { appendAoaSheet, appendDictionarySheet, appendRowsSheet, createWorkbook, saveWorkbook } from "@/lib/exportWorkbook";
-import * as XLSX from "xlsx";
 
 const SEMAFORO_META: Record<string, { label: string; color: string; bg: string; border: string; dot: string; text: string }> = {
   verde:   { label: "OK",      color: "text-success",     bg: "bg-success/10",     border: "border-success/30",     dot: "bg-success",     text: "text-success" },
@@ -456,11 +455,11 @@ export default function CalendarioProduccion() {
     const totalProdWorkbook = monthPartes.reduce((s, p) => s + (p.cascade.produccion_real || 0), 0);
     const totalDsjWorkbook = monthPartes.reduce((s, p) => s + (p.cascade.dsj || 0), 0);
     appendAoaSheet(workbook, "Portada", [
+      [""],
       ["Lasarte SAT - Calendario de produccion"],
-      [`Mes: ${format(currentMonth, "MMMM yyyy", { locale: es })}`],
-      [`Generado: ${new Date().toLocaleString("es-ES")}`],
-      [],
       ["Indicador", "Valor"],
+      ["Mes", format(currentMonth, "MMMM yyyy", { locale: es })],
+      ["Generado", new Date().toLocaleString("es-ES")],
       ["Dias con parte", monthPartes.length],
       ["Produccion real total (kg)", Math.round(totalProdWorkbook)],
       ["DJPMN global (%)", totalProdWorkbook > 0 ? +((totalDsjWorkbook / totalProdWorkbook) * 100).toFixed(3) : 0],
@@ -512,46 +511,6 @@ export default function CalendarioProduccion() {
     ]);
     saveWorkbook(workbook, `calendario-${format(currentMonth, "yyyy-MM")}.xlsx`);
     toast({ title: `Exportado · ${monthPartes.length} dia(s)` });
-    return;
-    const rows = monthPartes.map((p) => ({
-      Fecha: p.date,
-      Estado: SEMAFORO_META[p.cascade.semaforo]?.label ?? "—",
-      "DJPMN %": p.cascade.dsj_pct.toFixed(2),
-      "Prod. (kg)": ((p.kg_produccion_calibrador ?? 0) + (p.kg_mujeres_calibrador ?? 0)).toFixed(0),
-      Mermas: p.cascade.mermas_totales?.toFixed(1) ?? "—",
-      Observaciones: p.notas_generales ?? "",
-    }));
-    const wb = XLSX.utils.book_new();
-    wb.Props = {
-      Title: "Lasarte SAT - Calendario de produccion",
-      Subject: "Control mensual de partes",
-      Author: "Herramienta Lasarte SAT",
-    };
-    const totalProd = monthPartes.reduce((s, p) => s + (p.cascade.produccion_real || 0), 0);
-    const totalDsj = monthPartes.reduce((s, p) => s + (p.cascade.dsj || 0), 0);
-    const wsResumen = XLSX.utils.aoa_to_sheet([
-      ["Lasarte SAT - Calendario de produccion"],
-      [`Mes: ${format(currentMonth, "MMMM yyyy", { locale: es })}`],
-      [`Generado: ${new Date().toLocaleString("es-ES")}`],
-      [],
-      ["Indicador", "Valor"],
-      ["Dias con parte", monthPartes.length],
-      ["Produccion real total (kg)", Math.round(totalProd)],
-      ["DJPMN global (%)", totalProd > 0 ? +((totalDsj / totalProd) * 100).toFixed(2) : 0],
-      ["Dias OK", monthPartes.filter((p) => p.cascade.semaforo === "verde").length],
-      ["Dias a revisar", monthPartes.filter((p) => p.cascade.semaforo === "amarillo").length],
-      ["Dias criticos", monthPartes.filter((p) => p.cascade.semaforo === "rojo").length],
-    ]);
-    wsResumen["!cols"] = [{ wch: 34 }, { wch: 20 }];
-    XLSX.utils.book_append_sheet(wb, wsResumen, "Resumen");
-    const ws = XLSX.utils.json_to_sheet(rows);
-    ws["!cols"] = [
-      { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 40 },
-    ];
-    ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: 5 } }) };
-    XLSX.utils.book_append_sheet(wb, ws, "Detalle calendario");
-    XLSX.writeFile(wb, `calendario-${format(currentMonth, "yyyy-MM")}.xlsx`, { bookType: "xlsx", compression: true });
-    toast({ title: `Exportado · ${monthPartes.length} día(s)` });
   };
 
   if (loading) {

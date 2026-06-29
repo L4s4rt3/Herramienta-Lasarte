@@ -38,34 +38,42 @@ import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import {
   CALIDAD_OPTIONS,
+  DEFECTO_OPTIONS,
   attachmentCountMap,
   buildCalidadComentarioSugerido,
   buildComentarioCalidad,
   calidadSummary,
+  canValidateCalidadLote,
+  createCalidadDraftReport,
   exportCalidadToExcel,
   exportCalidadToPDF,
   extractDocxText,
   findCalidadHistoricoSimilar,
   formatCalidadDate,
+  isCalidadLoteLocked,
   normalizeCalidadName,
+  reopenCalidadLote,
   sameCalidadName,
   splitComentarioCalidad,
+  validateCalidadLote,
   type CalidadAdjunto,
   type CalidadEstado,
+  type CalidadInformeEstado,
   type CalidadJornada,
   type CalidadLote,
   type CalidadProductor,
+  type DraftReport,
 } from "@/lib/calidad";
 import { cn } from "@/lib/utils";
 
-const DEFECTOS = ["Rameado", "Golpe", "Podrido", "Mancha", "Calibre irregular", "Color bajo", "Piel blanda", "Falta presion"];
 const RESPONSABLES = ["Eusebio Rodríguez"] as const;
 
 const QUALITY_STYLES: Record<CalidadEstado, string> = {
+  Excelente: "border-emerald-500/30 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
   Bueno: "border-emerald-500/30 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
   Regular: "border-amber-500/35 bg-amber-500/14 text-amber-700 dark:text-amber-300",
   Deficiente: "border-orange-500/35 bg-orange-500/14 text-orange-700 dark:text-orange-300",
-  Rechazado: "border-red-500/35 bg-red-500/12 text-red-700 dark:text-red-300",
+  Pésimo: "border-red-500/35 bg-red-500/12 text-red-700 dark:text-red-300",
 };
 
 function errorMessage(error: unknown) {
@@ -278,9 +286,22 @@ function emptyLote(jornada: CalidadJornada, userId: string, index: number) {
     aerobotics_realizado: false,
     calidad: "Regular" as CalidadEstado,
     defectos: [],
+    defecto_otro: "",
     observacion: "",
     accion_recomendada: "",
+    informe_estado: "borrador" as CalidadInformeEstado,
+    informe_generado: "",
+    ia_calidad: null,
+    ia_defectos: [],
+    ia_resumen: "",
+    ia_accion_recomendada: "",
+    validado_at: null,
+    validado_by: null,
+    reabierto_at: null,
+    reabierto_by: null,
+    motivo_reapertura: "",
     created_at: new Date(Date.now() + index).toISOString(),
+    updated_at: new Date(Date.now() + index).toISOString(),
   };
 }
 
@@ -305,6 +326,9 @@ export default function CalidadJornadaPage() {
   const [productorSearch, setProductorSearch] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const wordInputRef = useRef<HTMLInputElement | null>(null);
+  const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const autosaveTimerRef = useRef<number | null>(null);
+  const [draftReport, setDraftReport] = useState<DraftReport | null>(null);
 
   const attachmentCounts = useMemo(() => attachmentCountMap(adjuntos), [adjuntos]);
   const summary = useMemo(() => calidadSummary(lotes, attachmentCounts), [lotes, attachmentCounts]);
@@ -426,6 +450,56 @@ export default function CalidadJornadaPage() {
   function patchSelected(patch: Partial<CalidadLote>) {
     if (!selected) return;
     setLotes((items) => items.map((lote) => (lote.id === selected.id ? { ...lote, ...patch } : lote)));
+    scheduleAutosave({ ...selected, ...patch });
+  }
+
+  async function persistLote(lote: CalidadLote) {
+    if (!user) return;
+    setAutosaveStatus("saving");
+    try {
+      const payload = {
+        numero_lote: lote.numero_lote.trim(),
+        productor_finca_id: lote.productor_finca_id,
+        productor_finca_nombre: lote.productor_finca_nombre.trim(),
+        producto: lote.producto.trim(),
+        variedad: lote.variedad.trim(),
+        cantidad: lote.cantidad.trim(),
+        hora: lote.hora || null,
+        aerobotics_realizado: lote.aerobotics_realizado,
+        calidad: lote.calidad,
+        defectos: lote.defectos,
+        defecto_otro: lote.defecto_otro,
+        observacion: lote.observacion.trim(),
+        accion_recomendada: lote.accion_recomendada.trim(),
+        informe_estado: lote.informe_estado,
+        informe_generado: lote.informe_generado,
+        ia_calidad: lote.ia_calidad,
+        ia_defectos: lote.ia_defectos,
+        ia_resumen: lote.ia_resumen,
+        ia_accion_recomendada: lote.ia_accion_recomendada,
+        validado_at: lote.validado_at,
+        validado_by: lote.validado_by,
+        reabierto_at: lote.reabierto_at,
+        reabierto_by: lote.reabierto_by,
+        motivo_reapertura: lote.motivo_reapertura,
+      };
+      const { data, error } = await supabase.from("calidad_lotes" as any).update(payload).eq("id", lote.id).select("*").single();
+      if (error) throw error;
+      const saved = data as CalidadLote;
+      setLotes((items) => items.map((item) => (item.id === saved.id ? saved : item)));
+      setAutosaveStatus("saved");
+    } catch (error) {
+      setAutosaveStatus("error");
+    }
+  }
+
+  function scheduleAutosave(nextLote: CalidadLote) {
+    if (autosaveTimerRef.current !== null) {
+      clearTimeout(autosaveTimerRef.current);
+    }
+    autosaveTimerRef.current = window.setTimeout(() => {
+      void persistLote(nextLote);
+    }, 2000);
   }
 
   async function ensureProductor(nombre: string) {
@@ -538,8 +612,20 @@ export default function CalidadJornadaPage() {
         aerobotics_realizado: selected.aerobotics_realizado,
         calidad: selected.calidad,
         defectos: selected.defectos,
+        defecto_otro: selected.defecto_otro,
         observacion: selected.observacion.trim(),
         accion_recomendada: selected.accion_recomendada.trim(),
+        informe_estado: selected.informe_estado,
+        informe_generado: selected.informe_generado,
+        ia_calidad: selected.ia_calidad,
+        ia_defectos: selected.ia_defectos,
+        ia_resumen: selected.ia_resumen,
+        ia_accion_recomendada: selected.ia_accion_recomendada,
+        validado_at: selected.validado_at,
+        validado_by: selected.validado_by,
+        reabierto_at: selected.reabierto_at,
+        reabierto_by: selected.reabierto_by,
+        motivo_reapertura: selected.motivo_reapertura,
       };
       const { data, error } = await supabase.from("calidad_lotes" as any).update(payload).eq("id", selected.id).select("*").single();
       if (error) throw error;
@@ -693,9 +779,19 @@ export default function CalidadJornadaPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" className="glass glass-hover" onClick={() => jornada && exportCalidadToPDF(jornada, lotes, adjuntos)} disabled={!jornada || lotes.length === 0}>
+          {autosaveStatus !== "idle" && (
+            <span className={cn("flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium", autosaveStatus === "saving" && "bg-amber-500/10 text-amber-600", autosaveStatus === "saved" && "bg-emerald-500/10 text-emerald-600", autosaveStatus === "error" && "bg-red-500/10 text-red-600")}>
+              {autosaveStatus === "saving" && <Loader2 className="h-3 w-3 animate-spin" />}
+              {autosaveStatus === "saving" ? "Guardando..." : autosaveStatus === "saved" ? "Guardado" : "Error al guardar"}
+            </span>
+          )}
+          <Button variant="outline" className="glass glass-hover" onClick={() => jornada && exportCalidadToPDF(jornada, lotes, adjuntos, { mode: "borrador" })} disabled={!jornada || lotes.length === 0}>
             <Download className="h-4 w-4" />
-            PDF
+            PDF borrador
+          </Button>
+          <Button variant="outline" className="glass glass-hover" onClick={() => jornada && exportCalidadToPDF(jornada, lotes, adjuntos, { mode: "oficial" })} disabled={!jornada || lotes.length === 0 || !lotes.some((l) => l.informe_estado === "validado")}>
+            <Download className="h-4 w-4" />
+            PDF oficial
           </Button>
           <Button variant="outline" className="glass glass-hover" onClick={() => jornada && exportCalidadToExcel(jornada, lotes, adjuntos)} disabled={!jornada || lotes.length === 0}>
             <FileSpreadsheet className="h-4 w-4" />
@@ -758,8 +854,8 @@ export default function CalidadJornadaPage() {
           {[
             { label: "Lotes", value: summary.total },
             { label: "Aerobotics", value: summary.aerobotics },
-            { label: "Bueno", value: summary.byQuality.Bueno },
-            { label: "Regular", value: summary.byQuality.Regular },
+            { label: "Bueno", value: summary.byQuality.Excelente + summary.byQuality.Bueno },
+            { label: "Revisar", value: summary.byQuality.Regular + summary.byQuality.Deficiente + summary.byQuality.Pésimo },
           ].map((stat) => (
             <div key={stat.label} className="rounded-xl border border-primary/10 bg-[var(--glass-bg)] px-4 py-3 shadow-[var(--glass-shadow)]">
               <p className="text-xs text-muted-foreground">{stat.label}</p>
@@ -846,25 +942,101 @@ export default function CalidadJornadaPage() {
             <>
               <CardHeader className="gap-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="panel-kicker">Ficha de lote</p>
-                    <CardTitle className="text-xl">
-                      {selected.numero_lote ? `Lote ${selected.numero_lote}` : "Nuevo lote"}
-                    </CardTitle>
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <p className="panel-kicker">Ficha de lote</p>
+                      <CardTitle className="text-xl">
+                        {selected.numero_lote ? `Lote ${selected.numero_lote}` : "Nuevo lote"}
+                      </CardTitle>
+                    </div>
+                    {isCalidadLoteLocked(selected) && (
+                      <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
+                        <BadgeCheck className="mr-1 h-3 w-3" />
+                        Validado
+                      </Badge>
+                    )}
+                    {selected.informe_estado === "reabierto" && (
+                      <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30">
+                        Reabierto
+                      </Badge>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" className="glass glass-hover" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-                      {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-                      Fotos
-                    </Button>
-                    <Button variant="outline" className="glass glass-hover text-destructive hover:text-destructive" onClick={() => deleteLote(selected)} disabled={saving}>
-                      <Trash2 className="h-4 w-4" />
-                      Eliminar
-                    </Button>
-                    <Button className="glass glass-hover" onClick={saveLote} disabled={saving}>
-                      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                      Guardar lote
-                    </Button>
+                    {!isCalidadLoteLocked(selected) && (
+                      <Button variant="outline" className="glass glass-hover" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                        {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+                        Fotos
+                      </Button>
+                    )}
+                    {!isCalidadLoteLocked(selected) && (
+                      <Button variant="outline" className="glass glass-hover text-destructive hover:text-destructive" onClick={() => deleteLote(selected)} disabled={saving}>
+                        <Trash2 className="h-4 w-4" />
+                        Eliminar
+                      </Button>
+                    )}
+                    {isCalidadLoteLocked(selected) && (
+                      <Button variant="outline" className="glass glass-hover" onClick={() => {
+                        if (!user) return;
+                        const reopened = reopenCalidadLote(selected, user.id, new Date().toISOString());
+                        patchSelected({
+                          informe_estado: reopened.informe_estado,
+                          reabierto_at: reopened.reabierto_at,
+                          reabierto_by: reopened.reabierto_by,
+                          validado_at: reopened.validado_at,
+                          validado_by: reopened.validado_by,
+                        });
+                        void persistLote({ ...selected, ...reopened });
+                        toast({ title: "Lote reabierto", description: "Ya puedes editar el lote de nuevo." });
+                      }}>
+                        <History className="h-4 w-4" />
+                        Reabrir edicion
+                      </Button>
+                    )}
+                    {selected.informe_estado !== "validado" && selected.informe_estado !== "reabierto" && selected.informe_estado !== "generado" && (
+                      <Button variant="outline" className="glass glass-hover" onClick={() => {
+                        const photoCount = attachmentCounts[selected.id] ?? 0;
+                        const report = createCalidadDraftReport(selected, photoCount, historicalLotes);
+                        setDraftReport(report);
+                        patchSelected({
+                          informe_estado: "generado",
+                          informe_generado: report.informe,
+                          ia_resumen: report.informe,
+                          ia_accion_recomendada: report.accion_recomendada,
+                        });
+                        toast({ title: "Informe generado", description: "Revisa el texto y valida cuando estes listo." });
+                      }}>
+                        <FileText className="h-4 w-4" />
+                        Generar informe
+                      </Button>
+                    )}
+                    {selected.informe_estado === "generado" && (
+                      <Button className="glass glass-hover" onClick={() => {
+                        const photoCount = attachmentCounts[selected.id] ?? 0;
+                        const validation = canValidateCalidadLote(selected, photoCount);
+                        if (!validation.ok) {
+                          toast({ title: "No se puede validar", description: validation.reason ?? "", variant: "destructive" });
+                          return;
+                        }
+                        if (!user) return;
+                        const validated = validateCalidadLote(selected, user.id, new Date().toISOString());
+                        patchSelected({
+                          informe_estado: validated.informe_estado,
+                          validado_at: validated.validado_at,
+                          validado_by: validated.validado_by,
+                        });
+                        void persistLote({ ...selected, ...validated });
+                        toast({ title: "Informe validado", description: "El lote queda bloqueado como oficial." });
+                      }}>
+                        <BadgeCheck className="h-4 w-4" />
+                        Validar informe
+                      </Button>
+                    )}
+                    {!isCalidadLoteLocked(selected) && (
+                      <Button className="glass glass-hover" onClick={saveLote} disabled={saving}>
+                        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                        Guardar lote
+                      </Button>
+                    )}
                   </div>
                 </div>
                 <input ref={fileInputRef} type="file" accept="image/*,.pdf,.xlsx,.xls,.doc,.docx" multiple className="hidden" onChange={(event) => uploadFiles(event.target.files)} />
@@ -874,7 +1046,7 @@ export default function CalidadJornadaPage() {
                 <section className="grid gap-4 lg:grid-cols-4">
                   <div className="space-y-2">
                     <Label htmlFor="numero-lote">Lote</Label>
-                    <Input id="numero-lote" value={selected.numero_lote} onChange={(event) => patchSelected({ numero_lote: event.target.value })} placeholder="26041704" className={glassInputClassName()} />
+                    <Input id="numero-lote" value={selected.numero_lote} onChange={(event) => patchSelected({ numero_lote: event.target.value })} placeholder="26041704" className={glassInputClassName()} disabled={isCalidadLoteLocked(selected)} />
                   </div>
                   <div className="space-y-2 lg:col-span-2">
                     <Label htmlFor="productor-finca">Productor/Finca</Label>
@@ -960,15 +1132,15 @@ export default function CalidadJornadaPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="producto-lote">Producto</Label>
-                    <Input id="producto-lote" value={selected.producto} onChange={(event) => patchSelected({ producto: event.target.value })} className={glassInputClassName()} />
+                    <Input id="producto-lote" value={selected.producto} onChange={(event) => patchSelected({ producto: event.target.value })} className={glassInputClassName()} disabled={isCalidadLoteLocked(selected)} />
                   </div>
                   <div className="space-y-2 lg:col-span-2">
                     <Label htmlFor="variedad-lote">Variedad</Label>
-                    <Input id="variedad-lote" value={selected.variedad} onChange={(event) => patchSelected({ variedad: event.target.value })} placeholder="Navel Powell" className={glassInputClassName()} />
+                    <Input id="variedad-lote" value={selected.variedad} onChange={(event) => patchSelected({ variedad: event.target.value })} placeholder="Navel Powell" className={glassInputClassName()} disabled={isCalidadLoteLocked(selected)} />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="cantidad-lote">Cantidad</Label>
-                    <Input id="cantidad-lote" value={selected.cantidad} onChange={(event) => patchSelected({ cantidad: event.target.value })} placeholder="64 Box" className={glassInputClassName()} />
+                    <Input id="cantidad-lote" value={selected.cantidad} onChange={(event) => patchSelected({ cantidad: event.target.value })} placeholder="64 Box" className={glassInputClassName()} disabled={isCalidadLoteLocked(selected)} />
                   </div>
                 </section>
 
@@ -981,6 +1153,7 @@ export default function CalidadJornadaPage() {
                           key={quality}
                           type="button"
                           onClick={() => patchSelected({ calidad: quality })}
+                          disabled={isCalidadLoteLocked(selected)}
                           className={cn(
                             "min-h-10 rounded-xl border px-3 text-sm font-semibold transition-all",
                             selected.calidad === quality ? QUALITY_STYLES[quality] : "border-border/70 bg-background/70 text-muted-foreground hover:border-primary/30",
@@ -991,13 +1164,14 @@ export default function CalidadJornadaPage() {
                       ))}
                     </div>
                     <div className="flex flex-wrap gap-2 pt-1">
-                      {DEFECTOS.map((defecto) => {
+                      {DEFECTO_OPTIONS.map((defecto) => {
                         const checked = selected.defectos.includes(defecto);
                         return (
                           <button
                             key={defecto}
                             type="button"
                             onClick={() => toggleDefecto(defecto)}
+                            disabled={isCalidadLoteLocked(selected)}
                             className={cn(
                               "rounded-full border px-3 py-1.5 text-xs font-medium transition-all",
                               checked ? "border-primary/35 bg-primary/10 text-primary" : "border-border/75 bg-background/70 text-muted-foreground hover:border-primary/30",
@@ -1008,6 +1182,21 @@ export default function CalidadJornadaPage() {
                         );
                       })}
                     </div>
+                    {selected.defectos.includes("Otro") && (
+                      <div className="pt-2">
+                        <Label htmlFor="defecto-otro" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Describe el defecto
+                        </Label>
+                        <Input
+                          id="defecto-otro"
+                          value={selected.defecto_otro}
+                          onChange={(event) => patchSelected({ defecto_otro: event.target.value })}
+                          placeholder="Describe el defecto manualmente..."
+                          className={glassInputClassName()}
+                          disabled={isCalidadLoteLocked(selected)}
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between gap-4 rounded-xl border border-primary/15 bg-primary/6 p-4">
@@ -1017,7 +1206,7 @@ export default function CalidadJornadaPage() {
                       </Label>
                       <p className="mt-1 text-xs text-muted-foreground">Confirmar si se ha realizado para este lote.</p>
                     </div>
-                    <Switch id="aerobotics-lote" checked={selected.aerobotics_realizado} onCheckedChange={(checked) => patchSelected({ aerobotics_realizado: checked })} />
+                    <Switch id="aerobotics-lote" checked={selected.aerobotics_realizado} onCheckedChange={(checked) => patchSelected({ aerobotics_realizado: checked })} disabled={isCalidadLoteLocked(selected)} />
                   </div>
                 </section>
 
@@ -1026,11 +1215,11 @@ export default function CalidadJornadaPage() {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <Label htmlFor="comentario-lote">Comentario / observaciones</Label>
                       <div className="flex flex-wrap gap-2">
-                        <Button type="button" variant="outline" size="sm" className="glass glass-hover" onClick={() => wordInputRef.current?.click()}>
+                        <Button type="button" variant="outline" size="sm" className="glass glass-hover" onClick={() => wordInputRef.current?.click()} disabled={isCalidadLoteLocked(selected)}>
                           <FileText className="h-4 w-4" />
                           Word
                         </Button>
-                        <Button type="button" variant="outline" size="sm" className="glass glass-hover" onClick={generateComentario}>
+                        <Button type="button" variant="outline" size="sm" className="glass glass-hover" onClick={generateComentario} disabled={isCalidadLoteLocked(selected)}>
                           <Sparkles className="h-4 w-4" />
                           Generar
                         </Button>
@@ -1042,6 +1231,7 @@ export default function CalidadJornadaPage() {
                       onChange={(event) => patchComentario(event.target.value)}
                       placeholder="Como entra el lote, incidencias, calibre, color...\n\nAccion recomendada: Separar, revisar en linea, avisar al productor..."
                       className="min-h-36"
+                      disabled={isCalidadLoteLocked(selected)}
                     />
                   </div>
 
@@ -1133,7 +1323,7 @@ export default function CalidadJornadaPage() {
         </Card>
       </div>
 
-      {summary.byQuality.Deficiente + summary.byQuality.Rechazado > 0 && (
+      {summary.byQuality.Deficiente + summary.byQuality.Pésimo > 0 && (
         <Card className="glass border-orange-500/25 bg-orange-500/6">
           <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center">
             <AlertTriangle className="h-5 w-5 text-orange-600" />

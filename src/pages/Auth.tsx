@@ -108,7 +108,7 @@ export default function Auth() {
   };
 
   return (
-    <div className="relative h-screen overflow-hidden bg-[#0F1A12]">
+    <div className="relative min-h-svh overflow-x-hidden overflow-y-auto bg-[#0F1A12]">
       {/* Ken Burns background photo */}
       <img
         src="/login-bg.png"
@@ -143,9 +143,9 @@ export default function Auth() {
       ))}
 
       {/* Left column - Form */}
-      <div className="absolute inset-y-0 left-0 flex w-full items-center justify-center lg:w-[520px]">
+      <div className="relative z-10 flex min-h-svh w-full items-center justify-center px-4 py-6 sm:py-8 lg:absolute lg:inset-y-0 lg:left-0 lg:w-[520px]">
         <div
-          className="relative w-full max-w-[460px] rounded-2xl px-10 py-12 shadow-2xl mx-6 animate-fade-slide-up"
+          className="relative w-full max-w-[460px] animate-fade-slide-up rounded-2xl px-5 py-7 shadow-2xl sm:px-10 sm:py-12"
           style={{
             backgroundColor: "rgba(248, 246, 239, 0.93)",
             backdropFilter: "blur(20px)",
@@ -161,7 +161,7 @@ export default function Auth() {
           />
 
           {/* Brand */}
-          <div className="mb-6 flex items-center gap-3 form-stagger-1">
+          <div className="mb-5 flex items-center gap-3 form-stagger-1 sm:mb-6">
             <img
               src="/logo.jpg"
               alt="Lasarte SAT"
@@ -181,17 +181,17 @@ export default function Auth() {
 
           {/* Title */}
           <div className="form-stagger-2">
-            <h1 className="mb-1 text-[28px] font-semibold" style={{ color: "var(--auth-text)", letterSpacing: "-0.3px" }}>
+            <h1 className="mb-1 text-2xl font-semibold sm:text-[28px]" style={{ color: "var(--auth-text)" }}>
               Bienvenido
             </h1>
-            <p className="mb-8 text-sm" style={{ color: "var(--auth-muted)" }}>
+            <p className="mb-6 text-sm sm:mb-8" style={{ color: "var(--auth-muted)" }}>
               Accede al panel de control de producción
             </p>
           </div>
 
           {/* Form */}
           {!isSignUp ? (
-            <form onSubmit={handleSignIn} className="space-y-5">
+            <form onSubmit={handleSignIn} className="space-y-4 sm:space-y-5">
               <div className="space-y-2 form-stagger-3">
                 <Label className="text-sm font-medium" style={{ color: "var(--auth-text)" }}>Correo electrónico</Label>
                 <Input
@@ -207,7 +207,7 @@ export default function Auth() {
                 />
               </div>
               <div className="space-y-2 form-stagger-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <Label className="text-sm font-medium" style={{ color: "var(--auth-text)" }}>Contraseña</Label>
                   <button
                     type="button"
@@ -281,7 +281,7 @@ export default function Auth() {
               </p>
             </form>
           ) : (
-            <form onSubmit={handleSignUp} className="space-y-5">
+            <form onSubmit={handleSignUp} className="space-y-4 sm:space-y-5">
               <div className="space-y-2 form-stagger-3">
                 <Label className="text-sm font-medium" style={{ color: "var(--auth-text)" }}>Nombre completo</Label>
                 <Input

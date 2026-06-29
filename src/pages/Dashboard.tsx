@@ -231,32 +231,32 @@ export default function Dashboard() {
 
       {/* ─── Header con acción principal ─────────────────────────────────── */}
       <header className="page-header">
-        <div className="flex items-start justify-between">
-          <div>
+        <div className="flex min-w-0 items-start justify-between">
+          <div className="min-w-0">
             <h1 className="page-title">Control de Producción</h1>
             <p className="page-subtitle">
               Semana {currentWeek.weekNumber} · {currentWeek.rangeLabel} · últimas {WEEKS_IN_PANEL} semanas
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3 mt-4">
+        <div className="button-row mt-1 flex flex-wrap items-center gap-2 sm:gap-3 lg:mt-0">
           <Link
             to="/partes"
-            className="inline-flex items-center gap-2 rounded-xl glass glass-hover px-3 py-2 text-xs font-medium"
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl glass glass-hover px-3 py-2 text-xs font-medium"
           >
             <Plus className="h-3.5 w-3.5 text-primary" />
             Nuevo parte
           </Link>
           <Link
             to="/analisis/diario"
-            className="inline-flex items-center gap-2 rounded-xl glass glass-hover px-3 py-2 text-xs font-medium"
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl glass glass-hover px-3 py-2 text-xs font-medium"
           >
             <BarChart3 className="h-3.5 w-3.5 text-success" />
             Análisis diario
           </Link>
           <Link
             to="/costes/consumos"
-            className="inline-flex items-center gap-2 rounded-xl glass glass-hover px-3 py-2 text-xs font-medium"
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl glass glass-hover px-3 py-2 text-xs font-medium"
           >
             <Droplet className="h-3.5 w-3.5 text-info" />
             Consumos
@@ -472,7 +472,7 @@ export default function Dashboard() {
       {/* ─── Gráfico (más espacio, lectura clara) ─────────────────────────── */}
       <Card className="overflow-hidden glass-accented">
         <CardHeader className="pb-3 px-5 pt-4">
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-3">
                 <div className="h-7 w-1 rounded-full bg-primary" />
@@ -482,8 +482,8 @@ export default function Dashboard() {
                 Últimas {WEEKS_IN_PANEL} semanas · barras = producción real · línea = % diferencia sin justificar
               </p>
             </div>
-            <div className="flex items-center gap-3 shrink-0">
-              <div className="flex items-center gap-2.5 text-[10px] font-medium bg-[var(--glass-bg)] rounded-xl px-2.5 py-1.5">
+            <div className="flex shrink-0 items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2 text-[10px] font-medium bg-[var(--glass-bg)] rounded-xl px-2.5 py-1.5">
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{backgroundColor: C.success}} /> ≤3%</span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{backgroundColor: C.warning}} /> 3-5%</span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{backgroundColor: C.destructive}} /> &gt;5%</span>
@@ -601,10 +601,10 @@ export default function Dashboard() {
               <p>Sin datos de clasificación en el período</p>
             </div>
           ) : (
-            <div className="flex flex-col sm:flex-row items-center gap-6">
+            <div className="flex flex-col items-center gap-5 sm:flex-row sm:gap-6">
               {/* Donut */}
-              <div className={cn("shrink-0", CHART_PANEL_CLASS)}>
-                <ResponsiveContainer width={200} height={200}>
+              <div className={cn("w-full max-w-[220px] shrink-0 sm:w-[220px]", CHART_PANEL_CLASS)}>
+                <ResponsiveContainer width="100%" height={200}>
                   <PieChart>
                     <Pie
                       data={grupoDistribution}

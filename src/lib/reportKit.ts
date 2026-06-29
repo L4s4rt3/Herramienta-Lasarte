@@ -62,13 +62,11 @@ export function reportToneColor(tone: ReportTone = "neutral") {
 export function buildReportCoverRows(meta: ReportMeta, kpis: ReportKpi[] = []) {
   const generatedAt = meta.generatedAt ?? new Date();
   const rows: (string | number | boolean | null)[][] = [
-    [REPORT_BRAND.name],
+    [""],
     [meta.title],
-    [meta.subtitle ?? ""],
-    [meta.periodLabel ?? ""],
-    [`Generado: ${formatReportDate(generatedAt)}`],
-    [],
     ["Indicador", "Valor", "Detalle"],
+    ["Periodo", meta.periodLabel ?? "", meta.subtitle ?? REPORT_BRAND.tool],
+    ["Generado", formatReportDate(generatedAt), REPORT_BRAND.name],
   ];
 
   for (const kpi of kpis) {
@@ -80,7 +78,7 @@ export function buildReportCoverRows(meta: ReportMeta, kpis: ReportKpi[] = []) {
 
 export function appendReportCoverSheet(wb: XLSX.WorkBook, meta: ReportMeta, kpis: ReportKpi[]) {
   const ws = appendAoaSheet(wb, "Portada", buildReportCoverRows(meta, kpis), [34, 28, 42]);
-  ws["!freeze"] = { xSplit: 0, ySplit: 7 };
+  ws["!freeze"] = { xSplit: 0, ySplit: 3 };
   return ws;
 }
 
