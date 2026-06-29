@@ -8,6 +8,11 @@ pnpm-debug.log*
 lerna-debug.log*
 tmp/
 *.zip
+outputs/
+
+# Local agent artifacts
+.commandcode/
+.superpowers/
 
 node_modules
 dist

@@ -183,6 +183,22 @@ export interface VentasCategoriaDashboardKpis {
   } | null;
 }
 
+export interface VentasCategoriaCampanaComparisonRow {
+  campana: string;
+  kilos: number;
+  base_iva: number;
+  pm_venta: number;
+  clientes: number;
+  productos: number;
+  articulos: number;
+  lineas: number;
+  cuota_kilos_pct: number;
+  delta_kilos: number | null;
+  delta_kilos_pct: number | null;
+  delta_pm: number | null;
+  delta_base_iva: number | null;
+}
+
 export function calcularCampanaVentas(fecha: string): string {
   const { year, month } = parseDateParts(fecha);
   const startYear = month >= 9 ? year : year - 1;
@@ -392,6 +408,75 @@ export function buildVentasCategoriaDashboardKpis(input: VentasCategoriaDashboar
       : null,
     mejorMes: mejorMes ? { ...mejorMes } : null,
   };
+}
+
+export function buildVentasCategoriaCampanaComparison(
+  lines: VentasCategoriaLinea[],
+  campanas: string[] = [],
+): VentasCategoriaCampanaComparisonRow[] {
+  const selected = campanas.length > 0 ? new Set(campanas) : null;
+  const grouped = new Map<string, {
+    campana: string;
+    kilos: number;
+    base_iva: number;
+    clientes: Set<string>;
+    productos: Set<string>;
+    articulos: Set<string>;
+    lineas: number;
+  }>();
+
+  lines.forEach((line) => {
+    if (!line.campana || (selected && !selected.has(line.campana))) return;
+    const row = grouped.get(line.campana) ?? {
+      campana: line.campana,
+      kilos: 0,
+      base_iva: 0,
+      clientes: new Set<string>(),
+      productos: new Set<string>(),
+      articulos: new Set<string>(),
+      lineas: 0,
+    };
+
+    row.kilos += finiteOrZero(line.kilos);
+    row.base_iva += finiteOrZero(line.base_iva);
+    row.clientes.add(line.cliente_codigo);
+    row.productos.add(line.metodo_producto || "Sin clasificar");
+    row.articulos.add(articleKey(line));
+    row.lineas += 1;
+    grouped.set(line.campana, row);
+  });
+
+  const totalKilos = Array.from(grouped.values()).reduce((acc, row) => acc + row.kilos, 0);
+  const rows = Array.from(grouped.values())
+    .sort((a, b) => a.campana.localeCompare(b.campana))
+    .map<VentasCategoriaCampanaComparisonRow>((row) => ({
+      campana: row.campana,
+      kilos: roundNumber(row.kilos, 2),
+      base_iva: roundNumber(row.base_iva, 2),
+      pm_venta: roundNumber(calcularPmVenta(row.base_iva, row.kilos), 6),
+      clientes: row.clientes.size,
+      productos: row.productos.size,
+      articulos: row.articulos.size,
+      lineas: row.lineas,
+      cuota_kilos_pct: totalKilos > 0 ? roundNumber((row.kilos / totalKilos) * 100, 1) : 0,
+      delta_kilos: null,
+      delta_kilos_pct: null,
+      delta_pm: null,
+      delta_base_iva: null,
+    }));
+
+  return rows.map((row, index) => {
+    const previous = rows[index - 1];
+    if (!previous) return row;
+    const deltaKilos = row.kilos - previous.kilos;
+    return {
+      ...row,
+      delta_kilos: roundNumber(deltaKilos, 2),
+      delta_kilos_pct: previous.kilos > 0 ? roundNumber((deltaKilos / previous.kilos) * 100, 1) : null,
+      delta_pm: roundNumber(row.pm_venta - previous.pm_venta, 6),
+      delta_base_iva: roundNumber(row.base_iva - previous.base_iva, 2),
+    };
+  });
 }
 
 export function applyVentasCategoriaFilters(

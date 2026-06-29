@@ -16,7 +16,12 @@ import { toast } from "@/hooks/use-toast";
 import { useVentasCategoria, type VentasCategoriaAjusteInput } from "@/hooks/useVentasCategoria";
 import { parseVentasCategoriaExcelFile } from "@/lib/ventasCategoriaExcel";
 import { VentasCategoriaFilterBar } from "@/components/VentasCategoriaFilterBar";
-import { applyVentasCategoriaFilters, aggregateVentasCategoria, buildVentasCategoriaDashboardKpis } from "@/lib/ventasCategoria";
+import {
+  applyVentasCategoriaFilters,
+  aggregateVentasCategoria,
+  buildVentasCategoriaCampanaComparison,
+  buildVentasCategoriaDashboardKpis,
+} from "@/lib/ventasCategoria";
 import { errorMessage } from "@/lib/errorMessage";
 import { formatKg, formatNumber, formatPct } from "@/lib/format";
 import {
@@ -50,6 +55,7 @@ export default function VentasCategoriaSegunda() {
   const [articuloSearch, setArticuloSearch] = useState("");
   const [articuloLimit, setArticuloLimit] = useState(10);
   const [expandedRefs, setExpandedRefs] = useState<Set<string>>(new Set());
+  const [compareCampanas, setCompareCampanas] = useState<string[]>([]);
 
   const resumen = ventas.resumenQuery.data;
   const rankingClientes = ventas.rankingClientesQuery.data ?? EMPTY_ROWS;
@@ -108,6 +114,44 @@ export default function VentasCategoriaSegunda() {
     [displayResumen, displayRanking, monthlyTotals],
   );
 
+  const defaultCompareCampanas = useMemo(
+    () => filterOptions.campanas.slice(0, Math.min(3, filterOptions.campanas.length)),
+    [filterOptions.campanas],
+  );
+  const activeCompareCampanas = compareCampanas.length > 0 ? compareCampanas : defaultCompareCampanas;
+  const comparisonSourceLines = useMemo(
+    () => applyVentasCategoriaFilters(allLines, {
+      mes: filters.mes,
+      cliente: filters.cliente,
+      metodo: filters.metodo,
+      articulo: filters.articulo,
+    }),
+    [allLines, filters.mes, filters.cliente, filters.metodo, filters.articulo],
+  );
+  const campaignComparison = useMemo(
+    () => buildVentasCategoriaCampanaComparison(comparisonSourceLines, activeCompareCampanas),
+    [comparisonSourceLines, activeCompareCampanas],
+  );
+  const comparisonStats = useMemo(() => {
+    const totalKilos = campaignComparison.reduce((sum, row) => sum + row.kilos, 0);
+    const totalBase = campaignComparison.reduce((sum, row) => sum + row.base_iva, 0);
+    const bestVolume = campaignComparison.reduce<typeof campaignComparison[number] | null>(
+      (best, row) => (!best || row.kilos > best.kilos ? row : best),
+      null,
+    );
+    const bestPrice = campaignComparison.reduce<typeof campaignComparison[number] | null>(
+      (best, row) => (!best || row.pm_venta > best.pm_venta ? row : best),
+      null,
+    );
+    return {
+      totalKilos,
+      totalBase,
+      avgPm: totalKilos > 0 ? totalBase / totalKilos : 0,
+      bestVolume,
+      bestPrice,
+    };
+  }, [campaignComparison]);
+
   const topClientes = (hasActiveFilters ? displayRanking : rankingClientes).slice(0, 10);
   const topArticulos = (hasActiveFilters ? displayArticulos : articulos).slice(0, 25);
   const productMonthlyChart = useMemo(() => pivotMonthlyProducts(
@@ -152,6 +196,14 @@ export default function VentasCategoriaSegunda() {
   const clearFilters = () => {
     setPage(0);
     setFilters({ campana: "", mes: "", cliente: "", metodo: "", articulo: "" });
+  };
+  const toggleCompareCampana = (campana: string) => {
+    setCompareCampanas((current) => {
+      const base = current.length > 0 ? current : defaultCompareCampanas;
+      return base.includes(campana)
+        ? base.filter((value) => value !== campana)
+        : [...base, campana];
+    });
   };
 
   if (!ventas.accessQuery.isLoading && !ventas.hasAccess) {
@@ -232,8 +284,9 @@ export default function VentasCategoriaSegunda() {
           </div>
         </div>
         <div className="mt-3">
-          <TabsList className="inline-flex h-auto gap-1 rounded-xl bg-[var(--glass-bg-strong)] p-1">
+          <TabsList className="inline-flex h-auto flex-wrap gap-1 rounded-xl bg-[var(--glass-bg-strong)] p-1">
             <TabsTrigger value="dashboard" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Dashboard</TabsTrigger>
+            <TabsTrigger value="comparar" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Comparar</TabsTrigger>
             <TabsTrigger value="clientes" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Clientes</TabsTrigger>
             <TabsTrigger value="productos" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Productos</TabsTrigger>
             <TabsTrigger value="articulos" className="rounded-lg px-4 py-1.5 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground">Articulos</TabsTrigger>
@@ -341,6 +394,158 @@ export default function VentasCategoriaSegunda() {
               </LineChart>
             </ResponsiveContainer>
           </ChartCard>
+        </TabsContent>
+
+        <TabsContent value="comparar" className="space-y-5">
+          <Card className="glass-accented">
+            <CardHeader className="pb-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <CardTitle className="text-base">Comparativa entre campanas</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Volumen, facturacion y precio medio con los filtros actuales de cliente, producto, mes y articulo.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 rounded-md px-3 text-xs"
+                    onClick={() => setCompareCampanas(defaultCompareCampanas)}
+                  >
+                    Ultimas 3
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 rounded-md px-3 text-xs"
+                    onClick={() => setCompareCampanas(filterOptions.campanas)}
+                  >
+                    Todas
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {filterOptions.campanas.map((campana) => {
+                  const active = activeCompareCampanas.includes(campana);
+                  return (
+                    <Button
+                      key={campana}
+                      type="button"
+                      variant={active ? "default" : "outline"}
+                      size="sm"
+                      className="h-8 rounded-md px-3 text-xs"
+                      onClick={() => toggleCompareCampana(campana)}
+                    >
+                      {campana}
+                    </Button>
+                  );
+                })}
+                {filterOptions.campanas.length === 0 ? (
+                  <span className="text-sm text-muted-foreground">No hay campanas disponibles.</span>
+                ) : null}
+              </div>
+            </CardContent>
+          </Card>
+
+          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <Kpi title="Campanas" value={formatNumber(campaignComparison.length)} />
+            <Kpi title="Volumen comparado" value={formatKg(comparisonStats.totalKilos)} />
+            <Kpi title="PM conjunto" value={`${formatNumber(comparisonStats.avgPm, 3)} EUR/kg`} />
+            <Kpi
+              title="Mayor volumen"
+              value={comparisonStats.bestVolume ? `${comparisonStats.bestVolume.campana} - ${formatKg(comparisonStats.bestVolume.kilos)}` : "Sin datos"}
+            />
+            <Kpi
+              title="Mejor precio"
+              value={comparisonStats.bestPrice ? `${comparisonStats.bestPrice.campana} - ${formatNumber(comparisonStats.bestPrice.pm_venta, 3)}` : "Sin datos"}
+            />
+          </section>
+
+          <section className="grid gap-5 xl:grid-cols-2">
+            <ChartCard title="Volumen por campana">
+              <ResponsiveContainer width="100%" height={320}>
+                <BarChart data={campaignComparison} margin={MARGIN}>
+                  <CartesianGrid {...GRID} />
+                  <XAxis dataKey="campana" {...XAXIS} />
+                  <YAxis {...YAXIS} tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
+                  <Tooltip content={<GlassTooltip formatter={(v) => formatKg(Number(v))} />} />
+                  <Bar dataKey="kilos" name="Kilos" fill={C.primary} stroke={C.primary} {...BAR_STYLE} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+
+            <ChartCard title="Precio medio por campana">
+              <ResponsiveContainer width="100%" height={320}>
+                <LineChart data={campaignComparison} margin={MARGIN}>
+                  <CartesianGrid {...GRID} />
+                  <XAxis dataKey="campana" {...XAXIS} />
+                  <YAxis {...YAXIS} tickFormatter={(v) => `${formatNumber(Number(v), 2)} EUR`} />
+                  <Tooltip cursor={CHART_LINE_CURSOR} content={<GlassTooltip formatter={(v) => `${formatNumber(Number(v), 3)} EUR/kg`} />} />
+                  <Line dataKey="pm_venta" name="PM venta" {...lineStyle(C.info)} />
+                </LineChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          </section>
+
+          <Card className="glass-accented overflow-hidden">
+            <CardHeader className="pb-0">
+              <CardTitle className="text-base">Detalle comparado</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Campana</TableHead>
+                      <TableHead className="text-right">Kilos</TableHead>
+                      <TableHead className="text-right">Base IVA</TableHead>
+                      <TableHead className="text-right">PM venta</TableHead>
+                      <TableHead className="text-right">Cuota kg</TableHead>
+                      <TableHead className="text-right">Clientes</TableHead>
+                      <TableHead className="text-right">Productos</TableHead>
+                      <TableHead className="text-right">Delta kg</TableHead>
+                      <TableHead className="text-right">Delta PM</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {campaignComparison.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
+                          Sin datos para la seleccion actual.
+                        </TableCell>
+                      </TableRow>
+                    ) : campaignComparison.map((row) => (
+                      <TableRow key={row.campana}>
+                        <TableCell className="font-semibold">{row.campana}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatKg(row.kilos)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(row.base_iva, 2)} EUR</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(row.pm_venta, 3)} EUR/kg</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatPct(row.cuota_kilos_pct)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(row.clientes)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(row.productos)}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          <DeltaBadge
+                            value={row.delta_kilos}
+                            formatter={(value) => row.delta_kilos_pct == null
+                              ? formatKg(value)
+                              : `${formatKg(value)} / ${formatPct(row.delta_kilos_pct)}`}
+                          />
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          <DeltaBadge value={row.delta_pm} formatter={(value) => `${formatNumber(value, 3)} EUR/kg`} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="clientes" className="space-y-5">
@@ -794,6 +999,27 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
       <CardHeader className="pb-2"><CardTitle>{title}</CardTitle></CardHeader>
       <CardContent><div className={CHART_PANEL_CLASS}>{children}</div></CardContent>
     </Card>
+  );
+}
+
+function DeltaBadge({ value, formatter }: { value: number | null; formatter: (value: number) => string }) {
+  if (value == null) {
+    return <span className="text-xs text-muted-foreground">--</span>;
+  }
+
+  const positive = value > 0;
+  const negative = value < 0;
+  const tone = positive
+    ? "bg-success/10 text-success"
+    : negative
+      ? "bg-destructive/10 text-destructive"
+      : "bg-muted text-muted-foreground";
+
+  return (
+    <span className={`inline-flex justify-end rounded-md px-2 py-1 text-xs font-semibold ${tone}`}>
+      {positive ? "+" : ""}
+      {formatter(value)}
+    </span>
   );
 }
 

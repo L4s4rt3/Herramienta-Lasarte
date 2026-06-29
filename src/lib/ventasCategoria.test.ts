@@ -6,6 +6,7 @@ import {
   calcularMesVentas,
   calcularPmVenta,
   calcularPrecioReal,
+  buildVentasCategoriaCampanaComparison,
   buildVentasCategoriaFilterOptions,
   buildVentasCategoriaDashboardKpis,
   normalizeVentasCategoriaLinea,
@@ -108,6 +109,47 @@ describe("ventas categoria helpers", () => {
     expect(kpis.kilosPorCliente).toBe(100);
     expect(kpis.eurosPorLinea).toBe(21);
     expect(kpis.articulosPorProducto).toBe(2.5);
+  });
+
+  it("compara volumen, importe y precio medio entre campanas", () => {
+    const rows = buildVentasCategoriaCampanaComparison([
+      normalizeVentasCategoriaLinea({
+        ...baseLine,
+        fecha: "2024-10-05",
+        cliente_codigo: "C001",
+        kilos: 100,
+        base_iva: 50,
+      }),
+      normalizeVentasCategoriaLinea({
+        ...baseLine,
+        fecha: "2025-10-05",
+        cliente_codigo: "C002",
+        articulo: "Articulo B",
+        metodo_producto: "LN210",
+        kilos: 150,
+        base_iva: 90,
+      }),
+      normalizeVentasCategoriaLinea({
+        ...baseLine,
+        fecha: "2023-10-05",
+        cliente_codigo: "C003",
+        kilos: 999,
+        base_iva: 999,
+      }),
+    ], ["2425", "2526"]);
+
+    expect(rows.map((row) => row.campana)).toEqual(["2425", "2526"]);
+    expect(rows[0]).toMatchObject({ kilos: 100, base_iva: 50, pm_venta: 0.5, cuota_kilos_pct: 40 });
+    expect(rows[1]).toMatchObject({
+      kilos: 150,
+      base_iva: 90,
+      pm_venta: 0.6,
+      cuota_kilos_pct: 60,
+      delta_kilos: 50,
+      delta_kilos_pct: 50,
+      delta_pm: 0.1,
+      delta_base_iva: 40,
+    });
   });
 
   it("valida que lineas y catalogo cuadren por kilos y base IVA", () => {
