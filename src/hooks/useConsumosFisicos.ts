@@ -41,6 +41,14 @@ export interface ConsumoBaseKgFormValues {
   notas?: ConsumoBaseKgRow["notas"];
 }
 
+export type ConsumoFisicoUpdateValues = ConsumoFisicoFormValues & {
+  id: ConsumoFisicoRow["id"];
+};
+
+export type ConsumoBaseKgUpdateValues = ConsumoBaseKgFormValues & {
+  id: ConsumoBaseKgRow["id"];
+};
+
 export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -177,6 +185,56 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
     },
   });
 
+  const updateConsumoMutation = useMutation({
+    mutationFn: async (values: ConsumoFisicoUpdateValues) => {
+      if (!user) {
+        throw new Error("No auth");
+      }
+
+      const { id, ...updatePayload } = values;
+      const { error } = await supabase
+        .from("consumos_fisicos")
+        .update({
+          ...updatePayload,
+          referencia: updatePayload.referencia || null,
+          notas: updatePayload.notas || null,
+        })
+        .eq("id", id);
+
+      if (error) {
+        throw toError(error);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: consumosQueryKey });
+    },
+  });
+
+  const updateBaseKgMutation = useMutation({
+    mutationFn: async (values: ConsumoBaseKgUpdateValues) => {
+      if (!user) {
+        throw new Error("No auth");
+      }
+
+      const { id, ...updatePayload } = values;
+      const { error } = await supabase
+        .from("consumos_bases_kg")
+        .update({
+          ...updatePayload,
+          referencia: updatePayload.referencia || null,
+          notas: updatePayload.notas || null,
+        })
+        .eq("id", id);
+
+      if (error) {
+        throw toError(error);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: basesKgQueryKey });
+    },
+  });
+
   const deleteConsumoMutation = useMutation({
     mutationFn: async (id: ConsumoFisicoRow["id"]) => {
       if (!user) {
@@ -252,7 +310,9 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
 
   return {
     consumos,
+    registrosConsumo: persistedConsumos,
     basesKg,
+    registrosBaseKg: persistedBasesKg,
     partes,
     monthlyRows,
     weeklyRows,
@@ -260,6 +320,8 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
     isLoading: loadingConsumos || loadingBasesKg || loadingPartes,
     addConsumo: addConsumoMutation,
     addBaseKg: addBaseKgMutation,
+    updateConsumo: updateConsumoMutation,
+    updateBaseKg: updateBaseKgMutation,
     deleteConsumo: deleteConsumoMutation,
     deleteBaseKg: deleteBaseKgMutation,
   };

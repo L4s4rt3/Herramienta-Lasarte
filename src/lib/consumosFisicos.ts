@@ -50,6 +50,22 @@ export interface DailyWaterMeterInput {
   drencherL?: number | null;
 }
 
+export interface DailyWaterMeterReadingInput {
+  fecha: string;
+  lecturaContadorM3: number | null | undefined;
+  lecturaAnteriorM3?: number | null;
+  fechaLecturaAnterior?: string | null;
+  lineaTratamientoL?: number | null;
+  drencherL?: number | null;
+}
+
+export interface WaterMeterReading {
+  id?: string;
+  fecha: string;
+  lecturaM3: number;
+  consumoL: number;
+}
+
 export type DailyWaterMeterConsumo = Omit<ConsumoFisicoInput, "id" | "cantidad"> & { cantidad: number };
 
 export interface ConsumoPeriodoRow {
@@ -143,6 +159,62 @@ export function buildDailyWaterMeterConsumo(input: DailyWaterMeterInput): DailyW
     referencia: "agua-contador-general",
     notas: `Contador general: ${contadorGeneralL} L. Linea tratamiento: ${lineaTratamientoL} L. Drencher: ${drencherL} L.`,
   };
+}
+
+export function buildDailyWaterMeterConsumoFromReading(input: DailyWaterMeterReadingInput): DailyWaterMeterConsumo {
+  const lecturaContadorM3 = finiteOrZero(input.lecturaContadorM3);
+  const lecturaAnteriorM3 = input.lecturaAnteriorM3 == null ? null : finiteOrZero(input.lecturaAnteriorM3);
+  const consumoM3 = lecturaAnteriorM3 == null ? 0 : Math.max(0, lecturaContadorM3 - lecturaAnteriorM3);
+  const consumoL = consumoM3 * 1000;
+  const lineaTratamientoL = finiteOrZero(input.lineaTratamientoL);
+  const drencherL = finiteOrZero(input.drencherL);
+  const previousNote = lecturaAnteriorM3 == null
+    ? "Lectura anterior: sin referencia."
+    : `Lectura anterior: ${lecturaAnteriorM3} m3${input.fechaLecturaAnterior ? ` (${input.fechaLecturaAnterior})` : ""}.`;
+
+  return {
+    recurso: "agua",
+    fecha_inicio: input.fecha,
+    fecha_fin: input.fecha,
+    cantidad: consumoL,
+    unidad: "l",
+    fuente: "contador",
+    referencia: "agua-contador-general",
+    notas: `Lectura contador: ${lecturaContadorM3} m3. ${previousNote} Consumo calculado: ${consumoL} L. Linea tratamiento: ${lineaTratamientoL} L. Drencher: ${drencherL} L.`,
+  };
+}
+
+export function parseWaterMeterReadingM3(input: Pick<ConsumoFisicoInput, "notas">): number | null {
+  const notes = input.notas ?? "";
+  const dailyReadingMatch = notes.match(/Lectura contador:\s*([0-9.,\s]+)/i);
+  const invoiceReadingMatch = notes.match(/Lecturas:\s*[0-9.,\s]+\s*->\s*([0-9.,\s]+)/i);
+  const readingText = dailyReadingMatch?.[1] ?? invoiceReadingMatch?.[1];
+
+  if (!readingText) {
+    return null;
+  }
+
+  const reading = parseConsumoNumber(readingText);
+  return reading > 0 ? reading : null;
+}
+
+export function findPreviousWaterMeterReading(
+  consumos: ConsumoFisicoInput[],
+  fecha: string,
+): WaterMeterReading | null {
+  return consumos
+    .filter((consumo) => (
+      consumo.recurso === "agua"
+      && consumo.fecha_fin < fecha
+      && parseWaterMeterReadingM3(consumo) != null
+    ))
+    .map((consumo) => ({
+      id: consumo.id,
+      fecha: consumo.fecha_fin,
+      lecturaM3: parseWaterMeterReadingM3(consumo) ?? 0,
+      consumoL: normalizeConsumoCantidad(consumo).cantidadBase,
+    }))
+    .sort((a, b) => b.fecha.localeCompare(a.fecha))[0] ?? null;
 }
 
 export function buildMonthlyConsumptionRows(input: BuildConsumptionRowsInput): ConsumoPeriodoRow[] {

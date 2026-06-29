@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDailyWaterMeterConsumo,
+  buildDailyWaterMeterConsumoFromReading,
   buildDailyConsumptionRows,
+  findPreviousWaterMeterReading,
   buildMonthlyConsumptionRows,
   buildWeeklyConsumptionRows,
   kgProducidosParte,
   normalizeConsumoCantidad,
+  parseWaterMeterReadingM3,
   parseConsumoNumber,
 } from "@/lib/consumosFisicos";
 import {
@@ -56,6 +59,91 @@ describe("consumos fisicos helpers", () => {
       referencia: "agua-contador-general",
       notas: "Contador general: 1234.5 L. Linea tratamiento: 200 L. Drencher: 35 L.",
     });
+  });
+
+  it("builds daily water consumption from cumulative meter readings", () => {
+    expect(buildDailyWaterMeterConsumoFromReading({
+      fecha: "2026-06-20",
+      lecturaContadorM3: 38662.5,
+      lecturaAnteriorM3: 38659,
+      fechaLecturaAnterior: "2026-06-19",
+      lineaTratamientoL: 120,
+      drencherL: 30,
+    })).toEqual({
+      recurso: "agua",
+      fecha_inicio: "2026-06-20",
+      fecha_fin: "2026-06-20",
+      cantidad: 3500,
+      unidad: "l",
+      fuente: "contador",
+      referencia: "agua-contador-general",
+      notas: "Lectura contador: 38662.5 m3. Lectura anterior: 38659 m3 (2026-06-19). Consumo calculado: 3500 L. Linea tratamiento: 120 L. Drencher: 30 L.",
+    });
+  });
+
+  it("stores the first cumulative water meter reading as a zero-consumption baseline", () => {
+    const consumo = buildDailyWaterMeterConsumoFromReading({
+      fecha: "2026-06-19",
+      lecturaContadorM3: 38659,
+    });
+
+    expect(consumo.cantidad).toBe(0);
+    expect(consumo.notas).toContain("Lectura anterior: sin referencia.");
+    expect(parseWaterMeterReadingM3(consumo)).toBe(38659);
+  });
+
+  it("finds the previous cumulative water meter reading before a date", () => {
+    const consumos = [
+      buildDailyWaterMeterConsumoFromReading({
+        fecha: "2026-06-19",
+        lecturaContadorM3: 38659,
+      }),
+      buildDailyWaterMeterConsumoFromReading({
+        fecha: "2026-06-20",
+        lecturaContadorM3: 38662.5,
+        lecturaAnteriorM3: 38659,
+        fechaLecturaAnterior: "2026-06-19",
+      }),
+      buildDailyWaterMeterConsumo({
+        fecha: "2026-06-21",
+        contadorGeneralL: 1200,
+      }),
+    ].map((row, index) => ({ ...row, id: `row-${index}` }));
+
+    expect(findPreviousWaterMeterReading(consumos, "2026-06-21")).toMatchObject({
+      fecha: "2026-06-20",
+      lecturaM3: 38662.5,
+      consumoL: 3500,
+    });
+  });
+
+  it("uses the final invoice meter reading as the previous reading for the first manual reading", () => {
+    const previous = findPreviousWaterMeterReading([
+      {
+        id: "factura-agua",
+        recurso: "agua",
+        fecha_inicio: "2026-02-19",
+        fecha_fin: "2026-04-23",
+        cantidad: 420,
+        unidad: "m3",
+        fuente: "factura_detallada",
+        referencia: "P0005464",
+        notas: "Lecturas: 38239 -> 38659. Rango lectura: 2026-02-19 -> 2026-04-23.",
+      },
+    ], "2026-06-25");
+
+    expect(previous).toMatchObject({
+      fecha: "2026-04-23",
+      lecturaM3: 38659,
+      consumoL: 420000,
+    });
+
+    expect(buildDailyWaterMeterConsumoFromReading({
+      fecha: "2026-06-25",
+      lecturaContadorM3: 38662.5,
+      lecturaAnteriorM3: previous?.lecturaM3,
+      fechaLecturaAnterior: previous?.fecha,
+    }).cantidad).toBe(3500);
   });
 
   it("uses the existing production kg formula from partes", () => {

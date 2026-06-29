@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { Fragment, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthProvider";
@@ -19,7 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useConsumosFisicos } from "@/hooks/useConsumosFisicos";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Trash2, Save, History, BarChart3, Settings, Droplet, Zap, Fuel, FlaskConical, FileText, FileSpreadsheet, CalendarDays, Upload, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Save, History, BarChart3, Settings, Droplet, Zap, Fuel, FlaskConical, FileText, FileSpreadsheet, CalendarDays, Upload, CheckCircle2, AlertTriangle, Pencil, X } from "lucide-react";
 import { today, formatNumber, formatDate } from "@/lib/format";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -30,9 +30,14 @@ import {
   GlassTooltip, legendStyle, C, GRID, XAXIS, YAXIS, MARGIN,
   CHART_LINE_CURSOR, CHART_PANEL_CLASS, lineStyle,
 } from "@/lib/chartTheme";
-import { buildDailyWaterMeterConsumo, parseConsumoNumber, type ConsumoPeriodoRow } from "@/lib/consumosFisicos";
+import {
+  buildDailyWaterMeterConsumoFromReading,
+  findPreviousWaterMeterReading,
+  parseConsumoNumber,
+  type ConsumoPeriodoRow,
+} from "@/lib/consumosFisicos";
 import { errorMessage } from "@/lib/errorMessage";
-import { MaquinaRow, SesionConsumoRow, ConsumoMaquinaRow } from "@/lib/types";
+import type { ConsumoBaseKgRow, ConsumoFisicoRow, ConsumoMaquinaRow, MaquinaRow, SesionConsumoRow } from "@/lib/types";
 import { exportConsumoToExcel, exportConsumoToPDF } from "@/lib/exportConsumo";
 import {
   isDuplicateFacturaConsumo,
@@ -65,6 +70,31 @@ const ZONAS = [
 type ConsumoRecurso = "agua" | "electricidad" | "gasoil" | "quimicos";
 type ConsumoUnidad = "l" | "m3" | "kwh";
 type ConsumoPeriodoVista = "semanal" | "mensual" | "diario";
+type RegistrarMode = "agua" | "recurso" | "base" | "importar";
+type ConsumoFuente = "contador" | "factura_detallada" | "albaran" | "estimacion_manual";
+type BaseKgTipo = "ventas" | "palets" | "manual";
+
+interface EditingConsumoForm {
+  id: string;
+  recurso: ConsumoRecurso;
+  fecha_inicio: string;
+  fecha_fin: string;
+  cantidad: string;
+  unidad: ConsumoUnidad;
+  fuente: ConsumoFuente;
+  referencia: string;
+  notas: string;
+}
+
+interface EditingBaseKgForm {
+  id: string;
+  tipo_base: BaseKgTipo;
+  fecha_inicio: string;
+  fecha_fin: string;
+  kg: string;
+  referencia: string;
+  notas: string;
+}
 
 const UNIDADES_POR_RECURSO: Record<ConsumoRecurso, ConsumoUnidad[]> = {
   agua: ["l"],
@@ -125,6 +155,13 @@ const PERIODO_VISTA_DETAIL_LABEL: Record<ConsumoPeriodoVista, string> = {
   semanal: "semanas",
   mensual: "meses",
   diario: "dias",
+};
+
+const REGISTRAR_MODE_LABEL: Record<RegistrarMode, string> = {
+  agua: "Agua",
+  recurso: "Otros consumos",
+  base: "Base kg",
+  importar: "Importar",
 };
 
 const WEEK_BLOCK_SIZE = 6;
@@ -219,6 +256,7 @@ export default function ConsumoCostes() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [tab, setTab] = useState("resumen");
+  const [registrarMode, setRegistrarMode] = useState<RegistrarMode>("agua");
   const [campanaId, setCampanaId] = useState<string>(FACTURAS_CAMPANA_2025_2026_RANGE.id);
   const [periodoVista, setPeriodoVista] = useState<ConsumoPeriodoVista>("semanal");
   const [periodBlockId, setPeriodBlockId] = useState("latest");
@@ -257,6 +295,16 @@ export default function ConsumoCostes() {
   const [aguaContadorGeneral, setAguaContadorGeneral] = useState("");
   const [aguaLineaTratamiento, setAguaLineaTratamiento] = useState("");
   const [aguaDrencher, setAguaDrencher] = useState("");
+  const [editingConsumo, setEditingConsumo] = useState<EditingConsumoForm | null>(null);
+  const [editingBaseKg, setEditingBaseKg] = useState<EditingBaseKgForm | null>(null);
+  const lecturaAguaM3 = parseConsumoNumber(aguaContadorGeneral);
+  const lecturaAguaAnterior = useMemo(
+    () => findPreviousWaterMeterReading(consumosFisicos.consumos, aguaDiariaFecha),
+    [aguaDiariaFecha, consumosFisicos.consumos],
+  );
+  const consumoAguaCalculadoL = lecturaAguaAnterior && lecturaAguaM3 > 0
+    ? Math.max(0, (lecturaAguaM3 - lecturaAguaAnterior.lecturaM3) * 1000)
+    : 0;
 
   useEffect(() => {
     setCfInicio(selectedCampana.fechaInicio);
@@ -358,12 +406,21 @@ export default function ConsumoCostes() {
   };
 
   const guardarLecturaAguaDiaria = () => {
-    const contadorGeneralL = parseConsumoNumber(aguaContadorGeneral);
+    const lecturaContadorM3 = parseConsumoNumber(aguaContadorGeneral);
     const lineaTratamientoL = parseConsumoNumber(aguaLineaTratamiento);
     const drencherL = parseConsumoNumber(aguaDrencher);
 
-    if (contadorGeneralL <= 0) {
-      toast({ title: "Contador general requerido", description: "Introduce el gasto de agua del contador general.", variant: "destructive" });
+    if (lecturaContadorM3 <= 0) {
+      toast({ title: "Lectura requerida", description: "Introduce la lectura actual del contador de agua.", variant: "destructive" });
+      return;
+    }
+
+    if (lecturaAguaAnterior && lecturaContadorM3 < lecturaAguaAnterior.lecturaM3) {
+      toast({
+        title: "Lectura no valida",
+        description: `La lectura debe ser igual o superior a ${formatNumber(lecturaAguaAnterior.lecturaM3, 2)} m3.`,
+        variant: "destructive",
+      });
       return;
     }
 
@@ -380,14 +437,21 @@ export default function ConsumoCostes() {
       return;
     }
 
-    consumosFisicos.addConsumo.mutate(buildDailyWaterMeterConsumo({
+    consumosFisicos.addConsumo.mutate(buildDailyWaterMeterConsumoFromReading({
       fecha: aguaDiariaFecha,
-      contadorGeneralL,
+      lecturaContadorM3,
+      lecturaAnteriorM3: lecturaAguaAnterior?.lecturaM3 ?? null,
+      fechaLecturaAnterior: lecturaAguaAnterior?.fecha ?? null,
       lineaTratamientoL,
       drencherL,
     }), {
       onSuccess: () => {
-        toast({ title: "Lectura de agua guardada" });
+        toast({
+          title: "Lectura de agua guardada",
+          description: lecturaAguaAnterior
+            ? `Consumo calculado: ${formatNumber(consumoAguaCalculadoL, 0)} L.`
+            : "Guardada como referencia inicial.",
+        });
         setAguaContadorGeneral("");
         setAguaLineaTratamiento("");
         setAguaDrencher("");
@@ -410,7 +474,8 @@ export default function ConsumoCostes() {
       const skippedCount = parsedResults.reduce((total, result) => total + result.summary.skipped, 0);
 
       setFacturaImportResults(parsedResults);
-      setTab("importar");
+      setRegistrarMode("importar");
+      setTab("registrar");
       toast({
         title: "Facturas revisadas",
         description: `${importableCount} consumos detectados, ${skippedCount} filas omitidas.`,
@@ -444,7 +509,7 @@ export default function ConsumoCostes() {
         description: `${facturaNewRows.length} consumos guardados.`,
       });
       setFacturaImportResults([]);
-      setTab("historico");
+      setTab("registros");
     } catch (error) {
       toast({
         title: "Error al importar",
@@ -485,6 +550,120 @@ export default function ConsumoCostes() {
   };
 
   // ─── Queries ──────────────────────────────────────────────────────────────
+  const startEditConsumo = (row: ConsumoFisicoRow) => {
+    setEditingBaseKg(null);
+    setEditingConsumo({
+      id: row.id,
+      recurso: row.recurso,
+      fecha_inicio: row.fecha_inicio,
+      fecha_fin: row.fecha_fin,
+      cantidad: String(row.cantidad ?? ""),
+      unidad: row.unidad,
+      fuente: row.fuente,
+      referencia: row.referencia ?? "",
+      notas: row.notas ?? "",
+    });
+  };
+
+  const startEditBaseKg = (row: ConsumoBaseKgRow) => {
+    setEditingConsumo(null);
+    setEditingBaseKg({
+      id: row.id,
+      tipo_base: row.tipo_base,
+      fecha_inicio: row.fecha_inicio,
+      fecha_fin: row.fecha_fin,
+      kg: String(row.kg ?? ""),
+      referencia: row.referencia ?? "",
+      notas: row.notas ?? "",
+    });
+  };
+
+  const guardarEdicionConsumo = () => {
+    if (!editingConsumo) return;
+
+    const cantidad = parseConsumoNumber(editingConsumo.cantidad);
+    if (cantidad <= 0) {
+      toast({ title: "Cantidad requerida", description: "Introduce una cantidad fisica mayor que cero.", variant: "destructive" });
+      return;
+    }
+    if (editingConsumo.fecha_fin < editingConsumo.fecha_inicio) {
+      toast({ title: "Fechas no validas", description: "La fecha fin debe ser igual o posterior a la fecha inicio.", variant: "destructive" });
+      return;
+    }
+
+    consumosFisicos.updateConsumo.mutate({
+      ...editingConsumo,
+      cantidad,
+      referencia: editingConsumo.referencia || null,
+      notas: editingConsumo.notas || null,
+    }, {
+      onSuccess: () => {
+        toast({ title: "Registro actualizado" });
+        setEditingConsumo(null);
+      },
+      onError: (e) => toast({ title: "Error", description: errorMessage(e), variant: "destructive" }),
+    });
+  };
+
+  const guardarEdicionBaseKg = () => {
+    if (!editingBaseKg) return;
+
+    const kg = parseConsumoNumber(editingBaseKg.kg);
+    if (kg <= 0) {
+      toast({ title: "Kg requeridos", description: "Introduce kg mayores que cero.", variant: "destructive" });
+      return;
+    }
+    if (editingBaseKg.fecha_fin < editingBaseKg.fecha_inicio) {
+      toast({ title: "Fechas no validas", description: "La fecha fin debe ser igual o posterior a la fecha inicio.", variant: "destructive" });
+      return;
+    }
+
+    consumosFisicos.updateBaseKg.mutate({
+      ...editingBaseKg,
+      kg,
+      referencia: editingBaseKg.referencia || null,
+      notas: editingBaseKg.notas || null,
+    }, {
+      onSuccess: () => {
+        toast({ title: "Base kg actualizada" });
+        setEditingBaseKg(null);
+      },
+      onError: (e) => toast({ title: "Error", description: errorMessage(e), variant: "destructive" }),
+    });
+  };
+
+  const borrarConsumo = (row: ConsumoFisicoRow) => {
+    if (!window.confirm(`Borrar el registro de ${row.recurso} del ${formatDate(row.fecha_inicio)}?`)) {
+      return;
+    }
+
+    consumosFisicos.deleteConsumo.mutate(row.id, {
+      onSuccess: () => {
+        toast({ title: "Registro borrado" });
+        if (editingConsumo?.id === row.id) {
+          setEditingConsumo(null);
+        }
+      },
+      onError: (e) => toast({ title: "Error", description: errorMessage(e), variant: "destructive" }),
+    });
+  };
+
+  const borrarBaseKg = (row: ConsumoBaseKgRow) => {
+    if (!window.confirm(`Borrar la base kg del ${formatDate(row.fecha_inicio)}?`)) {
+      return;
+    }
+
+    consumosFisicos.deleteBaseKg.mutate(row.id, {
+      onSuccess: () => {
+        toast({ title: "Base kg borrada" });
+        if (editingBaseKg?.id === row.id) {
+          setEditingBaseKg(null);
+        }
+      },
+      onError: (e) => toast({ title: "Error", description: errorMessage(e), variant: "destructive" }),
+    });
+  };
+
   const { data: maquinas = [], isLoading: loadingMaquinas } = useQuery({
     queryKey: maquinasQueryKey,
     queryFn: async () => {
@@ -784,6 +963,22 @@ export default function ConsumoCostes() {
   }, [selectedRows]);
 
   const issueRows = useMemo(() => rows.filter((row) => row.issues.length > 0), [rows]);
+  const editableConsumos = useMemo(
+    () => consumosFisicos.registrosConsumo
+      .filter((row) => row.fecha_inicio <= selectedCampana.fechaFin && row.fecha_fin >= selectedCampana.fechaInicio)
+      .sort((a, b) => b.fecha_inicio.localeCompare(a.fecha_inicio)),
+    [consumosFisicos.registrosConsumo, selectedCampana.fechaFin, selectedCampana.fechaInicio],
+  );
+  const editableBasesKg = useMemo(
+    () => consumosFisicos.registrosBaseKg
+      .filter((row) => row.fecha_inicio <= selectedCampana.fechaFin && row.fecha_fin >= selectedCampana.fechaInicio)
+      .sort((a, b) => b.fecha_inicio.localeCompare(a.fecha_inicio)),
+    [consumosFisicos.registrosBaseKg, selectedCampana.fechaFin, selectedCampana.fechaInicio],
+  );
+  const editingPending = consumosFisicos.updateConsumo.isPending
+    || consumosFisicos.updateBaseKg.isPending
+    || consumosFisicos.deleteConsumo.isPending
+    || consumosFisicos.deleteBaseKg.isPending;
 
   const loading = loadingMaquinas || consumosFisicos.isLoading;
   const exportLoading = loadingMaquinas || loadingSesiones || loadingConsumosMaquinas || consumosFisicos.isLoading;
@@ -879,31 +1074,51 @@ export default function ConsumoCostes() {
       ) : (
         <Tabs value={tab} onValueChange={setTab} className="space-y-6">
           <div className="glass-accented p-1.5 rounded-xl">
-          <TabsList className="grid w-full grid-cols-2 md:w-auto md:grid-cols-6">
+          <TabsList className="grid w-full grid-cols-2 md:w-auto md:grid-cols-5">
             <TabsTrigger value="resumen"><BarChart3 className="h-4 w-4 mr-1.5" />Resumen</TabsTrigger>
             <TabsTrigger value="registrar"><Save className="h-4 w-4 mr-1.5" />Registrar</TabsTrigger>
-            <TabsTrigger value="importar"><Upload className="h-4 w-4 mr-1.5" />Importar</TabsTrigger>
-            <TabsTrigger value="historico"><History className="h-4 w-4 mr-1.5" />Historico</TabsTrigger>
-            <TabsTrigger value="validacion"><FileText className="h-4 w-4 mr-1.5" />Validacion</TabsTrigger>
-            <TabsTrigger value="maquinas"><Settings className="h-4 w-4 mr-1.5" />Maquinas</TabsTrigger>
+            <TabsTrigger value="analisis"><BarChart3 className="h-4 w-4 mr-1.5" />Analisis</TabsTrigger>
+            <TabsTrigger value="registros"><History className="h-4 w-4 mr-1.5" />Registros</TabsTrigger>
+            <TabsTrigger value="configuracion"><Settings className="h-4 w-4 mr-1.5" />Config</TabsTrigger>
           </TabsList>
           </div>
 
           {/* REGISTRAR */}
           <TabsContent value="registrar" className="space-y-6">
             <Card className="glass-accented">
+              <CardContent className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-4">
+                {(Object.keys(REGISTRAR_MODE_LABEL) as RegistrarMode[]).map((mode) => (
+                  <Button
+                    key={mode}
+                    type="button"
+                    variant={registrarMode === mode ? "default" : "outline"}
+                    onClick={() => setRegistrarMode(mode)}
+                    className="h-auto justify-start px-4 py-3 text-left"
+                  >
+                    {mode === "agua" && <Droplet className="h-4 w-4" />}
+                    {mode === "recurso" && <Zap className="h-4 w-4" />}
+                    {mode === "base" && <BarChart3 className="h-4 w-4" />}
+                    {mode === "importar" && <Upload className="h-4 w-4" />}
+                    <span>{REGISTRAR_MODE_LABEL[mode]}</span>
+                  </Button>
+                ))}
+              </CardContent>
+            </Card>
+
+            {registrarMode === "agua" && (
+            <Card className="glass-accented">
               <CardHeader>
                 <p className="panel-kicker">Agua diaria</p>
-                <CardTitle>Registrar lectura diaria de agua</CardTitle>
+                <CardTitle>Registrar contador de agua</CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-5 md:grid-cols-4">
+              <CardContent className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
                 <div className="glass p-4 space-y-2">
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fecha</Label>
                   <ConsumoDatePicker value={aguaDiariaFecha} onChange={setAguaDiariaFecha} />
                 </div>
                 <div className="glass p-4 space-y-2">
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Gasto agua contador general (Litros)</Label>
-                  <Input inputMode="decimal" value={aguaContadorGeneral} onChange={(e) => setAguaContadorGeneral(e.target.value)} placeholder="0" />
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lectura contador actual (m3)</Label>
+                  <Input inputMode="decimal" value={aguaContadorGeneral} onChange={(e) => setAguaContadorGeneral(e.target.value)} placeholder="38659" />
                 </div>
                 <div className="glass p-4 space-y-2">
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Consumo agua linea tratamiento (Litros)</Label>
@@ -913,14 +1128,45 @@ export default function ConsumoCostes() {
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Consumo agua drencher (Litros)</Label>
                   <Input inputMode="decimal" value={aguaDrencher} onChange={(e) => setAguaDrencher(e.target.value)} placeholder="0" />
                 </div>
-                <div className="md:col-span-4 flex justify-end">
+                <div className="grid gap-3 md:col-span-2 xl:col-span-4 sm:grid-cols-3">
+                  <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Lectura anterior</p>
+                    <p className="mt-1 text-lg font-semibold tabular-nums">
+                      {lecturaAguaAnterior ? `${formatNumber(lecturaAguaAnterior.lecturaM3, 2)} m3` : "-"}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {lecturaAguaAnterior ? formatDate(lecturaAguaAnterior.fecha) : "Referencia inicial"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-info/20 bg-info/10 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-info">Consumo calculado</p>
+                    <p className="mt-1 text-lg font-semibold tabular-nums">
+                      {formatNumber(consumoAguaCalculadoL, 0)} L
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {lecturaAguaAnterior ? "Diferencia entre lecturas" : "Sin consumo hasta la siguiente lectura"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Lectura actual</p>
+                    <p className="mt-1 text-lg font-semibold tabular-nums">
+                      {lecturaAguaM3 > 0 ? `${formatNumber(lecturaAguaM3, 2)} m3` : "-"}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {lecturaAguaAnterior && lecturaAguaM3 > 0 && lecturaAguaM3 < lecturaAguaAnterior.lecturaM3 ? "Revisar contador" : "Lista para guardar"}
+                    </p>
+                  </div>
+                </div>
+                <div className="md:col-span-2 xl:col-span-4 flex justify-end">
                   <Button onClick={guardarLecturaAguaDiaria} disabled={consumosFisicos.addConsumo.isPending} className="glass glass-hover px-8">
                     <Save className="h-4 w-4 mr-2" /> Guardar lectura
                   </Button>
                 </div>
               </CardContent>
             </Card>
+            )}
 
+            {registrarMode === "recurso" && (
             <Card className="glass-accented">
               <CardHeader>
                 <p className="panel-kicker">Consumo fisico</p>
@@ -996,7 +1242,9 @@ export default function ConsumoCostes() {
                 </div>
               </CardContent>
             </Card>
+            )}
 
+            {registrarMode === "base" && (
             <Card className="glass-accented">
               <CardHeader>
                 <p className="panel-kicker">Base kg</p>
@@ -1040,8 +1288,11 @@ export default function ConsumoCostes() {
                 </div>
               </CardContent>
             </Card>
+            )}
           </TabsContent>
-          <TabsContent value="importar" className="space-y-6">
+          <TabsContent value="registrar" className="space-y-6">
+            {registrarMode === "importar" && (
+            <>
             <Card className="glass-accented">
               <CardHeader>
                 <p className="panel-kicker">Facturas</p>
@@ -1186,6 +1437,8 @@ export default function ConsumoCostes() {
                   </Table>
                 </CardContent>
               </Card>
+            )}
+            </>
             )}
           </TabsContent>
           <TabsContent value="resumen" className="space-y-6">
@@ -1533,7 +1786,92 @@ export default function ConsumoCostes() {
           </TabsContent>
 
           {/* ════════ VALIDACION ════════ */}
-          <TabsContent value="validacion" className="space-y-6">
+          <TabsContent value="analisis" className="space-y-6">
+            {selectedRows.length === 0 ? (
+              <Card className="glass-accented">
+                <CardContent className="p-12 text-center text-muted-foreground">
+                  No hay datos suficientes para analizar consumos en esta vista.
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                <section className="grid gap-4 xl:grid-cols-2">
+                  <Card className="glass-accented">
+                    <CardHeader className="pb-3 px-5 pt-4">
+                      <CardTitle className="text-lg font-semibold">Ratios por {selectedPeriodLabel.toLowerCase()}</CardTitle>
+                      <p className="text-xs text-muted-foreground">Intensidad de agua, electricidad, gasoil y quimicos por kg base.</p>
+                    </CardHeader>
+                    <CardContent className="px-4 pb-4 pt-1">
+                      <div className={CHART_PANEL_CLASS}>
+                        <ResponsiveContainer width="100%" height={320}>
+                          <LineChart data={monthlyEvolution} margin={MARGIN}>
+                            <CartesianGrid {...GRID} />
+                            <XAxis dataKey="etiqueta" {...XAXIS} />
+                            <YAxis {...YAXIS} />
+                            <Tooltip
+                              cursor={CHART_LINE_CURSOR}
+                              content={(
+                                <GlassTooltip
+                                  formatter={(value, name) => {
+                                    const label = String(name);
+                                    const numericValue = typeof value === "number" ? value : Number(value);
+                                    const unit = label.includes("kWh") ? "kWh/kg" : label.includes("L/kg") ? "L/kg" : "mL/kg";
+                                    const digits = label.includes("Electricidad") ? 3 : label.includes("Agua") ? 2 : 1;
+                                    return ratioText(Number.isFinite(numericValue) ? numericValue : null, digits, unit);
+                                  }}
+                                />
+                              )}
+                            />
+                            <Legend wrapperStyle={legendStyle} />
+                            <Line dataKey="Agua L/kg" {...lineStyle(C.info)} />
+                            <Line dataKey="Electricidad kWh/kg" {...lineStyle(C.warning)} />
+                            <Line dataKey="Gasoil mL/kg" {...lineStyle(C.primary)} />
+                            <Line dataKey="Quimicos mL/kg" {...lineStyle(C.destructive)} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="glass-accented">
+                    <CardHeader className="pb-3 px-5 pt-4">
+                      <CardTitle className="text-lg font-semibold">Volumen por {selectedPeriodLabel.toLowerCase()}</CardTitle>
+                      <p className="text-xs text-muted-foreground">Litros y kWh absolutos para detectar picos operativos.</p>
+                    </CardHeader>
+                    <CardContent className="px-4 pb-4 pt-1">
+                      <div className={CHART_PANEL_CLASS}>
+                        <ResponsiveContainer width="100%" height={320}>
+                          <BarChart data={monthlyVolumeChart} margin={MARGIN}>
+                            <CartesianGrid {...GRID} />
+                            <XAxis dataKey="etiqueta" {...XAXIS} />
+                            <YAxis {...YAXIS} />
+                            <Tooltip
+                              cursor={{ fill: "var(--glass-bg-strong)" }}
+                              content={(
+                                <GlassTooltip
+                                  formatter={(value, name) => {
+                                    const numericValue = typeof value === "number" ? value : Number(value);
+                                    const unit = String(name).toLowerCase().includes("electricidad") ? "kWh" : "L";
+                                    return `${formatNumber(Number.isFinite(numericValue) ? numericValue : 0, unit === "kWh" ? 1 : 0)} ${unit}`;
+                                  }}
+                                />
+                              )}
+                            />
+                            <Legend wrapperStyle={legendStyle} />
+                            <Bar dataKey="agua" name="Agua" fill={C.info} radius={[5, 5, 0, 0]} />
+                            <Bar dataKey="electricidad" name="Electricidad" fill={C.warning} radius={[5, 5, 0, 0]} />
+                            <Bar dataKey="gasoil" name="Gasoil" fill={C.primary} radius={[5, 5, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </section>
+              </>
+            )}
+          </TabsContent>
+
+          <TabsContent value="registros" className="space-y-6">
             {issueRows.length === 0 ? (
               <Card className="glass-accented">
                 <CardContent className="p-12 text-center">
@@ -1594,7 +1932,7 @@ export default function ConsumoCostes() {
           </TabsContent>
 
           {/* ════════ MÁQUINAS ════════ */}
-          <TabsContent value="maquinas" className="space-y-6">
+          <TabsContent value="configuracion" className="space-y-6">
             <Card className="glass-accented">
               <CardHeader>
                 <p className="panel-kicker">Gestión</p>
@@ -1664,7 +2002,240 @@ export default function ConsumoCostes() {
           </TabsContent>
 
           {/* ════════ HISTÓRICO ════════ */}
-          <TabsContent value="historico" className="space-y-6">
+          <TabsContent value="registros" className="space-y-6">
+            <Card className="glass-accented">
+              <CardHeader>
+                <p className="panel-kicker">Registros guardados</p>
+                <CardTitle>Consumos fisicos ({editableConsumos.length})</CardTitle>
+              </CardHeader>
+              <CardContent className="overflow-x-auto p-0">
+                {editableConsumos.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-muted-foreground">
+                    No hay consumos guardados para esta campana.
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Recurso</TableHead>
+                        <TableHead>Fechas</TableHead>
+                        <TableHead className="text-right">Cantidad</TableHead>
+                        <TableHead>Fuente</TableHead>
+                        <TableHead>Referencia</TableHead>
+                        <TableHead>Notas</TableHead>
+                        <TableHead className="text-right">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {editableConsumos.map((row) => (
+                        <Fragment key={row.id}>
+                          <TableRow>
+                            <TableCell className="capitalize font-medium">{row.recurso}</TableCell>
+                            <TableCell className="whitespace-nowrap">
+                              {formatDate(row.fecha_inicio)}
+                              {row.fecha_fin !== row.fecha_inicio ? ` - ${formatDate(row.fecha_fin)}` : ""}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {formatNumber(row.cantidad, row.cantidad % 1 === 0 ? 0 : 2)} {UNIDAD_LABEL[row.unidad]}
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap">{row.fuente.replace("_", " ")}</TableCell>
+                            <TableCell className="max-w-[180px] truncate">{row.referencia ?? "-"}</TableCell>
+                            <TableCell className="max-w-[260px] truncate text-xs text-muted-foreground">{row.notas ?? "-"}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-1">
+                                <Button variant="ghost" size="icon" onClick={() => startEditConsumo(row)} disabled={editingPending} title="Modificar">
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" onClick={() => borrarConsumo(row)} disabled={editingPending} title="Borrar" className="text-destructive hover:text-destructive">
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                          {editingConsumo?.id === row.id && (
+                            <TableRow key={`${row.id}-edit`}>
+                              <TableCell colSpan={7} className="bg-[var(--glass-bg-strong)]">
+                                <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                                  <div className="space-y-1.5">
+                                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Recurso</Label>
+                                    <Select
+                                      value={editingConsumo.recurso}
+                                      onValueChange={(value) => {
+                                        const recurso = value as ConsumoRecurso;
+                                        setEditingConsumo({ ...editingConsumo, recurso, unidad: UNIDADES_POR_RECURSO[recurso][0] });
+                                      }}
+                                    >
+                                      <SelectTrigger><SelectValue /></SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="agua">Agua</SelectItem>
+                                        <SelectItem value="electricidad">Electricidad</SelectItem>
+                                        <SelectItem value="gasoil">Gasoil</SelectItem>
+                                        <SelectItem value="quimicos">Quimicos</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Inicio</Label>
+                                    <ConsumoDatePicker value={editingConsumo.fecha_inicio} onChange={(value) => setEditingConsumo({ ...editingConsumo, fecha_inicio: value })} />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Fin</Label>
+                                    <ConsumoDatePicker value={editingConsumo.fecha_fin} onChange={(value) => setEditingConsumo({ ...editingConsumo, fecha_fin: value })} />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Cantidad</Label>
+                                    <Input inputMode="decimal" value={editingConsumo.cantidad} onChange={(e) => setEditingConsumo({ ...editingConsumo, cantidad: e.target.value })} />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Unidad</Label>
+                                    <Select value={editingConsumo.unidad} onValueChange={(value) => setEditingConsumo({ ...editingConsumo, unidad: value as ConsumoUnidad })}>
+                                      <SelectTrigger><SelectValue /></SelectTrigger>
+                                      <SelectContent>
+                                        {UNIDADES_POR_RECURSO[editingConsumo.recurso].map((unidad) => (
+                                          <SelectItem key={unidad} value={unidad}>{UNIDAD_LABEL[unidad]}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Fuente</Label>
+                                    <Select value={editingConsumo.fuente} onValueChange={(value) => setEditingConsumo({ ...editingConsumo, fuente: value as ConsumoFuente })}>
+                                      <SelectTrigger><SelectValue /></SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="contador">Contador</SelectItem>
+                                        <SelectItem value="factura_detallada">Factura detallada</SelectItem>
+                                        <SelectItem value="albaran">Albaran</SelectItem>
+                                        <SelectItem value="estimacion_manual">Estimacion manual</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-1.5 md:col-span-1 xl:col-span-2">
+                                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Referencia</Label>
+                                    <Input value={editingConsumo.referencia} onChange={(e) => setEditingConsumo({ ...editingConsumo, referencia: e.target.value })} />
+                                  </div>
+                                  <div className="space-y-1.5 md:col-span-2 xl:col-span-3">
+                                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Notas</Label>
+                                    <Input value={editingConsumo.notas} onChange={(e) => setEditingConsumo({ ...editingConsumo, notas: e.target.value })} />
+                                  </div>
+                                  <div className="flex items-end justify-end gap-2">
+                                    <Button variant="outline" onClick={() => setEditingConsumo(null)} disabled={editingPending}>
+                                      <X className="h-4 w-4" /> Cancelar
+                                    </Button>
+                                    <Button onClick={guardarEdicionConsumo} disabled={editingPending}>
+                                      <Save className="h-4 w-4" /> Guardar
+                                    </Button>
+                                  </div>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </Fragment>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="glass-accented">
+              <CardHeader>
+                <p className="panel-kicker">Registros guardados</p>
+                <CardTitle>Bases kg ({editableBasesKg.length})</CardTitle>
+              </CardHeader>
+              <CardContent className="overflow-x-auto p-0">
+                {editableBasesKg.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-muted-foreground">
+                    No hay bases kg guardadas para esta campana.
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Tipo</TableHead>
+                        <TableHead>Fechas</TableHead>
+                        <TableHead className="text-right">Kg</TableHead>
+                        <TableHead>Referencia</TableHead>
+                        <TableHead>Notas</TableHead>
+                        <TableHead className="text-right">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {editableBasesKg.map((row) => (
+                        <Fragment key={row.id}>
+                          <TableRow>
+                            <TableCell className="capitalize font-medium">{row.tipo_base}</TableCell>
+                            <TableCell className="whitespace-nowrap">
+                              {formatDate(row.fecha_inicio)}
+                              {row.fecha_fin !== row.fecha_inicio ? ` - ${formatDate(row.fecha_fin)}` : ""}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">{formatNumber(row.kg)} kg</TableCell>
+                            <TableCell className="max-w-[180px] truncate">{row.referencia ?? "-"}</TableCell>
+                            <TableCell className="max-w-[300px] truncate text-xs text-muted-foreground">{row.notas ?? "-"}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-1">
+                                <Button variant="ghost" size="icon" onClick={() => startEditBaseKg(row)} disabled={editingPending} title="Modificar">
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" onClick={() => borrarBaseKg(row)} disabled={editingPending} title="Borrar" className="text-destructive hover:text-destructive">
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                          {editingBaseKg?.id === row.id && (
+                            <TableRow key={`${row.id}-edit`}>
+                              <TableCell colSpan={6} className="bg-[var(--glass-bg-strong)]">
+                                <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                                  <div className="space-y-1.5">
+                                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tipo</Label>
+                                    <Select value={editingBaseKg.tipo_base} onValueChange={(value) => setEditingBaseKg({ ...editingBaseKg, tipo_base: value as BaseKgTipo })}>
+                                      <SelectTrigger><SelectValue /></SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="ventas">Ventas</SelectItem>
+                                        <SelectItem value="palets">Palets</SelectItem>
+                                        <SelectItem value="manual">Manual</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Inicio</Label>
+                                    <ConsumoDatePicker value={editingBaseKg.fecha_inicio} onChange={(value) => setEditingBaseKg({ ...editingBaseKg, fecha_inicio: value })} />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Fin</Label>
+                                    <ConsumoDatePicker value={editingBaseKg.fecha_fin} onChange={(value) => setEditingBaseKg({ ...editingBaseKg, fecha_fin: value })} />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Kg</Label>
+                                    <Input inputMode="decimal" value={editingBaseKg.kg} onChange={(e) => setEditingBaseKg({ ...editingBaseKg, kg: e.target.value })} />
+                                  </div>
+                                  <div className="space-y-1.5 md:col-span-1 xl:col-span-2">
+                                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Referencia</Label>
+                                    <Input value={editingBaseKg.referencia} onChange={(e) => setEditingBaseKg({ ...editingBaseKg, referencia: e.target.value })} />
+                                  </div>
+                                  <div className="space-y-1.5 md:col-span-2 xl:col-span-4">
+                                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Notas</Label>
+                                    <Input value={editingBaseKg.notas} onChange={(e) => setEditingBaseKg({ ...editingBaseKg, notas: e.target.value })} />
+                                  </div>
+                                  <div className="flex items-end justify-end gap-2 xl:col-span-2">
+                                    <Button variant="outline" onClick={() => setEditingBaseKg(null)} disabled={editingPending}>
+                                      <X className="h-4 w-4" /> Cancelar
+                                    </Button>
+                                    <Button onClick={guardarEdicionBaseKg} disabled={editingPending}>
+                                      <Save className="h-4 w-4" /> Guardar
+                                    </Button>
+                                  </div>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </Fragment>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
             {rows.length === 0 ? (
               <Card className="glass-accented">
                 <CardContent className="p-12 text-center">
