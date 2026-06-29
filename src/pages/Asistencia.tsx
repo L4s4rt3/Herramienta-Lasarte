@@ -80,6 +80,20 @@ import {
   buildTrabajadorDiaExportRow,
   normalizeAsistenciaExportZona,
 } from "@/lib/asistenciaExport";
+import AsistenciaSemanalPanel from "@/components/AsistenciaSemanalPanel";
+import {
+  type SemanaDataRaw,
+  getWeekDates,
+  getWeekLabel,
+  getWeekShortLabel,
+  shiftWeek,
+  buildFaltasSemanales as buildFaltasSemanalesFnc,
+  calcularKgPersonaSemanal,
+  calcularRendimientoGrupoSemanal,
+  calcularKgSeccionSemanal,
+  productosClasificadosSemanales,
+  INCLUIR_SABADO_STORAGE_KEY,
+} from "@/lib/asistenciaSemanal";
 
 type WorkerFilter = "todos" | "presentes" | "ausentes" | "bajaLaboral" | "sinRegistro" | "conKg" | "fueraKg";
 
@@ -251,6 +265,21 @@ export default function Asistencia() {
   const [bajaLaboralStartDate, setBajaLaboralStartDate] = useState(today());
   const [bajaLaboralEndDate, setBajaLaboralEndDate] = useState("");
   const [applyingBajaLaboral, setApplyingBajaLaboral] = useState(false);
+  const [viewMode, setViewMode] = useState<"daily" | "weekly">("daily");
+  const [weekStart, setWeekStart] = useState(() => getWeekDates(today())[0]);
+  const [semanaData, setSemanaData] = useState<SemanaDataRaw | null>(null);
+  const [loadingSemana, setLoadingSemana] = useState(false);
+  const [incluirSabado, setIncluirSabado] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(INCLUIR_SABADO_STORAGE_KEY) === "true";
+  });
+  function toggleIncluirSabado() {
+    const next = !incluirSabado;
+    setIncluirSabado(next);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(INCLUIR_SABADO_STORAGE_KEY, next ? "true" : "false");
+    }
+  }
 
   // ─── Load trabajadores ──────────────────────────────────────────────────
 
@@ -492,9 +521,127 @@ export default function Asistencia() {
     }
   }
 
+  async function loadSemanaData(weekStartDate: string) {
+    if (!user) return;
+    setLoadingSemana(true);
+    const dates = getWeekDates(weekStartDate);
+    const weekEnd = dates[dates.length - 1];
+
+    try {
+      const [asistenciaRes, bajasRes, trabajadoresRes, partesRes] = await Promise.all([
+        supabase.from("asistencia_detalle").select("trabajador_id, date, presente, motivo_ausencia").in("date", dates).eq("user_id", user.id),
+        supabase.from("asistencia_bajas_laborales").select("*").eq("user_id", user.id).lte("fecha_inicio", weekEnd).or(`fecha_fin.is.null,fecha_fin.gte.${dates[0]}`),
+        supabase.from("trabajadores").select("*").order("nombre", { ascending: true }),
+        supabase.from("partes_diarios").select("id, date, resumen_ia, kg_produccion_calibrador, kg_industria_manual, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2").in("date", dates),
+      ]);
+
+      if (asistenciaRes.error || bajasRes.error || trabajadoresRes.error || partesRes.error) {
+        toast({ title: "Error", description: "Error al cargar datos semanales", variant: "destructive" });
+        setLoadingSemana(false);
+        return;
+      }
+
+      const partesMap: Record<string, SemanaDataRaw["partes"][string]> = {};
+      for (const parte of partesRes.data ?? []) {
+        const { data: productoDia } = await supabase
+          .from("producto_dia")
+          .select("linea, producto, formato_caja, kg, n_cajas, grupo_destino")
+          .eq("part_id", parte.id);
+        partesMap[parte.date] = { ...parte, producto_dia: productoDia ?? [] };
+      }
+
+      const asistenciaMap: Record<string, { date: string; presente: boolean | null; motivo_ausencia: string | null }[]> = {};
+      for (const r of asistenciaRes.data ?? []) {
+        if (!asistenciaMap[r.trabajador_id]) asistenciaMap[r.trabajador_id] = [];
+        asistenciaMap[r.trabajador_id].push({ date: r.date, presente: r.presente, motivo_ausencia: r.motivo_ausencia });
+      }
+
+      setSemanaData({
+        weekStart: weekStartDate,
+        weekEnd,
+        days: dates,
+        trabajadores: aplicarZonasOperativasTrabajadores(trabajadoresRes.data ?? []),
+        asistencia: asistenciaMap,
+        bajasLaborales: bajasRes.data ?? [],
+        partes: partesMap,
+      });
+    } catch (err) {
+      toast({ title: "Error", description: "Error inesperado al cargar datos semanales", variant: "destructive" });
+    }
+    setLoadingSemana(false);
+  }
+
+  function exportarSemanaExcel() {
+    if (!semanaData) {
+      toast({ title: "Sin datos", description: "No hay datos semanales para exportar.", variant: "destructive" });
+      return;
+    }
+    setExportingAsistencia("excel");
+    try {
+      const faltas = buildFaltasSemanalesFnc(semanaData, incluirSabado);
+      const kgP = calcularKgPersonaSemanal(semanaData, incluirSabado);
+      const grupos = calcularRendimientoGrupoSemanal(semanaData, incluirSabado);
+      const secciones = calcularKgSeccionSemanal(semanaData, incluirSabado);
+      const productos = productosClasificadosSemanales(semanaData, incluirSabado);
+      const weekLabel = getWeekLabel(semanaData.days);
+
+      const workbook = createWorkbook(`Lasarte SAT - Informe semanal ${weekLabel}`, "Resumen semanal de asistencia y rendimiento");
+      appendJsonSheet(workbook, "Resumen", [
+        { Campo: "Semana", Valor: weekLabel },
+        { Campo: "Dias laborables", Valor: incluirSabado ? "Lun a Sab" : "Lun a Vie" },
+        { Campo: "Dias con datos", Valor: kgP.diasConDatos },
+        { Campo: "Kg totales", Valor: Math.round(kgP.totalKg) },
+        { Campo: "Media personas/dia total", Valor: +kgP.mediaPersonasTotales.toFixed(1) },
+        { Campo: "Media personas/dia computables", Valor: +kgP.mediaPersonasComputables.toFixed(1) },
+        { Campo: "Kg/persona semanal", Valor: Math.round(kgP.kgPersona) },
+        { Campo: "Total ausencias", Valor: faltas.reduce((s: number, r: { totalFaltas: number }) => s + r.totalFaltas, 0) },
+        { Campo: "Total bajas laborales", Valor: faltas.reduce((s: number, r: { totalBajas: number }) => s + r.totalBajas, 0) },
+      ]);
+      appendJsonSheet(workbook, "Rendimiento zonas", grupos.map((g: { label: string; totalKg: number; totalPersonasDia: number; mediaPersonasDia: number; kgPersona: number; porcentajeKg: number }) => ({
+        Zona: normalizeAsistenciaExportZona(g.label),
+        "Kg totales": Math.round(g.totalKg),
+        "Personas-dia": g.totalPersonasDia,
+        "Media pers/dia": +g.mediaPersonasDia.toFixed(1),
+        "Kg/persona": Math.round(g.kgPersona),
+        "%": +g.porcentajeKg.toFixed(1),
+      })));
+      appendJsonSheet(workbook, "Kg por seccion", secciones.map((s: { zona: string; kg: number; computa: boolean }) => ({
+        Seccion: s.zona,
+        Kg: Math.round(s.kg),
+        Computa: s.computa ? "Si" : "No",
+      })));
+      appendJsonSheet(workbook, "Faltas semanales", faltas.map((r: { nombre: string; zona: string | null; totalFaltas: number; totalBajas: number; totalPresentes: number; totalSinRegistrar: number }) => ({
+        Trabajador: r.nombre,
+        Zona: normalizeAsistenciaExportZona(r.zona),
+        Faltas: r.totalFaltas,
+        "Bajas laborales": r.totalBajas,
+        Presentes: r.totalPresentes,
+        "Sin registrar": r.totalSinRegistrar,
+      })));
+      appendJsonSheet(workbook, "Productos clasificados", productos.map((p: { producto: string; empaque: string; kg: number; zona: string; computa: boolean }) => ({
+        Producto: p.producto,
+        Empaque: p.empaque,
+        Kg: Math.round(p.kg),
+        Zona: p.zona,
+        Computa: p.computa ? "Si" : "No",
+      })));
+      saveWorkbook(workbook, `informe_semanal_${weekStart}.xlsx`);
+      toast({ title: "Informe semanal descargado", description: weekLabel });
+    } catch (err) {
+      toast({ title: "Error al exportar", description: errorMessage(err), variant: "destructive" });
+    } finally {
+      setExportingAsistencia(null);
+    }
+  }
+
   useEffect(() => { loadTrabajadores(); loadEficiencia(); }, []);
   useEffect(() => { loadAsistencia(selectedDate); }, [selectedDate, user]);
   useEffect(() => { loadParteDelDia(selectedDate); }, [selectedDate]);
+  useEffect(() => {
+    if (viewMode === "weekly" && user) {
+      loadSemanaData(weekStart);
+    }
+  }, [viewMode, weekStart, user]);
   useEffect(() => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(ASISTENCIA_GROUPS_STORAGE_KEY, JSON.stringify(grupos));
@@ -1302,10 +1449,32 @@ export default function Asistencia() {
           <h1 className="page-title">Asistencia</h1>
           <p className="page-subtitle flex items-center gap-1.5">
             <CalendarIcon className="h-4 w-4" />
-            <span className="capitalize">{fechaDisplay}</span>
+            {viewMode === "daily" ? (
+              <span className="capitalize">{fechaDisplay}</span>
+            ) : (
+              <span className="font-semibold">{getWeekLabel(getWeekDates(weekStart))}</span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-0.5">
+            <Button
+              variant={viewMode === "daily" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("daily")}
+              className={cn("h-8 rounded-lg px-3 text-xs", viewMode !== "daily" && "text-muted-foreground")}
+            >
+              <CalendarDays className="h-3.5 w-3.5 mr-1" /> Diario
+            </Button>
+            <Button
+              variant={viewMode === "weekly" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("weekly")}
+              className={cn("h-8 rounded-lg px-3 text-xs", viewMode !== "weekly" && "text-muted-foreground")}
+            >
+              <CalendarDays className="h-3.5 w-3.5 mr-1" /> Semanal
+            </Button>
+          </div>
           <Button variant="outline" size="sm" onClick={() => navigate("/costes/asistencia/comparativa")} className="glass glass-hover">
             <BarChart3 className="h-4 w-4 mr-1" /> Comparativa
           </Button>
@@ -1322,10 +1491,19 @@ export default function Asistencia() {
                 <Users className="mr-2 h-4 w-4" />
                 Lista de trabajadores
               </DropdownMenuItem>
-              <DropdownMenuItem disabled={exportingAsistencia !== null} onSelect={exportarParteDiarioAsistencia}>
-                <FileText className="mr-2 h-4 w-4" />
-                Parte diario Excel
-              </DropdownMenuItem>
+              {viewMode === "daily" ? (
+                <>
+                  <DropdownMenuItem disabled={exportingAsistencia !== null} onSelect={exportarParteDiarioAsistencia}>
+                    <FileText className="mr-2 h-4 w-4" />
+                    Parte diario Excel
+                  </DropdownMenuItem>
+                </>
+              ) : (
+                <DropdownMenuItem disabled={exportingAsistencia !== null || !semanaData} onSelect={exportarSemanaExcel}>
+                  <FileText className="mr-2 h-4 w-4" />
+                  Informe semanal Excel
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem disabled={exportingAsistencia !== null} onSelect={() => exportarAsistencia("excel")}>
                 <FileText className="mr-2 h-4 w-4" />
                 Comparativa semanal Excel
@@ -1791,16 +1969,45 @@ export default function Asistencia() {
               </div>
             </DialogContent>
           </Dialog>
-          <Button variant="outline" size="sm" onClick={() => shiftDate(-1)} className="glass glass-hover">
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <AsistenciaDatePicker value={selectedDate} onChange={setSelectedDate} />
-          <Button variant="outline" size="sm" onClick={() => shiftDate(1)} className="glass glass-hover">
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+          {viewMode === "daily" ? (
+            <>
+              <Button variant="outline" size="sm" onClick={() => shiftDate(-1)} className="glass glass-hover">
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <AsistenciaDatePicker value={selectedDate} onChange={setSelectedDate} />
+              <Button variant="outline" size="sm" onClick={() => shiftDate(1)} className="glass glass-hover">
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" size="sm" onClick={() => setWeekStart(shiftWeek(weekStart, -1))} className="glass glass-hover">
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" className="glass glass-hover h-9 min-w-[200px] justify-start gap-2 rounded-xl border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] px-3 text-sm font-semibold">
+                <CalendarDays className="h-4 w-4 shrink-0 text-primary/75" />
+                <span>{getWeekLabel(getWeekDates(weekStart))}</span>
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setWeekStart(shiftWeek(weekStart, 1))} className="glass glass-hover">
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </>
+          )}
         </div>
       </header>
 
+      {viewMode === "weekly" ? (
+        <AsistenciaSemanalPanel
+          semana={semanaData}
+          loading={loadingSemana}
+          weekStart={weekStart}
+          onWeekChange={setWeekStart}
+          onExport={exportarSemanaExcel}
+          exporting={exportingAsistencia !== null}
+          incluirSabado={incluirSabado}
+          onToggleSabado={toggleIncluirSabado}
+        />
+      ) : (<>
       <Card className="glass-accented glass-accent-top overflow-hidden">
         <CardContent className="p-0">
           <div className="grid xl:grid-cols-[0.92fr_1.58fr]">
@@ -2273,7 +2480,8 @@ export default function Asistencia() {
           </Card>
         </div>
 
-      </div>
+      </div></>
+      )}
     </div>
   );
 }
