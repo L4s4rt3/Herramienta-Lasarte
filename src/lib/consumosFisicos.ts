@@ -59,11 +59,38 @@ export interface DailyWaterMeterReadingInput {
   drencherL?: number | null;
 }
 
+export interface WaterMeterTratamientoReadingInput {
+  fecha: string;
+  lecturaContadorM3: number | null | undefined;
+  lecturaAnteriorM3?: number | null;
+  fechaLecturaAnterior?: string | null;
+}
+
+export interface WaterMeterJabonReadingInput {
+  fecha: string;
+  lecturaContadorL: number | null | undefined;
+  lecturaAnteriorL?: number | null;
+  fechaLecturaAnterior?: string | null;
+}
+
+export type WaterMeterReference =
+  | "agua-contador-general"
+  | "agua-contador-tratamiento"
+  | "agua-contador-tratamiento-jabon";
+
+export function isWaterMeterReference(value: string | null | undefined): value is WaterMeterReference {
+  return value === "agua-contador-general"
+    || value === "agua-contador-tratamiento"
+    || value === "agua-contador-tratamiento-jabon";
+}
+
 export interface WaterMeterReading {
   id?: string;
   fecha: string;
-  lecturaM3: number;
+  lecturaM3: number | null;
+  lecturaL: number | null;
   consumoL: number;
+  referencia: WaterMeterReference;
 }
 
 export type DailyWaterMeterConsumo = Omit<ConsumoFisicoInput, "id" | "cantidad"> & { cantidad: number };
@@ -184,36 +211,105 @@ export function buildDailyWaterMeterConsumoFromReading(input: DailyWaterMeterRea
   };
 }
 
-export function parseWaterMeterReadingM3(input: Pick<ConsumoFisicoInput, "notas">): number | null {
-  const notes = input.notas ?? "";
-  const dailyReadingMatch = notes.match(/Lectura contador:\s*([0-9.,\s]+)/i);
-  const invoiceReadingMatch = notes.match(/Lecturas:\s*[0-9.,\s]+\s*->\s*([0-9.,\s]+)/i);
-  const readingText = dailyReadingMatch?.[1] ?? invoiceReadingMatch?.[1];
+export function buildTratamientoWaterMeterConsumoFromReading(input: WaterMeterTratamientoReadingInput): DailyWaterMeterConsumo {
+  const lecturaContadorM3 = finiteOrZero(input.lecturaContadorM3);
+  const lecturaAnteriorM3 = input.lecturaAnteriorM3 == null ? null : finiteOrZero(input.lecturaAnteriorM3);
+  const consumoM3 = lecturaAnteriorM3 == null ? 0 : Math.max(0, lecturaContadorM3 - lecturaAnteriorM3);
+  const consumoL = consumoM3 * 1000;
+  const previousNote = lecturaAnteriorM3 == null
+    ? "Lectura anterior: sin referencia."
+    : `Lectura anterior: ${lecturaAnteriorM3} m3${input.fechaLecturaAnterior ? ` (${input.fechaLecturaAnterior})` : ""}.`;
 
-  if (!readingText) {
-    return null;
+  return {
+    recurso: "agua",
+    fecha_inicio: input.fecha,
+    fecha_fin: input.fecha,
+    cantidad: consumoL,
+    unidad: "l",
+    fuente: "contador",
+    referencia: "agua-contador-tratamiento",
+    notas: `Lectura contador (m3): ${lecturaContadorM3} m3. ${previousNote} Consumo calculado: ${consumoL} L.`,
+  };
+}
+
+export function buildJabonWaterMeterConsumoFromReading(input: WaterMeterJabonReadingInput): DailyWaterMeterConsumo {
+  const lecturaContadorL = finiteOrZero(input.lecturaContadorL);
+  const lecturaAnteriorL = input.lecturaAnteriorL == null ? null : finiteOrZero(input.lecturaAnteriorL);
+  const consumoL = lecturaAnteriorL == null ? 0 : Math.max(0, lecturaContadorL - lecturaAnteriorL);
+  const previousNote = lecturaAnteriorL == null
+    ? "Lectura anterior: sin referencia."
+    : `Lectura anterior: ${lecturaAnteriorL} L${input.fechaLecturaAnterior ? ` (${input.fechaLecturaAnterior})` : ""}.`;
+
+  return {
+    recurso: "agua",
+    fecha_inicio: input.fecha,
+    fecha_fin: input.fecha,
+    cantidad: consumoL,
+    unidad: "l",
+    fuente: "contador",
+    referencia: "agua-contador-tratamiento-jabon",
+    notas: `Lectura contador (L): ${lecturaContadorL} L. ${previousNote} Consumo calculado: ${consumoL} L.`,
+  };
+}
+
+export function parseWaterMeterReading(consumo: Pick<ConsumoFisicoInput, "referencia" | "notas">): { lecturaM3: number | null; lecturaL: number | null } {
+  const notes = consumo.notas ?? "";
+  const matchM3 = notes.match(/Lectura contador(?: \(m3\))?:\s*([0-9.,\s]+)/i);
+  const matchL = notes.match(/Lectura contador \(L\):\s*([0-9.,\s]+)/i);
+  const invoiceMatch = notes.match(/Lecturas:\s*[0-9.,\s]+\s*->\s*([0-9.,\s]+)/i);
+  const ref = normalizeText(consumo.referencia ?? "");
+  const useLiters = ref === "agua-contador-tratamiento-jabon";
+
+  if (useLiters) {
+    const text = matchL?.[1] ?? matchM3?.[1] ?? invoiceMatch?.[1];
+    if (!text) {
+      return { lecturaM3: null, lecturaL: null };
+    }
+    const value = parseConsumoNumber(text);
+    return { lecturaM3: null, lecturaL: value > 0 ? value : null };
   }
 
-  const reading = parseConsumoNumber(readingText);
-  return reading > 0 ? reading : null;
+  const text = matchM3?.[1] ?? invoiceMatch?.[1];
+  if (!text) {
+    return { lecturaM3: null, lecturaL: null };
+  }
+  const value = parseConsumoNumber(text);
+  return { lecturaM3: value > 0 ? value : null, lecturaL: null };
+}
+
+export function parseWaterMeterReadingM3(input: Pick<ConsumoFisicoInput, "notas">): number | null {
+  const { lecturaM3 } = parseWaterMeterReading(input);
+  return lecturaM3;
 }
 
 export function findPreviousWaterMeterReading(
   consumos: ConsumoFisicoInput[],
   fecha: string,
+  referencia: WaterMeterReference = "agua-contador-general",
 ): WaterMeterReading | null {
   return consumos
-    .filter((consumo) => (
-      consumo.recurso === "agua"
-      && consumo.fecha_fin < fecha
-      && parseWaterMeterReadingM3(consumo) != null
-    ))
-    .map((consumo) => ({
-      id: consumo.id,
-      fecha: consumo.fecha_fin,
-      lecturaM3: parseWaterMeterReadingM3(consumo) ?? 0,
-      consumoL: normalizeConsumoCantidad(consumo).cantidadBase,
-    }))
+    .filter((consumo) => {
+      if (consumo.recurso !== "agua") return false;
+      if (consumo.fecha_fin >= fecha) return false;
+      const { lecturaM3, lecturaL } = parseWaterMeterReading(consumo);
+      if (lecturaM3 == null && lecturaL == null) return false;
+      if (consumo.referencia === referencia) return true;
+      // Las facturas de agua sin referencia de contador sirven como lectura
+      // inicial del siguiente registro manual del mismo contador.
+      if (consumo.fuente === "factura_detallada") return true;
+      return false;
+    })
+    .map((consumo) => {
+      const { lecturaM3, lecturaL } = parseWaterMeterReading(consumo);
+      return {
+        id: consumo.id,
+        fecha: consumo.fecha_fin,
+        lecturaM3,
+        lecturaL,
+        consumoL: normalizeConsumoCantidad(consumo).cantidadBase,
+        referencia,
+      };
+    })
     .sort((a, b) => b.fecha.localeCompare(a.fecha))[0] ?? null;
 }
 
@@ -356,7 +452,7 @@ function distributeWaterConsumptions(
   const result = periods.map(() => 0);
   const rangeStartMs = dateToUtcMs(input.rangeStart);
   const rangeEndMs = dateToUtcMs(input.rangeEnd);
-  const exactReadings = dailyGeneralWaterMeterReadings(input.consumos, rangeStartMs, rangeEndMs);
+  const exactReadings = dailyAllWaterMeterReadings(input.consumos, rangeStartMs, rangeEndMs);
   const exactReadingDates = new Set(exactReadings.keys());
 
   addDailyWaterReadingsToPeriods(result, periods, exactReadings);
@@ -366,7 +462,7 @@ function distributeWaterConsumptions(
       return;
     }
 
-    if (isDailyGeneralWaterMeterReading(consumo)) {
+    if (isDailyMeterReading(consumo)) {
       return;
     }
 
@@ -410,11 +506,11 @@ function distributeWaterConsumptions(
   return result;
 }
 
-function dailyGeneralWaterMeterReadings(consumos: ConsumoFisicoInput[], rangeStartMs: number, rangeEndMs: number): Map<number, number> {
+function dailyAllWaterMeterReadings(consumos: ConsumoFisicoInput[], rangeStartMs: number, rangeEndMs: number): Map<number, number> {
   const readings = new Map<number, number>();
 
   consumos.forEach((consumo) => {
-    if (!isDailyGeneralWaterMeterReading(consumo)) {
+    if (!isDailyMeterReading(consumo)) {
       return;
     }
 
@@ -430,7 +526,7 @@ function dailyGeneralWaterMeterReadings(consumos: ConsumoFisicoInput[], rangeSta
   return readings;
 }
 
-function isDailyGeneralWaterMeterReading(consumo: ConsumoFisicoInput): boolean {
+function isDailyMeterReading(consumo: ConsumoFisicoInput): boolean {
   return consumo.recurso === "agua"
     && consumo.fuente === "contador"
     && consumo.fecha_inicio === consumo.fecha_fin

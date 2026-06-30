@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronLeft, ChevronRight, CalendarDays, UserCheck, PackageCheck, FileText } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays, UserCheck, PackageCheck, FileText, UserX, ShieldOff, Scale } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   type SemanaDataRaw,
@@ -114,128 +114,102 @@ export default function AsistenciaSemanalPanel({
     <div className="space-y-6">
       <Card className="glass-accented glass-accent-top overflow-hidden">
         <CardContent className="p-0">
-          <div className="grid xl:grid-cols-[0.92fr_1.58fr]">
-            <div className="border-b border-[var(--glass-border)] p-5 xl:border-b-0 xl:border-r">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="panel-kicker">Asistencia semanal</p>
-                  <div className="mt-3 flex items-end gap-3">
-                    <p className="text-5xl font-semibold leading-none tabular-nums text-primary">{kgPersona.diasConDatos}</p>
-                    <div className="pb-1">
-                      <p className="text-lg font-semibold tabular-nums">{formatoEntero(kgPersona.totalKg)} kg</p>
-                      <p className="text-xs text-muted-foreground">en {kgPersona.diasConDatos} dias</p>
-                    </div>
-                  </div>
+          <div className="border-b border-[var(--glass-border)] p-5">
+            <div className="flex flex-wrap items-stretch divide-x divide-[var(--glass-border)] rounded-xl border border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] shadow-[var(--glass-shadow)]">
+              <div className="flex items-center gap-3 px-5 py-4">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/30 bg-primary/10 text-primary">
+                  <Scale className="h-5 w-5" />
                 </div>
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/10 text-primary shadow-[var(--glass-shadow)]">
-                  <CalendarDays className="h-6 w-6" />
+                <div className="min-w-0">
+                  <p className="panel-kicker">Kg/persona</p>
+                  <p className="text-2xl font-semibold leading-none tabular-nums text-primary">{formatoEntero(kgPersona.kgPersona)}</p>
                 </div>
               </div>
-              <div className="mt-4 grid grid-cols-4 gap-2 text-center">
-                <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2 py-2">
-                  <p className="text-lg font-semibold tabular-nums">{formatoDecimal(kgPersona.mediaPersonasTotales, 1)}</p>
-                  <p className="text-[11px] text-muted-foreground">media pers/dia</p>
+              <div className="flex items-center gap-3 px-5 py-4">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/10 text-primary">
+                  <PackageCheck className="h-5 w-5" />
                 </div>
-                <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2 py-2">
-                  <p className="text-lg font-semibold tabular-nums">{formatoEntero(totalFaltasSemana)}</p>
-                  <p className="text-[11px] text-muted-foreground">ausencias</p>
+                <div className="min-w-0">
+                  <p className="panel-kicker">Kg totales</p>
+                  <p className="text-2xl font-semibold leading-none tabular-nums">{formatoEntero(kgPersona.totalKg)}</p>
                 </div>
-                <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2 py-2">
-                  <p className="text-lg font-semibold tabular-nums">{formatoEntero(totalBajasSemana)}</p>
-                  <p className="text-[11px] text-muted-foreground">bajas laborales</p>
+              </div>
+              <div className="flex items-center gap-3 px-5 py-4">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-success/25 bg-success/10 text-success">
+                  <UserCheck className="h-4 w-4" />
                 </div>
-                <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2 py-2">
-                  <p className="text-lg font-semibold tabular-nums">{formatoDecimal(kgPersona.mediaPersonasComputables, 1)}</p>
-                  <p className="text-[11px] text-muted-foreground">media pers computables</p>
+                <div className="min-w-0">
+                  <p className="panel-kicker">Media pers/dia</p>
+                  <p className="text-xl font-semibold leading-none tabular-nums">{formatoDecimal(kgPersona.mediaPersonasTotales, 1)}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 px-5 py-4">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-destructive/25 bg-destructive/10 text-destructive">
+                  <UserX className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="panel-kicker">Ausencias</p>
+                  <p className="text-xl font-semibold leading-none tabular-nums">{formatoEntero(totalFaltasSemana)}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 px-5 py-4">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-300 bg-sky-100 text-sky-700">
+                  <ShieldOff className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="panel-kicker">Bajas laborales</p>
+                  <p className="text-xl font-semibold leading-none tabular-nums">{formatoEntero(totalBajasSemana)}</p>
                 </div>
               </div>
             </div>
-            <div className="space-y-5 p-5">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="panel-kicker">Rendimiento semanal</p>
-                  <p className="mt-1 text-sm text-muted-foreground">Kg totales, media por persona y lectura por zona.</p>
-                </div>
-                <Badge variant="secondary" className="w-fit rounded-full tabular-nums">
-                  {productos.length} productos clasificados
-                </Badge>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-xl border border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] p-4 shadow-[var(--glass-shadow)]">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="panel-kicker">Kg/persona semanal</p>
-                      <p className="text-xs text-muted-foreground">media de trabajadores computables</p>
+          </div>
+          <div className="space-y-3 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold">Kg/persona por zona (semanal)</p>
+              <Badge variant="secondary" className="rounded-full tabular-nums">
+                {productos.length} productos clasificados
+              </Badge>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+              {rendimientoGrupos.map((g) => (
+                <div key={g.label} className="flex flex-col rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{g.label}</p>
+                      <p className="text-xs text-muted-foreground">{formatoDecimal(g.mediaPersonasDia, 1)} pers/dia media</p>
                     </div>
-                    <UserCheck className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="mt-4 flex items-end justify-between gap-3">
-                    <p className="text-4xl font-semibold leading-none tabular-nums">{formatoEntero(kgPersona.kgPersona)}</p>
-                    <p className="pb-1 text-xs text-muted-foreground">{formatoDecimal(kgPersona.mediaPersonasComputables, 1)} media personas/dia</p>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="panel-kicker">Kg totales semana</p>
-                      <p className="text-xs text-muted-foreground">kg reales de los partes</p>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-semibold tabular-nums text-primary">{formatoEntero(g.totalKg)} kg</p>
+                      <p className="text-[11px] font-semibold tabular-nums text-muted-foreground">{formatoDecimal(g.porcentajeKg, 1)}%</p>
                     </div>
-                    <PackageCheck className="h-5 w-5 text-primary" />
                   </div>
-                  <div className="mt-4 flex items-end justify-between gap-3">
-                    <p className="text-4xl font-semibold leading-none tabular-nums">{formatoEntero(kgPersona.totalKg)}</p>
-                    <p className="pb-1 text-xs text-muted-foreground">total {kgPersona.diasConDatos} dias</p>
+                  <div className="mt-3">
+                    <p className="text-2xl font-semibold leading-none tabular-nums">{formatoEntero(g.kgPersona)}</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">kg/persona zona</p>
                   </div>
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold">Kg/persona por zona (semanal)</p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-                  {rendimientoGrupos.map((g) => (
-                    <div key={g.label} className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold">{g.label}</p>
-                          <p className="text-xs text-muted-foreground">{formatoDecimal(g.mediaPersonasDia, 1)} pers/dia media</p>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <p className="text-sm font-semibold tabular-nums text-primary">{formatoEntero(g.totalKg)} kg</p>
-                          <p className="text-[11px] font-semibold tabular-nums text-muted-foreground">{formatoDecimal(g.porcentajeKg, 1)}%</p>
-                        </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                    <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(5, (g.totalKg / maxKgGrupo) * 100)}%` }} />
+                  </div>
+                  {g.daily.some((d) => d.kg > 0 || d.personas > 0) && (
+                    <div className="mt-4 border-t border-[var(--glass-border)] pt-3">
+                      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Desglose diario</p>
+                      <div className="grid grid-cols-5 gap-2">
+                        {g.daily.map((d) => {
+                          const diaIdx = new Date(d.date + "T12:00:00").getDay();
+                          const diaLabel = DAY_ABBR[diaIdx === 0 ? 6 : diaIdx - 1] ?? d.date.slice(5);
+                          return (
+                            <div key={d.date} className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] px-1.5 py-2 text-center">
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{diaLabel}</p>
+                              <p className="mt-1 text-sm font-semibold tabular-nums">{formatoEntero(d.kg)}</p>
+                              <p className="text-[10px] text-muted-foreground tabular-nums">{d.personas} pers</p>
+                            </div>
+                          );
+                        })}
                       </div>
-                      <div className="mt-3">
-                        <p className="text-2xl font-semibold leading-none tabular-nums">{formatoEntero(g.kgPersona)}</p>
-                        <p className="mt-1 text-[11px] text-muted-foreground">kg/persona zona</p>
-                      </div>
-                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
-                        <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(5, (g.totalKg / maxKgGrupo) * 100)}%` }} />
-                      </div>
-                      {g.daily.some((d) => d.kg > 0 || d.personas > 0) && (
-                        <div className="mt-3 border-t border-[var(--glass-border)] pt-2">
-                          <p className="mb-1 text-[10px] font-semibold uppercase text-muted-foreground">Desglose diario</p>
-                          <div className="grid grid-cols-5 gap-1 text-[10px]">
-                            {g.daily.map((d) => {
-                              const diaIdx = new Date(d.date + "T12:00:00").getDay();
-                              const diaLabel = DAY_ABBR[diaIdx === 0 ? 6 : diaIdx - 1] ?? d.date.slice(5);
-                              return (
-                                <div key={d.date} className="text-center">
-                                  <p className="font-semibold text-muted-foreground">{diaLabel}</p>
-                                  <p className="tabular-nums">{formatoEntero(d.kg)}</p>
-                                  <p className="text-[9px] text-muted-foreground tabular-nums">{d.personas} pers</p>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
                     </div>
-                  ))}
+                  )}
                 </div>
-              </div>
+              ))}
             </div>
           </div>
         </CardContent>

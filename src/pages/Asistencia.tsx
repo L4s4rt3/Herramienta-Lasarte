@@ -595,7 +595,7 @@ export default function Asistencia() {
         { Campo: "Media personas/dia computables", Valor: +kgP.mediaPersonasComputables.toFixed(1) },
         { Campo: "Kg/persona semanal", Valor: Math.round(kgP.kgPersona) },
         { Campo: "Total ausencias", Valor: faltas.reduce((s: number, r: { totalFaltas: number }) => s + r.totalFaltas, 0) },
-        { Campo: "Total bajas laborales", Valor: faltas.reduce((s: number, r: { totalBajas: number }) => s + r.totalBajas, 0) },
+        { Campo: "Bajas laborales distintas", Valor: faltas.filter((r: { totalBajas: number }) => r.totalBajas > 0).length },
       ]);
       appendJsonSheet(workbook, "Rendimiento zonas", grupos.map((g: { label: string; totalKg: number; totalPersonasDia: number; mediaPersonasDia: number; kgPersona: number; porcentajeKg: number }) => ({
         Zona: normalizeAsistenciaExportZona(g.label),
@@ -614,9 +614,9 @@ export default function Asistencia() {
         Trabajador: r.nombre,
         Zona: normalizeAsistenciaExportZona(r.zona),
         Faltas: r.totalFaltas,
-        "Bajas laborales": r.totalBajas,
+        "Bajas laborales": r.totalBajas > 0 ? "Sí" : "No",
+        "Días de baja": r.totalBajas,
         Presentes: r.totalPresentes,
-        "Sin registrar": r.totalSinRegistrar,
       })));
       appendJsonSheet(workbook, "Productos clasificados", productos.map((p: { producto: string; empaque: string; kg: number; zona: string; computa: boolean }) => ({
         Producto: p.producto,
