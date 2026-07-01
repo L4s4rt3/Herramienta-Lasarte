@@ -215,7 +215,8 @@ export function usePartesDashboard(days = 30) {
   const since = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - days);
-    return d.toISOString().slice(0, 10);
+    // Componentes locales, no UTC (evita desfase de un día de madrugada en España).
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }, [days]);
 
   const recent = useMemo(

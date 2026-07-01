@@ -174,7 +174,7 @@ export function buildFaltasSemanales(
       totalFaltas: 0,
       totalBajas: 0,
       totalPresentes: 0,
-      totalSinRegistrar: diasLaborables.length,
+      totalSinRegistrar: 0,
     };
   }
 
@@ -233,7 +233,8 @@ export function calcularKgPersonaSemanal(semana: SemanaDataRaw, incluirSabado = 
     const dailyAsistencia = buildDailyAsistencia(semana, date);
     const parte = semana.partes[date];
     const kg = parte ? produccionRealParte(parte) || Number(parte.kg_produccion_calibrador) || 0 : 0;
-    if (kg > 0) {
+    const tieneProduccion = kg > 0;
+    if (tieneProduccion) {
       totalKg += kg;
       diasConDatos++;
     }
@@ -242,13 +243,15 @@ export function calcularKgPersonaSemanal(semana: SemanaDataRaw, incluirSabado = 
       if (!t.activo) continue;
       if (dailyAsistencia[t.id] === true) {
         totalPersonasPresentes++;
-        if (cuentaTrabajadorKgPersona(t)) totalPersonasComputables++;
+        // Para kg/persona solo se cuentan las personas de los días con producción,
+        // de modo que numerador (kg) y denominador (personas) cubran los mismos días.
+        if (tieneProduccion && cuentaTrabajadorKgPersona(t)) totalPersonasComputables++;
       }
     }
   }
 
   const totalWorkingDays = diasLaborables.length;
-  const mediaPersonas = totalWorkingDays > 0 ? totalPersonasComputables / totalWorkingDays : 0;
+  const mediaPersonas = diasConDatos > 0 ? totalPersonasComputables / diasConDatos : 0;
   const mediaTotales = totalWorkingDays > 0 ? totalPersonasPresentes / totalWorkingDays : 0;
   const kgPersona = mediaPersonas > 0 ? totalKg / mediaPersonas : 0;
 

@@ -275,7 +275,7 @@ export default function PartesList() {
                   Limpiar filtros
                 </Button>
               ) : (
-                <Button size="sm" className="mt-4 glass glass-hover" onClick={() => document.getElementById("newdate")?.focus()}>
+                <Button size="sm" className="mt-4 glass glass-hover" onClick={() => setPopoverOpen(true)}>
                   <Plus className="h-3.5 w-3.5 mr-1" />
                   Crear primer parte
                 </Button>

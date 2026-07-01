@@ -16,10 +16,11 @@ import {
 import { cn } from "@/lib/utils";
 
 const QUALITY_STYLE = {
+  Excelente: "border-emerald-600/35 bg-emerald-600/12 text-emerald-800 dark:text-emerald-200",
   Bueno: "border-emerald-500/30 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
   Regular: "border-amber-500/35 bg-amber-500/14 text-amber-700 dark:text-amber-300",
   Deficiente: "border-orange-500/35 bg-orange-500/14 text-orange-700 dark:text-orange-300",
-  Rechazado: "border-red-500/35 bg-red-500/12 text-red-700 dark:text-red-300",
+  Pésimo: "border-red-500/35 bg-red-500/12 text-red-700 dark:text-red-300",
 } as const;
 
 function errorMessage(error: unknown) {

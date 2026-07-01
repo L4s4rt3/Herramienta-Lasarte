@@ -62,11 +62,13 @@ export function reportToneColor(tone: ReportTone = "neutral") {
 export function buildReportCoverRows(meta: ReportMeta, kpis: ReportKpi[] = []) {
   const generatedAt = meta.generatedAt ?? new Date();
   const rows: (string | number | boolean | null)[][] = [
-    [""],
+    [REPORT_BRAND.name],
     [meta.title],
+    [meta.subtitle ?? REPORT_BRAND.tool],
+    [meta.periodLabel ?? ""],
+    [`Generado: ${formatReportDate(generatedAt)}`],
+    [],
     ["Indicador", "Valor", "Detalle"],
-    ["Periodo", meta.periodLabel ?? "", meta.subtitle ?? REPORT_BRAND.tool],
-    ["Generado", formatReportDate(generatedAt), REPORT_BRAND.name],
   ];
 
   for (const kpi of kpis) {

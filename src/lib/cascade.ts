@@ -4,7 +4,8 @@
  * Producción real = Calibrador − Mujeres(L) − Reciclado Z1 − Reciclado Z2
  * Palets ajustados = Palets brutos − Inventario sin alta de D-1
  * Diferencia bruta = Producción real − Palets ajustados − Inventario final sin alta (D)
- * Mermas totales = Podrido calibrador + Podrido manual (bolsa basura)
+ * Mermas totales = Podrido manual (bolsa basura)
+ *   (el podrido del calibrador es un dato informativo y NO entra en el DSJ)
  * DSJ = Diferencia bruta − Mermas totales
  * % DSJ = DSJ / Producción real
  *
@@ -95,6 +96,8 @@ export function computeCascade(input: CascadeInput): CascadeResult {
   const diferencia_bruta = produccion_real - palets_ajustados - inventario_final;
 
   const podrido_manual = n(input.kg_podrido_bolsa_basura);
+  // Dato informativo: el podrido del calibrador NO entra en el DSJ.
+  const podrido_calibrador = n(input.kg_podrido_calibrador);
   const mermas_totales = podrido_manual;
   const mermas_pct = produccion_real > 0 ? (mermas_totales / produccion_real) * 100 : 0;
 
@@ -143,7 +146,7 @@ export function computeCascade(input: CascadeInput): CascadeResult {
     palets_ajustados,
     inventario_final,
     diferencia_bruta,
-    podrido_calibrador: 0,
+    podrido_calibrador,
     podrido_manual,
     mermas_totales,
     mermas_pct,

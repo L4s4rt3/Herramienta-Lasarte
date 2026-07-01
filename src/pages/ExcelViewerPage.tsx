@@ -34,7 +34,8 @@ export default function ExcelViewerPage() {
 
       if (metaError || !fileMeta) throw new Error(metaError?.message ?? "Archivo no encontrado");
 
-      setFileName(fileMeta.file_name ?? "Archivo");
+      const resolvedName = fileMeta.file_name ?? "Archivo";
+      setFileName(resolvedName);
       setFileSize(fileMeta.file_size);
 
       if (!fileMeta.file_path) throw new Error("El archivo no tiene ruta de almacenamiento");
@@ -130,7 +131,7 @@ export default function ExcelViewerPage() {
       if (!isValidContent(parsed)) {
         const looksLikeZip = bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
         throw new Error(
-          `No se pudo leer "${fileName}"` +
+          `No se pudo leer "${resolvedName}"` +
           (looksLikeZip ? ". El archivo XLSX está corrupto. Ábrelo en Excel y guárdalo de nuevo." : ". No parece un Excel válido.")
         );
       }
@@ -141,7 +142,7 @@ export default function ExcelViewerPage() {
     } finally {
       setLoading(false);
     }
-  }, [fileId, fileName]);
+  }, [fileId]);
 
   useEffect(() => {
     loadFile();

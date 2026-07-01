@@ -32,7 +32,8 @@ function fmtT(kg: number) { return `${(kg / 1000).toFixed(1)} t`; }
 function sinceStr(days: number) {
   const d = new Date();
   d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10);
+  // Componentes locales, no UTC, para que "hoy" sea el día local del usuario.
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function shortText(value: unknown, max = 120) {
@@ -45,7 +46,7 @@ function currentSessionPrompt() {
   return [
     DOMAIN_PROMPT,
     TOOL_KNOWLEDGE_PROMPT,
-    `FECHA ACTUAL DE LA SESION: ${now.toLocaleDateString("es-ES")} (${now.toISOString().slice(0, 10)}). Zona horaria del usuario: Europe/Madrid.`,
+    `FECHA ACTUAL DE LA SESION: ${now.toLocaleDateString("es-ES")} (${sinceStr(0)}). Zona horaria del usuario: Europe/Madrid.`,
   ].join("\n\n");
 }
 

@@ -46,32 +46,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
   useEffect(() => {
+    let active = true;
+
+    const applyRole = async (userId: string) => {
+      const { data } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .maybeSingle();
+      // Evita escribir un rol obsoleto si el componente se desmontó o cambió el usuario.
+      if (active) dispatch({ type: "SET_ROLE", role: (data?.role as Role) ?? "operario" });
+    };
+
     const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
       dispatch({ type: "SET_AUTH", session: newSession, user: newSession?.user ?? null });
       if (newSession?.user) {
-        setTimeout(() => fetchRole(newSession.user!.id), 0);
+        // Diferido: Supabase desaconseja llamar a su cliente dentro del callback de auth.
+        setTimeout(() => { if (active) applyRole(newSession.user!.id); }, 0);
       } else {
         dispatch({ type: "SET_ROLE", role: null });
       }
-    });
-
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      dispatch({ type: "SET_AUTH", session: s, user: s?.user ?? null });
-      if (s?.user) fetchRole(s.user.id);
       dispatch({ type: "SET_LOADING", loading: false });
     });
 
-    return () => sub.subscription.unsubscribe();
-  }, []);
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      if (!active) return;
+      dispatch({ type: "SET_AUTH", session: s, user: s?.user ?? null });
+      if (s?.user) setTimeout(() => { if (active) applyRole(s.user!.id); }, 0);
+      dispatch({ type: "SET_LOADING", loading: false });
+    });
 
-  async function fetchRole(userId: string) {
-    const { data } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId)
-      .maybeSingle();
-    dispatch({ type: "SET_ROLE", role: (data?.role as Role) ?? "operario" });
-  }
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
 
   async function signOut() {
     await supabase.auth.signOut();

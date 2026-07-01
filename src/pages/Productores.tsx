@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KPICard } from "@/components/KPICard";
-import { formatKg } from "@/lib/format";
+import { formatKg, toISODateLocal } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Users, TrendingUp, Gauge, Search, Apple } from "lucide-react";
 import {
@@ -67,11 +67,11 @@ export default function Productores() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = toISODateLocal(new Date());
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
-    return d.toISOString().slice(0, 10);
+    return toISODateLocal(d);
   });
   const [dateTo, setDateTo] = useState(today);
 

@@ -62,10 +62,11 @@ describe("calidad helpers", () => {
       aerobotics: 1,
       fotos: 2,
       byQuality: {
+        Excelente: 0,
         Bueno: 1,
         Regular: 1,
         Deficiente: 0,
-        Rechazado: 0,
+        Pésimo: 0,
       },
     });
   });

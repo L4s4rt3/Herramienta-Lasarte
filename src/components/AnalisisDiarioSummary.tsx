@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, TrendingUp, Package, Users, RefreshCw } from "lucide-react";
 import { useAnalisisDiario } from "@/hooks/useAnalisisDiario";
 import { supabase } from "@/integrations/supabase/client";
-import { formatKg } from "@/lib/format";
+import { formatKg, today, toISODateLocal } from "@/lib/format";
 
 interface Props {
   days?: number; // Últimos N días (default 30)
@@ -24,10 +24,10 @@ export function AnalisisDiarioSummary({ days = 30 }: Props) {
   const [desde] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - days);
-    return d.toISOString().slice(0, 10);
+    return toISODateLocal(d);
   });
 
-  const [hasta] = useState(() => new Date().toISOString().slice(0, 10));
+  const [hasta] = useState(() => today());
 
   const { data, loading, refetch } = useAnalisisDiario(desde, hasta);
 
@@ -38,7 +38,7 @@ export function AnalisisDiarioSummary({ days = 30 }: Props) {
       .on(
         "postgres_changes",
         {
-          event: "UPDATE",
+          event: "*",
           schema: "public",
           table: "partes_diarios",
           filter: `date=gte.${desde}`,

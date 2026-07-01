@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { strFromU8, strToU8, unzipSync, Zip, ZipPassThrough } from "fflate";
+import { toast } from "@/hooks/use-toast";
 
 export const EXCEL_CELL_MAX = 32000;
 const LASARTE_LOGO_PATH = "/branding/lasarte-sat-logo.jpeg";
@@ -152,7 +153,16 @@ export function appendDictionarySheet(
 }
 
 export function saveWorkbook(wb: XLSX.WorkBook, filename: string) {
-  void saveWorkbookAsync(wb, filename);
+  // No es fire-and-forget silencioso: si la generación/descarga falla, se avisa al usuario
+  // en vez de dar por bueno el export.
+  void saveWorkbookAsync(wb, filename).catch((err) => {
+    console.error("Error al generar el Excel:", err);
+    toast({
+      title: "No se pudo generar el Excel",
+      description: "Revisa los datos e inténtalo de nuevo.",
+      variant: "destructive",
+    });
+  });
 }
 
 export async function saveWorkbookAsync(wb: XLSX.WorkBook, filename: string) {
@@ -270,7 +280,8 @@ function injectWorksheetDrawing(xml: string, sheetNumber: number) {
 }
 
 function styleWorksheetXml(xml: string) {
-  return xml.replace(/<c\b([^>]*)r="([A-Z]+)(\d+)"([^>]*)>/g, (match, before, col, rowText, after) => {
+  // El grupo (\/?) captura celdas auto-cerradas (<c r="E4"/>) para no corromper el XML.
+  return xml.replace(/<c\b([^>]*?)r="([A-Z]+)(\d+)"([^>]*?)(\/?)>/g, (match, before, col, rowText, after, selfClose) => {
     const row = Number(rowText);
     const attrs = `${before}r="${col}${rowText}"${after}`;
     const style = row === 2
@@ -280,7 +291,7 @@ function styleWorksheetXml(xml: string) {
         : row >= 4
           ? isNumericCell(attrs) ? TEMPLATE_STYLE.number : TEMPLATE_STYLE.text
           : 1;
-    return `<c${setXmlAttribute(attrs, "s", String(style))}>`;
+    return `<c${setXmlAttribute(attrs, "s", String(style))}${selfClose}>`;
   });
 }
 

@@ -74,7 +74,10 @@ export function formatNumber(
   if (value === null || value === undefined) return "";
   if (Number.isNaN(value)) return "";
   const suffix = options.isPercent ? "%" : "";
-  const rounded = Math.round(value * 1000) / 1000;
+  // El signo se deriva del valor original: parseInt("-0") pierde el negativo
+  // para valores entre -1 y 0 (p. ej. -0,5 salía como "0,5").
+  const sign = value < 0 ? "-" : "";
+  const rounded = Math.round(Math.abs(value) * 1000) / 1000;
   const fixed = rounded.toFixed(3);
   const trimmed = fixed
     .replace(/(\.\d*?)0+$/, "$1")
@@ -82,9 +85,9 @@ export function formatNumber(
   const [intPart, decPart] = trimmed.split(".");
   const intFormatted = formatThousands(parseInt(intPart, 10));
   if (decPart && decPart.length > 0) {
-    return `${intFormatted},${decPart}${suffix}`;
+    return `${sign}${intFormatted},${decPart}${suffix}`;
   }
-  return `${intFormatted}${suffix}`;
+  return `${sign}${intFormatted}${suffix}`;
 }
 
 function formatThousands(n: number): string {

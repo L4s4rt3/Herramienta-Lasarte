@@ -297,7 +297,7 @@ export function computeAnalisis(
     // Distribuir kg según pct_export y proporción mercado/industria del total
     const kg_exp = c.kg * (c.pct_export / 100);
     const resto = c.kg - kg_exp;
-    const ratio_ind = kg_total_calibres > 0 ? kg_industria / kg_calibrador : 0;
+    const ratio_ind = kg_calibrador > 0 ? kg_industria / kg_calibrador : 0;
     const kg_ind = Math.min(resto, resto * ratio_ind);
     const kg_mer = resto - kg_ind;
     return {

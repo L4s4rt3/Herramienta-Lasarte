@@ -167,7 +167,7 @@ registro de partes, análisis de diferencias de peso (DSJ), seguimiento por prod
    - Gráfica de evolución DJPMN con barras de producción y línea de % DSJ (30/90 días, vista diaria o semanal)
    - Distribución por destino de fruta: dona + leyenda con porcentajes
    - Comparativa de períodos contra semana, mes o año anterior
-   - Accesos rápidos: Nuevo parte, Análisis diario, Calendario, Consumos
+   - Accesos rápidos: Nuevo parte, Análisis diario, Consumos
 
 2. PARTES (/partes)
    - Lista completa de partes diarios con filtros (estado, fecha, solo críticos)
@@ -193,30 +193,20 @@ registro de partes, análisis de diferencias de peso (DSJ), seguimiento por prod
    - Alertas automáticas (DSJ alto, T/h baja, etc.)
    - Reporte ejecutivo exportable en Markdown
 
-5. CALCULADORA DJPMN (/dsj)
-   - Simulación manual de la cascada de producción sin guardar en BD
-   - Útil para validar datos antes de registrar un parte
-
-6. PRODUCTORES (/productores)
+5. PRODUCTORES (/productores)
    - Lista de productores activos con kg totales, nº lotes y T/h media
    - Filtro por rango de fechas
    - Detalle de cada productor: evolución T/h, producción diaria, tabla de lotes
    - Alertas si T/h < 12.5
 
-7. CALENDARIO (/calendario)
-   - Vista mensual: cada día muestra un punto de color (semáforo)
-   - Navegar entre meses
-   - Hacer clic en un día navega al parte de ese día
-   - Resumen mensual: días OK, a revisar, críticos
-
-8. CONSUMOS (/costes/consumos)
+6. CONSUMOS (/costes/consumos)
    - Registrar sesiones de consumo (fechas, kg procesados, agua línea/drencher, electricidad, gasoil, químicos)
    - Calcular kg automáticamente desde partes del período
    - KPIs de la última sesión vs anterior
    - Desglose por máquina (kWh/máquina)
    - Histórico y evolución de ratios (L/kg, kWh/kg, mL/kg)
 
-9. ASISTENCIA (/costes/asistencia)
+7. ASISTENCIA (/costes/asistencia)
    - Control de presencia por trabajador y día
    - KPIs: presentes, ausentes, bajas, total activos
    - Registro de asistencia por zonas de trabajo (Encargadas, Producción, Envasadoras, etc.)
@@ -229,7 +219,7 @@ CASCADA DE PRODUCCIÓN (cálculo del DSJ):
   Producción real     = Kg calibrador − Mujeres(L) − Reciclado Z1 − Reciclado Z2
   Palets ajustados    = Palets brutos − Inventario sin alta D-1
   Diferencia bruta    = Producción real − Palets ajustados − Inventario final del día
-  Mermas totales      = Podrido calibrador + Podrido manual (bolsa basura)
+  Mermas totales      = Podrido manual (bolsa basura)   (el podrido del calibrador es informativo, NO entra en el DSJ)
   DSJ                 = Diferencia bruta − Mermas totales
   DJPMN %             = DSJ / Producción real × 100
 
@@ -283,9 +273,7 @@ NAVEGACION PRINCIPAL
 - /partes: listado de partes diarios, filtros, creacion, eliminacion y exportacion.
 - /partes/:id: detalle del parte. Introduccion de cascada, importacion de informes Excel, archivos, notas y pestana de Calidad conectada por fecha.
 - /analisis/diario: analisis profundo de un parte con KPIs, lotes, producto empacado, calibres, palets y alertas.
-- /dsj: calculadora DJPMN para simular la cascada sin guardar.
 - /productores: rendimiento por productor/finca, kg, lotes y toneladas/hora.
-- /calendario: vista mensual de produccion con semaforo y acceso al parte del dia.
 - /costes/consumos: sesiones de consumos fisicos, ratios de agua, electricidad, gasoil, quimicos y maquinas.
 - /costes/asistencia: trabajadores, zonas, asistencia diaria, importacion diaria y semanal de Excel, limpieza de marcas, rendimiento kg/persona.
 - /costes/asistencia/comparativa: comparativa semanal de asistencia y kg/persona.
@@ -293,12 +281,12 @@ NAVEGACION PRINCIPAL
 
 CALIDAD
 - Calidad es un apartado independiente pero conectado con Partes por fecha. Ejemplo: el dia 3 se anotan lotes en Calidad; al crear el parte del dia 3 el dia 4, esas notas aparecen en la pestana Calidad del parte.
-- Estados de calidad: Bueno, Regular, Deficiente, Rechazado.
+- Estados de calidad: Excelente, Bueno, Regular, Deficiente, Pésimo.
 - Aerobotics es una herramienta externa usada para determinar calidad y calibre de las fincas; en la app se registra con un toggle.
 - Productor/Finca puede venir de productores guardados en Calidad o de historico de lotes_dia. Los nombres historicos se muestran como opciones, pero al guardar se convierten en productores reales para evitar ids internos en columnas UUID.
 - La hora se introduce rapido escribiendo 0600 y se normaliza a 06:00.
 - La exportacion de Calidad tiene plantilla propia: PDF con fichas por lote y Excel con Resumen, Lotes, Incidencias, Adjuntos y Diccionario.
-- Incidencias incluye lotes Regular, Deficiente, Rechazado o cualquier lote con defectos, observacion o accion recomendada.
+- Incidencias incluye lotes Regular, Deficiente, Pésimo o cualquier lote con defectos, observacion o accion recomendada.
 
 ASISTENCIA
 - Trabajadores se gestionan por nombre, zona, activo/inactivo.

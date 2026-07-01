@@ -175,7 +175,7 @@ export default function AsistenciaSemanalPanel({
                 <div key={g.label} className="flex flex-col rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{g.label}</p>
+                      <p className="truncate text-base font-semibold">{g.label}</p>
                       <p className="text-xs text-muted-foreground">{formatoDecimal(g.mediaPersonasDia, 1)} pers/dia media</p>
                     </div>
                     <div className="shrink-0 text-right">
@@ -193,7 +193,7 @@ export default function AsistenciaSemanalPanel({
                   {g.daily.some((d) => d.kg > 0 || d.personas > 0) && (
                     <div className="mt-4 border-t border-[var(--glass-border)] pt-3">
                       <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Desglose diario</p>
-                      <div className="grid grid-cols-5 gap-2">
+                      <div className={cn("grid gap-2", g.daily.length >= 6 ? "grid-cols-6" : "grid-cols-5")}>
                         {g.daily.map((d) => {
                           const diaIdx = new Date(d.date + "T12:00:00").getDay();
                           const diaLabel = DAY_ABBR[diaIdx === 0 ? 6 : diaIdx - 1] ?? d.date.slice(5);

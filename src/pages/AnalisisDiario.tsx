@@ -17,7 +17,7 @@ import { DailyListTable } from "@/components/DailyListTable";
 import { WeekSelector } from "@/components/WeekSelector";
 import { buildWeekRange } from "@/lib/analisisDiarioView";
 import type { Periodo } from "@/lib/analisisDiarioView";
-import { today } from "@/lib/format";
+import { today, toISODateLocal } from "@/lib/format";
 
 function formatKg(v: number): string {
   if (v >= 1000) return (v / 1000).toFixed(1) + " t";
@@ -38,7 +38,7 @@ function formatHoras(min: number): string {
 function daysAgo(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
+  return toISODateLocal(d);
 }
 
 function normalizeText(value: string | null | undefined): string {

@@ -13,13 +13,14 @@ import {
   Factory, TrendingDown, Package, StickyNote,
 } from "lucide-react";
 import { exportPartesToExcel, exportPartesToPDF, ParteRow } from "@/lib/exportPartes";
+import { toISODateLocal } from "@/lib/format";
 
 function daysAgo(n: number) {
   const d = new Date();
   d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
+  return toISODateLocal(d);
 }
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => toISODateLocal(new Date());
 
 interface Props {
   defaultFrom?: string;

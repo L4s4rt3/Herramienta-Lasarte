@@ -209,13 +209,22 @@ export function calcularRendimientoZonasAlmacen({
     let activos = 0;
     let presentes = 0;
     const usados = new Set(usedPresentes);
+    // Dedup de "activos": un trabajador que aparece en varios puestos cuenta una sola vez.
+    const usadosActivos = new Set<string>();
 
     for (const puesto of puestos) {
       if (puesto.personas?.length) {
         const candidatos = puesto.personas
           .map((persona) => trabajadoresPorNombre.get(normalizarClavePersona(persona)))
           .filter((trabajador): trabajador is NonNullable<typeof trabajador> => Boolean(trabajador));
-        activos += Math.min(puesto.trabajadores, candidatos.length);
+        let nuevosActivos = 0;
+        for (const candidato of candidatos) {
+          if (nuevosActivos >= puesto.trabajadores) break;
+          if (usadosActivos.has(candidato.id)) continue;
+          usadosActivos.add(candidato.id);
+          nuevosActivos += 1;
+        }
+        activos += nuevosActivos;
 
         let cubiertos = 0;
         for (const candidato of candidatos) {
@@ -234,7 +243,14 @@ export function calcularRendimientoZonasAlmacen({
         zonasConFallback.has(trabajador.zona) &&
         !usados.has(trabajador.id)
       );
-      activos += Math.min(puesto.trabajadores, candidatos.length);
+      let nuevosActivos = 0;
+      for (const candidato of candidatos) {
+        if (nuevosActivos >= puesto.trabajadores) break;
+        if (usadosActivos.has(candidato.id)) continue;
+        usadosActivos.add(candidato.id);
+        nuevosActivos += 1;
+      }
+      activos += nuevosActivos;
       const presentesPuesto = candidatos.filter(estaPresente).slice(0, puesto.trabajadores);
       for (const trabajador of presentesPuesto) usados.add(trabajador.id);
       presentes += presentesPuesto.length;

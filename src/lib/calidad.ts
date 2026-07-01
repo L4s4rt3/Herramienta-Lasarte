@@ -185,7 +185,7 @@ export function canValidateCalidadLote(lote: CalidadLote, photoCount: number): C
   if (photoCount < 1) {
     return { ok: false, reason: "Se requiere al menos 1 foto para validar el informe." };
   }
-  if (lote.defectos.includes("Otro") && !lote.defecto_otro.trim()) {
+  if ((lote.defectos ?? []).includes("Otro") && !(lote.defecto_otro ?? "").trim()) {
     return { ok: false, reason: "Seleccionaste Otro como defecto. Describe manualmente el defecto antes de validar." };
   }
   return { ok: true };
@@ -222,7 +222,7 @@ export function createCalidadDraftReport(lote: CalidadLote, photoCount: number, 
     lote.cantidad || "box pendiente",
     lote.hora ? `${lote.hora} h` : "hora pendiente",
   ].join(" - ");
-  const defects = lote.defectos.length > 0 ? ` Defectos marcados: ${lote.defectos.join(", ")}.` : "";
+  const defects = (lote.defectos ?? []).length > 0 ? ` Defectos marcados: ${(lote.defectos ?? []).join(", ")}.` : "";
   const photoText = photoCount === 1 ? "1 foto adjunta" : `${photoCount} fotos adjuntas`;
   const actionByQuality: Record<CalidadEstado, string> = {
     Excelente: "Mantener trazabilidad del lote y liberar si la inspeccion visual coincide con la calidad marcada.",
@@ -258,7 +258,7 @@ export function buildCalidadComentarioSugerido(current: CalidadLote, history: Ca
     current.cantidad || "box pendiente",
     current.hora ? `${current.hora} h` : "hora pendiente",
   ].join(" - ");
-  const defects = current.defectos.length > 0 ? ` Defectos marcados: ${current.defectos.join(", ")}.` : "";
+  const defects = (current.defectos ?? []).length > 0 ? ` Defectos marcados: ${(current.defectos ?? []).join(", ")}.` : "";
   const photoText = photoCount === 1 ? "1 foto adjunta" : `${photoCount} fotos adjuntas`;
   const historyText = similar.length > 0
     ? ` Historico similar: ${similar.map((lote) => `${lote.fecha} ${lote.calidad}`).join("; ")}.`
@@ -279,7 +279,9 @@ export function buildCalidadComentarioSugerido(current: CalidadLote, history: Ca
 export function calidadSummary(lotes: CalidadLote[], attachmentCounts: Record<string, number> = {}): CalidadSummary {
   const byQuality = Object.fromEntries(CALIDAD_OPTIONS.map((quality) => [quality, 0])) as Record<CalidadEstado, number>;
   for (const lote of lotes) {
-    byQuality[lote.calidad] += 1;
+    // Solo se cuentan estados conocidos; un valor heredado fuera de CALIDAD_OPTIONS
+    // dejaría el contador en NaN y contaminaría los porcentajes.
+    if (lote.calidad in byQuality) byQuality[lote.calidad] += 1;
   }
 
   return {
@@ -308,12 +310,12 @@ export function attachmentCountMap(adjuntos: CalidadAdjunto[]) {
     Hora: lote.hora ?? "",
     "Aerobotics realizado": lote.aerobotics_realizado ? "Si" : "No",
     Calidad: lote.calidad,
-    Defectos: lote.defectos.join(", "),
+    Defectos: (lote.defectos ?? []).join(", "),
     "Otro defecto": lote.defecto_otro,
     "Estado informe": lote.informe_estado,
     "Informe generado": lote.informe_generado,
     "IA calidad": lote.ia_calidad ?? "",
-    "IA defectos": lote.ia_defectos.join(", "),
+    "IA defectos": (lote.ia_defectos ?? []).join(", "),
     Observacion: lote.observacion,
     "Accion recomendada": lote.accion_recomendada,
     Validado: lote.validado_at ? `${lote.validado_at} por ${lote.validado_by ?? "-"}` : "",
@@ -324,7 +326,7 @@ export function attachmentCountMap(adjuntos: CalidadAdjunto[]) {
 
 export function buildCalidadIncidentRows(lotes: CalidadLote[], attachmentCounts: Record<string, number> = {}) {
   return lotes
-    .filter((lote) => (lote.calidad !== "Excelente" && lote.calidad !== "Bueno") || lote.defectos.length > 0 || lote.observacion.trim() || lote.accion_recomendada.trim())
+    .filter((lote) => (lote.calidad !== "Excelente" && lote.calidad !== "Bueno") || (lote.defectos?.length ?? 0) > 0 || (lote.observacion ?? "").trim() || (lote.accion_recomendada ?? "").trim())
     .map((lote) => ({
       Prioridad: lote.calidad === "Pésimo" ? "Alta" : lote.calidad === "Deficiente" ? "Media" : "Seguimiento",
       Fecha: formatCalidadDate(lote.fecha),
@@ -335,7 +337,7 @@ export function buildCalidadIncidentRows(lotes: CalidadLote[], attachmentCounts:
       Cantidad: lote.cantidad,
       Hora: lote.hora ?? "",
       Calidad: lote.calidad,
-      Defectos: lote.defectos.join(", "),
+      Defectos: (lote.defectos ?? []).join(", "),
       "Otro defecto": lote.defecto_otro,
       "Estado informe": lote.informe_estado,
       "Informe generado": lote.informe_generado,
@@ -529,14 +531,14 @@ function drawLoteCard(doc: jsPDF, lote: CalidadLote, index: number, photoCount: 
   doc.text(observations, x + 9, detailTop + 5);
   doc.text(action, x + 150, detailTop + 5);
 
-  if (lote.defectos.length > 0) {
+  if ((lote.defectos ?? []).length > 0) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(6.5);
     doc.setTextColor(...PDF_THEME.muted);
     doc.text("Defectos:", x + 9, y + cardHeight - 5);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...PDF_THEME.text);
-    doc.text(safePdf(lote.defectos.join(", ")), x + 23, y + cardHeight - 5);
+    doc.text(safePdf((lote.defectos ?? []).join(", ")), x + 23, y + cardHeight - 5);
   }
 
   return cardHeight;

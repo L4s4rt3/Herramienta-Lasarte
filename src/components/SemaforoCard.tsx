@@ -54,7 +54,7 @@ function SemaforoCard({
       <p className={cn("text-4xl font-semibold tabular-nums", colorClasses.count)}>{count}</p>
       <div className="space-y-1">
         <div className="h-1.5 w-full rounded-full bg-[var(--glass-bg-strong)] overflow-hidden">
-          <div className={cn("h-full rounded-full transition-all", colorClasses.bar)} style={{ width: `${pct}%` }} />
+          <div className={cn("h-full rounded-full transition-all", colorClasses.bar)} style={{ width: `${Math.min(pct, 100)}%` }} />
         </div>
         <p className="text-[10px] text-muted-foreground">{description}</p>
       </div>

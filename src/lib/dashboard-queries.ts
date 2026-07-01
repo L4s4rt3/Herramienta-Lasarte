@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { DailyProduction, ProduccionResumen } from "./types";
+import { today, toISODateLocal } from "./format";
 
 interface ProduccionPartesRow {
   date: string;
@@ -35,7 +36,7 @@ export function getWeekRange(weekOffset = 0): { from: string; to: string; label:
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
 
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const fmt = (d: Date) => toISODateLocal(d);
 
   // Número de semana ISO
   const jan4 = new Date(monday.getFullYear(), 0, 4);
@@ -122,12 +123,12 @@ export async function getProduccionSemanal(
  * Producción real total de hoy.
  */
 export async function getProduccionHoy(): Promise<ProduccionResumen> {
-  const today = new Date().toISOString().slice(0, 10);
+  const todayStr = today();
 
   const { data, error } = await supabase
     .from("partes_diarios")
     .select(PROD_SELECT)
-    .eq("date", today);
+    .eq("date", todayStr);
 
   if (error) {
     console.error("Error fetching producción hoy:", error);
@@ -147,7 +148,7 @@ export async function getAusentesHoy(): Promise<{
   presentes: number;
   plantilla: number;
 }> {
-  const today = new Date().toISOString().slice(0, 10);
+  const todayStr = today();
 
   const [trabajadores, asistencias] = await Promise.all([
     supabase
@@ -157,7 +158,7 @@ export async function getAusentesHoy(): Promise<{
     supabase
       .from("asistencia_detalle")
       .select("trabajador_id, presente")
-      .eq("date", today),
+      .eq("date", todayStr),
   ]);
 
   if (trabajadores.error) throw trabajadores.error;
@@ -193,12 +194,12 @@ export async function getRendimientoPorTrabajador(): Promise<number> {
 export async function getEstadoPartesHoy(): Promise<
   Array<{ user_id: string; estado: string; fecha: string }>
 > {
-  const today = new Date().toISOString().slice(0, 10);
+  const todayStr = today();
 
   const { data, error } = await supabase
     .from("partes_diarios")
     .select("user_id, estado, date")
-    .eq("date", today);
+    .eq("date", todayStr);
 
   if (error) {
     console.error("Error fetching estado partes:", error);

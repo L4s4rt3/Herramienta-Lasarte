@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { today, toISODateLocal } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -59,8 +60,8 @@ export default function AsistenciaComparativa() {
 
   async function loadData() {
     setLoading(true);
-    const until = new Date().toISOString().slice(0, 10);
-    const from = new Date(Date.now() - ASISTENCIA_COMPARATIVA_RANGE_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const until = today();
+    const from = toISODateLocal(new Date(Date.now() - ASISTENCIA_COMPARATIVA_RANGE_DAYS * 24 * 60 * 60 * 1000));
 
     const { data: attendance } = await supabase
       .from("asistencia_detalle")

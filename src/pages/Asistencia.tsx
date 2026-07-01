@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { today, toISODateLocal } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthProvider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -357,8 +358,8 @@ export default function Asistencia() {
   }
 
   async function loadSemanasExportables(): Promise<SemanaComparativaData[]> {
-    const until = new Date().toISOString().slice(0, 10);
-    const from = new Date(Date.now() - ASISTENCIA_COMPARATIVA_RANGE_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const until = today();
+    const from = toISODateLocal(new Date(Date.now() - ASISTENCIA_COMPARATIVA_RANGE_DAYS * 24 * 60 * 60 * 1000));
 
     const { data: attendance, error: attendanceError } = await supabase
       .from("asistencia_detalle")
@@ -1375,8 +1376,8 @@ export default function Asistencia() {
 
   async function loadEficiencia() {
     setLoadingEficiencia(true);
-    const until = new Date().toISOString().slice(0, 10);
-    const from = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const until = today();
+    const from = toISODateLocal(new Date(Date.now() - 60 * 24 * 60 * 60 * 1000));
 
     const { data: attendance } = await supabase
       .from("asistencia_detalle")

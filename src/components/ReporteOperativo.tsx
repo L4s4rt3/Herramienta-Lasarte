@@ -269,7 +269,8 @@ export function ReporteOperativo({ analisis, fechaParte }: Props) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    const fecha = fechaParte ?? new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const fecha = fechaParte ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     a.download = `reporte-operativo-${fecha}.md`;
     document.body.appendChild(a);
     a.click();

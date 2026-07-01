@@ -5,9 +5,6 @@
 
 import { supabase } from '@/integrations/supabase/client';
 
-const OPENCODE_API_KEY = 'sk-bAST0NfOL76AkI6WRLHRlgRLjQZ4QUMI2kerlYtXzsKDwYTJP4uvDwg56JUR8Hxo';
-const OPENCODE_API_URL = 'https://opencode.ai/zen/v1';
-
 export interface CodeChunk {
   id: string;
   file_path: string;
@@ -31,28 +28,24 @@ export interface KnowledgeChunk {
 }
 
 /**
- * Genera embeddings usando la API de OpenCode
+ * Genera embeddings vía la Edge Function `embeddings`, que guarda la clave de
+ * OpenCode en el servidor. Así la clave nunca viaja al navegador.
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
-  const response = await fetch(`${OPENCODE_API_URL}/embeddings`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENCODE_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: 'text-embedding-3-small',
-      input: text,
-    }),
+  const { data, error } = await supabase.functions.invoke('embeddings', {
+    body: { text },
   });
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Error generando embedding: ${error}`);
+  if (error) {
+    throw new Error(`Error generando embedding: ${error.message}`);
   }
 
-  const data = await response.json();
-  return data.data[0].embedding;
+  const embedding = (data as { embedding?: number[] } | null)?.embedding;
+  if (!Array.isArray(embedding)) {
+    throw new Error('Error generando embedding: respuesta sin embedding');
+  }
+
+  return embedding;
 }
 
 /**

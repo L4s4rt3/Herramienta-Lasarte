@@ -79,7 +79,8 @@ const GRUPO_COLORS: Record<string, string> = {
 const WEEKS_IN_PANEL = 6;
 
 function toIsoDate(date: Date) {
-  return date.toISOString().slice(0, 10);
+  // Componentes locales, no UTC (en España toISOString adelantaría el día de madrugada).
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function addDays(date: Date, days: number) {

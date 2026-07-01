@@ -60,16 +60,21 @@ const App = () => (
                     <Route path="/calidad" element={<CalidadJornada />} />
                     <Route path="/partes" element={<PartesList />} />
                     <Route path="/partes/:id" element={<PartDetail />} />
-                    <Route path="/dsj" element={<Navigate to="/" replace />} />
                     <Route path="/costes/consumos" element={<ConsumoCostes />} />
                     <Route path="/costes/asistencia" element={<Asistencia />} />
                     <Route path="/costes/asistencia/comparativa" element={<AsistenciaComparativa />} />
                     <Route path="/productores" element={<Productores />} />
                     <Route path="/analisis/diario" element={<AnalisisDiario />} />
                     <Route path="/ventas/categoria-segunda" element={<VentasCategoriaSegunda />} />
-                    <Route path="/calendario" element={<Navigate to="/" replace />} />
                   </Route>
-                  <Route path="/ver-excel/:fileId" element={<ExcelViewerPage />} />
+                  <Route
+                    path="/ver-excel/:fileId"
+                    element={
+                      <ProtectedRoute>
+                        <ExcelViewerPage />
+                      </ProtectedRoute>
+                    }
+                  />
                   <Route path="/index" element={<Navigate to="/" replace />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
