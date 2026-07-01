@@ -7,11 +7,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KPICard } from "@/components/KPICard";
 import { formatKg, toISODateLocal } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Users, TrendingUp, Gauge, Search, Apple } from "lucide-react";
+import { Users, TrendingUp, Gauge, Search, Apple, ArrowLeft } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, AreaChart, Area,
@@ -208,26 +209,30 @@ export default function Productores() {
             Análisis de rendimiento · velocidad (T/h), kg procesados, peso fruta — filtrado por fecha del parte
           </p>
         </div>
-        <div className="flex items-center gap-2 rounded-xl glass border border-[var(--glass-border)] px-3 py-2 shadow-[var(--glass-shadow)]">
-          <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Desde</label>
-          <Input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="w-34 h-8 text-xs glass glass-hover"
-          />
-          <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Hasta</label>
-          <Input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="w-34 h-8 text-xs glass glass-hover"
-          />
+        <div className="flex flex-col gap-2 rounded-xl glass border border-[var(--glass-border)] px-3 py-2 shadow-[var(--glass-shadow)] sm:flex-row sm:items-center">
+          <div className="flex items-center gap-2">
+            <label className="w-12 shrink-0 text-xs font-medium text-muted-foreground sm:w-auto">Desde</label>
+            <Input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="h-8 w-full text-xs glass glass-hover sm:w-36"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="w-12 shrink-0 text-xs font-medium text-muted-foreground sm:w-auto">Hasta</label>
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="h-8 w-full text-xs glass glass-hover sm:w-36"
+            />
+          </div>
         </div>
       </header>
 
       {/* KPIs */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {loading ? (
           Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28" />)
         ) : (
@@ -252,7 +257,7 @@ export default function Productores() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Lista productores */}
-        <div className="lg:col-span-1 space-y-3">
+        <div className={cn("space-y-3 lg:col-span-1", selectedStats && "hidden lg:block")}>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
@@ -335,7 +340,7 @@ export default function Productores() {
         </div>
 
         {/* Detalle del productor seleccionado */}
-        <div className="lg:col-span-2 space-y-4">
+        <div className={cn("space-y-4 lg:col-span-2", !selectedStats && "hidden lg:block")}>
           {!selectedStats ? (
             <Card className="glass-accented">
               <CardContent className="py-16 text-center text-sm text-muted-foreground space-y-2">
@@ -348,28 +353,31 @@ export default function Productores() {
             </Card>
           ) : (
             <>
+              <Button variant="ghost" size="sm" className="lg:hidden" onClick={() => setSelected(null)}>
+                <ArrowLeft className="h-4 w-4" /> Volver a la lista
+              </Button>
               <Card className="glass-accented">
                 <CardContent className="p-5 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
+                    <p className="panel-kicker mb-1">
                       Kg totales
                     </p>
                     <p className="text-xl font-bold tabular-nums">{formatKg(selectedStats.kg_total)}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
+                    <p className="panel-kicker mb-1">
                       Nº lotes
                     </p>
                     <p className="text-xl font-bold tabular-nums">{selectedStats.n_lotes}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
+                    <p className="panel-kicker mb-1">
                       T/h medio
                     </p>
                     <TphBadge tph={selectedStats.tph_promedio} />
                   </div>
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
+                    <p className="panel-kicker mb-1">
                       Peso fruta prom.
                     </p>
                     <p className="text-xl font-bold tabular-nums">
@@ -444,15 +452,16 @@ export default function Productores() {
               {/* Tabla lotes */}
               <Card className="glass">
                 <CardContent className="p-0">
+                  <div className="overflow-x-auto">
                   <table className="w-full text-sm data-table">
                     <thead>
                       <tr>
                         <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:px-4">Fecha</th>
                         <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:px-4">Lote</th>
-                        <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:px-4">Producto</th>
+                        <th className="hidden px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:table-cell sm:px-4">Producto</th>
                         <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:px-4">Kg</th>
                         <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:px-4">T/h</th>
-                        <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:px-4">Peso fruta</th>
+                        <th className="hidden px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:table-cell sm:px-4">Peso fruta</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -462,18 +471,19 @@ export default function Productores() {
                           <tr key={l.id}>
                             <td className="text-xs text-muted-foreground">{l.parte_date ?? "—"}</td>
                             <td className="text-xs font-mono">{l.lote_codigo ?? "—"}</td>
-                            <td className="text-xs">{l.producto ?? "—"}</td>
+                            <td className="hidden text-xs sm:table-cell">{l.producto ?? "—"}</td>
                             <td className="text-right tabular-nums text-sm font-medium">{formatKg(l.kg_peso_total)}</td>
                             <td className="text-right">
                               <TphBadge tph={l.toneladas_hora ?? null} />
                             </td>
-                            <td className="text-right tabular-nums text-xs text-muted-foreground">
+                            <td className="hidden text-right tabular-nums text-xs text-muted-foreground sm:table-cell">
                               {l.peso_fruta_promedio_g ? `${l.peso_fruta_promedio_g.toFixed(0)} g` : "—"}
                             </td>
                           </tr>
                         ))}
                     </tbody>
                   </table>
+                  </div>
                 </CardContent>
               </Card>
             </>
