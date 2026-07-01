@@ -1,43 +1,81 @@
 import { Link } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { LucideIcon, TrendingUp, TrendingDown } from "lucide-react";
+import { LucideIcon, TrendingUp, TrendingDown, Minus } from "lucide-react";
+
+type Trend = "up" | "down" | "neutral";
+type Accent = "primary" | "success" | "warning" | "destructive";
 
 interface KPICardProps {
   label: string;
   value: string;
   hint?: string;
   icon?: LucideIcon;
-  trend?: "up" | "down" | "neutral";
+  trend?: Trend;
+  /** Chip de variación (p. ej. "+3,2%"). Si se pasa, se muestra como píldora coloreada. */
+  delta?: string;
+  deltaTrend?: Trend;
+  /** Color del acento superior y del icono (por defecto primary). */
+  accent?: Accent;
   className?: string;
   to?: string;
 }
 
-export function KPICard({ label, value, hint, icon: Icon, trend, className, to }: KPICardProps) {
-  const trendColor = {
-    up: "text-success",
-    down: "text-destructive",
-    neutral: "text-muted-foreground",
-  }[trend || "neutral"];
+const TREND_COLOR: Record<Trend, string> = {
+  up: "text-success",
+  down: "text-destructive",
+  neutral: "text-muted-foreground",
+};
 
+const ACCENT_BAR: Record<Accent, string> = {
+  primary: "bg-gradient-to-r from-primary via-primary-glow to-transparent",
+  success: "bg-gradient-to-r from-success to-transparent",
+  warning: "bg-gradient-to-r from-warning to-transparent",
+  destructive: "bg-gradient-to-r from-destructive to-transparent",
+};
+
+const ACCENT_ICON: Record<Accent, string> = {
+  primary: "text-primary",
+  success: "text-success",
+  warning: "text-warning",
+  destructive: "text-destructive",
+};
+
+const DELTA_CHIP: Record<Trend, string> = {
+  up: "bg-success/12 text-success",
+  down: "bg-destructive/12 text-destructive",
+  neutral: "bg-muted/50 text-muted-foreground",
+};
+
+export function KPICard({ label, value, hint, icon: Icon, trend, delta, deltaTrend, accent = "primary", className, to }: KPICardProps) {
   const TrendIcon = trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : null;
+  const dt = deltaTrend || "neutral";
+  const DeltaIcon = dt === "up" ? TrendingUp : dt === "down" ? TrendingDown : Minus;
 
   const content = (
     <CardContent className="relative p-4 sm:p-5">
-      <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary via-primary-glow to-transparent" />
+      <div className={cn("absolute inset-x-0 top-0 h-0.5", ACCENT_BAR[accent])} />
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{label}</p>
+          <p className="panel-kicker">{label}</p>
           <p className="mt-2 break-words text-2xl font-semibold tabular-nums leading-tight sm:text-3xl">{value}</p>
-          {hint && (
-            <div className={cn("mt-2 flex min-w-0 items-start gap-1 text-xs font-semibold", trendColor)}>
+          {delta ? (
+            <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums", DELTA_CHIP[dt])}>
+                <DeltaIcon className="h-3 w-3" />
+                {delta}
+              </span>
+              {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+            </div>
+          ) : hint ? (
+            <div className={cn("mt-2 flex min-w-0 items-start gap-1 text-xs font-semibold", TREND_COLOR[trend || "neutral"])}>
               {TrendIcon && <TrendIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
               <span className="min-w-0 break-words leading-snug">{hint}</span>
             </div>
-          )}
+          ) : null}
         </div>
         {Icon && (
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl glass-strong text-primary sm:h-11 sm:w-11">
+          <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl glass-strong sm:h-11 sm:w-11", ACCENT_ICON[accent])}>
             <Icon className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
           </div>
         )}
@@ -51,9 +89,5 @@ export function KPICard({ label, value, hint, icon: Icon, trend, className, to }
     </Card>
   );
 
-  if (to) {
-    return <Link to={to}>{card}</Link>;
-  }
-
-  return card;
+  return to ? <Link to={to}>{card}</Link> : card;
 }

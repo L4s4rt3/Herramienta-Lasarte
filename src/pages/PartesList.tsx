@@ -14,15 +14,17 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { StatusBadge } from "@/components/StatusBadge";
+import { SemaforoPill } from "@/components/SemaforoPill";
 import { ExportPartesDialog } from "@/components/ExportPartesDialog";
 import { useI18n } from "@/lib/i18n";
 import { formatDate, formatKg, today } from "@/lib/format";
+import { getSemaforo } from "@/lib/semaforo";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "@/hooks/use-toast";
 import {
   Plus, Trash2, ChevronUp, ChevronDown, ChevronsUpDown,
-  Search, X, CalendarIcon, BarChart3, AlertTriangle, Factory,
+  Search, X, CalendarIcon, AlertTriangle, Factory,
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -58,20 +60,35 @@ function ColHead({ label, sk, right, sortKey, sortDir, onToggle }: { label: stri
 }
 
 function DSJBar({ pct }: { pct: number }) {
-  const abs = Math.abs(pct);
-  const color = abs <= 3 ? "bg-success" : abs <= 5 ? "bg-warning" : "bg-destructive";
-  const width = Math.min((abs / 5) * 100, 100);
+  const sem = getSemaforo(pct);
+  const width = Math.min((Math.abs(pct) / 5) * 100, 100);
   return (
     <div className="flex items-center gap-2 min-w-[110px]">
       <div className="w-14 h-1.5 shrink-0 overflow-hidden rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
-        <div className={cn("h-full rounded-full", color)} style={{ width: `${width}%` }} />
+        <div className={cn("h-full rounded-full", sem.bar)} style={{ width: `${width}%` }} />
       </div>
-      <span className={cn(
-        "text-xs tabular-nums font-medium",
-        abs <= 3 ? "text-success" : abs <= 5 ? "text-warning" : "text-destructive"
-      )}>
+      <span className={cn("text-xs tabular-nums font-medium", sem.text)}>
         {pct >= 0 ? "+" : ""}{pct.toFixed(2)}%
       </span>
+    </div>
+  );
+}
+
+function StatBox({ label, value, sub, valueClass, muted }: { label: string; value: string; sub?: string; valueClass?: string; muted?: boolean }) {
+  return (
+    <div className="glass rounded-xl p-3">
+      <div className="panel-kicker mb-1">{label}</div>
+      <div className={cn("text-lg font-semibold tabular-nums", muted && "text-muted-foreground", valueClass)}>{value}</div>
+      {sub && <div className={cn("text-xs font-medium", valueClass)}>{sub}</div>}
+    </div>
+  );
+}
+
+function MobileField({ label, value, valueClass, muted }: { label: string; value: string; valueClass?: string; muted?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className={cn("text-sm font-medium tabular-nums", muted && "text-muted-foreground", valueClass)}>{value}</span>
     </div>
   );
 }
@@ -136,25 +153,45 @@ export default function PartesList() {
     refetch();
   }
 
-  const dsjAbs = Math.abs(totals.dsj_pct);
+  const totalsSem = getSemaforo(totals.dsj_pct);
   const hasFilter = filter.search || filter.estado !== "todos" || filter.soloAlertas;
+
+  const deleteDialog = (p: (typeof sorted)[number]) => (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button variant="ghost" size="icon"
+          className="h-7 w-7 text-muted-foreground hover:text-destructive">
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Eliminar parte?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Se eliminará el parte del {formatDate(p.date)}. Esta acción no se puede deshacer.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+          <AlertDialogAction onClick={() => deleteParte(p.id)}>{t("delete")}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
 
   return (
     <div className="page-shell">
 
       {/* Header */}
       <header className="page-header">
-        <div>
-          <h1 className="page-title">{t("partes")}</h1>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <h1 className="page-title">{t("partes")}</h1>
+            {!loading && partes.length > 0 && <SemaforoPill dsjPct={totals.dsj_pct} />}
+          </div>
           <p className="page-subtitle">
             Reconciliación diaria de masa
             {!loading && <> · <span className="font-medium text-foreground">{allPartes.length}</span> partes</>}
-            {!loading && partes.length > 0 && (
-              <> · DJPMN global: <span className={cn(
-                "font-semibold",
-                dsjAbs <= 3 ? "text-success" : dsjAbs <= 5 ? "text-warning" : "text-destructive"
-              )}>{totals.dsj_pct >= 0 ? "+" : ""}{totals.dsj_pct.toFixed(2)}%</span></>
-            )}
           </p>
         </div>
         <ExportPartesDialog />
@@ -209,13 +246,13 @@ export default function PartesList() {
             placeholder="Buscar fecha…"
             value={filter.search}
             onChange={(e) => setFilter((f) => ({ ...f, search: e.target.value }))}
-            className="pl-8 w-44 h-9"
+            className="pl-8 w-full sm:w-44 h-9"
           />
         </div>
 
         {/* Estado */}
         <Select value={filter.estado} onValueChange={(v) => setFilter((f) => ({ ...f, estado: v as EstadoFiltro }))}>
-          <SelectTrigger className="w-44 h-9">
+          <SelectTrigger className="w-full sm:w-44 h-9">
             <SelectValue placeholder="Estado" />
           </SelectTrigger>
           <SelectContent>
@@ -242,20 +279,20 @@ export default function PartesList() {
         )}
       </div>
 
-      {/* Tabla */}
+      {/* Tabla / tarjetas */}
       <Card className="glass-accented overflow-hidden">
-        <CardHeader className="py-3 px-4 border-b flex-row items-center justify-between space-y-0">
-          <div className="flex items-center gap-2">
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+        <CardHeader className="border-b px-4 py-3">
+          <div className="flex items-center gap-3">
+            <div className="h-6 w-1 shrink-0 rounded-full bg-primary" />
             <CardTitle className="text-sm font-semibold">
               {loading ? "Cargando…" : hasFilter
                 ? `${partes.length} de ${allPartes.length} partes`
                 : `${partes.length} parte${partes.length !== 1 ? "s" : ""}`}
             </CardTitle>
+            {!loading && partes.length > 0 && (
+              <p className="ml-auto hidden text-xs text-muted-foreground sm:block">Haz clic en una fila para ver el detalle</p>
+            )}
           </div>
-          {!loading && partes.length > 0 && (
-            <p className="text-xs text-muted-foreground">Haz clic en una fila para ver el detalle</p>
-          )}
         </CardHeader>
 
         <CardContent className="p-0">
@@ -284,124 +321,108 @@ export default function PartesList() {
           ) : (
             <>
               {sorted.length > 1 && (
-                <div className="border-b border-[var(--glass-border)] bg-[var(--glass-bg)] px-4 py-4 backdrop-blur-sm">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                    Total ({sorted.length} partes)
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-                    <div className="glass p-3 rounded-xl">
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Producción Real</div>
-                      <div className="text-lg font-bold tabular-nums">{formatKg(totals.produccion_real)}</div>
-                    </div>
-                    <div className="glass p-3 rounded-xl">
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Palets Ajustados</div>
-                      <div className="text-lg font-semibold tabular-nums text-muted-foreground">{formatKg(totals.palets_ajustados)}</div>
-                    </div>
-                    <div className="glass p-3 rounded-xl">
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">DJPMN</div>
-                      <div className={cn("text-lg font-bold tabular-nums",
-                        dsjAbs <= 3 ? "text-success" : dsjAbs <= 5 ? "text-warning" : "text-destructive"
-                      )}>
-                        {formatKg(totals.dsj)}
-                      </div>
-                      <div className={cn("text-xs font-medium",
-                        dsjAbs <= 3 ? "text-success" : dsjAbs <= 5 ? "text-warning" : "text-destructive"
-                      )}>
-                        {totals.dsj_pct >= 0 ? "+" : ""}{totals.dsj_pct.toFixed(2)}%
-                      </div>
-                    </div>
-                    <div className="glass p-3 rounded-xl">
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Mermas</div>
-                      <div className="text-lg font-semibold tabular-nums text-muted-foreground">{formatKg(totals.mermas_totales)}</div>
-                    </div>
-                    <div className="glass p-3 rounded-xl">
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Semáforo</div>
-                      <div className="flex items-center gap-2">
-                        <div className="h-1.5 w-8 overflow-hidden rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
-                          <div className={cn(
-                            "h-full rounded-full",
-                            dsjAbs <= 3 ? "bg-success" : dsjAbs <= 5 ? "bg-warning" : "bg-destructive"
-                          )} style={{ width: `${Math.min((dsjAbs / 5) * 100, 100)}%` }} />
-                        </div>
-                        <span className={cn("text-xs font-bold",
-                          dsjAbs <= 3 ? "text-success" : dsjAbs <= 5 ? "text-warning" : "text-destructive"
-                        )}>
-                          {dsjAbs <= 3 ? "OK" : dsjAbs <= 5 ? "!" : "X"}
-                        </span>
-                      </div>
-                    </div>
+                <div className="border-b border-[var(--glass-border)] bg-[var(--glass-bg)] px-4 py-4">
+                  <div className="panel-kicker mb-2">Total · {sorted.length} partes</div>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <StatBox label="Producción real" value={formatKg(totals.produccion_real)} />
+                    <StatBox label="Palets ajustados" value={formatKg(totals.palets_ajustados)} muted />
+                    <StatBox
+                      label="DJPMN"
+                      value={formatKg(totals.dsj)}
+                      sub={`${totals.dsj_pct >= 0 ? "+" : ""}${totals.dsj_pct.toFixed(2)}%`}
+                      valueClass={totalsSem.text}
+                    />
+                    <StatBox label="Mermas" value={formatKg(totals.mermas_totales)} muted />
                   </div>
                 </div>
               )}
-              <div className="overflow-x-auto">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <ColHead label="Fecha"         sk="date"         sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
-                        <ColHead label="Estado"        sk="estado"       sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
-                        <ColHead label="Prod. real"    sk="produccion"   sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
-                        <ColHead label="Palets ajust." sk="palets"       sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
-                        <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-left">% DJPMN</th>
-                        <ColHead label="DJPMN (kg)"   sk="dsj_pct"      sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
-                        <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-right whitespace-nowrap">Mermas</th>
-                        <th className="w-10" />
-                      </tr>
-                    </thead>
 
-                    <tbody>
-                      {sorted.map((p) => {
-                        const abs = Math.abs(p.cascade.dsj_pct);
-                        return (
-                          <tr
-                            key={p.id}
-                            className={cn(
-                              "cursor-pointer transition-all group",
-                              abs > 5
-                                ? "bg-destructive/[0.04] hover:bg-destructive/[0.08]"
-                                : "hover:bg-[var(--glass-bg-strong)]"
-                            )}
-                            onClick={() => navigate(`/partes/${p.id}`)}
-                          >
-                            <td className="px-4 py-3 font-medium whitespace-nowrap">{formatDate(p.date)}</td>
-                            <td className="px-4 py-3"><StatusBadge estado={p.estado} /></td>
-                            <td className="px-4 py-3 text-right tabular-nums font-medium">{formatKg(p.cascade.produccion_real)}</td>
-                            <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{formatKg(p.cascade.palets_ajustados)}</td>
-                            <td className="px-4 py-3"><DSJBar pct={p.cascade.dsj_pct} /></td>
-                            <td className={cn(
-                              "px-4 py-3 text-right tabular-nums font-semibold",
-                              abs <= 3 ? "text-success" : abs <= 5 ? "text-warning" : "text-destructive"
-                            )}>
-                              {formatKg(p.cascade.dsj)}
-                            </td>
-                            <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{formatKg(p.cascade.mermas_totales)}</td>
-                            <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button variant="ghost" size="icon"
-                                    className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive">
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>¿Eliminar parte?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      Se eliminará el parte del {formatDate(p.date)}. Esta acción no se puede deshacer.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
-                                    <AlertDialogAction onClick={() => deleteParte(p.id)}>{t("delete")}</AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+              {/* Escritorio: tabla */}
+              <div className="hidden overflow-x-auto md:block">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <ColHead label="Fecha"         sk="date"         sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                      <ColHead label="Estado"        sk="estado"       sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                      <ColHead label="Prod. real"    sk="produccion"   sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
+                      <ColHead label="Palets ajust." sk="palets"       sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
+                      <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-left">% DJPMN</th>
+                      <ColHead label="DJPMN (kg)"   sk="dsj_pct"      sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
+                      <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-right whitespace-nowrap">Mermas</th>
+                      <th className="w-10" />
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {sorted.map((p) => {
+                      const abs = Math.abs(p.cascade.dsj_pct);
+                      const s = getSemaforo(p.cascade.dsj_pct);
+                      return (
+                        <tr
+                          key={p.id}
+                          className={cn(
+                            "cursor-pointer transition-all group",
+                            abs > 5
+                              ? "bg-destructive/[0.04] hover:bg-destructive/[0.08]"
+                              : "hover:bg-[var(--glass-bg-strong)]"
+                          )}
+                          onClick={() => navigate(`/partes/${p.id}`)}
+                        >
+                          <td className="px-4 py-3 font-medium whitespace-nowrap">{formatDate(p.date)}</td>
+                          <td className="px-4 py-3"><StatusBadge estado={p.estado} /></td>
+                          <td className="px-4 py-3 text-right tabular-nums font-medium">{formatKg(p.cascade.produccion_real)}</td>
+                          <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{formatKg(p.cascade.palets_ajustados)}</td>
+                          <td className="px-4 py-3"><DSJBar pct={p.cascade.dsj_pct} /></td>
+                          <td className={cn("px-4 py-3 text-right tabular-nums font-semibold", s.text)}>
+                            {formatKg(p.cascade.dsj)}
+                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{formatKg(p.cascade.mermas_totales)}</td>
+                          <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                            <div className="opacity-0 transition-opacity group-hover:opacity-100">
+                              {deleteDialog(p)}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Móvil: tarjetas */}
+              <div className="divide-y divide-[var(--glass-border)] md:hidden">
+                {sorted.map((p) => {
+                  const abs = Math.abs(p.cascade.dsj_pct);
+                  const s = getSemaforo(p.cascade.dsj_pct);
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => navigate(`/partes/${p.id}`)}
+                      className={cn(
+                        "cursor-pointer px-4 py-3 transition-colors",
+                        abs > 5 ? "bg-destructive/[0.04]" : "hover:bg-[var(--glass-bg-strong)]"
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold">{formatDate(p.date)}</span>
+                        <div className="flex items-center gap-1.5">
+                          <StatusBadge estado={p.estado} />
+                          <span onClick={(e) => e.stopPropagation()}>{deleteDialog(p)}</span>
+                        </div>
+                      </div>
+                      <div className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-2">
+                        <MobileField label="Producción" value={formatKg(p.cascade.produccion_real)} />
+                        <MobileField label="Palets" value={formatKg(p.cascade.palets_ajustados)} muted />
+                        <MobileField label="DJPMN" value={formatKg(p.cascade.dsj)} valueClass={s.text} />
+                        <MobileField label="Mermas" value={formatKg(p.cascade.mermas_totales)} muted />
+                      </div>
+                      <div className="mt-2.5">
+                        <DSJBar pct={p.cascade.dsj_pct} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </>
           )}
         </CardContent>
