@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -19,7 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useConsumosFisicos } from "@/hooks/useConsumosFisicos";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Trash2, Save, History, BarChart3, Settings, Droplet, Zap, Fuel, FlaskConical, FileText, FileSpreadsheet, CalendarDays, Upload, CheckCircle2, AlertTriangle, Pencil, X } from "lucide-react";
+import { Plus, Trash2, Save, History, BarChart3, Settings, Droplet, Zap, Fuel, FlaskConical, FileText, FileSpreadsheet, CalendarDays, Upload, CheckCircle2, AlertTriangle, Pencil, X, ChevronDown, Download } from "lucide-react";
 import { today, formatNumber, formatDate } from "@/lib/format";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -1114,38 +1115,36 @@ export default function ConsumoCostes() {
               </SelectContent>
             </Select>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={exportDisabled}
-            onClick={() => exportConsumoToExcel({
-              sesiones,
-              maquinas,
-              consumosMaquinas,
-              consumosFisicos: consumosFisicos.consumos,
-              basesKg: consumosFisicos.basesKg,
-              periodos: rows,
-            })}
-            className="glass glass-hover"
-          >
-            <FileSpreadsheet className="h-4 w-4 mr-1.5" /> Excel
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={exportDisabled}
-            onClick={() => exportConsumoToPDF({
-              sesiones,
-              maquinas,
-              consumosMaquinas,
-              consumosFisicos: consumosFisicos.consumos,
-              basesKg: consumosFisicos.basesKg,
-              periodos: rows,
-            })}
-            className="glass glass-hover"
-          >
-            <FileText className="h-4 w-4 mr-1.5" /> PDF
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={exportDisabled} className="glass glass-hover">
+                <Download className="h-4 w-4 mr-1.5" /> Exportar
+                <ChevronDown className="h-4 w-4 ml-1 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => exportConsumoToExcel({
+                sesiones,
+                maquinas,
+                consumosMaquinas,
+                consumosFisicos: consumosFisicos.consumos,
+                basesKg: consumosFisicos.basesKg,
+                periodos: rows,
+              })}>
+                <FileSpreadsheet className="h-4 w-4" /> Excel
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportConsumoToPDF({
+                sesiones,
+                maquinas,
+                consumosMaquinas,
+                consumosFisicos: consumosFisicos.consumos,
+                basesKg: consumosFisicos.basesKg,
+                periodos: rows,
+              })}>
+                <FileText className="h-4 w-4" /> PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
@@ -1157,7 +1156,7 @@ export default function ConsumoCostes() {
       ) : (
         <Tabs value={tab} onValueChange={setTab} className="space-y-6">
           <div className="glass-accented p-1.5 rounded-xl">
-          <TabsList className="grid w-full grid-cols-2 md:w-auto md:grid-cols-5">
+          <TabsList className="flex w-full flex-nowrap justify-start gap-1 overflow-x-auto [&>*]:shrink-0 md:grid md:w-auto md:grid-cols-5">
             <TabsTrigger value="resumen"><BarChart3 className="h-4 w-4 mr-1.5" />Resumen</TabsTrigger>
             <TabsTrigger value="registrar"><Save className="h-4 w-4 mr-1.5" />Registrar</TabsTrigger>
             <TabsTrigger value="analisis"><BarChart3 className="h-4 w-4 mr-1.5" />Analisis</TabsTrigger>
