@@ -101,7 +101,7 @@ export default function AnalisisDiario() {
       {/* ─── Header ─────────────────────────────────────────────── */}
       <header className="page-header">
         <div>
-          <h1 className="page-title">Analisis Diario</h1>
+          <h1 className="page-title">Análisis Diario</h1>
           <p className="page-subtitle">
             {formatFechaLarga(weekRange.start)} — {formatFechaLarga(weekRange.end)}
           </p>
@@ -151,7 +151,7 @@ export default function AnalisisDiario() {
       {!loading && hayDatos && (
         <>
           {/* KPIs */}
-          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             <KPICard label="Kg totales" value={formatKg(data.totals.kg_lotes)} hint={`${data.totals.n_lotes} lotes procesados`} icon={PackageCheck} />
             <KPICard
               label="Velocidad media"
@@ -171,13 +171,13 @@ export default function AnalisisDiario() {
 
           {/* Toolbar de busqueda */}
           <div className="section-toolbar">
-            <div className="relative">
+            <div className="relative w-full sm:w-auto">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <Input
                 placeholder="Buscar productor, producto, lote..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-8 w-64 h-8"
+                className="pl-8 w-full sm:w-64 h-9"
               />
             </div>
           </div>

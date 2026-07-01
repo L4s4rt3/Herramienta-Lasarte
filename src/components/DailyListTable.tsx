@@ -43,7 +43,7 @@ function DaySection({ date, lotes, defaultOpen = false }: DaySectionProps) {
           ? "border-l-4 border-l-warning bg-warning/5"
           : "border-l-4 border-l-success bg-success/5"
       )}>
-        <CollapsibleTrigger className="flex w-full items-center gap-4 px-4 py-3.5 text-left transition-colors hover:bg-[var(--glass-bg-strong)]">
+        <CollapsibleTrigger className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-[var(--glass-bg-strong)] sm:gap-4">
           <ChevronDown
             className={cn(
               "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
@@ -61,7 +61,7 @@ function DaySection({ date, lotes, defaultOpen = false }: DaySectionProps) {
           </div>
 
           {/* Métricas con labels */}
-          <div className="flex items-center gap-5 ml-2">
+          <div className="flex items-center gap-3 ml-2 sm:gap-5">
             <div className="flex flex-col">
               <span className="text-base font-bold tabular-nums leading-tight">{formatKg(sub.kg)}</span>
               <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Kg</span>
@@ -78,15 +78,15 @@ function DaySection({ date, lotes, defaultOpen = false }: DaySectionProps) {
               <span className="text-sm font-semibold tabular-nums leading-tight">{sub.nLotes}</span>
               <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Lotes</span>
             </div>
-            <div className="w-px h-6 bg-[var(--glass-border)]" />
-            <div className="flex flex-col">
+            <div className="hidden h-6 w-px bg-[var(--glass-border)] sm:block" />
+            <div className="hidden flex-col sm:flex">
               <span className="text-sm font-semibold tabular-nums leading-tight">
                 {sub.avgPesoFruta !== null ? `${sub.avgPesoFruta.toFixed(0)}g` : "—"}
               </span>
               <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Fruta</span>
             </div>
-            <div className="w-px h-6 bg-[var(--glass-border)]" />
-            <div className="flex flex-col">
+            <div className="hidden h-6 w-px bg-[var(--glass-border)] sm:block" />
+            <div className="hidden flex-col sm:flex">
               <span className="text-sm font-semibold tabular-nums leading-tight">{sub.totalHoras.toFixed(1)} h</span>
               <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Tiempo</span>
             </div>
@@ -101,17 +101,17 @@ function DaySection({ date, lotes, defaultOpen = false }: DaySectionProps) {
           )}
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="border-t border-[var(--glass-border)]">
+          <div className="overflow-x-auto border-t border-[var(--glass-border)]">
             <table className="w-full text-sm border-collapse">
               <thead className="border-b border-[var(--glass-border)]">
                 <tr>
                   <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-left sm:px-4">Lote</th>
                   <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-left sm:px-4">Productor</th>
-                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-left sm:px-4">Producto</th>
+                  <th className="hidden px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-left sm:table-cell sm:px-4">Producto</th>
                   <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:px-4">Kg</th>
                   <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:px-4">T/h</th>
                   <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:px-4">Tiempo</th>
-                  <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:px-4">Peso fruta</th>
+                  <th className="hidden px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right sm:table-cell sm:px-4">Peso fruta</th>
                 </tr>
               </thead>
               <tbody>
@@ -121,7 +121,7 @@ function DaySection({ date, lotes, defaultOpen = false }: DaySectionProps) {
                     <tr key={`${l.fecha}-${l.lote_codigo}-${i}`} className="border-b border-[var(--glass-border)] last:border-b-0 hover:bg-[var(--glass-bg-strong)]">
                       <td className="px-3 py-2.5 text-left font-mono text-xs sm:px-4">{l.lote_codigo}</td>
                       <td className="px-3 py-2.5 text-left font-medium sm:px-4">{l.productor}</td>
-                      <td className="px-3 py-2.5 text-left text-muted-foreground sm:px-4">{l.producto}</td>
+                      <td className="hidden px-3 py-2.5 text-left text-muted-foreground sm:table-cell sm:px-4">{l.producto}</td>
                       <td className="px-3 py-2.5 text-right font-mono tabular-nums whitespace-nowrap sm:px-4">{formatKg(l.kg_peso_total)}</td>
                       <td className="px-3 py-2.5 text-right whitespace-nowrap sm:px-4">
                         {l.toneladas_hora !== null ? (
@@ -131,7 +131,7 @@ function DaySection({ date, lotes, defaultOpen = false }: DaySectionProps) {
                         ) : "—"}
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap sm:px-4">{l.duracion_min != null ? `${(l.duracion_min / 60).toFixed(1)} h` : "—"}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap sm:px-4">{l.peso_fruta_promedio_g !== null ? `${l.peso_fruta_promedio_g.toFixed(0)}g` : "—"}</td>
+                      <td className="hidden px-3 py-2.5 text-right tabular-nums whitespace-nowrap sm:table-cell sm:px-4">{l.peso_fruta_promedio_g !== null ? `${l.peso_fruta_promedio_g.toFixed(0)}g` : "—"}</td>
                     </tr>
                   );
                 })}
