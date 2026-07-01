@@ -7,13 +7,19 @@ import { PARTES_QUERY_KEY, type Parte as CachedParte } from "@/hooks/usePartes";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { StatusBadge } from "@/components/StatusBadge";
+import { SemaforoPill } from "@/components/SemaforoPill";
 import { CascadeView } from "@/components/CascadeView";
 import { computeCascade } from "@/lib/cascade";
 import { formatDate } from "@/lib/format";
+import { getSemaforo } from "@/lib/semaforo";
+import { cn } from "@/lib/utils";
 import { PART_DETAIL_MANUAL_FIELDS } from "@/lib/partDetailManualFields";
 import { toast } from "@/hooks/use-toast";
-import { ArrowLeft, Save, Lock, Unlock, Sparkles, Loader2, BarChart3 } from "lucide-react";
+import { ArrowLeft, Save, Lock, Unlock, Sparkles, Loader2, BarChart3, MoreHorizontal } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExportPartesDialog } from "@/components/ExportPartesDialog";
 import PartDetailArchivos from "@/components/PartDetailArchivos";
@@ -294,6 +300,8 @@ export default function PartDetail() {
     );
   }
 
+  const sem = getSemaforo(cascade.dsj_pct);
+
   return (
     <div className="page-shell">
       <header className="page-header">
@@ -301,23 +309,31 @@ export default function PartDetail() {
           <Button variant="ghost" size="icon" onClick={() => navigate("/partes")}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
+          <div className="min-w-0">
             <h1 className="page-title">
               Parte ·{" "}
               <Link to={`/analisis/diario?desde=${parte.date}&hasta=${parte.date}`} className="text-primary hover:underline">
                 {formatDate(parte.date)}
               </Link>
             </h1>
-            <div className="mt-1"><StatusBadge estado={parte.estado} /></div>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <StatusBadge estado={parte.estado} />
+              <SemaforoPill dsjPct={cascade.dsj_pct} />
+            </div>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" asChild className="glass glass-hover">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" asChild className="hidden glass glass-hover sm:inline-flex">
             <Link to={`/analisis/diario?desde=${parte.date}&hasta=${parte.date}`}>
               <BarChart3 className="h-4 w-4" />Análisis detallado
             </Link>
           </Button>
           <ExportPartesDialog defaultFrom={parte.date} defaultTo={parte.date} />
+          <Button variant="outline" onClick={toggleEstado} className="hidden glass glass-hover sm:inline-flex">
+            {parte.estado === "Borrador"
+              ? <><Lock className="h-4 w-4" />Cerrar</>
+              : <><Unlock className="h-4 w-4" />Reabrir</>}
+          </Button>
           <Button
             variant="default"
             onClick={analyze}
@@ -329,21 +345,42 @@ export default function PartDetail() {
               : <><Sparkles className="h-4 w-4" />Analizar con IA</>
             }
           </Button>
-          <Button variant="outline" onClick={toggleEstado} className="glass glass-hover">
-            {parte.estado === "Borrador"
-              ? <><Lock className="h-4 w-4" />Cerrar</>
-              : <><Unlock className="h-4 w-4" />Reabrir</>}
-          </Button>
           <Button onClick={save} disabled={saving || readOnly} className="glass glass-hover">
             <Save className="h-4 w-4" />Guardar
           </Button>
+          {/* Secundarias agrupadas en móvil */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="glass glass-hover sm:hidden" aria-label="Más acciones">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => navigate(`/analisis/diario?desde=${parte.date}&hasta=${parte.date}`)}>
+                <BarChart3 className="h-4 w-4" />Análisis detallado
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={toggleEstado}>
+                {parte.estado === "Borrador"
+                  ? <><Lock className="h-4 w-4" />Cerrar</>
+                  : <><Unlock className="h-4 w-4" />Reabrir</>}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
       <Card className="glass-accented">
         <CardHeader>
-          <p className="panel-kicker">Resultado del parte</p>
-          <CardTitle>Cascada DJPMN</CardTitle>
+          <div className="flex items-center gap-3">
+            <div className="h-7 w-1 shrink-0 rounded-full bg-primary" />
+            <div className="min-w-0 flex-1">
+              <p className="panel-kicker">Resultado del parte</p>
+              <CardTitle>Cascada DJPMN</CardTitle>
+            </div>
+            <span className={cn("shrink-0 text-lg font-semibold tabular-nums sm:text-xl", sem.text)}>
+              {cascade.dsj_pct >= 0 ? "+" : ""}{cascade.dsj_pct.toFixed(2)}%
+            </span>
+          </div>
         </CardHeader>
         <CardContent>
           <CascadeView result={cascade} />

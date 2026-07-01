@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, Trash2, Upload, ExternalLink } from "lucide-react";
+import { FileText, Trash2, Upload, ExternalLink, Database, Factory, Image as ImageIcon, File as FileIcon } from "lucide-react";
 
 interface Archivo {
   id: string;
@@ -15,10 +15,10 @@ interface Archivo {
 type CategoryId = (typeof CATEGORIES)[number]["id"];
 
 const CATEGORIES = [
-  { id: "GSTOCK", label: "GSTOCK" },
-  { id: "Produccion", label: "Producción" },
-  { id: "FotoLotes", label: "Foto lotes" },
-  { id: "Otro", label: "Otro" },
+  { id: "GSTOCK", label: "GSTOCK", icon: Database },
+  { id: "Produccion", label: "Producción", icon: Factory },
+  { id: "FotoLotes", label: "Foto lotes", icon: ImageIcon },
+  { id: "Otro", label: "Otro", icon: FileIcon },
 ] as const;
 
 const LEGACY_CAT: Record<string, CategoryId> = {
@@ -52,20 +52,32 @@ export default function PartDetailArchivos({
 }: PartDetailArchivosProps) {
   return (
     <Card className="glass-accented">
-      <CardHeader>
-        <CardTitle className="text-lg">Archivos del parte</CardTitle>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-3">
+          <div className="h-7 w-1 shrink-0 rounded-full bg-primary" />
+          <div className="min-w-0">
+            <CardTitle className="text-base">Archivos del parte</CardTitle>
+            <p className="text-xs text-muted-foreground">Informes Excel y fotos por categoría</p>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {CATEGORIES.map((c) => {
+            const Icon = c.icon;
             const filesInCat = archivos.filter((a) => normalizeCat(a.file_type) === c.id);
             return (
-              <div key={c.id} className="rounded-xl glass p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium">{c.label}</p>
-                  <span className="text-xs text-muted-foreground">{filesInCat.length}</span>
+              <div key={c.id} className="flex flex-col rounded-xl glass p-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg glass-strong text-primary">
+                    <Icon className="h-4 w-4" />
+                  </div>
+                  <p className="min-w-0 flex-1 truncate text-sm font-semibold">{c.label}</p>
+                  <span className="shrink-0 rounded-full bg-[var(--glass-bg-strong)] px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+                    {filesInCat.length}
+                  </span>
                 </div>
-                <label className="flex">
+                <label className="mt-3 flex">
                   <input
                     type="file"
                     multiple
@@ -83,35 +95,39 @@ export default function PartDetailArchivos({
                     </span>
                   </Button>
                 </label>
-                <ul className="space-y-1">
-                  {filesInCat.map((a) => {
-                    const previewable = isPreviewable(a);
-                    return (
-                      <li key={a.id} className="flex items-center gap-2 text-xs">
-                        <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
-                        {previewable ? (
-                          <a
-                            href={`/ver-excel/${a.id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="truncate flex-1 text-left text-primary/80 hover:text-primary hover:underline cursor-pointer inline-flex items-center gap-1"
-                            title={`Ver ${a.file_name}`}
-                          >
-                            {a.file_name}
-                            <ExternalLink className="h-2.5 w-2.5 shrink-0 opacity-60" />
-                          </a>
-                        ) : (
-                          <span className="truncate flex-1" title={a.file_name ?? ""}>{a.file_name}</span>
-                        )}
-                        {!readOnly && (
-                          <button onClick={() => handleDeleteFile(a)} className="text-muted-foreground hover:text-destructive" aria-label="Eliminar">
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
+                {filesInCat.length === 0 ? (
+                  <p className="mt-3 py-2 text-center text-xs text-muted-foreground/70">Sin archivos</p>
+                ) : (
+                  <ul className="mt-3 space-y-1.5">
+                    {filesInCat.map((a) => {
+                      const previewable = isPreviewable(a);
+                      return (
+                        <li key={a.id} className="flex items-center gap-2 text-xs">
+                          <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          {previewable ? (
+                            <a
+                              href={`/ver-excel/${a.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex flex-1 items-center gap-1 truncate text-left text-primary/80 hover:text-primary hover:underline"
+                              title={`Ver ${a.file_name}`}
+                            >
+                              <span className="truncate">{a.file_name}</span>
+                              <ExternalLink className="h-2.5 w-2.5 shrink-0 opacity-60" />
+                            </a>
+                          ) : (
+                            <span className="flex-1 truncate" title={a.file_name ?? ""}>{a.file_name}</span>
+                          )}
+                          {!readOnly && (
+                            <button onClick={() => handleDeleteFile(a)} className="shrink-0 text-muted-foreground hover:text-destructive" aria-label="Eliminar">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </div>
             );
           })}
