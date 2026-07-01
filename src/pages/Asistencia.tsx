@@ -1457,7 +1457,7 @@ export default function Asistencia() {
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-0.5">
             <Button
               variant={viewMode === "daily" ? "default" : "ghost"}
