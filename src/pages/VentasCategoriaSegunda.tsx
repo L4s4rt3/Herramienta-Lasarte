@@ -305,7 +305,7 @@ export default function VentasCategoriaSegunda() {
       />
 
         <TabsContent value="dashboard" className="space-y-5">
-          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <section className="grid grid-cols-2 gap-3 xl:grid-cols-3">
             <KPICard
               className="glass-accented"
               label="Volumen vendido"
