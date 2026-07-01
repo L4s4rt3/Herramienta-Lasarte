@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
+  ArrowLeft,
   BadgeCheck,
   CalendarDays,
   Camera,
   Check,
+  ChevronDown,
   Clock,
   Download,
   FileSpreadsheet,
@@ -13,6 +15,7 @@ import {
   History,
   Image as ImageIcon,
   Loader2,
+  MoreHorizontal,
   Plus,
   Save,
   Search,
@@ -28,6 +31,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -74,6 +78,14 @@ const QUALITY_STYLES: Record<CalidadEstado, string> = {
   Regular: "border-amber-500/35 bg-amber-500/14 text-amber-700 dark:text-amber-300",
   Deficiente: "border-orange-500/35 bg-orange-500/14 text-orange-700 dark:text-orange-300",
   Pésimo: "border-red-500/35 bg-red-500/12 text-red-700 dark:text-red-300",
+};
+
+const QUALITY_BAR: Record<CalidadEstado, string> = {
+  Excelente: "bg-emerald-500",
+  Bueno: "bg-emerald-400",
+  Regular: "bg-amber-400",
+  Deficiente: "bg-orange-400",
+  Pésimo: "bg-red-500",
 };
 
 function errorMessage(error: unknown) {
@@ -755,6 +767,20 @@ export default function CalidadJornadaPage() {
     });
   }
 
+  function reopenSelectedLote() {
+    if (!selected || !user) return;
+    const reopened = reopenCalidadLote(selected, user.id, new Date().toISOString());
+    patchSelected({
+      informe_estado: reopened.informe_estado,
+      reabierto_at: reopened.reabierto_at,
+      reabierto_by: reopened.reabierto_by,
+      validado_at: reopened.validado_at,
+      validado_by: reopened.validado_by,
+    });
+    void persistLote({ ...selected, ...reopened });
+    toast({ title: "Lote reabierto", description: "Ya puedes editar el lote de nuevo." });
+  }
+
   if (loading) {
     return (
       <div className="page-shell">
@@ -785,18 +811,32 @@ export default function CalidadJornadaPage() {
               {autosaveStatus === "saving" ? "Guardando..." : autosaveStatus === "saved" ? "Guardado" : "Error al guardar"}
             </span>
           )}
-          <Button variant="outline" className="glass glass-hover" onClick={() => jornada && exportCalidadToPDF(jornada, lotes, adjuntos, { mode: "borrador" })} disabled={!jornada || lotes.length === 0}>
-            <Download className="h-4 w-4" />
-            PDF borrador
-          </Button>
-          <Button variant="outline" className="glass glass-hover" onClick={() => jornada && exportCalidadToPDF(jornada, lotes, adjuntos, { mode: "oficial" })} disabled={!jornada || lotes.length === 0 || !lotes.some((l) => l.informe_estado === "validado")}>
-            <Download className="h-4 w-4" />
-            PDF oficial
-          </Button>
-          <Button variant="outline" className="glass glass-hover" onClick={() => jornada && exportCalidadToExcel(jornada, lotes, adjuntos)} disabled={!jornada || lotes.length === 0}>
-            <FileSpreadsheet className="h-4 w-4" />
-            Excel
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="glass glass-hover" disabled={!jornada || lotes.length === 0}>
+                <Download className="h-4 w-4" />
+                Exportar
+                <ChevronDown className="h-4 w-4 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => jornada && exportCalidadToPDF(jornada, lotes, adjuntos, { mode: "borrador" })}>
+                <FileText className="h-4 w-4" />
+                PDF borrador
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => jornada && exportCalidadToPDF(jornada, lotes, adjuntos, { mode: "oficial" })}
+                disabled={!lotes.some((l) => l.informe_estado === "validado")}
+              >
+                <FileText className="h-4 w-4" />
+                PDF oficial
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => jornada && exportCalidadToExcel(jornada, lotes, adjuntos)}>
+                <FileSpreadsheet className="h-4 w-4" />
+                Excel
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button className="glass glass-hover" onClick={saveJornada} disabled={saving || !jornada}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             Guardar jornada
@@ -805,68 +845,97 @@ export default function CalidadJornadaPage() {
       </header>
 
       <Card className="glass-accented">
-        <CardContent className="grid gap-4 pt-6 sm:grid-cols-2 lg:grid-cols-[minmax(180px,0.7fr)_minmax(240px,1fr)_repeat(4,minmax(120px,0.6fr))]">
-          <div className="space-y-2">
-            <Label htmlFor="fecha-calidad" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Fecha
-            </Label>
-            <DateGlassPicker id="fecha-calidad" value={fecha} onChange={changeDate} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="responsable-calidad" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Responsable
-            </Label>
-            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-              <Select
-                value={responsableSelectValue}
-                onValueChange={(value) => {
-                  if (value === "otro") {
-                    setResponsable(responsableCustom || "");
-                    return;
-                  }
-                  setResponsable(value);
-                  setResponsableCustom("");
-                }}
-              >
-                <SelectTrigger id="responsable-calidad" className="glass glass-hover">
-                  <SelectValue placeholder="Responsable" />
-                </SelectTrigger>
-                <SelectContent>
-                  {RESPONSABLES.map((persona) => (
-                    <SelectItem key={persona} value={persona}>{persona}</SelectItem>
-                  ))}
-                  <SelectItem value="otro">Otra persona</SelectItem>
-                </SelectContent>
-              </Select>
-              {responsableSelectValue === "otro" && (
-                <Input
-                  value={responsableCustom}
-                  onChange={(event) => {
-                    setResponsableCustom(event.target.value);
-                    setResponsable(event.target.value);
+        <CardContent className="space-y-5 pt-6">
+          <div className="grid gap-4 sm:grid-cols-2 lg:max-w-2xl">
+            <div className="space-y-2">
+              <Label htmlFor="fecha-calidad" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Fecha
+              </Label>
+              <DateGlassPicker id="fecha-calidad" value={fecha} onChange={changeDate} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="responsable-calidad" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Responsable
+              </Label>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                <Select
+                  value={responsableSelectValue}
+                  onValueChange={(value) => {
+                    if (value === "otro") {
+                      setResponsable(responsableCustom || "");
+                      return;
+                    }
+                    setResponsable(value);
+                    setResponsableCustom("");
                   }}
-                  placeholder="Nombre responsable"
-                  className={glassInputClassName()}
-                />
-              )}
+                >
+                  <SelectTrigger id="responsable-calidad" className="glass glass-hover">
+                    <SelectValue placeholder="Responsable" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RESPONSABLES.map((persona) => (
+                      <SelectItem key={persona} value={persona}>{persona}</SelectItem>
+                    ))}
+                    <SelectItem value="otro">Otra persona</SelectItem>
+                  </SelectContent>
+                </Select>
+                {responsableSelectValue === "otro" && (
+                  <Input
+                    value={responsableCustom}
+                    onChange={(event) => {
+                      setResponsableCustom(event.target.value);
+                      setResponsable(event.target.value);
+                    }}
+                    placeholder="Nombre responsable"
+                    className={glassInputClassName()}
+                  />
+                )}
+              </div>
             </div>
           </div>
-          {[
-            { label: "Lotes", value: summary.total },
-            { label: "Aerobotics", value: summary.aerobotics },
-            { label: "Bueno", value: summary.byQuality.Excelente + summary.byQuality.Bueno },
-            { label: "Revisar", value: summary.byQuality.Regular + summary.byQuality.Deficiente + summary.byQuality.Pésimo },
-          ].map((stat) => (
-            <div key={stat.label} className="rounded-xl border border-primary/10 bg-[var(--glass-bg)] px-4 py-3 shadow-[var(--glass-shadow)]">
-              <p className="text-xs text-muted-foreground">{stat.label}</p>
-              <p className="mt-1 text-2xl font-semibold text-foreground">{stat.value}</p>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              { label: "Lotes", value: summary.total, tone: "" },
+              { label: "Aerobotics", value: summary.aerobotics, tone: "" },
+              { label: "Bueno", value: summary.byQuality.Excelente + summary.byQuality.Bueno, tone: "text-success" },
+              { label: "Revisar", value: summary.byQuality.Regular + summary.byQuality.Deficiente + summary.byQuality.Pésimo, tone: "text-warning" },
+            ].map((stat) => (
+              <div key={stat.label} className="glass rounded-xl p-3">
+                <p className="panel-kicker mb-1">{stat.label}</p>
+                <p className={cn("text-2xl font-semibold tabular-nums", stat.tone)}>{stat.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {summary.total > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="panel-kicker">Distribución de calidad</p>
+                <span className="text-xs text-muted-foreground">{summary.total} lote{summary.total !== 1 ? "s" : ""}</span>
+              </div>
+              <div className="flex h-2.5 w-full overflow-hidden rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
+                {CALIDAD_OPTIONS.map((q) => {
+                  const n = summary.byQuality[q];
+                  if (n === 0) return null;
+                  return <div key={q} className={QUALITY_BAR[q]} style={{ width: `${(n / summary.total) * 100}%` }} title={`${q}: ${n}`} />;
+                })}
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {CALIDAD_OPTIONS.map((q) => (
+                  <span key={q} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <span className={cn("h-2 w-2 rounded-full", QUALITY_BAR[q])} />
+                    {q} · {summary.byQuality[q]}
+                  </span>
+                ))}
+              </div>
             </div>
-          ))}
+          )}
         </CardContent>
       </Card>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(320px,0.86fr)_minmax(0,1.5fr)]">
-        <Card className="glass">
+        <Card className={cn("glass", selected && "hidden xl:block")}>
           <CardHeader className="space-y-4">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -937,12 +1006,15 @@ export default function CalidadJornadaPage() {
           </CardContent>
         </Card>
 
-        <Card className="glass-accented">
+        <Card className={cn("glass-accented", !selected && "hidden xl:block")}>
           {selected ? (
             <>
               <CardHeader className="gap-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
+                    <Button variant="ghost" size="icon" className="shrink-0 xl:hidden" onClick={() => setSelectedId(null)} aria-label="Volver a la lista">
+                      <ArrowLeft className="h-4 w-4" />
+                    </Button>
                     <div>
                       <p className="panel-kicker">Ficha de lote</p>
                       <CardTitle className="text-xl">
@@ -963,31 +1035,19 @@ export default function CalidadJornadaPage() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {!isCalidadLoteLocked(selected) && (
-                      <Button variant="outline" className="glass glass-hover" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                      <Button variant="outline" className="hidden glass glass-hover sm:inline-flex" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
                         {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
                         Fotos
                       </Button>
                     )}
                     {!isCalidadLoteLocked(selected) && (
-                      <Button variant="outline" className="glass glass-hover text-destructive hover:text-destructive" onClick={() => deleteLote(selected)} disabled={saving}>
+                      <Button variant="outline" className="hidden glass glass-hover text-destructive hover:text-destructive sm:inline-flex" onClick={() => deleteLote(selected)} disabled={saving}>
                         <Trash2 className="h-4 w-4" />
                         Eliminar
                       </Button>
                     )}
                     {isCalidadLoteLocked(selected) && (
-                      <Button variant="outline" className="glass glass-hover" onClick={() => {
-                        if (!user) return;
-                        const reopened = reopenCalidadLote(selected, user.id, new Date().toISOString());
-                        patchSelected({
-                          informe_estado: reopened.informe_estado,
-                          reabierto_at: reopened.reabierto_at,
-                          reabierto_by: reopened.reabierto_by,
-                          validado_at: reopened.validado_at,
-                          validado_by: reopened.validado_by,
-                        });
-                        void persistLote({ ...selected, ...reopened });
-                        toast({ title: "Lote reabierto", description: "Ya puedes editar el lote de nuevo." });
-                      }}>
+                      <Button variant="outline" className="glass glass-hover" onClick={reopenSelectedLote}>
                         <History className="h-4 w-4" />
                         Reabrir edicion
                       </Button>
@@ -1036,6 +1096,25 @@ export default function CalidadJornadaPage() {
                         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                         Guardar lote
                       </Button>
+                    )}
+                    {!isCalidadLoteLocked(selected) && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="icon" className="glass glass-hover sm:hidden" aria-label="Más acciones">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                            <Camera className="h-4 w-4" />
+                            Fotos
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => deleteLote(selected)} disabled={saving} className="text-destructive focus:text-destructive">
+                            <Trash2 className="h-4 w-4" />
+                            Eliminar
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     )}
                   </div>
                 </div>
