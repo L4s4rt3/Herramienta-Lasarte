@@ -15,6 +15,14 @@ import type {
   VentasCategoriaProductoRow,
   VentasCategoriaRow,
 } from "@/lib/types";
+import type { Tables } from "@/integrations/supabase/types";
+
+export type VentasCategoriaResumenRow = Tables<"ventas_categoria_resumen">;
+export type VentasCategoriaMensualClienteRow = Tables<"ventas_categoria_mensual_cliente">;
+export type VentasCategoriaMensualProductoRow = Tables<"ventas_categoria_mensual_producto">;
+export type VentasCategoriaRankingClienteRow = Tables<"ventas_categoria_ranking_clientes">;
+export type VentasCategoriaResumenArticuloRow = Tables<"ventas_categoria_resumen_articulo">;
+export type VentasCategoriaValidacionCatalogoRow = Tables<"ventas_categoria_validacion_catalogo">;
 
 export interface VentasCategoriaDetalleOptions {
   filters: VentasCategoriaDetalleFilters;
@@ -86,11 +94,11 @@ export function useVentasCategoria() {
 
   const resumenQuery = useQuery({
     queryKey: [...baseKey, categoriaId, "resumen"],
-    queryFn: async () => {
+    queryFn: async (): Promise<VentasCategoriaResumenRow | null> => {
       const { data, error } = await supabase
         .from("ventas_categoria_resumen")
         .select("*")
-        .eq("categoria_id", categoriaId)
+        .eq("categoria_id", categoriaId as string)
         .maybeSingle();
       if (error) throw toError(error);
       return data;
@@ -100,11 +108,11 @@ export function useVentasCategoria() {
 
   const mensualClienteQuery = useQuery({
     queryKey: [...baseKey, categoriaId, "mensual-cliente"],
-    queryFn: async () => {
+    queryFn: async (): Promise<VentasCategoriaMensualClienteRow[]> => {
       const { data, error } = await supabase
         .from("ventas_categoria_mensual_cliente")
         .select("*")
-        .eq("categoria_id", categoriaId)
+        .eq("categoria_id", categoriaId as string)
         .order("mes", { ascending: true });
       if (error) throw toError(error);
       return data ?? [];
@@ -114,11 +122,11 @@ export function useVentasCategoria() {
 
   const mensualProductoQuery = useQuery({
     queryKey: [...baseKey, categoriaId, "mensual-producto"],
-    queryFn: async () => {
+    queryFn: async (): Promise<VentasCategoriaMensualProductoRow[]> => {
       const { data, error } = await supabase
         .from("ventas_categoria_mensual_producto")
         .select("*")
-        .eq("categoria_id", categoriaId)
+        .eq("categoria_id", categoriaId as string)
         .order("mes", { ascending: true });
       if (error) throw toError(error);
       return data ?? [];
@@ -128,11 +136,11 @@ export function useVentasCategoria() {
 
   const rankingClientesQuery = useQuery({
     queryKey: [...baseKey, categoriaId, "ranking-clientes"],
-    queryFn: async () => {
+    queryFn: async (): Promise<VentasCategoriaRankingClienteRow[]> => {
       const { data, error } = await supabase
         .from("ventas_categoria_ranking_clientes")
         .select("*")
-        .eq("categoria_id", categoriaId)
+        .eq("categoria_id", categoriaId as string)
         .order("kilos", { ascending: false });
       if (error) throw toError(error);
       return data ?? [];
@@ -142,11 +150,11 @@ export function useVentasCategoria() {
 
   const articulosQuery = useQuery({
     queryKey: [...baseKey, categoriaId, "articulos"],
-    queryFn: async () => {
+    queryFn: async (): Promise<VentasCategoriaResumenArticuloRow[]> => {
       const { data, error } = await supabase
         .from("ventas_categoria_resumen_articulo")
         .select("*")
-        .eq("categoria_id", categoriaId)
+        .eq("categoria_id", categoriaId as string)
         .order("kilos", { ascending: false })
         .limit(2000);
       if (error) throw toError(error);
@@ -157,11 +165,11 @@ export function useVentasCategoria() {
 
   const catalogoQuery = useQuery({
     queryKey: [...baseKey, categoriaId, "catalogo"],
-    queryFn: async () => {
+    queryFn: async (): Promise<VentasCategoriaProductoRow[]> => {
       const { data, error } = await supabase
         .from("ventas_categoria_productos")
         .select("*")
-        .eq("categoria_id", categoriaId)
+        .eq("categoria_id", categoriaId as string)
         .order("kilos", { ascending: false });
       if (error) throw toError(error);
       return (data ?? []) as VentasCategoriaProductoRow[];
@@ -171,11 +179,11 @@ export function useVentasCategoria() {
 
   const ajustesQuery = useQuery({
     queryKey: [...baseKey, categoriaId, "ajustes"],
-    queryFn: async () => {
+    queryFn: async (): Promise<VentasCategoriaClienteAjusteRow[]> => {
       const { data, error } = await supabase
         .from("ventas_categoria_clientes_ajustes")
         .select("*")
-        .eq("categoria_id", categoriaId)
+        .eq("categoria_id", categoriaId as string)
         .order("cliente_nombre");
       if (error) throw toError(error);
       return (data ?? []) as VentasCategoriaClienteAjusteRow[];
@@ -185,11 +193,11 @@ export function useVentasCategoria() {
 
   const validacionQuery = useQuery({
     queryKey: [...baseKey, categoriaId, "validacion"],
-    queryFn: async () => {
+    queryFn: async (): Promise<VentasCategoriaValidacionCatalogoRow[]> => {
       const { data, error } = await supabase
         .from("ventas_categoria_validacion_catalogo")
         .select("*")
-        .eq("categoria_id", categoriaId)
+        .eq("categoria_id", categoriaId as string)
         .order("kilos_catalogo", { ascending: false });
       if (error) throw toError(error);
       return data ?? [];
@@ -203,7 +211,7 @@ export function useVentasCategoria() {
       const { data, error } = await supabase
         .from("ventas_categoria_lineas")
         .select("campana, mes, cliente_codigo, cliente_nombre, metodo_producto, kilos")
-        .eq("categoria_id", categoriaId)
+        .eq("categoria_id", categoriaId as string)
         .range(0, 19999);
       if (error) throw toError(error);
       return buildVentasCategoriaFilterOptions(data ?? []);
@@ -214,11 +222,11 @@ export function useVentasCategoria() {
 
   const allLinesQuery = useQuery({
     queryKey: [...baseKey, categoriaId, "all-lines"],
-    queryFn: async () => {
+    queryFn: async (): Promise<VentasCategoriaLineaRow[]> => {
       const { data, error } = await supabase
         .from("ventas_categoria_lineas")
         .select("*")
-        .eq("categoria_id", categoriaId)
+        .eq("categoria_id", categoriaId as string)
         .order("fecha", { ascending: false })
         .limit(20000);
       if (error) throw toError(error);
@@ -253,13 +261,13 @@ export function useVentasCategoria() {
       const { error: deleteLineasError } = await supabase
         .from("ventas_categoria_lineas")
         .delete()
-        .eq("categoria_id", categoriaId);
+        .eq("categoria_id", categoriaId as string);
       if (deleteLineasError) throw toError(deleteLineasError);
 
       const { error: deleteProductosError } = await supabase
         .from("ventas_categoria_productos")
         .delete()
-        .eq("categoria_id", categoriaId);
+        .eq("categoria_id", categoriaId as string);
       if (deleteProductosError) throw toError(deleteProductosError);
 
       await insertInChunks("ventas_categoria_productos", parsed.catalogo.map((row) => ({
@@ -327,7 +335,7 @@ export function useVentasCategoriaDetalle(categoriaId: string | null, options: V
       let query = supabase
         .from("ventas_categoria_lineas")
         .select("*", { count: "exact" })
-        .eq("categoria_id", categoriaId)
+        .eq("categoria_id", categoriaId as string)
         .order("fecha", { ascending: false })
         .range(from, to);
 
@@ -385,7 +393,7 @@ async function upsertInChunks(table: "ventas_categoria_clientes_ajustes", rows: 
 function normalizeName(value: string): string {
   return value
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]+/g, "-")

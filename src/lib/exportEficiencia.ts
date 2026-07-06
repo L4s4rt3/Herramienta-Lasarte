@@ -1,13 +1,14 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { drawExportHeader, drawExportFooter, pdfTableTheme } from "./exportTheme";
+import { drawExportHeader, drawExportFooter, finalizeExportPageNumbers, pdfTableTheme } from "./exportTheme";
 import { appendDictionarySheet, appendRowsSheet, createWorkbook, saveWorkbook } from "./exportWorkbook";
 import {
   appendReportCoverSheet,
-  buildReportFilename,
+  buildLasarteFilename,
   drawReportCover,
   drawReportInsights,
   drawReportSectionTitle,
+  ensureExportLogoLoaded,
   type ReportKpi,
   type ReportMeta,
 } from "./reportKit";
@@ -132,7 +133,14 @@ export function exportEficienciaToExcel(data: SemanaData[], _optimo: string) {
     { Hoja: "Detalle diario", Campo: "Kg/persona", Descripcion: "Kg producidos en el dia entre trabajadores presentes.", Uso: "Analisis por dia de la semana." },
   ]);
 
-  saveWorkbook(wb, buildReportFilename("informe-semanal-operativo", "xlsx"));
+  saveWorkbook(wb, buildLasarteFilename("Eficiencia", "xlsx", eficienciaDateRange(data)));
+}
+
+function eficienciaDateRange(data: SemanaData[]): { from?: string; to?: string } {
+  const dates = data.flatMap((sem) => Object.values(sem.days).map((d) => d.date));
+  if (dates.length === 0) return {};
+  dates.sort();
+  return { from: dates[0], to: dates[dates.length - 1] };
 }
 
 function drawHeader(doc: jsPDF, pageIndex: number) {
@@ -143,7 +151,8 @@ function drawFooter(doc: jsPDF) {
   drawExportFooter(doc);
 }
 
-export function exportEficienciaToPDF(data: SemanaData[], _optimo: string) {
+export async function exportEficienciaToPDF(data: SemanaData[], _optimo: string) {
+  await ensureExportLogoLoaded();
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   let pageIndex = 0;
 
@@ -210,10 +219,12 @@ export function exportEficienciaToPDF(data: SemanaData[], _optimo: string) {
       if (pages > pageIndex) {
         pageIndex++;
         drawHeader(doc, pageIndex);
+        drawFooter(doc);
       }
     },
   });
 
   drawFooter(doc);
-  doc.save(buildReportFilename("informe-semanal-operativo", "pdf"));
+  finalizeExportPageNumbers(doc);
+  doc.save(buildLasarteFilename("Eficiencia", "pdf", eficienciaDateRange(data)));
 }

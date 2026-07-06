@@ -1,19 +1,12 @@
 import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronLeft, ChevronRight, CalendarDays, UserCheck, PackageCheck, FileText, UserX, ShieldOff, Scale } from "lucide-react";
+import { UserCheck, PackageCheck, UserX, ShieldOff, Scale } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   type SemanaDataRaw,
-  type FaltasSemanalesRow,
-  type RendimientoGrupoSemanal,
-  type DiaGrupoData,
-  type ProductoClasificadoSemanal,
   getWeekDates,
-  getWeekLabel,
-  shiftWeek,
   buildFaltasSemanales,
   calcularKgPersonaSemanal,
   calcularRendimientoGrupoSemanal,
@@ -22,7 +15,6 @@ import {
 } from "@/lib/asistenciaSemanal";
 
 const DAY_ABBR = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "dom"];
-const DAY_FULL = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 
 function formatoEntero(value: number) {
   return new Intl.NumberFormat("es-ES").format(Math.round(value));
@@ -32,18 +24,11 @@ function formatoDecimal(value: number, digits = 1) {
   return new Intl.NumberFormat("es-ES", { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(value);
 }
 
-function statusBadgeClass(status: string) {
-  if (status === "presente") return "bg-success/15 text-success border-success/25";
-  if (status === "ausente") return "bg-destructive/15 text-destructive border-destructive/25";
-  if (status === "baja") return "bg-sky-100 text-sky-800 border-sky-300";
-  return "bg-amber-100 text-amber-800 border-amber-300";
-}
-
 function statusClass(status: string) {
   if (status === "presente") return "bg-success text-success-foreground";
   if (status === "ausente") return "bg-destructive text-destructive-foreground";
-  if (status === "baja") return "bg-sky-400 text-white";
-  return "bg-amber-400 text-amber-950";
+  if (status === "baja") return "bg-info text-info-foreground";
+  return "bg-warning text-warning-foreground";
 }
 
 interface AsistenciaSemanalPanelProps {
@@ -61,14 +46,10 @@ export default function AsistenciaSemanalPanel({
   semana,
   loading,
   weekStart,
-  onWeekChange,
-  onExport,
-  exporting,
   incluirSabado,
   onToggleSabado,
 }: AsistenciaSemanalPanelProps) {
   const dates = useMemo(() => getWeekDates(weekStart), [weekStart]);
-  const weekLabel = useMemo(() => getWeekLabel(dates), [dates]);
 
   const faltas = useMemo(() => {
     if (!semana) return [];
@@ -95,7 +76,6 @@ export default function AsistenciaSemanalPanel({
     return productosClasificadosSemanales(semana, incluirSabado);
   }, [semana, incluirSabado]);
 
-  const totalActivos = semana?.trabajadores.filter((t) => t.activo).length ?? 0;
   const totalFaltasSemana = faltas.reduce((s, r) => s + r.totalFaltas, 0);
   const totalBajasSemana = faltas.filter((r) => r.totalBajas > 0).length;
   const productosKgComputable = productos.reduce((t, p) => t + (p.computa ? p.kg : 0), 0);
@@ -153,7 +133,7 @@ export default function AsistenciaSemanalPanel({
                 </div>
               </div>
               <div className="flex items-center gap-3 px-5 py-4">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-300 bg-sky-100 text-sky-700">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-info/25 bg-info/10 text-info">
                   <ShieldOff className="h-4 w-4" />
                 </div>
                 <div className="min-w-0">
@@ -228,15 +208,15 @@ export default function AsistenciaSemanalPanel({
                   type="checkbox"
                   checked={incluirSabado}
                   onChange={onToggleSabado}
-                  className="h-3.5 w-3.5 rounded border-gray-300"
+                  className="h-3.5 w-3.5 rounded border-[var(--glass-border)]"
                 />
                 Incluir sábado
               </label>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-success" /> Presente</span>
                 <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-destructive" /> Ausente</span>
-                <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-sky-400" /> Baja</span>
-                <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-amber-400" /> Sin reg.</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-info" /> Baja</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-warning" /> Sin reg.</span>
               </div>
             </div>
           </div>
@@ -246,8 +226,8 @@ export default function AsistenciaSemanalPanel({
             <table className="w-full text-sm whitespace-nowrap">
               <thead>
                 <tr className="border-b border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
-                  <th className="sticky left-0 z-10 bg-[var(--glass-bg-strong)] px-3 py-3 text-left text-xs font-bold uppercase text-muted-foreground">Trabajador</th>
-                  <th className="sticky left-0 z-10 bg-[var(--glass-bg-strong)] px-3 py-3 text-left text-xs font-bold uppercase text-muted-foreground">Zona</th>
+                  <th className="sticky left-0 z-20 bg-[var(--glass-bg-strong)] px-3 py-3 text-left text-xs font-bold uppercase text-muted-foreground">Trabajador</th>
+                  <th className="px-3 py-3 text-left text-xs font-bold uppercase text-muted-foreground">Zona</th>
                   {dates.map((date, i) => {
                     const esDomingo = new Date(date + "T12:00:00").getDay() === 0;
                     const esSabado = new Date(date + "T12:00:00").getDay() === 6;
@@ -273,9 +253,11 @@ export default function AsistenciaSemanalPanel({
                     </td>
                   </tr>
                 ) : (
-                  faltas.map((row) => (
-                    <tr key={row.trabajadorId} className="hover:bg-muted/30">
-                      <td className="px-3 py-2 text-sm font-semibold">{row.nombre}</td>
+                  faltas.map((row, index) => {
+                    const zebraClass = index % 2 === 1 ? "bg-[var(--glass-bg)]" : "bg-[var(--glass-bg-strong)]";
+                    return (
+                    <tr key={row.trabajadorId} className={cn("hover:bg-[var(--color-surface-hover)]", zebraClass)}>
+                      <td className={cn("sticky left-0 z-10 px-3 py-2 text-sm font-semibold", zebraClass)}>{row.nombre}</td>
                       <td className="px-3 py-2 text-xs text-muted-foreground">{row.zona ?? "—"}</td>
                       {dates.map((date) => {
                         const status = row.days[date] ?? "sinRegistrar";
@@ -288,10 +270,11 @@ export default function AsistenciaSemanalPanel({
                         );
                       })}
                       <td className="px-2 py-2 text-center text-sm font-semibold text-destructive">{row.totalFaltas || "—"}</td>
-                      <td className="px-2 py-2 text-center text-sm font-semibold text-sky-700">{row.totalBajas || "—"}</td>
+                      <td className="px-2 py-2 text-center text-sm font-semibold text-info">{row.totalBajas || "—"}</td>
                       <td className="px-2 py-2 text-center text-sm font-semibold text-success">{row.totalPresentes || "—"}</td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>

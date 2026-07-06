@@ -30,6 +30,8 @@ interface ParteSemanal {
   kg_reciclado_malla_z2?: number | null;
   resumen_ia?: unknown;
   producto_dia?: ProductoSemanal[];
+  // produccionRealParte espera un Record<string, unknown>
+  [key: string]: unknown;
 }
 
 interface ProductoSemanal {

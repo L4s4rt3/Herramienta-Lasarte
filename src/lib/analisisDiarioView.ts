@@ -26,7 +26,7 @@ export interface WeekRange {
   label: string;
 }
 
-export type Periodo = "esta_semana" | "anterior" | "ultimas_4" | "custom";
+export type Periodo = "esta_semana" | "anterior" | "ultimas_4" | "custom" | "todo";
 
 export function groupLotesByDay(lotes: LoteResumen[]): Map<string, LoteResumen[]> {
   const map = new Map<string, LoteResumen[]>();
@@ -92,6 +92,9 @@ export function buildWeekRange(periodo: Periodo, customDesde?: string, customHas
       end: customHasta ?? toISODate(now),
       label: "Personalizado",
     };
+  }
+  if (periodo === "todo") {
+    return { start: "2000-01-01", end: toISODate(now), label: "Todo el histórico" };
   }
   const monday = getMonday(now);
   if (periodo === "esta_semana") {
@@ -162,7 +165,7 @@ export interface MatrixData {
 }
 
 export function buildClaseMatrix(
-  clases: Array<{ clase: string; kg_total: number }>,
+  _clases: Array<{ clase: string; kg_total: number }>,
   calibresRaw: Array<{ clase: string | null; grupo_destino: string | null; kg: number; part_id: string }>,
   partDateMap: Map<string, string>,
   weekDays: string[]

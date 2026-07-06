@@ -1,7 +1,10 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
+import { InfoTooltip } from "@/components/InfoTooltip";
+import { DeltaChip } from "@/components/DeltaChip";
 import { cn } from "@/lib/utils";
-import { LucideIcon, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { LucideIcon, TrendingUp, TrendingDown } from "lucide-react";
 
 type Trend = "up" | "down" | "neutral";
 type Accent = "primary" | "success" | "warning" | "destructive";
@@ -19,6 +22,10 @@ interface KPICardProps {
   accent?: Accent;
   className?: string;
   to?: string;
+  /** Explicación mostrada en un icono "?" junto a la etiqueta. */
+  labelInfo?: ReactNode;
+  /** Contenido extra bajo el valor/delta (mini-escala, sparkline...). */
+  children?: ReactNode;
 }
 
 const TREND_COLOR: Record<Trend, string> = {
@@ -41,30 +48,22 @@ const ACCENT_ICON: Record<Accent, string> = {
   destructive: "text-destructive",
 };
 
-const DELTA_CHIP: Record<Trend, string> = {
-  up: "bg-success/12 text-success",
-  down: "bg-destructive/12 text-destructive",
-  neutral: "bg-muted/50 text-muted-foreground",
-};
-
-export function KPICard({ label, value, hint, icon: Icon, trend, delta, deltaTrend, accent = "primary", className, to }: KPICardProps) {
+export function KPICard({ label, value, hint, icon: Icon, trend, delta, deltaTrend, accent = "primary", className, to, labelInfo, children }: KPICardProps) {
   const TrendIcon = trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : null;
-  const dt = deltaTrend || "neutral";
-  const DeltaIcon = dt === "up" ? TrendingUp : dt === "down" ? TrendingDown : Minus;
 
   const content = (
     <CardContent className="relative p-4 sm:p-5">
       <div className={cn("absolute inset-x-0 top-0 h-0.5", ACCENT_BAR[accent])} />
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="panel-kicker">{label}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="panel-kicker">{label}</p>
+            {labelInfo && <InfoTooltip>{labelInfo}</InfoTooltip>}
+          </div>
           <p className="mt-2 break-words text-2xl font-semibold tabular-nums leading-tight sm:text-3xl">{value}</p>
           {delta ? (
             <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums", DELTA_CHIP[dt])}>
-                <DeltaIcon className="h-3 w-3" />
-                {delta}
-              </span>
+              <DeltaChip value={delta} trend={deltaTrend || "neutral"} />
               {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
             </div>
           ) : hint ? (
@@ -73,6 +72,7 @@ export function KPICard({ label, value, hint, icon: Icon, trend, delta, deltaTre
               <span className="min-w-0 break-words leading-snug">{hint}</span>
             </div>
           ) : null}
+          {children}
         </div>
         {Icon && (
           <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl glass-strong sm:h-11 sm:w-11", ACCENT_ICON[accent])}>

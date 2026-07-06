@@ -57,7 +57,7 @@ describe("asistenciaPlantilla", () => {
       "Alejandro Carmona",
       "Angel Prisco",
       "Monserrat Garcia Alcazar",
-      "Cristian Prieto",
+      "Cristian Prisco",
       "Ana Maria Rodriguez Ramos",
       "Rocio Flores Ancio",
       "Sara Hans Doblas",

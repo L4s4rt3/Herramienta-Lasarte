@@ -14,6 +14,7 @@ export {
   matchStatus,
   numericHeaderHint,
   columnMaxWidth,
+  fillEmptyHeaders,
 } from "./formatters";
 export type {
   Metric,

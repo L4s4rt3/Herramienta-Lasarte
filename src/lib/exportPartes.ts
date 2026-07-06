@@ -2,14 +2,15 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { computeCascade, CascadeInput, CascadeResult } from "./cascade";
 import { formatDate, formatKg } from "./format";
-import { PDF_THEME, drawExportHeader, drawExportFooter, drawKpiCard, pdfTableTheme } from "./exportTheme";
+import { PDF_THEME, drawExportHeader, drawExportFooter, drawKpiCard, finalizeExportPageNumbers, pdfTableTheme } from "./exportTheme";
 import { appendDictionarySheet, appendRowsSheet, createWorkbook, excelText, saveWorkbook, splitExcelText } from "./exportWorkbook";
 import {
   appendReportCoverSheet,
-  buildReportFilename,
+  buildLasarteFilename,
   drawReportCover,
   drawReportInsights,
   drawReportSectionTitle,
+  ensureExportLogoLoaded,
   type ReportInsight,
   type ReportKpi,
   type ReportMeta,
@@ -243,14 +244,6 @@ export function buildPartesWorkbook(partes: ParteRow[], from: string, to: string
   const wb = createWorkbook("Lasarte SAT - Informe de partes", "Control de produccion y DJPMN");
   const summary = buildPartesReportSummary(partes, from, to);
 
-  const {
-    totalProd,
-    totalPalets,
-    totalDsj,
-    totalMermas,
-    dsjPctGlobal,
-  } = summary.totals;
-
   appendReportCoverSheet(wb, summary.meta, summary.kpis);
 
   const appendPartesSheet = (name: string, rows: Record<string, unknown>[], cols: number[]) =>
@@ -353,7 +346,7 @@ export function buildPartesWorkbook(partes: ParteRow[], from: string, to: string
 
 export function exportPartesToExcel(partes: ParteRow[], from: string, to: string) {
   const wb = buildPartesWorkbook(partes, from, to);
-  saveWorkbook(wb, buildReportFilename(`informe-partes-${from}-${to}`, "xlsx"));
+  saveWorkbook(wb, buildLasarteFilename("Partes", "xlsx", { from, to }));
 }
 
 function drawHeader(doc: jsPDF, pageIndex: number, from: string, to: string, title?: string) {
@@ -375,7 +368,8 @@ function addAutoTablePageHeader(doc: jsPDF, pageIndexRef: { value: number }, fro
   }
 }
 
-export function exportPartesToPDF(partes: ParteRow[], from: string, to: string) {
+export async function exportPartesToPDF(partes: ParteRow[], from: string, to: string) {
+  await ensureExportLogoLoaded();
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const enriched = partes.map((p) => ({ p, c: buildCascade(p) }));
   const pageIndex = { value: 1 };
@@ -592,5 +586,6 @@ export function exportPartesToPDF(partes: ParteRow[], from: string, to: string) 
     drawFooter(doc);
   });
 
-  doc.save(buildReportFilename(`informe-partes-${from}-${to}`, "pdf"));
+  finalizeExportPageNumbers(doc);
+  doc.save(buildLasarteFilename("Partes", "pdf", { from, to }));
 }

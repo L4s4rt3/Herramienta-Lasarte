@@ -8,7 +8,7 @@ interface PreviewSkeletonProps {
 export function PreviewSkeleton({ className }: PreviewSkeletonProps) {
   return (
     <div className={cn("h-full flex flex-col gap-3 min-h-0", className)}>
-      <div className="shrink-0 rounded-xl border border-slate-200/60 bg-white/70 p-4 space-y-3">
+      <div className="shrink-0 glass rounded-xl p-4 space-y-3">
         <div className="flex items-center gap-3">
           <Skeleton className="h-6 w-14 rounded-md" />
           <Skeleton className="h-4 flex-1 max-w-md" />
@@ -18,24 +18,21 @@ export function PreviewSkeleton({ className }: PreviewSkeletonProps) {
 
       <div className="shrink-0 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div
-            key={i}
-            className="rounded-lg border border-slate-200/60 bg-white/60 p-2.5 space-y-1.5"
-          >
+          <div key={i} className="glass rounded-lg p-2.5 space-y-1.5">
             <Skeleton className="h-2.5 w-16" />
             <Skeleton className="h-4 w-20" />
           </div>
         ))}
       </div>
 
-      <div className="flex-1 min-h-0 rounded-xl border border-slate-200/60 bg-white/60 overflow-hidden">
-        <div className="px-3 py-2.5 border-b border-slate-200/80 bg-slate-50/80">
+      <div className="flex-1 min-h-0 glass rounded-xl overflow-hidden">
+        <div className="px-3 py-2.5 border-b border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
           <Skeleton className="h-3 w-full max-w-2xl" />
         </div>
         {Array.from({ length: 6 }).map((_, i) => (
           <div
             key={i}
-            className="flex items-center gap-3 px-3 py-2.5 border-b border-slate-100"
+            className="flex items-center gap-3 px-3 py-2.5 border-b border-[var(--glass-border)]"
           >
             <Skeleton
               className="h-3"

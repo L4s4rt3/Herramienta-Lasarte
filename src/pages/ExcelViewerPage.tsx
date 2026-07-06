@@ -2,9 +2,11 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Download, Loader2, FileSpreadsheet } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft, Download, FileSpreadsheet, AlertTriangle } from "lucide-react";
 import ExcelPreviewer from "@/components/ExcelPreviewer";
 import { parseSheetToStructured, formatSize, formatCell, repairXlsx } from "@/components/ExcelViewerDialog";
+import { PreviewSkeleton } from "@/components/excel-preview";
 
 interface SheetData { name: string; headers: string[]; rows: string[][] }
 
@@ -14,6 +16,7 @@ export default function ExcelViewerPage() {
 
   const [fileName, setFileName] = useState("");
   const [fileSize, setFileSize] = useState<number | null>(null);
+  const [uploadedAt, setUploadedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sheets, setSheets] = useState<SheetData[]>([]);
@@ -28,7 +31,7 @@ export default function ExcelViewerPage() {
     try {
       const { data: fileMeta, error: metaError } = await supabase
         .from("partes_archivos")
-        .select("file_name, file_path, file_size")
+        .select("file_name, file_path, file_size, uploaded_at")
         .eq("id", fileId)
         .single();
 
@@ -37,6 +40,7 @@ export default function ExcelViewerPage() {
       const resolvedName = fileMeta.file_name ?? "Archivo";
       setFileName(resolvedName);
       setFileSize(fileMeta.file_size);
+      setUploadedAt(fileMeta.uploaded_at ?? null);
 
       if (!fileMeta.file_path) throw new Error("El archivo no tiene ruta de almacenamiento");
 
@@ -50,6 +54,7 @@ export default function ExcelViewerPage() {
       const buffer = await data.arrayBuffer();
       const bytes = new Uint8Array(buffer);
       const cleanBytes = repairXlsx(bytes);
+      const looksLikeCsvFile = /\.csv$/i.test(resolvedName);
 
       const isValidContent = (sheets: SheetData[]): boolean => {
         if (sheets.length === 0) return false;
@@ -83,16 +88,29 @@ export default function ExcelViewerPage() {
 
       let parsed: SheetData[] = [];
 
-      for (const [attempt, opts] of [
-        ["Normal", { type: "array" }] as const,
-        ["DEFLATE64 repair", { type: "array" }] as const,
-        ["cellDates", { type: "array", cellDates: true, cellNF: false }] as const,
-        ["raw mode", { type: "array", raw: true }] as const,
-        ["dense mode", { type: "array", dense: true, cellDates: true, raw: true }] as const,
-      ]) {
+      // Si el archivo es .csv, xlsx ya sabe parsear texto CSV directamente
+      // via type: "string" — mas barato y fiable que el fallback manual de
+      // separadores mas abajo.
+      if (looksLikeCsvFile) {
+        try {
+          const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+          const wb = XLSX.read(text, { type: "string", raw: true });
+          const csvParsed = parseWorkbook(wb);
+          if (isValidContent(csvParsed)) parsed = csvParsed;
+        } catch { /* sigue a los intentos binarios */ }
+      }
+
+      const parseAttempts: Array<[string, Parameters<typeof XLSX.read>[1]]> = [
+        ["Normal", { type: "array" }],
+        ["DEFLATE64 repair", { type: "array" }],
+        ["cellDates", { type: "array", cellDates: true, cellNF: false }],
+        ["raw mode", { type: "array", raw: true }],
+        ["dense mode", { type: "array", dense: true, cellDates: true, raw: true }],
+      ];
+      for (const [, opts] of parseAttempts) {
         if (isValidContent(parsed)) break;
         try {
-          const wb = XLSX.read(cleanBytes, opts[1]);
+          const wb = XLSX.read(cleanBytes, opts);
           const result = parseWorkbook(wb);
           if (isValidContent(result)) parsed = result;
         } catch { /* next */ }
@@ -160,85 +178,92 @@ export default function ExcelViewerPage() {
     URL.revokeObjectURL(url);
   }
 
+  const uploadedAtLabel = uploadedAt
+    ? new Date(uploadedAt).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : null;
+
+  const subtitleParts = [
+    fileName ? fileName.split(".").pop()?.toUpperCase() : null,
+    fileSize != null ? formatSize(fileSize) : null,
+    uploadedAtLabel,
+  ].filter(Boolean);
+
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/75 backdrop-blur-xl shadow-[0_1px_18px_rgba(15,23,42,0.06)]">
-        <div className="flex items-center justify-between px-4 py-3 max-w-[1600px] mx-auto">
-          <div className="flex items-center gap-3 min-w-0">
-            <button
-              onClick={() => navigate(-1)}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-slate-100 hover:text-foreground transition-colors"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </button>
-            <FileSpreadsheet className="h-5 w-5 text-primary shrink-0" />
-            <div className="min-w-0">
-              <h1 className="text-sm font-semibold truncate">{fileName}</h1>
-              {fileSize != null && (
-                <p className="text-xs text-muted-foreground">
-                  {formatSize(fileSize)}
-                  {sheets.length > 0 && ` · ${sheets.length} hoja${sheets.length !== 1 ? "s" : ""}`}
-                </p>
-              )}
-            </div>
-          </div>
-          <button
-            onClick={handleDownload}
-            disabled={!blob}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-1.5 text-xs font-medium text-foreground hover:bg-[var(--glass-bg-strong)] transition-colors disabled:opacity-50"
+    <div className="page-shell p-3 sm:p-4 lg:p-6">
+      <header className="page-header">
+        <div className="flex items-start gap-3 min-w-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate(-1)}
+            className="shrink-0"
+            aria-label="Volver"
           >
-            <Download className="h-3.5 w-3.5" />
-            Descargar
-          </button>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <FileSpreadsheet className="h-5 w-5 text-primary shrink-0" />
+              <h1 className="page-title truncate">{fileName || "Cargando…"}</h1>
+            </div>
+            {subtitleParts.length > 0 && (
+              <p className="page-subtitle">{subtitleParts.join(" · ")}</p>
+            )}
+          </div>
         </div>
+        <Button
+          variant="outline"
+          onClick={handleDownload}
+          disabled={!blob}
+          className="glass glass-hover"
+        >
+          <Download className="h-4 w-4 mr-1.5" />
+          Descargar
+        </Button>
       </header>
 
-      <main className="max-w-[1600px] mx-auto p-4 lg:p-6">
-        {loading && (
-          <div className="flex items-center justify-center py-24">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
-            <span className="ml-2 text-sm text-muted-foreground">Cargando archivo…</span>
-          </div>
-        )}
+      {loading && <PreviewSkeleton />}
 
-        {error && (
-          <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
-            {error}
+      {!loading && error && (
+        <div className="glass-accented rounded-xl p-6 flex flex-col items-center gap-3 text-center">
+          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+            <AlertTriangle className="h-5 w-5" />
+          </span>
+          <div className="space-y-1 max-w-lg">
+            <p className="text-sm font-semibold text-foreground">No se pudo previsualizar el archivo</p>
+            <p className="text-sm text-muted-foreground">{error}</p>
           </div>
-        )}
+          <Button
+            variant="outline"
+            onClick={handleDownload}
+            disabled={!blob}
+            className="glass glass-hover mt-1"
+          >
+            <Download className="h-4 w-4 mr-1.5" />
+            Descargar archivo original
+          </Button>
+        </div>
+      )}
 
-        {!loading && !error && sheets.length > 1 && (
-          <div className="flex gap-1.5 mb-4 overflow-x-auto scrollbar-midas">
-            {sheets.map((s, i) => (
-              <button
+      {!loading && !error && sheets.length > 0 && (
+        <div className="glass rounded-xl p-3 sm:p-4">
+          {sheets.map((s, i) => {
+            if (String(i) !== activeSheet) return null;
+            const parsed = parseSheetToStructured(s, fileName);
+            return (
+              <ExcelPreviewer
                 key={i}
-                onClick={() => setActiveSheet(String(i))}
-                className={`shrink-0 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
-                  activeSheet === String(i)
-                    ? "border-orange-500/35 bg-orange-500/10 text-orange-700 shadow-sm"
-                    : "border-slate-200 bg-white/75 text-muted-foreground hover:text-foreground hover:bg-white"
-                }`}
-              >
-                {s.name}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {!loading && !error && sheets.length > 0 && (
-          <div className="rounded-xl border border-slate-200/70 bg-white/55 p-2 shadow-[0_14px_38px_rgba(15,23,42,0.08)] backdrop-blur-sm">
-            {sheets.map((s, i) => {
-              if (String(i) !== activeSheet) return null;
-              const parsed = parseSheetToStructured(s, fileName);
-              return (
-                <div key={i} className="p-2 lg:p-3">
-                  <ExcelPreviewer data={parsed} />
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </main>
+                data={parsed}
+                sheets={sheets}
+                activeSheetIndex={i}
+                onSheetChange={(idx) => setActiveSheet(String(idx))}
+                onDownload={handleDownload}
+                downloadDisabled={!blob}
+              />
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

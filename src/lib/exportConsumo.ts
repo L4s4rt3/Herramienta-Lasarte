@@ -3,14 +3,15 @@ import autoTable from "jspdf-autotable";
 import { formatDate, formatNumber } from "./format";
 import { type ConsumoPeriodoRow } from "./consumosFisicos";
 import { SesionConsumoRow, ConsumoMaquinaRow, MaquinaRow, ConsumoFisicoRow, ConsumoBaseKgRow } from "./types";
-import { drawExportHeader, drawExportFooter, pdfTableTheme } from "./exportTheme";
+import { drawExportHeader, drawExportFooter, finalizeExportPageNumbers, pdfTableTheme } from "./exportTheme";
 import { appendDictionarySheet, appendRowsSheet, createWorkbook, saveWorkbook } from "./exportWorkbook";
 import {
   appendReportCoverSheet,
-  buildReportFilename,
+  buildLasarteFilename,
   drawReportCover,
   drawReportInsights,
   drawReportSectionTitle,
+  ensureExportLogoLoaded,
   type ReportInsight,
   type ReportKpi,
   type ReportMeta,
@@ -129,6 +130,21 @@ export function buildConsumoReportSummary(data: ExportData): ConsumoReportSummar
       issueCount,
     },
   };
+}
+
+function consumoDateRange(data: ExportData): { from?: string; to?: string } {
+  const dates: string[] = [];
+  for (const s of data.sesiones) {
+    if (s.fecha_inicio) dates.push(s.fecha_inicio);
+    if (s.fecha_fin) dates.push(s.fecha_fin);
+  }
+  for (const p of data.periodos ?? []) {
+    if (p.fechaInicio) dates.push(p.fechaInicio);
+    if (p.fechaFin) dates.push(p.fechaFin);
+  }
+  if (dates.length === 0) return {};
+  dates.sort();
+  return { from: dates[0], to: dates[dates.length - 1] };
 }
 
 export function exportConsumoToExcel(data: ExportData) {
@@ -281,7 +297,7 @@ export function exportConsumoToExcel(data: ExportData) {
     { Hoja: "Resumen maquinas", Campo: "% electricidad", Descripcion: "Peso de cada maquina sobre el consumo electrico total.", Uso: "Priorizar mejoras." },
   ]);
 
-  saveWorkbook(wb, buildReportFilename("informe-consumos-fisicos", "xlsx"));
+  saveWorkbook(wb, buildLasarteFilename("Consumos", "xlsx", consumoDateRange(data)));
 }
 
 function drawHeader(doc: jsPDF, pageIndex: number, subtitle?: string) {
@@ -292,7 +308,8 @@ function drawFooter(doc: jsPDF) {
   drawExportFooter(doc);
 }
 
-export function exportConsumoToPDF(data: ExportData) {
+export async function exportConsumoToPDF(data: ExportData) {
+  await ensureExportLogoLoaded();
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   let pageIndex = 1;
   const summary = buildConsumoReportSummary(data);
@@ -332,6 +349,16 @@ export function exportConsumoToPDF(data: ExportData) {
       ];
     });
 
+  const pageIndexRef = { value: pageIndex };
+  const onDrawPage = (subtitle?: string) => () => {
+    const pages = doc.getNumberOfPages();
+    if (pages > pageIndexRef.value) {
+      pageIndexRef.value = pages;
+      drawHeader(doc, pageIndexRef.value, subtitle);
+      drawFooter(doc);
+    }
+  };
+
   autoTable(doc, {
     startY: y,
     head: hasPeriodos
@@ -339,21 +366,15 @@ export function exportConsumoToPDF(data: ExportData) {
       : [["Periodo", "Kg", "Agua L/kg", "kWh/kg", "Gasoil mL/kg", "Quimicos mL/kg"]],
     body,
     ...pdfTableTheme(),
-    didDrawPage: () => {
-      const pages = doc.getNumberOfPages();
-      if (pages > pageIndex) {
-        pageIndex++;
-        drawHeader(doc, pageIndex);
-      }
-    },
+    didDrawPage: onDrawPage(),
   });
 
   drawFooter(doc);
 
   if (hasPeriodos) {
     doc.addPage();
-    pageIndex++;
-    drawHeader(doc, pageIndex, "Validacion");
+    pageIndexRef.value = doc.getNumberOfPages();
+    drawHeader(doc, pageIndexRef.value, "Validacion");
     const validationY = drawReportSectionTitle(doc, "Validacion de consumos", 24, "Observaciones detectadas en los periodos");
     const validationRows = periodos
       .filter((row) => row.issues.length > 0)
@@ -366,6 +387,7 @@ export function exportConsumoToPDF(data: ExportData) {
         ? validationRows
         : [["Todos", "OK", "Sin incidencias de validacion"]],
       ...pdfTableTheme(),
+      didDrawPage: onDrawPage("Validacion"),
     });
 
     drawFooter(doc);
@@ -373,8 +395,8 @@ export function exportConsumoToPDF(data: ExportData) {
 
   if (data.maquinas.length > 0) {
     doc.addPage();
-    pageIndex++;
-    drawHeader(doc, pageIndex, "Maquinas");
+    pageIndexRef.value = doc.getNumberOfPages();
+    drawHeader(doc, pageIndexRef.value, "Maquinas");
     const machinesY = drawReportSectionTitle(doc, "Desglose de consumos por maquina", 24, "Consumo electrico granular por equipo");
 
     const maqBody = data.maquinas.map((m) => {
@@ -389,10 +411,12 @@ export function exportConsumoToPDF(data: ExportData) {
       head: [["Maquina", "Zona", "kWh total", "kWh/kg"]],
       body: maqBody,
       ...pdfTableTheme(),
+      didDrawPage: onDrawPage("Maquinas"),
     });
 
     drawFooter(doc);
   }
 
-  doc.save(buildReportFilename("informe-consumos-fisicos", "pdf"));
+  finalizeExportPageNumbers(doc);
+  doc.save(buildLasarteFilename("Consumos", "pdf", consumoDateRange(data)));
 }

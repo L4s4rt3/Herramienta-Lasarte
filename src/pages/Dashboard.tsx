@@ -1,13 +1,19 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { usePartesDashboard } from "@/hooks/usePartes";
+import { useMercadona } from "@/hooks/useMercadona";
 import { KPICard } from "@/components/KPICard";
 import { SemaforoPill } from "@/components/SemaforoPill";
-import { getSemaforo } from "@/lib/semaforo";
+import { InfoTooltip } from "@/components/InfoTooltip";
+import { DsjScale } from "@/components/DsjScale";
+import { Sparkline } from "@/components/Sparkline";
+import { getSemaforo, DJPMN_HELP } from "@/lib/semaforo";
+import { detectarTipoClasificacion, GRUPO_COLORS } from "@/lib/destinoClasificacion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tooltip as UiTooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   ComposedChart, Line, Bar, Cell, CartesianGrid, XAxis, YAxis,
-  Tooltip, ReferenceLine, ResponsiveContainer,
+  Tooltip, ReferenceLine, ReferenceArea, ResponsiveContainer,
   PieChart, Pie,
 } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,12 +22,13 @@ import { calcularTphOperativa } from "@/lib/velocidadOperativa";
 import { cn } from "@/lib/utils";
 import {
   Truck, Package, TrendingDown, BarChart3,
-  Gauge, Droplet, Plus,
+  Gauge, Droplet, Plus, ShoppingCart,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  GlassTooltip, C, DEST_COLORS, GRID, XAXIS, YAXIS, MARGIN,
+  GlassTooltip, C, GRID, XAXIS, YAXIS, MARGIN,
   BAR_STYLE, CHART_CURSOR, CHART_LINE_CURSOR, CHART_PANEL_CLASS,
   PIE_STYLE, activeDotStyle, barFill,
 } from "@/lib/chartTheme";
@@ -44,26 +51,6 @@ interface DsjDotProps {
     dsj_pct?: number;
   };
 }
-
-function detectarTipoClasificacion(valor: string | null): string {
-  if (!valor) return "Otro";
-  const v = valor.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-  if (v.includes("no_export") || v.includes("no export") || v.includes("no_exportac") || v.includes("no exportac")) return "No exportación";
-  if (v.includes("no_comerc") || v.includes("no comerc") || v.includes("industria") || v.includes("ind")) return "No comercial";
-  if (v.includes("export") || v.includes("ext")) return "Exportación";
-  if (v.includes("mujer")) return "Mujeres";
-  if (v.includes("mercado") || v.includes("nac") || v.includes("interior") || v.includes("int")) return "Mercado";
-  return valor;
-}
-
-const GRUPO_COLORS: Record<string, string> = {
-  "Exportación":   DEST_COLORS.exportacion,
-  "Mercado":       DEST_COLORS.mercado,
-  "No exportación": DEST_COLORS.noExportacion,
-  "No comercial":  DEST_COLORS.noComercial,
-  "Mujeres":       DEST_COLORS.mujeres,
-  "Otro":          DEST_COLORS.otro,
-};
 
 const WEEKS_IN_PANEL = 6;
 
@@ -94,8 +81,8 @@ function getWeekStart(date: Date) {
   return d;
 }
 
-function buildRecentWeeks(count: number) {
-  const currentStart = getWeekStart(new Date());
+function buildRecentWeeks(count: number, anchor: Date) {
+  const currentStart = getWeekStart(anchor);
   return Array.from({ length: count }, (_, index) => {
     const start = addDays(currentStart, (index - count + 1) * 7);
     const end = addDays(start, 6);
@@ -121,16 +108,25 @@ function ChartTooltip({ active, payload, label }: ChartTooltipProps) {
   const items: { name: string; value: string; color: string }[] = [];
   if (prod) items.push({ name: "Producción", value: formatKg(Number(prod.value ?? 0)), color: C.primary });
   if (dsj)  items.push({ name: "DJPMN",      value: `${dsjValue >= 0 ? "+" : ""}${dsjValue.toFixed(2)}%`, color: abs <= 3 ? C.success : abs <= 5 ? C.warning : C.destructive });
-  return <GlassTooltip active label={label} payload={items} />;
+  return <GlassTooltip active label={label !== undefined ? String(label) : undefined} payload={items} />;
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const weeks = useMemo(() => buildRecentWeeks(WEEKS_IN_PANEL), []);
+  // 0 = semana actual; cada paso atrás resta 1 semana. No se permite ir al futuro.
+  const [weekOffset, setWeekOffset] = useState(0);
+  const isCurrentWeek = weekOffset === 0;
+  const anchorDate = useMemo(() => addDays(new Date(), weekOffset * 7), [weekOffset]);
+  const weeks = useMemo(() => buildRecentWeeks(WEEKS_IN_PANEL, anchorDate), [anchorDate]);
   const currentWeek = weeks[weeks.length - 1];
   const previousWeek = weeks[weeks.length - 2];
-  const dashboardDays = WEEKS_IN_PANEL * 7;
+  // Cubre desde hoy hasta el inicio del panel visible, aunque el ancla esté en el pasado.
+  const dashboardDays = useMemo(() => {
+    const earliest = new Date(`${weeks[0].start}T12:00:00`);
+    const diffDays = Math.ceil((Date.now() - earliest.getTime()) / 86400000);
+    return Math.max(diffDays + 7, WEEKS_IN_PANEL * 7);
+  }, [weeks]);
   const { partes, loading } = usePartesDashboard(dashboardDays);
 
   const weeklyRows = useMemo(() => {
@@ -163,7 +159,7 @@ export default function Dashboard() {
   const sem = getSemaforo(currentWeekData.dsj_pct);
 
   // Distribución por grupo de destino (semana actual)
-  const { data: grupoDistribution } = useQuery({
+  const { data: grupoDistribution, isLoading: grupoDistributionLoading } = useQuery({
     queryKey: ["dashboard-grupo-distribution", currentWeek.start, currentWeek.end],
     queryFn: async () => {
       const { data: partesIds } = await supabase
@@ -202,6 +198,10 @@ export default function Dashboard() {
     },
   });
 
+  // Aprovechamiento Mercadona (mismo rango que la distribución por destino)
+  const mercadona = useMercadona(currentWeek.start, currentWeek.end);
+  const mercadonaFormatos = useMemo(() => mercadona.por_formato.slice(0, 6), [mercadona.por_formato]);
+
   // T/h usando exactamente 8 horas por día
   const avgTph = calcularTphOperativa(currentWeekData.produccion, currentWeekData.partes);
 
@@ -215,9 +215,39 @@ export default function Dashboard() {
             <h1 className="page-title">Control de Producción</h1>
             {!loading && <SemaforoPill dsjPct={currentWeekData.dsj_pct} />}
           </div>
-          <p className="page-subtitle">
-            Semana {currentWeek.weekNumber} · {currentWeek.rangeLabel} · últimas {WEEKS_IN_PANEL} semanas
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-0.5 rounded-lg bg-[var(--glass-bg)] border border-[var(--glass-border)] px-1 py-0.5 shadow-[var(--glass-shadow)]">
+              <button
+                type="button"
+                onClick={() => setWeekOffset((o) => o - 1)}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--glass-bg-strong)] hover:text-foreground"
+                aria-label="Semana anterior"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setWeekOffset((o) => Math.min(0, o + 1))}
+                disabled={isCurrentWeek}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--glass-bg-strong)] hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+                aria-label="Semana siguiente"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="page-subtitle !mt-0">
+              Semana {currentWeek.weekNumber} · {currentWeek.rangeLabel} · últimas {WEEKS_IN_PANEL} semanas
+            </p>
+            {!isCurrentWeek && (
+              <button
+                type="button"
+                onClick={() => setWeekOffset(0)}
+                className="text-xs font-medium text-primary hover:underline underline-offset-2"
+              >
+                Volver a hoy
+              </button>
+            )}
+          </div>
         </div>
         <div className="button-row mt-1 flex flex-wrap items-center gap-2 sm:gap-3 lg:mt-0">
           <Link
@@ -254,14 +284,18 @@ export default function Dashboard() {
               label={`Producción S${currentWeek.weekNumber}`}
               value={formatKg(currentWeekData.produccion)}
               icon={Truck}
+              labelInfo="Producción real del calibrador: kg entrados, menos mujeres clase L y reciclado de mallas Z1/Z2."
               delta={previousWeek ? `${weekChangePct >= 0 ? "+" : ""}${weekChangePct.toFixed(1)}%` : undefined}
               deltaTrend={weekChangePct >= 0 ? "up" : "down"}
-              hint={previousWeek ? `vs S${previousWeek.weekNumber}` : `${currentWeekData.partes} partes`}
-            />
+              hint={previousWeek ? `vs S${previousWeek.weekNumber}` : `${currentWeekData.partes} parte${currentWeekData.partes === 1 ? "" : "s"}`}
+            >
+              <Sparkline values={weeklyRows.map((w) => w.produccion)} />
+            </KPICard>
             <KPICard
               label="Kg dados de alta"
               value={formatKg(currentWeekData.palets)}
               icon={Package}
+              labelInfo="Palets ajustados: palets brutos dados de alta, menos el inventario pendiente de alta del día anterior."
               delta={previousWeek ? `${paletsChangePct >= 0 ? "+" : ""}${paletsChangePct.toFixed(1)}%` : undefined}
               deltaTrend={paletsChangePct >= 0 ? "up" : "down"}
               hint={previousWeek ? `vs S${previousWeek.weekNumber}` : undefined}
@@ -271,20 +305,174 @@ export default function Dashboard() {
               value={formatKg(currentWeekData.dsj)}
               icon={TrendingDown}
               accent={sem.accent}
+              labelInfo={DJPMN_HELP}
               delta={`${currentWeekData.dsj_pct >= 0 ? "+" : ""}${currentWeekData.dsj_pct.toFixed(2)}%`}
               deltaTrend={sem.deltaTrend}
               hint={previousWeek ? `${dsjTrend >= 0 ? "+" : ""}${dsjTrend.toFixed(2)} pp vs S${previousWeek.weekNumber}` : undefined}
-            />
+            >
+              <DsjScale dsjPct={currentWeekData.dsj_pct} />
+            </KPICard>
             <KPICard
               label="Velocidad media"
               value={avgTph !== null ? `${avgTph.toFixed(1)} T/h` : "—"}
-              hint={`${currentWeekData.partes} días × 8 h/día`}
               icon={Gauge}
+              labelInfo="T/h = kg producidos entre horas trabajadas, usando 8 h/día como base fija. Objetivo de referencia: 14,5 T/h."
+              delta={avgTph !== null ? `${avgTph - 14.5 >= 0 ? "+" : ""}${(avgTph - 14.5).toFixed(1)} T/h` : undefined}
+              deltaTrend={avgTph !== null ? (avgTph >= 14.5 ? "up" : avgTph >= 12.5 ? "neutral" : "down") : "neutral"}
               trend={avgTph !== null ? (avgTph >= 14.5 ? "up" : avgTph >= 12.5 ? "neutral" : "down") : "neutral"}
+              hint={avgTph !== null ? `${currentWeekData.partes} día${currentWeekData.partes === 1 ? "" : "s"} · meta 14,5 T/h` : "Sin datos de velocidad esta semana"}
             />
           </>
         )}
       </section>
+
+      {/* ─── Aprovechamiento Mercadona ──────────────────────────────────── */}
+      <Card className="overflow-hidden glass-accented">
+        <CardHeader className="pb-3 px-5 pt-4">
+          <div className="flex items-center gap-3">
+            <div className="h-7 w-1 rounded-full bg-primary" />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <CardTitle className="text-lg font-semibold">Aprovechamiento Mercadona</CardTitle>
+                <InfoTooltip>
+                  % de los kg confeccionados (informe de producto) del período en formatos Mercadona (MDNA).
+                </InfoTooltip>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Cliente principal · Semana {currentWeek.weekNumber} · {currentWeek.rangeLabel}
+              </p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 pt-1">
+          {mercadona.isLoading ? (
+            <Skeleton className="h-52" />
+          ) : mercadona.kg_total === 0 ? (
+            <div className="flex h-52 flex-col items-center justify-center gap-1 px-4 text-center text-sm text-muted-foreground">
+              <ShoppingCart className="mx-auto mb-2 h-10 w-10 text-muted-foreground/30" />
+              <p className="font-medium text-foreground">Sin confección registrada</p>
+              <p className="max-w-xs text-xs text-muted-foreground">
+                No hay kg confeccionados (informe de producto) en esta semana todavía, así que no se puede calcular el aprovechamiento de Mercadona.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {/* KPI grande */}
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-3xl font-semibold tabular-nums leading-tight sm:text-4xl">
+                    {mercadona.pct_kg.toFixed(1)}%
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    de los kg confeccionados de la semana fueron para Mercadona
+                  </p>
+                </div>
+                <div className="flex items-center gap-4 rounded-xl bg-[var(--glass-bg)] px-4 py-2.5 text-sm">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Kg Mercadona</p>
+                    <p className="font-semibold tabular-nums">{formatKg(mercadona.kg_mercadona)}</p>
+                  </div>
+                  <div className="h-8 w-px bg-[var(--glass-border)]" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Cajas</p>
+                    <p className="font-semibold tabular-nums">{mercadona.n_cajas_mercadona.toLocaleString("es-ES")}</p>
+                  </div>
+                </div>
+              </div>
+
+              {mercadonaFormatos.length > 0 && (
+                <div className="grid gap-5 lg:grid-cols-2">
+                  {/* Desglose por formato */}
+                  <div className="space-y-3">
+                    <p className="panel-kicker">Por formato</p>
+                    {mercadonaFormatos.map((f) => (
+                      <div key={f.formato} className="space-y-1.5">
+                        <div className="flex items-center justify-between text-sm">
+                          <UiTooltip delayDuration={150}>
+                            <TooltipTrigger asChild>
+                              <span className="min-w-0 truncate font-medium underline decoration-dotted decoration-muted-foreground/50 underline-offset-2">
+                                {f.formato}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-[280px] text-xs leading-relaxed">
+                              <ul className="list-disc space-y-0.5 pl-3">
+                                {f.productos.map((nombre) => (
+                                  <li key={nombre}>{nombre}</li>
+                                ))}
+                              </ul>
+                            </TooltipContent>
+                          </UiTooltip>
+                          <div className="flex shrink-0 items-center gap-3">
+                            <span className="tabular-nums text-xs text-muted-foreground">{formatKg(f.kg)}</span>
+                            <span className="tabular-nums text-xs text-muted-foreground">{f.n_cajas.toLocaleString("es-ES")} caj.</span>
+                            <span className="min-w-[45px] text-right font-bold tabular-nums">{f.pct.toFixed(1)}%</span>
+                          </div>
+                        </div>
+                        <div className="h-2 w-full overflow-hidden rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
+                          <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{
+                              width: `${Math.min(f.pct, 100)}%`,
+                              background: `linear-gradient(90deg, ${barFill(C.primary, 0.5)}, ${barFill(C.primary, 0.75)})`,
+                              borderRight: `1.5px solid ${C.primary}`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Mini evolución diaria */}
+                  <div className="space-y-2">
+                    <p className="panel-kicker">Evolución diaria</p>
+                    <div className={cn("h-40", CHART_PANEL_CLASS)}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={mercadona.por_dia} margin={MARGIN}>
+                          <CartesianGrid {...GRID} />
+                          <XAxis
+                            dataKey="date"
+                            {...XAXIS}
+                            tickFormatter={(v: string) => v.slice(8, 10)}
+                          />
+                          <YAxis
+                            {...YAXIS}
+                            tickFormatter={(v) => `${v}%`}
+                            width={32}
+                            domain={[0, 100]}
+                          />
+                          <Tooltip
+                            cursor={CHART_CURSOR}
+                            content={({ active, payload, label }) => {
+                              if (!active || !payload?.length) return null;
+                              const d = payload[0].payload as { kg_mercadona: number; kg_total: number; pct: number };
+                              return (
+                                <GlassTooltip
+                                  active
+                                  label={typeof label === "string" ? new Date(`${label}T12:00:00`).toLocaleDateString("es-ES", { day: "numeric", month: "short" }) : undefined}
+                                  payload={[
+                                    { name: "% Mercadona", value: `${d.pct.toFixed(1)}%`, color: C.primary },
+                                    { name: "Kg Mercadona", value: formatKg(d.kg_mercadona), color: C.primary },
+                                    { name: "Kg total", value: formatKg(d.kg_total), color: C.muted },
+                                  ]}
+                                />
+                              );
+                            }}
+                          />
+                          <Bar dataKey="pct" {...BAR_STYLE} stroke={C.primary} name="pct">
+                            {mercadona.por_dia.map((entry) => (
+                              <Cell key={entry.date} fill={barFill(C.primary, 0.35)} />
+                            ))}
+                          </Bar>
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ─── Evolución semanal ────────────────────────────────────────────── */}
       <Card className="overflow-hidden glass-accented">
@@ -308,11 +496,6 @@ export default function Dashboard() {
           <div className={CHART_PANEL_CLASS}>
             {loading ? (
               <Skeleton className="h-64 sm:h-[340px]" />
-            ) : chartDisplayData.length === 0 ? (
-              <div className="flex h-64 flex-col items-center justify-center text-sm text-muted-foreground sm:h-[340px]">
-                <BarChart3 className="mx-auto mb-3 h-10 w-10 text-muted-foreground/30" />
-                <p>Sin datos para mostrar</p>
-              </div>
             ) : (
               <div className="h-64 sm:h-[340px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -332,6 +515,15 @@ export default function Dashboard() {
                       tickFormatter={(v) => `${v}%`}
                       width={38}
                       domain={[-8, 8]}
+                    />
+                    <ReferenceArea
+                      yAxisId="pct"
+                      y1={-3}
+                      y2={3}
+                      fill={C.success}
+                      fillOpacity={0.07}
+                      stroke="none"
+                      label={{ value: "Zona OK", position: "insideTopRight", fill: C.muted, fontSize: 9 }}
                     />
                     <Tooltip cursor={CHART_CURSOR} content={<ChartTooltip />} />
                     <Bar
@@ -359,7 +551,8 @@ export default function Dashboard() {
                       strokeWidth={2.5}
                       dot={(props: DsjDotProps) => {
                         const { cx, cy, payload } = props;
-                        if (cx === undefined || cy === undefined) return null;
+                        // recharts exige devolver siempre un elemento SVG (null rompe el tipado del prop `dot`).
+                        if (cx === undefined || cy === undefined) return <g key={`dot-${cx}-${cy}`} />;
                         const abs = Math.abs(payload?.dsj_pct ?? 0);
                         const color = abs <= 3 ? C.success : abs <= 5 ? C.warning : C.destructive;
                         return <circle key={cx} cx={cx} cy={cy} r={abs > 5 ? 5 : 3.5} fill={color} stroke="var(--glass-bg-strong)" strokeWidth={2} />;
@@ -380,8 +573,13 @@ export default function Dashboard() {
         <CardHeader className="pb-3 px-5 pt-4">
           <div className="flex items-center gap-3">
             <div className="h-7 w-1 rounded-full bg-primary" />
-            <div>
-              <CardTitle className="text-lg font-semibold">Distribución por destino</CardTitle>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <CardTitle className="text-lg font-semibold">Distribución por destino</CardTitle>
+                <InfoTooltip>
+                  Exportación: fruta para mercados internacionales. Mercado: venta nacional. No exportación / No comercial: fruta que no cumple el estándar de exportación y va a industria u otros usos. Mujeres: clasificado manual en la línea de mujeres.
+                </InfoTooltip>
+              </div>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Reparto de kg clasificados · Semana {currentWeek.weekNumber}
               </p>
@@ -389,10 +587,19 @@ export default function Dashboard() {
           </div>
         </CardHeader>
         <CardContent className="px-4 pb-4 pt-1">
-          {!grupoDistribution || grupoDistribution.length === 0 ? (
-            <div className="flex h-52 flex-col items-center justify-center text-sm text-muted-foreground">
-              <Package className="mx-auto mb-3 h-10 w-10 text-muted-foreground/30" />
-              <p>Sin datos de clasificación en el período</p>
+          {grupoDistributionLoading ? (
+            <Skeleton className="h-52" />
+          ) : !grupoDistribution || grupoDistribution.length === 0 ? (
+            <div className="flex h-52 flex-col items-center justify-center gap-1 px-4 text-center text-sm text-muted-foreground">
+              <Package className="mx-auto mb-2 h-10 w-10 text-muted-foreground/30" />
+              <p className="font-medium text-foreground">Sin datos de clasificación</p>
+              <p className="max-w-xs text-xs text-muted-foreground">Sube el informe de tamaños/calibres al analizar un parte con IA para ver el reparto por destino.</p>
+              <Link
+                to="/analisis/diario"
+                className="mt-3 inline-flex items-center gap-1.5 rounded-xl glass glass-hover px-3 py-1.5 text-xs font-medium text-primary"
+              >
+                <BarChart3 className="h-3.5 w-3.5" /> Ir a Análisis diario
+              </Link>
             </div>
           ) : (
             <div className="flex flex-col items-center gap-5 sm:flex-row sm:gap-6">

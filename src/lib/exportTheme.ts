@@ -16,6 +16,84 @@ export const PDF_THEME = {
   info: [45, 128, 170] as [number, number, number],
 };
 
+export const EXPORT_FOOTER_TEXT = "Lasarte SAT · Herramienta de control operativo";
+
+const LASARTE_LOGO_PATH = "/branding/lasarte-sat-logo.jpeg";
+// Relacion de aspecto real del logo (aprox. 1200x233 px en el jpeg fuente).
+const LASARTE_LOGO_ASPECT = 1200 / 233;
+
+let logoDataUrlPromise: Promise<string | null> | null = null;
+
+// Carga el logo corporativo UNA sola vez por sesion de módulo y lo cachea como
+// dataURL para poder llamarlo de forma sincrona (jsPDF.addImage no es async)
+// en cada pagina/portada. Si falla (offline, entorno sin fetch, etc.) se
+// devuelve null y quien llama debe hacer fallback silencioso a texto.
+export function preloadExportLogo(): Promise<string | null> {
+  if (!logoDataUrlPromise) {
+    logoDataUrlPromise = (async () => {
+      if (typeof fetch !== "function") return null;
+      try {
+        const response = await fetch(LASARTE_LOGO_PATH);
+        if (!response.ok) return null;
+        const blob = await response.blob();
+        return await new Promise<string | null>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(blob);
+        });
+      } catch {
+        return null;
+      }
+    })();
+  }
+  return logoDataUrlPromise;
+}
+
+function getCachedLogoDataUrl(): string | null {
+  // Si ya se resolvio la promesa antes (p.ej. tras preloadExportLogo en el
+  // arranque del export), esto devuelve el valor sin esperar. Si no se ha
+  // llamado a preloadExportLogo, no bloqueamos el dibujo sincrono del PDF:
+  // se dispara la carga en background para la proxima pagina y se hace
+  // fallback a texto en esta.
+  let cached: string | null = null;
+  preloadExportLogo().then((url) => {
+    cached = url;
+  });
+  return cached;
+}
+
+/**
+ * Dibuja el logo Lasarte SAT anclado por su esquina superior-izquierda
+ * (x, yTop) si ya esta cacheado, y devuelve el ancho ocupado en mm. Si el
+ * logo aun no esta disponible (no se ha precargado o fallo la carga), dibuja
+ * el texto "Lasarte SAT" como fallback silencioso y devuelve 0 (no reserva
+ * hueco, el llamante decide donde colocar el resto de textos).
+ */
+export function drawLogoOrFallback(
+  doc: jsPDF,
+  x: number,
+  yTop: number,
+  height: number,
+  fallback: { x: number; yBaseline: number; fontSize: number; color?: [number, number, number] },
+): number {
+  const dataUrl = getCachedLogoDataUrl();
+  if (dataUrl) {
+    try {
+      const width = height * LASARTE_LOGO_ASPECT;
+      doc.addImage(dataUrl, "JPEG", x, yTop, width, height);
+      return width;
+    } catch {
+      // sigue al fallback de texto
+    }
+  }
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(fallback.fontSize);
+  doc.setTextColor(...(fallback.color ?? PDF_THEME.primaryDark));
+  doc.text("Lasarte SAT", fallback.x, fallback.yBaseline);
+  return 0;
+}
+
 export function drawExportHeader(doc: jsPDF, pageIndex: number, title: string, subtitle?: string) {
   const pageWidth = doc.internal.pageSize.getWidth();
   doc.setFillColor(...PDF_THEME.cream);
@@ -25,11 +103,9 @@ export function drawExportHeader(doc: jsPDF, pageIndex: number, title: string, s
   doc.setDrawColor(...PDF_THEME.border);
   doc.line(8, 22, pageWidth - 8, 22);
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(...PDF_THEME.primaryDark);
-  doc.text("Lasarte SAT", 8, 10);
+  drawLogoOrFallback(doc, 8, 5, 6, { x: 8, yBaseline: 10, fontSize: 10 });
 
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(...PDF_THEME.text);
   doc.text(title, 8, 16);
@@ -50,7 +126,28 @@ export function drawExportFooter(doc: jsPDF) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(6);
   doc.setTextColor(...PDF_THEME.muted);
-  doc.text("Herramienta de control de produccion Lasarte SAT", pageWidth / 2, pageHeight - 7, { align: "center" });
+  doc.text(EXPORT_FOOTER_TEXT, pageWidth / 2, pageHeight - 7, { align: "center" });
+}
+
+/**
+ * Recorre TODAS las paginas del documento ya generado y añade/actualiza la
+ * numeracion "Pagina X de Y" en la esquina inferior derecha, encima del pie
+ * ya dibujado por drawExportFooter. Debe llamarse una unica vez, al final de
+ * cada export, cuando ya se conoce el numero total de paginas.
+ */
+export function finalizeExportPageNumbers(doc: jsPDF) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const total = doc.getNumberOfPages();
+  for (let i = 1; i <= total; i += 1) {
+    doc.setPage(i);
+    doc.setFillColor(...PDF_THEME.cream);
+    doc.rect(pageWidth - 34, pageHeight - 11.5, 26, 4.5, "F");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6);
+    doc.setTextColor(...PDF_THEME.muted);
+    doc.text(`Pagina ${i} de ${total}`, pageWidth - 8, pageHeight - 8, { align: "right" });
+  }
 }
 
 export function pdfTableTheme() {

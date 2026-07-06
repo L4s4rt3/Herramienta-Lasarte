@@ -9,8 +9,10 @@
  * DSJ = Diferencia bruta − Mermas totales
  * % DSJ = DSJ / Producción real
  *
- * M3 — Destino de fruta (opcional, desde Informe_producto + Informe_tamaños):
- *   Rendimiento comercial = kg_exportacion / produccion_real
+ * El destino de fruta (exportación/mercado/industria) y la eficiencia de
+ * máquina (T/h) NO se calculan aquí: viven en calibres_dia y lotes_dia,
+ * y se consultan aparte (ver PartDetail.tsx) porque no forman parte del
+ * balance de masa del DSJ.
  */
 
 export interface CascadeInput {
@@ -28,12 +30,7 @@ export interface CascadeInput {
   // Arrastre
   kg_inventario_anterior_sin_alta: number;
 
-  // M3 — Destino de fruta (opcionales, desde informes Excel)
-  kg_exportacion?: number;
-  kg_mercado?: number;
-  kg_industria_destino?: number;  // industria generada (distinto de industria_manual)
-
-  // M6 — Eficiencia de máquina (opcional, desde Informe_produccion)
+  // Eficiencia de máquina (opcional; ver calcularTphOperativa)
   tph_promedio?: number;
 }
 
@@ -61,18 +58,7 @@ export interface CascadeResult {
   dsj_pct: number;
   semaforo: "verde" | "amarillo" | "rojo";
 
-  // M3 — Destino de fruta
-  kg_exportacion: number;
-  kg_mercado: number;
-  kg_industria_destino: number;
-  /** Producción real − exportación − mercado − industria = pérdida real no justificada */
-  kg_perdida_real: number;
-  /** kg exportación / producción real · 100 */
-  rendimiento_comercial_pct: number;
-  /** true si tenemos datos de destino de los informes */
-  tiene_datos_destino: boolean;
-
-  // M6 — Eficiencia de máquina
+  // Eficiencia de máquina
   tph_promedio: number | null;
 }
 
@@ -108,27 +94,6 @@ export function computeCascade(input: CascadeInput): CascadeResult {
   const semaforo: "verde" | "amarillo" | "rojo" =
     abs <= 3 ? "verde" : abs <= 5 ? "amarillo" : "rojo";
 
-  // M3 — Destino de fruta
-  const tiene_datos_destino =
-    (input.kg_exportacion ?? 0) > 0 ||
-    (input.kg_mercado ?? 0) > 0 ||
-    (input.kg_industria_destino ?? 0) > 0;
-
-  const kg_exportacion = n(input.kg_exportacion);
-  const kg_mercado = n(input.kg_mercado);
-  const kg_industria_destino = n(input.kg_industria_destino);
-
-  const kg_destino_conocido = kg_exportacion + kg_mercado + kg_industria_destino;
-  const kg_perdida_real = tiene_datos_destino
-    ? Math.max(0, produccion_real - kg_destino_conocido)
-    : 0;
-
-  const rendimiento_comercial_pct =
-    tiene_datos_destino && produccion_real > 0
-      ? (kg_exportacion / produccion_real) * 100
-      : 0;
-
-  // M6 — T/h
   const tph_promedio =
     input.tph_promedio !== undefined && input.tph_promedio !== null
       ? input.tph_promedio
@@ -153,12 +118,6 @@ export function computeCascade(input: CascadeInput): CascadeResult {
     dsj,
     dsj_pct,
     semaforo,
-    kg_exportacion,
-    kg_mercado,
-    kg_industria_destino,
-    kg_perdida_real,
-    rendimiento_comercial_pct,
-    tiene_datos_destino,
     tph_promedio,
   };
 }

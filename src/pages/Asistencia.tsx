@@ -28,7 +28,6 @@ import {
   CheckCircle2, PackageCheck, FileText, Download, ChevronDown, Pencil, X,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { today } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -86,7 +85,6 @@ import {
   type SemanaDataRaw,
   getWeekDates,
   getWeekLabel,
-  getWeekShortLabel,
   shiftWeek,
   buildFaltasSemanales as buildFaltasSemanalesFnc,
   calcularKgPersonaSemanal,
@@ -126,11 +124,11 @@ function kgProductoInforme(item: ProductoConfeccionDia) {
 }
 
 function zonaProductoBadgeClass(zona: string) {
-  if (zona === "Mallas") return "border-emerald-300 bg-emerald-50 text-emerald-900";
-  if (zona === "Graneleras") return "border-sky-300 bg-sky-50 text-sky-900";
-  if (zona === "Mesas") return "border-amber-300 bg-amber-50 text-amber-900";
-  if (zona === "Industria") return "border-violet-300 bg-violet-50 text-violet-900";
-  return "border-slate-300 bg-slate-50 text-slate-700";
+  if (zona === "Mallas") return "border-success/40 bg-success/10 text-success";
+  if (zona === "Graneleras") return "border-info/40 bg-info/10 text-info";
+  if (zona === "Mesas") return "border-warning/40 bg-warning/10 text-warning";
+  if (zona === "Industria") return "border-primary/40 bg-primary/10 text-primary";
+  return "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground";
 }
 
 function errorMessage(err: unknown) {
@@ -167,6 +165,7 @@ function inicialesTrabajador(nombre: string) {
 }
 
 interface ParteDiarioRendimiento {
+  [key: string]: unknown;
   id?: string;
   resumen_ia?: unknown;
   kg_produccion_calibrador?: number | null;
@@ -407,9 +406,9 @@ export default function Asistencia() {
       const resumen = `Media global: ${kgPersonaGlobal} kg/persona`;
 
       if (tipo === "excel") {
-        exportEficienciaToExcel(semanas, resumen);
+        await exportEficienciaToExcel(semanas, resumen);
       } else {
-        exportEficienciaToPDF(semanas, resumen);
+        await exportEficienciaToPDF(semanas, resumen);
       }
     } catch (err: unknown) {
       toast({
@@ -1334,7 +1333,7 @@ export default function Asistencia() {
       detail: "Todo marcado",
       names: sinRegistroTrabajadores.map((t) => t.nombre),
       filter: "sinRegistro" as WorkerFilter,
-      tone: "border-amber-300/50 bg-amber-50/60 text-amber-950",
+      tone: "border-warning/40 bg-warning/10 text-warning",
     },
     {
       label: "Ausentes",
@@ -1342,7 +1341,7 @@ export default function Asistencia() {
       detail: "Sin ausencias",
       names: ausentesSinBajaTrabajadores.map((t) => t.nombre),
       filter: "ausentes" as WorkerFilter,
-      tone: "border-rose-300/50 bg-rose-50/60 text-rose-950",
+      tone: "border-destructive/40 bg-destructive/10 text-destructive",
     },
     {
       label: "Baja laboral",
@@ -1350,7 +1349,7 @@ export default function Asistencia() {
       detail: "Sin bajas laborales",
       names: bajaLaboralTrabajadores.map((t) => t.nombre),
       filter: "bajaLaboral" as WorkerFilter,
-      tone: "border-sky-300/50 bg-sky-50/70 text-sky-950",
+      tone: "border-info/40 bg-info/10 text-info",
     },
     {
       label: "Fuera kg/p",
@@ -1358,7 +1357,7 @@ export default function Asistencia() {
       detail: "Nadie fuera",
       names: fueraKgTrabajadores.map((t) => t.nombre),
       filter: "fueraKg" as WorkerFilter,
-      tone: "border-slate-300/60 bg-slate-50/70 text-slate-950",
+      tone: "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground",
     },
   ];
 
@@ -1373,6 +1372,9 @@ export default function Asistencia() {
 
   const [eficiencia, setEficiencia] = useState<EficienciaRow[]>([]);
   const [loadingEficiencia, setLoadingEficiencia] = useState(false);
+  // Datos históricos calculados para uso futuro (aún sin panel de visualización dedicado).
+  void eficiencia;
+  void loadingEficiencia;
 
   async function loadEficiencia() {
     setLoadingEficiencia(true);
@@ -1457,25 +1459,80 @@ export default function Asistencia() {
             )}
           </p>
         </div>
+        <div className="flex rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-0.5">
+          <Button
+            variant={viewMode === "daily" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("daily")}
+            className={cn("h-8 rounded-lg px-3 text-xs", viewMode !== "daily" && "text-muted-foreground")}
+          >
+            <CalendarDays className="h-3.5 w-3.5 mr-1" /> Día
+          </Button>
+          <Button
+            variant={viewMode === "weekly" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("weekly")}
+            className={cn("h-8 rounded-lg px-3 text-xs", viewMode !== "weekly" && "text-muted-foreground")}
+          >
+            <CalendarDays className="h-3.5 w-3.5 mr-1" /> Semana
+          </Button>
+        </div>
+      </header>
+
+      {/* ── Toolbar única: navegación + acciones ────────────────── */}
+      <div className="section-toolbar sticky top-14 z-10 flex flex-wrap items-center gap-2 sm:top-16">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-0.5">
-            <Button
-              variant={viewMode === "daily" ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setViewMode("daily")}
-              className={cn("h-8 rounded-lg px-3 text-xs", viewMode !== "daily" && "text-muted-foreground")}
-            >
-              <CalendarDays className="h-3.5 w-3.5 mr-1" /> Diario
-            </Button>
-            <Button
-              variant={viewMode === "weekly" ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setViewMode("weekly")}
-              className={cn("h-8 rounded-lg px-3 text-xs", viewMode !== "weekly" && "text-muted-foreground")}
-            >
-              <CalendarDays className="h-3.5 w-3.5 mr-1" /> Semanal
-            </Button>
-          </div>
+          {viewMode === "daily" ? (
+            <>
+              <Button variant="outline" size="sm" onClick={() => shiftDate(-1)} className="glass glass-hover">
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <AsistenciaDatePicker value={selectedDate} onChange={setSelectedDate} />
+              <Button variant="outline" size="sm" onClick={() => shiftDate(1)} className="glass glass-hover">
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" size="sm" onClick={() => setWeekStart(shiftWeek(weekStart, -1))} className="glass glass-hover">
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" className="glass glass-hover h-9 min-w-[200px] justify-start gap-2 rounded-xl border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] px-3 text-sm font-semibold">
+                <CalendarDays className="h-4 w-4 shrink-0 text-primary/75" />
+                <span>{getWeekLabel(getWeekDates(weekStart))}</span>
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setWeekStart(shiftWeek(weekStart, 1))} className="glass glass-hover">
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </>
+          )}
+        </div>
+
+        <div className="mx-1 hidden h-6 w-px bg-[var(--glass-border)] sm:block" />
+
+        <div className="flex flex-wrap items-center gap-2">
+          {viewMode === "daily" && (
+            <>
+              <label className="relative">
+                <input type="file" accept=".xlsx,.xls" className="absolute inset-0 opacity-0 cursor-pointer peer" onChange={handleDailyImportXLSX} disabled={importing} />
+                <Button variant="outline" size="sm" disabled={importing} asChild className="glass transition-shadow duration-300 peer-hover:shadow-[var(--glass-shadow),var(--glass-glow)]">
+                  <span className="cursor-pointer">
+                    <Upload className="h-4 w-4 mr-1.5" />
+                    {importingMode === "daily" ? "Importando..." : "Importar día"}
+                  </span>
+                </Button>
+              </label>
+              <label className="relative">
+                <input type="file" accept=".xlsx,.xls" className="absolute inset-0 opacity-0 cursor-pointer peer" onChange={handleWeeklyImportXLSX} disabled={importing} />
+                <Button variant="outline" size="sm" disabled={importing} asChild className="glass transition-shadow duration-300 peer-hover:shadow-[var(--glass-shadow),var(--glass-glow)]">
+                  <span className="cursor-pointer">
+                    <CalendarDays className="h-4 w-4 mr-1.5" />
+                    {importingMode === "weekly" ? "Importando..." : "Importar semana"}
+                  </span>
+                </Button>
+              </label>
+            </>
+          )}
           <Button variant="outline" size="sm" onClick={() => navigate("/costes/asistencia/comparativa")} className="glass glass-hover">
             <BarChart3 className="h-4 w-4 mr-1" /> Comparativa
           </Button>
@@ -1970,32 +2027,8 @@ export default function Asistencia() {
               </div>
             </DialogContent>
           </Dialog>
-          {viewMode === "daily" ? (
-            <>
-              <Button variant="outline" size="sm" onClick={() => shiftDate(-1)} className="glass glass-hover">
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <AsistenciaDatePicker value={selectedDate} onChange={setSelectedDate} />
-              <Button variant="outline" size="sm" onClick={() => shiftDate(1)} className="glass glass-hover">
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button variant="outline" size="sm" onClick={() => setWeekStart(shiftWeek(weekStart, -1))} className="glass glass-hover">
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" className="glass glass-hover h-9 min-w-[200px] justify-start gap-2 rounded-xl border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] px-3 text-sm font-semibold">
-                <CalendarDays className="h-4 w-4 shrink-0 text-primary/75" />
-                <span>{getWeekLabel(getWeekDates(weekStart))}</span>
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setWeekStart(shiftWeek(weekStart, 1))} className="glass glass-hover">
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </>
-          )}
         </div>
-      </header>
+      </div>
 
       {viewMode === "weekly" ? (
         <AsistenciaSemanalPanel
@@ -2008,44 +2041,56 @@ export default function Asistencia() {
           incluirSabado={incluirSabado}
           onToggleSabado={toggleIncluirSabado}
         />
-      ) : (<>
+      ) : (
+      <div className="space-y-6">
+      <div>
+        <p className="panel-kicker mb-2">KPIs del día</p>
+        <div className="grid grid-cols-2 gap-2 rounded-xl border border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] p-2 shadow-[var(--glass-shadow)] sm:grid-cols-4">
+          <div className="flex items-center gap-2.5 rounded-lg px-3 py-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-success/25 bg-success/10 text-success">
+              <UserCheck className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-lg font-semibold leading-none tabular-nums text-success">{asistenciaPct}%</p>
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{presentesCount}/{totalActivos} presentes</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5 rounded-lg px-3 py-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-destructive/25 bg-destructive/10 text-destructive">
+              <UserX className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-lg font-semibold leading-none tabular-nums">{ausentesSinBajaTrabajadores.length}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">ausentes</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5 rounded-lg px-3 py-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-warning/25 bg-warning/10 text-warning">
+              <Users className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-lg font-semibold leading-none tabular-nums">{sinRegistro}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">sin marcar</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5 rounded-lg px-3 py-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary">
+              <PackageCheck className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-lg font-semibold leading-none tabular-nums">{presentesComputables}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">entran en kg/p</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p className="panel-kicker mb-2">Resumen del día</p>
       <Card className="glass-accented glass-accent-top overflow-hidden">
         <CardContent className="p-0">
           <div className="grid xl:grid-cols-[0.92fr_1.58fr]">
             <div className="border-b border-[var(--glass-border)] p-5 xl:border-b-0 xl:border-r">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="panel-kicker">Asistencia del turno</p>
-                  <div className="mt-3 flex items-end gap-3">
-                    <p className="text-5xl font-semibold leading-none tabular-nums text-success">{asistenciaPct}%</p>
-                    <div className="pb-1">
-                      <p className="text-lg font-semibold tabular-nums">{presentesCount}/{totalActivos}</p>
-                      <p className="text-xs text-muted-foreground">presentes marcados</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-success/25 bg-success/10 text-success shadow-[var(--glass-shadow)]">
-                  <UserCheck className="h-6 w-6" />
-                </div>
-              </div>
-              <div className="mt-5 h-3 overflow-hidden rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg)]">
-                <div className="h-full rounded-full bg-success" style={{ width: `${asistenciaPct}%` }} />
-              </div>
-              <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2 py-2">
-                  <p className="text-lg font-semibold tabular-nums">{ausentesSinBajaTrabajadores.length}</p>
-                  <p className="text-[11px] text-muted-foreground">ausentes</p>
-                </div>
-                <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2 py-2">
-                  <p className="text-lg font-semibold tabular-nums">{sinRegistro}</p>
-                  <p className="text-[11px] text-muted-foreground">sin marcar</p>
-                </div>
-                <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2 py-2">
-                  <p className="text-lg font-semibold tabular-nums">{presentesComputables}</p>
-                  <p className="text-[11px] text-muted-foreground">kg/p</p>
-                </div>
-              </div>
-              <div className="mt-4 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
+              <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <p className="text-sm font-semibold">Revisar primero</p>
                   <p className="text-xs text-muted-foreground">atajos</p>
@@ -2069,7 +2114,7 @@ export default function Asistencia() {
                         <span className="text-xl font-semibold tabular-nums">{item.value}</span>
                       </div>
                       {item.names.length > 0 ? (
-                        <div className="mt-2 max-h-28 space-y-1 overflow-y-auto rounded-md border border-current/10 bg-white/35 p-2 text-xs leading-snug opacity-85">
+                        <div className="mt-2 max-h-28 space-y-1 overflow-y-auto rounded-md border border-current/10 bg-[var(--glass-bg)] p-2 text-xs leading-snug opacity-85">
                           {item.names.map((name) => (
                             <p key={name} className="whitespace-normal break-words">
                               {name}
@@ -2215,60 +2260,38 @@ export default function Asistencia() {
           </div>
         </CardContent>
       </Card>
+      </div>
 
-      {/* ── Main Grid ───────────────────────────────────────────── */}
-      <div className="space-y-6">
-        {/* Left: Attendance */}
-        <div className="space-y-6">
-          <Card className="glass-accented overflow-hidden">
-            <CardHeader className="border-b border-[var(--glass-border)] pb-4">
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                <div>
-                  <CardTitle className="text-lg">Control diario</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">Marca asistencia, revisa quien entra en kg/persona e importa partes diarios o semanales.</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm" disabled={!user} onClick={marcarTodosPresentes} className="glass glass-hover">
-                    <UserCheck className="h-4 w-4 mr-1.5" /> Todos presentes
-                  </Button>
-                  <Button variant="outline" size="sm" disabled={!user || sinRegistro === totalActivos} onClick={limpiarAsistenciaDia} className="glass glass-hover">
-                    <Eraser className="h-4 w-4 mr-1.5" /> Limpiar dia
-                  </Button>
-                </div>
+      {/* ── Detalle: control diario ─────────────────────────────── */}
+      <div>
+        <p className="panel-kicker mb-2">Detalle por trabajador</p>
+        <Card className="glass-accented overflow-hidden">
+          <CardHeader className="border-b border-[var(--glass-border)] pb-4">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+              <div>
+                <CardTitle className="text-lg">Control diario</CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">Marca asistencia, revisa quien entra en kg/persona e importa partes diarios o semanales.</p>
               </div>
-            </CardHeader>
-            <CardContent className="p-5 sm:p-6">
-              {/* Search + actions bar */}
-              <div className="mb-4 grid gap-3 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3 xl:grid-cols-[minmax(240px,1fr)_auto] xl:items-center">
-                <div className="relative flex-1 min-w-[180px]">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Buscar trabajador o grupo..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="h-10 pl-9 text-sm"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <label className="relative">
-                    <input type="file" accept=".xlsx,.xls" className="absolute inset-0 opacity-0 cursor-pointer peer" onChange={handleDailyImportXLSX} disabled={importing} />
-                    <Button variant="outline" size="sm" disabled={importing} asChild className="glass transition-shadow duration-300 peer-hover:shadow-[var(--glass-shadow),var(--glass-glow)]">
-                      <span className="cursor-pointer">
-                        <Upload className="h-4 w-4 mr-1.5" />
-                        {importingMode === "daily" ? "Importando..." : "Importar diario"}
-                      </span>
-                    </Button>
-                  </label>
-                  <label className="relative">
-                    <input type="file" accept=".xlsx,.xls" className="absolute inset-0 opacity-0 cursor-pointer peer" onChange={handleWeeklyImportXLSX} disabled={importing} />
-                    <Button variant="outline" size="sm" disabled={importing} asChild className="glass transition-shadow duration-300 peer-hover:shadow-[var(--glass-shadow),var(--glass-glow)]">
-                      <span className="cursor-pointer">
-                        <CalendarDays className="h-4 w-4 mr-1.5" />
-                        {importingMode === "weekly" ? "Importando..." : "Importar semanal"}
-                      </span>
-                    </Button>
-                  </label>
-                </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" disabled={!user} onClick={marcarTodosPresentes} className="glass glass-hover">
+                  <UserCheck className="h-4 w-4 mr-1.5" /> Todos presentes
+                </Button>
+                <Button variant="outline" size="sm" disabled={!user || sinRegistro === totalActivos} onClick={limpiarAsistenciaDia} className="glass glass-hover">
+                  <Eraser className="h-4 w-4 mr-1.5" /> Limpiar dia
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-5 sm:p-6">
+              {/* Search bar */}
+              <div className="mb-4 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar trabajador o grupo..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-10 pl-9 text-sm"
+                />
               </div>
 
               <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
@@ -2398,78 +2421,69 @@ export default function Asistencia() {
                               <UserCheck className="h-3.5 w-3.5 mr-1" />Todos
                             </Button>
                           </div>
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-                            {workers.map((t) => {
-                              const presente = asistencia[t.id];
-                              const metric = listaKgPersonaById.get(t.id);
-                              const bajaLaboral = asistenciaMotivos[t.id] === BAJA_LABORAL_MOTIVO;
-                              const estadoLabel = presente === true ? "Presente" : presente === false ? "Ausente" : "Pendiente";
-                              return (
-                                <div
-                                  key={t.id}
-                                  className={cn(
-                                    "relative flex min-h-[96px] items-start justify-between gap-3 overflow-hidden rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] px-3 py-3 shadow-[var(--glass-shadow)] backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:shadow-[var(--glass-shadow-lg)]",
-                                    presente === true && "border-success/30 bg-success/10",
-                                    presente === false && "border-destructive/30 bg-destructive/10",
-                                    presente === undefined && "border-amber-300/35 bg-amber-50/35",
-                                  )}
-                                >
-                                  <div
-                                    className={cn(
-                                      "absolute inset-y-3 left-0 w-1 rounded-r-full",
-                                      presente === true && "bg-success",
-                                      presente === false && "bg-destructive",
-                                      presente === undefined && "bg-amber-500"
-                                    )}
-                                  />
-                                  <div className="flex min-w-0 flex-1 gap-3 pl-1">
-                                    <div
-                                      className={cn(
-                                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border text-sm font-semibold shadow-[var(--glass-shadow)]",
-                                        presente === true && "border-success/25 bg-success/10 text-success",
-                                        presente === false && "border-destructive/25 bg-destructive/10 text-destructive",
-                                        presente === undefined && "border-amber-300/50 bg-amber-100/70 text-amber-800"
-                                      )}
+                          <div className="overflow-x-auto rounded-lg border border-[var(--glass-border)]">
+                            <table className="data-table">
+                              <thead>
+                                <tr>
+                                  <th>Trabajador</th>
+                                  <th className="hidden sm:table-cell">Zona</th>
+                                  <th className="text-right">Kg/p</th>
+                                  <th className="text-center">Estado</th>
+                                  <th className="text-right">Presente</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {workers.map((t, index) => {
+                                  const presente = asistencia[t.id];
+                                  const metric = listaKgPersonaById.get(t.id);
+                                  const bajaLaboral = asistenciaMotivos[t.id] === BAJA_LABORAL_MOTIVO;
+                                  const estadoLabel = presente === true ? "Presente" : presente === false ? (bajaLaboral ? "Baja laboral" : "Ausente") : "Pendiente";
+                                  const estadoClass =
+                                    presente === true
+                                      ? "border-success/40 bg-success/10 text-success"
+                                      : presente === false
+                                        ? bajaLaboral
+                                          ? "border-info/40 bg-info/10 text-info"
+                                          : "border-destructive/40 bg-destructive/10 text-destructive"
+                                        : "border-warning/40 bg-warning/10 text-warning";
+                                  return (
+                                    <tr
+                                      key={t.id}
+                                      className={cn(index % 2 === 1 && "bg-[var(--glass-bg)]")}
                                     >
-                                      {inicialesTrabajador(t.nombre)}
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                      <p className="line-clamp-2 text-[15px] font-semibold leading-snug">{t.nombre}</p>
-                                      {t.zona && (
-                                        <p className="mt-0.5 truncate text-xs text-muted-foreground">{t.zona}</p>
-                                      )}
-                                      {presente === true && metric?.kgRef !== null && metric?.kgRef !== undefined && (
-                                        <p className="mt-2 inline-flex rounded-lg border border-primary/15 bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
-                                          {formatoEntero(metric.kgRef)} kg/p
-                                        </p>
-                                      )}
-                                      {presente === false && bajaLaboral ? (
-                                        <p className="mt-2 inline-flex rounded-lg border border-destructive/15 bg-destructive/10 px-2 py-1 text-xs font-semibold text-destructive">
-                                          Baja laboral
-                                        </p>
-                                      ) : null}
-                                    </div>
-                                  </div>
-                                  <div className="flex shrink-0 flex-col items-end gap-2">
-                                    <Badge
-                                      variant="secondary"
-                                      className={cn(
-                                        "rounded-full px-2 py-0.5 text-[10px]",
-                                        presente === true && "bg-success/15 text-success hover:bg-success/15",
-                                        presente === false && "bg-destructive/15 text-destructive hover:bg-destructive/15",
-                                        presente === undefined && "bg-amber-100 text-amber-800 hover:bg-amber-100"
-                                      )}
-                                    >
-                                      {estadoLabel}
-                                    </Badge>
-                                    <Switch
-                                      checked={presente === true}
-                                      onCheckedChange={(checked) => toggleAsistencia(t.id, checked)}
-                                    />
-                                  </div>
-                                </div>
-                              );
-                            })}
+                                      <td>
+                                        <div className="flex items-center gap-2.5">
+                                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] text-xs font-semibold">
+                                            {inicialesTrabajador(t.nombre)}
+                                          </div>
+                                          <div className="min-w-0">
+                                            <p className="truncate text-sm font-semibold leading-tight">{t.nombre}</p>
+                                            <p className="truncate text-xs text-muted-foreground sm:hidden">{t.zona ?? "Sin grupo"}</p>
+                                          </div>
+                                        </div>
+                                      </td>
+                                      <td className="hidden text-sm text-muted-foreground sm:table-cell">{t.zona ?? "—"}</td>
+                                      <td className="text-right text-sm font-semibold tabular-nums">
+                                        {presente === true && metric?.kgRef !== null && metric?.kgRef !== undefined
+                                          ? formatoEntero(metric.kgRef)
+                                          : "—"}
+                                      </td>
+                                      <td className="text-center">
+                                        <Badge variant="outline" className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", estadoClass)}>
+                                          {estadoLabel}
+                                        </Badge>
+                                      </td>
+                                      <td className="text-right">
+                                        <Switch
+                                          checked={presente === true}
+                                          onCheckedChange={(checked) => toggleAsistencia(t.id, checked)}
+                                        />
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
                           </div>
                         </div>
                       );
@@ -2477,11 +2491,10 @@ export default function Asistencia() {
                   </div>
                 );
               })()}
-            </CardContent>
-          </Card>
-        </div>
-
-      </div></>
+          </CardContent>
+        </Card>
+      </div>
+      </div>
       )}
     </div>
   );

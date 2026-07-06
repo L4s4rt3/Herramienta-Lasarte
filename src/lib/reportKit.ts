@@ -1,7 +1,7 @@
 import type jsPDF from "jspdf";
 import type * as XLSX from "xlsx";
 import { appendAoaSheet } from "./exportWorkbook";
-import { drawKpiCard, PDF_THEME } from "./exportTheme";
+import { drawKpiCard, drawLogoOrFallback, PDF_THEME, preloadExportLogo } from "./exportTheme";
 
 export type ReportTone = "neutral" | "success" | "warning" | "danger" | "info";
 
@@ -51,6 +51,40 @@ export function buildReportFilename(prefix: string, extension: "pdf" | "xlsx", d
   return `${safePrefix}-${stamp}.${extension}`;
 }
 
+function sanitizeFilenameSegment(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9]+/g, "")
+    .trim();
+}
+
+/**
+ * Nombre de archivo corporativo unificado para todos los exports:
+ * `Lasarte_<Modulo>_<desde>_<hasta>.<ext>`. Si no hay rango de fechas (p.ej.
+ * un informe de un unico dia o sin filtro de periodo), se usa solo la fecha
+ * de generacion como sufijo.
+ */
+export function buildLasarteFilename(
+  modulo: string,
+  extension: "pdf" | "xlsx",
+  range?: { from?: string | Date; to?: string | Date },
+  generatedAt = new Date(),
+) {
+  const mod = sanitizeFilenameSegment(modulo) || "Informe";
+  const toStamp = (value: string | Date) => {
+    const date = typeof value === "string" ? new Date(value) : value;
+    return Number.isNaN(date.getTime()) ? sanitizeFilenameSegment(String(value)) : date.toISOString().slice(0, 10);
+  };
+  if (range?.from && range?.to) {
+    return `Lasarte_${mod}_${toStamp(range.from)}_${toStamp(range.to)}.${extension}`;
+  }
+  if (range?.from) {
+    return `Lasarte_${mod}_${toStamp(range.from)}.${extension}`;
+  }
+  return `Lasarte_${mod}_${toStamp(generatedAt)}.${extension}`;
+}
+
 export function reportToneColor(tone: ReportTone = "neutral") {
   if (tone === "success") return PDF_THEME.success;
   if (tone === "warning") return PDF_THEME.warning;
@@ -84,6 +118,17 @@ export function appendReportCoverSheet(wb: XLSX.WorkBook, meta: ReportMeta, kpis
   return ws;
 }
 
+/**
+ * Precarga el logo corporativo para que la portada y las cabeceras de pagina
+ * puedan incrustarlo de forma sincrona. Los exports deben hacer
+ * `await ensureExportLogoLoaded()` antes de generar el documento (o antes de
+ * llamar a drawReportCover) para garantizar que el logo aparezca ya en la
+ * primera pasada, en vez de depender de una carga en segundo plano.
+ */
+export function ensureExportLogoLoaded(): Promise<string | null> {
+  return preloadExportLogo();
+}
+
 export function drawReportCover(doc: jsPDF, meta: ReportMeta, kpis: ReportKpi[] = []) {
   const pageWidth = doc.internal.pageSize.getWidth();
 
@@ -92,21 +137,28 @@ export function drawReportCover(doc: jsPDF, meta: ReportMeta, kpis: ReportKpi[] 
   doc.setFillColor(...PDF_THEME.primary);
   doc.rect(0, 0, pageWidth, 4, "F");
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(...PDF_THEME.primaryDark);
-  doc.text(REPORT_BRAND.name, 12, 16);
+  const logoWidth = drawLogoOrFallback(doc, 12, 8, 16, { x: 12, yBaseline: 16, fontSize: 11 });
+  const textX = logoWidth > 0 ? 12 + logoWidth + 6 : 12;
 
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(19);
   doc.setTextColor(...PDF_THEME.text);
-  doc.text(meta.title, 12, 29);
+  doc.text(meta.title, textX, 29);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(...PDF_THEME.muted);
-  if (meta.subtitle) doc.text(meta.subtitle, 12, 38);
-  if (meta.periodLabel) doc.text(meta.periodLabel, 12, 45);
-  doc.text(`Generado: ${formatReportDate(meta.generatedAt ?? new Date())}`, pageWidth - 12, 16, { align: "right" });
+  if (meta.subtitle) doc.text(meta.subtitle, textX, 38);
+  if (meta.periodLabel) doc.text(meta.periodLabel, textX, 45);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(...PDF_THEME.primaryDark);
+  doc.text(REPORT_BRAND.name, pageWidth - 12, 12, { align: "right" });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(...PDF_THEME.muted);
+  doc.text(REPORT_BRAND.tool, pageWidth - 12, 17.5, { align: "right" });
+  doc.text(`Generado: ${formatReportDate(meta.generatedAt ?? new Date())}`, pageWidth - 12, 23, { align: "right" });
 
   const usableWidth = pageWidth - 24;
   const columns = Math.min(Math.max(kpis.length, 1), 5);

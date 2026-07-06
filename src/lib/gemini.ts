@@ -272,8 +272,8 @@ NAVEGACION PRINCIPAL
 - /calidad: Jornada de Calidad. Toma notas de lotes del dia, productor/finca, producto, variedad, cantidad, hora, Aerobotics, calidad, defectos, observacion, accion recomendada y adjuntos. Las notas se enlazan por fecha con el parte del mismo dia.
 - /partes: listado de partes diarios, filtros, creacion, eliminacion y exportacion.
 - /partes/:id: detalle del parte. Introduccion de cascada, importacion de informes Excel, archivos, notas y pestana de Calidad conectada por fecha.
-- /analisis/diario: analisis profundo de un parte con KPIs, lotes, producto empacado, calibres, palets y alertas.
-- /productores: rendimiento por productor/finca, kg, lotes y toneladas/hora.
+- /analisis/diario: explorador multi-dia con KPIs y pestanas: Lotes (con kg industria y notas), Productores (resumen del periodo), Calibres (matriz calibre x categoria y mix por dia), Clase y Grupo (con evolucion diaria).
+- /productores: dossier completo por productor para comparar eficiencia (kg, T/h, % industria, peso fruta, calidad, historial de lotes).
 - /costes/consumos: sesiones de consumos fisicos, ratios de agua, electricidad, gasoil, quimicos y maquinas.
 - /costes/asistencia: trabajadores, zonas, asistencia diaria, importacion diaria y semanal de Excel, limpieza de marcas, rendimiento kg/persona.
 - /costes/asistencia/comparativa: comparativa semanal de asistencia y kg/persona.

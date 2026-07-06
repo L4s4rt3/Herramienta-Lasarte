@@ -52,8 +52,8 @@ export function ExportPartesDialog({ defaultFrom, defaultTo }: Props) {
         toast({ title: "Sin datos en el rango seleccionado", variant: "destructive" });
         return;
       }
-      if (kind === "xlsx") exportPartesToExcel(rows, from, to);
-      else exportPartesToPDF(rows, from, to);
+      if (kind === "xlsx") await exportPartesToExcel(rows, from, to);
+      else await exportPartesToPDF(rows, from, to);
       setOpen(false);
       toast({ title: `Exportado correctamente - ${rows.length} parte(s)` });
     } catch (e: unknown) {

@@ -27,22 +27,22 @@ interface VentasCategoriaFilterBarProps {
 
 export function VentasCategoriaFilterBar({ filters, filterOptions, onChange, onClear, activeCount }: VentasCategoriaFilterBarProps) {
   return (
-    <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3 shadow-[var(--glass-shadow)] backdrop-blur-xl sm:p-4">
+    <div className="section-toolbar flex-col items-stretch">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold">Filtros globales</h2>
+          <h2 className="text-sm font-semibold">Filtros</h2>
           <p className="text-xs text-muted-foreground">
             {activeCount > 0
               ? `${activeCount} filtro${activeCount === 1 ? "" : "s"} activo${activeCount === 1 ? "" : "s"}`
               : "Sin filtros — mostrando todos los datos"}
           </p>
         </div>
-        <Button variant="outline" size="sm" className="min-h-9 gap-1.5 md:min-h-0" disabled={activeCount === 0} onClick={onClear}>
+        <Button variant="outline" size="sm" className="min-h-9 gap-1.5 self-start md:min-h-0 md:self-auto" disabled={activeCount === 0} onClick={onClear}>
           <X className="h-3.5 w-3.5" />
           Limpiar
         </Button>
       </div>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="mt-3 grid w-full gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <div className="space-y-1.5">
           <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Campana</Label>
           <Select value={filters.campana || ALL_FILTER_VALUE} onValueChange={(v) => onChange("campana", v === ALL_FILTER_VALUE ? "" : v)}>

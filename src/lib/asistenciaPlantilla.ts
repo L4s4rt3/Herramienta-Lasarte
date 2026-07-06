@@ -50,15 +50,13 @@ export interface RendimientoZonasAlmacen {
   zonas: RendimientoZonaAlmacen[];
 }
 
-const TOTAL_TRABAJADORES_OBJETIVO = 58;
-
 const ARRANQUE_PUESTOS: PlantillaPuesto[] = [
   { zona: "Encargadas", trabajadores: 2, personas: ["Raquel Prisco Diaz", "Lidia Luna Rodriguez"] },
   { zona: "Carretillero inicio linea", trabajadores: 1, personas: ["Antonio Jesus Rodriguez Espejo", "Enrique Fernandez"] },
   { zona: "Tria podrido", trabajadores: 2, personas: ["Sandra Naranjo", "Daniela Areiza"] },
   { zona: "Aereo", trabajadores: 2, personas: ["Marta Ariza", "Pilar Llamas"] },
   { zona: "Carretillero final linea", trabajadores: 1, personas: ["Alejandro Carmona", "Juan Prieto"] },
-  { zona: "Transpaletas mecanicas", trabajadores: 3, personas: ["Angel Prisco", "Monserrat Garcia Alcazar", "Cristian Prieto", "Enrique Fernandez"] },
+  { zona: "Transpaletas mecanicas", trabajadores: 3, personas: ["Angel Prisco", "Monserrat Garcia Alcazar", "Cristian Prisco", "Enrique Fernandez"] },
   { zona: "Produccion", trabajadores: 3, personas: ["Ana Maria Rodriguez Ramos", "Rocio Flores Ancio", "Sara Hans Doblas", "Silvia Cerro Ojeda"] },
   { zona: "Responsable mantenimiento", trabajadores: 1, personas: ["Antonio Lopez Galvez"] },
 ];

@@ -67,6 +67,21 @@ interface FormatNumberOptions {
   isPercent?: boolean;
 }
 
+// Formateador es-ES: punto de millares, coma decimal, hasta 3 decimales
+// (recortando ceros sobrantes). Se usa Intl.NumberFormat("es-ES") para
+// obtener el agrupamiento de miles correcto según la convención española;
+// en entornos con datos ICU reducidos (p. ej. Node sin full-icu) el propio
+// motor puede omitir el separador de miles, así que se aplica un fallback
+// manual determinista cuando el formateador no lo produce.
+const ES_NUMBER_FORMAT = new Intl.NumberFormat("es-ES", {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 3,
+});
+
+function groupThousands(intPart: string): string {
+  return intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
 export function formatNumber(
   value: number | null | undefined,
   options: FormatNumberOptions = {}
@@ -74,26 +89,17 @@ export function formatNumber(
   if (value === null || value === undefined) return "";
   if (Number.isNaN(value)) return "";
   const suffix = options.isPercent ? "%" : "";
-  // El signo se deriva del valor original: parseInt("-0") pierde el negativo
-  // para valores entre -1 y 0 (p. ej. -0,5 salía como "0,5").
-  const sign = value < 0 ? "-" : "";
-  const rounded = Math.round(Math.abs(value) * 1000) / 1000;
-  const fixed = rounded.toFixed(3);
-  const trimmed = fixed
-    .replace(/(\.\d*?)0+$/, "$1")
-    .replace(/\.$/, "");
-  const [intPart, decPart] = trimmed.split(".");
-  const intFormatted = formatThousands(parseInt(intPart, 10));
-  if (decPart && decPart.length > 0) {
-    return `${sign}${intFormatted},${decPart}${suffix}`;
-  }
-  return `${sign}${intFormatted}${suffix}`;
-}
-
-function formatThousands(n: number): string {
-  const abs = Math.abs(n);
-  const sign = n < 0 ? "-" : "";
-  return sign + abs.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const rounded = Math.round(value * 1000) / 1000;
+  const formatted = ES_NUMBER_FORMAT.format(rounded);
+  // Si el runtime no agrupó los miles (ICU reducido), lo hacemos manualmente
+  // sobre el resultado ya formateado en es-ES (coma decimal, signo, etc.).
+  const needsManualGrouping = Math.abs(rounded) >= 1000 && !formatted.includes(".");
+  if (!needsManualGrouping) return `${formatted}${suffix}`;
+  const [intPart, decPart] = formatted.split(",");
+  const sign = intPart.startsWith("-") ? "-" : "";
+  const digits = sign ? intPart.slice(1) : intPart;
+  const grouped = `${sign}${groupThousands(digits)}`;
+  return `${decPart ? `${grouped},${decPart}` : grouped}${suffix}`;
 }
 
 export function formatDate(value: unknown): string {
@@ -146,6 +152,12 @@ export function formatCell(value: unknown): string {
   if (typeof value === "boolean") return value ? "Sí" : "No";
   if (value instanceof Date) return formatDate(value);
   return String(value);
+}
+
+// Rellena celdas de cabecera vacías con un placeholder "Col N" (1-indexado)
+// para que la tabla nunca muestre una columna sin nombre.
+export function fillEmptyHeaders(headers: string[]): string[] {
+  return headers.map((h, i) => (h && h.trim() ? h : `Col ${i + 1}`));
 }
 
 export function isStatusColumn(header: string): boolean {

@@ -16,6 +16,10 @@ interface WeekSelectorProps {
   onCustomHastaChange: (v: string) => void;
   onNavigateWeek: (direction: -1 | 1) => void;
   canNavigate?: boolean;
+  /** Deshabilita solo la flecha "siguiente" (p.ej. para no navegar a semanas futuras). */
+  canNavigateNext?: boolean;
+  /** Si es true, añade la píldora "Todo" (histórico completo) al segmented control. */
+  showTodo?: boolean;
 }
 
 const PERIODOS: { value: Periodo; label: string }[] = [
@@ -24,6 +28,8 @@ const PERIODOS: { value: Periodo; label: string }[] = [
   { value: "ultimas_4", label: "4 semanas" },
   { value: "custom", label: "Rango" },
 ];
+
+const PERIODO_TODO: { value: Periodo; label: string } = { value: "todo", label: "Todo" };
 
 function GlassDatePicker({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   const selected = value ? new Date(`${value}T12:00:00`) : undefined;
@@ -34,7 +40,7 @@ function GlassDatePicker({ value, onChange, label }: { value: string; onChange: 
         <Button
           type="button"
           variant="outline"
-          className="glass glass-hover h-8 min-w-[130px] justify-start gap-2 rounded-xl border-[var(--glass-border)] px-2.5 text-xs font-medium"
+          className="glass glass-hover h-9 min-w-[130px] justify-start gap-2 rounded-xl border-[var(--glass-border)] px-2.5 text-xs font-medium"
         >
           <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <span className="tabular-nums">
@@ -60,48 +66,52 @@ function GlassDatePicker({ value, onChange, label }: { value: string; onChange: 
 export function WeekSelector({
   periodo, onPeriodoChange,
   customDesde, customHasta, onCustomDesdeChange, onCustomHastaChange,
-  onNavigateWeek, canNavigate = true,
+  onNavigateWeek, canNavigate = true, canNavigateNext = true, showTodo = false,
 }: WeekSelectorProps) {
+  const isTodo = showTodo && periodo === "todo";
+  const periodos = showTodo ? [...PERIODOS, PERIODO_TODO] : PERIODOS;
   return (
     <div className="flex flex-col gap-3 rounded-xl glass-accented p-3 sm:flex-row sm:flex-wrap sm:items-center sm:p-4">
       {/* Navegación de semana */}
-      <div className="flex items-center gap-1 rounded-xl glass border border-[var(--glass-border)] px-1.5 py-1 shadow-[var(--glass-shadow)]">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 glass glass-hover"
-          onClick={() => onNavigateWeek(-1)}
-          disabled={!canNavigate}
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <span className="text-xs font-medium text-muted-foreground px-1 select-none">Semana</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 glass glass-hover"
-          onClick={() => onNavigateWeek(1)}
-          disabled={!canNavigate}
-        >
-          <ChevronRight className="h-4 w-4" />
-        </Button>
-      </div>
+      {!isTodo && (
+        <div className="flex items-center gap-1 rounded-xl bg-[var(--glass-bg)] border border-[var(--glass-border)] px-1.5 py-1 shadow-[var(--glass-shadow)]">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 rounded-lg glass-hover"
+            onClick={() => onNavigateWeek(-1)}
+            disabled={!canNavigate}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="px-1 text-xs font-medium text-muted-foreground select-none">Semana</span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 rounded-lg glass-hover"
+            onClick={() => onNavigateWeek(1)}
+            disabled={!canNavigate || !canNavigateNext}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
 
-      {/* Botones de periodo */}
-      <div className="flex items-center gap-1.5">
-        {PERIODOS.map((p) => {
+      {/* Segmented control de periodo */}
+      <div className="flex items-center gap-1 rounded-xl bg-[var(--glass-bg)] border border-[var(--glass-border)] p-1 shadow-[var(--glass-shadow)]">
+        {periodos.map((p) => {
           const active = periodo === p.value;
           return (
             <Button
               key={p.value}
-              variant="outline"
+              variant="ghost"
               size="sm"
               onClick={() => onPeriodoChange(p.value)}
               className={cn(
-                "h-8 text-xs glass rounded-xl transition-all",
+                "h-7 rounded-lg px-3 text-xs transition-all",
                 active
-                  ? "border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] text-foreground shadow-[var(--glass-shadow)] font-semibold"
-                  : "glass-hover text-muted-foreground hover:text-foreground"
+                  ? "bg-[var(--glass-bg-strong)] text-foreground shadow-[var(--glass-shadow)] font-semibold"
+                  : "text-muted-foreground hover:bg-[var(--glass-bg-strong)]/60 hover:text-foreground"
               )}
             >
               {p.label}
@@ -111,8 +121,8 @@ export function WeekSelector({
       </div>
 
       {/* Selector de día rápido */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Ver día:</span>
+      <div className="flex items-center gap-2">
+        <span className="panel-kicker">Ver día</span>
         <GlassDatePicker
           value=""
           onChange={(v) => {
@@ -128,7 +138,7 @@ export function WeekSelector({
       {periodo === "custom" && (
         <div className="flex items-center gap-2">
           <GlassDatePicker value={customDesde} onChange={onCustomDesdeChange} label="Desde" />
-          <span className="text-muted-foreground text-xs">—</span>
+          <span className="text-xs text-muted-foreground">—</span>
           <GlassDatePicker value={customHasta} onChange={onCustomHastaChange} label="Hasta" />
         </div>
       )}

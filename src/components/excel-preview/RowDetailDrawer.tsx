@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { StatusBadge } from "./StatusBadge";
 import {
-  formatCell,
   isNumericCell,
   isStatusColumn,
   matchStatus,
@@ -69,13 +68,13 @@ export function RowDetailDrawer({
         side="right"
         className="w-full sm:max-w-md flex flex-col p-0"
       >
-        <SheetHeader className="px-6 py-4 border-b border-slate-200/60 shrink-0">
+        <SheetHeader className="px-6 py-4 border-b border-[var(--glass-border)] shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 space-y-1">
-              <SheetTitle className="text-base font-semibold text-slate-900">
+              <SheetTitle className="text-base font-semibold text-foreground">
                 Fila {rowIndex + 1}
               </SheetTitle>
-              <SheetDescription className="text-xs text-slate-500">
+              <SheetDescription className="text-xs text-muted-foreground">
                 {headers.length} campos · click fuera para cerrar
               </SheetDescription>
             </div>
@@ -103,20 +102,20 @@ export function RowDetailDrawer({
               return (
                 <div
                   key={i}
-                  className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3 items-baseline border-b border-slate-100 pb-3 last:border-0"
+                  className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3 items-baseline border-b border-[var(--glass-border)] pb-3 last:border-0"
                 >
-                  <dt className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate">
+                  <dt className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider truncate">
                     {h}
                   </dt>
                   <dd
                     className={cnNumbered(
                       numeric,
-                      "text-sm text-slate-900 break-words"
+                      "text-sm text-foreground break-words"
                     )}
                     title={value}
                   >
                     {value || (
-                      <span className="text-slate-300 italic">vacío</span>
+                      <span className="text-muted-foreground/50 italic">vacío</span>
                     )}
                   </dd>
                 </div>
@@ -125,10 +124,10 @@ export function RowDetailDrawer({
           </dl>
         </div>
 
-        <SheetFooter className="px-6 py-3 border-t border-slate-200/60 shrink-0 flex-row gap-2">
+        <SheetFooter className="px-6 py-3 border-t border-[var(--glass-border)] shrink-0 flex-row gap-2">
           <Button
             onClick={handleCopy}
-            className="flex-1 bg-orange-500 hover:bg-orange-600 text-white"
+            className="flex-1"
             size="sm"
           >
             {copied ? (

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import * as XLSX from "xlsx";
 import { strFromU8, unzipSync } from "fflate";
 import {
   appendAoaSheet,

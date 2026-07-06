@@ -112,6 +112,9 @@ Deno.serve(async (req) => {
 
     for (const f of files) {
       if (!f.file_path) continue;
+      // Los "Informe LOTE" se procesan aparte con un parser determinista (analizar-lote-excel);
+      // no tienen el formato que este bucle espera y no deben mezclarse con el análisis por IA.
+      if (f.file_type === "InformeLote") continue;
       const mime = f.mime_type ?? "";
       const isXlsx = /\.xlsx?$/i.test(f.file_name ?? "") || mime.includes("spreadsheet") || mime === "application/vnd.ms-excel";
       if (!isXlsx) continue;
@@ -433,6 +436,24 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
 
     const hasIaData = Object.keys(aiData).length > 0 && (Array.isArray(aiData.produccion) || Array.isArray(aiData.gstock) || Array.isArray(aiData.lotes_detalle) || Array.isArray(aiData.palets_detalle) || Array.isArray(aiData.producto_detalle) || Array.isArray(aiData.calibres_detalle)) && (aiData.produccion?.length || aiData.gstock?.length || aiData.lotes_detalle?.length || aiData.palets_detalle?.length || aiData.producto_detalle?.length || aiData.calibres_detalle?.length);
     
+    // ── Preservar datos manuales por lote entre re-análisis ───────────────
+    // El operario escribe notas y kg_industria sobre lotes creados por IA;
+    // como el re-análisis borra y reinserta esos lotes, se rescatan antes
+    // (por lote_codigo) y se reaplican al insertar.
+    const manualPorLote = new Map<string, { notas: string | null; kg_industria: number }>();
+    if (hasIaData) {
+      const { data: prevLotes } = await admin
+        .from("lotes_dia")
+        .select("lote_codigo, notas, kg_industria")
+        .eq("part_id", part_id);
+      for (const l of prevLotes ?? []) {
+        if (!l.lote_codigo) continue;
+        const notas = typeof l.notas === "string" && l.notas.trim() ? l.notas : null;
+        const kgIndustria = Number(l.kg_industria) || 0;
+        if (notas || kgIndustria > 0) manualPorLote.set(String(l.lote_codigo), { notas, kg_industria: kgIndustria });
+      }
+    }
+
     // ── Limpiar tablas de detalle previas (solo si hay datos IA nuevos) ───
     if (hasIaData) {
       await Promise.all([
@@ -474,17 +495,23 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
     const lotesArr = Array.isArray(aiData.lotes_detalle) ? aiData.lotes_detalle
       : Array.isArray(aiData.lotes) ? aiData.lotes : [];
     if (lotesArr.length > 0) {
-      const rows = lotesArr.map((r: any) => ({
-        part_id, user_id: uid, source: "ia",
-        lote_codigo:           r.lote_codigo ?? r.lotecodigo ?? null,
-        productor:             r.productor ?? null,
-        producto:              r.producto ?? null,
-        kg_peso_total:         Number(r.kg_peso_total) || 0,
-        toneladas_hora:        Number(r.toneladas_hora) || null,
-        duracion_min:          Number(r.duracion_min) || null,
-        peso_fruta_promedio_g: Number(r.peso_fruta_promedio_g) || null,
-        hora_inicio:           r.hora_inicio ?? null,
-      }));
+      const rows = lotesArr.map((r: any) => {
+        const loteCodigo = r.lote_codigo ?? r.lotecodigo ?? null;
+        const manual = loteCodigo ? manualPorLote.get(String(loteCodigo)) : undefined;
+        return {
+          part_id, user_id: uid, source: "ia",
+          lote_codigo:           loteCodigo,
+          productor:             r.productor ?? null,
+          producto:              r.producto ?? null,
+          kg_peso_total:         Number(r.kg_peso_total) || 0,
+          toneladas_hora:        Number(r.toneladas_hora) || null,
+          duracion_min:          Number(r.duracion_min) || null,
+          peso_fruta_promedio_g: Number(r.peso_fruta_promedio_g) || null,
+          hora_inicio:           r.hora_inicio ?? null,
+          notas:                 manual?.notas ?? null,
+          kg_industria:          manual?.kg_industria ?? 0,
+        };
+      });
       await admin.from("lotes_dia").insert(rows);
     }
 
@@ -531,6 +558,29 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
         grupo_destino: r.grupo_destino ?? null,
       }));
       await admin.from("calibres_dia").insert(rows);
+    }
+
+    // ── Reenlazar Informes por lote (lote_clasificacion) con los lotes_dia recién insertados ──
+    // El emparejamiento inicial se intenta al subir el Informe LOTE, pero cada análisis borra y
+    // reinserta lotes_dia con IDs nuevos, dejando el enlace obsoleto. Se repara aquí.
+    const { data: clasifSinLink } = await admin
+      .from("lote_clasificacion")
+      .select("lote_codigo")
+      .eq("part_id", part_id)
+      .is("lote_dia_id", null);
+    if (clasifSinLink && clasifSinLink.length > 0) {
+      const { data: lotesActuales } = await admin.from("lotes_dia").select("id, lote_codigo").eq("part_id", part_id);
+      const codigosPendientes = Array.from(new Set(clasifSinLink.map((c) => c.lote_codigo)));
+      for (const codigo of codigosPendientes) {
+        const rawNorm = codigo.trim().toLowerCase();
+        const baseNorm = (codigo.match(/^(\d+)/)?.[1] ?? "").toLowerCase();
+        let matched = (lotesActuales ?? []).find((l) => (l.lote_codigo ?? "").trim().toLowerCase() === rawNorm) ?? null;
+        if (!matched && baseNorm) matched = (lotesActuales ?? []).find((l) => (l.lote_codigo ?? "").trim().toLowerCase() === baseNorm) ?? null;
+        if (!matched && baseNorm) matched = (lotesActuales ?? []).find((l) => (l.lote_codigo ?? "").trim().toLowerCase().startsWith(baseNorm)) ?? null;
+        if (matched) {
+          await admin.from("lote_clasificacion").update({ lote_dia_id: matched.id }).eq("part_id", part_id).eq("lote_codigo", codigo);
+        }
+      }
     }
 
     return json({

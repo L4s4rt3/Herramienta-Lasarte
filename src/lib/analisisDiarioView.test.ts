@@ -13,9 +13,9 @@ import {
 import type { LoteResumen } from "@/hooks/useAnalisisDiario";
 
 const mockLotes: LoteResumen[] = [
-  { fecha: "2026-06-16", lote_codigo: "A-01", productor: "Finca Los Olivos", producto: "Navelina", kg_peso_total: 1600, toneladas_hora: 16.0, duracion_min: 60, peso_fruta_promedio_g: 180 },
-  { fecha: "2026-06-16", lote_codigo: "A-02", productor: "Finca Los Olivos", producto: "Navelina", kg_peso_total: 1500, toneladas_hora: 15.0, duracion_min: 58, peso_fruta_promedio_g: 175 },
-  { fecha: "2026-06-17", lote_codigo: "B-01", productor: "Huerto El Valle", producto: "Lane Late", kg_peso_total: 2100, toneladas_hora: 12.5, duracion_min: 72, peso_fruta_promedio_g: 190 },
+  { fecha: "2026-06-16", lote_codigo: "A-01", productor: "Finca Los Olivos", producto: "Navelina", kg_peso_total: 1600, toneladas_hora: 16.0, duracion_min: 60, peso_fruta_promedio_g: 180, produccion_real_part: null },
+  { fecha: "2026-06-16", lote_codigo: "A-02", productor: "Finca Los Olivos", producto: "Navelina", kg_peso_total: 1500, toneladas_hora: 15.0, duracion_min: 58, peso_fruta_promedio_g: 175, produccion_real_part: null },
+  { fecha: "2026-06-17", lote_codigo: "B-01", productor: "Huerto El Valle", producto: "Lane Late", kg_peso_total: 2100, toneladas_hora: 12.5, duracion_min: 72, peso_fruta_promedio_g: 190, produccion_real_part: null },
 ];
 
 describe("groupLotesByDay", () => {
@@ -44,8 +44,8 @@ describe("calcularSubtotalesDia", () => {
 
   it("cuenta lotes lentos (tph < 12.5)", () => {
     const lotesLentos: LoteResumen[] = [
-      { fecha: "2026-06-17", lote_codigo: "C-01", productor: "A", producto: "B", kg_peso_total: 1000, toneladas_hora: 10, duracion_min: 60, peso_fruta_promedio_g: 150 },
-      { fecha: "2026-06-17", lote_codigo: "C-02", productor: "A", producto: "B", kg_peso_total: 1000, toneladas_hora: 11, duracion_min: 55, peso_fruta_promedio_g: 155 },
+      { fecha: "2026-06-17", lote_codigo: "C-01", productor: "A", producto: "B", kg_peso_total: 1000, toneladas_hora: 10, duracion_min: 60, peso_fruta_promedio_g: 150, produccion_real_part: null },
+      { fecha: "2026-06-17", lote_codigo: "C-02", productor: "A", producto: "B", kg_peso_total: 1000, toneladas_hora: 11, duracion_min: 55, peso_fruta_promedio_g: 155, produccion_real_part: null },
     ];
     const sub = calcularSubtotalesDia(lotesLentos);
     expect(sub.nLentes).toBe(2);
@@ -94,6 +94,15 @@ describe("buildWeekRange", () => {
     const diffDays = (end.getTime() - start.getTime()) / 86400000;
     expect(diffDays).toBe(27); // 4 weeks - 1
     expect(result.label).toBe("Ultimas 4 semanas");
+  });
+
+  it("devuelve todo el historico hasta hoy", () => {
+    const result = buildWeekRange("todo");
+    expect(result.start).toBe("2000-01-01");
+    expect(result.label).toBe("Todo el histórico");
+    const today = new Date();
+    const expectedEnd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    expect(result.end).toBe(expectedEnd);
   });
 });
 

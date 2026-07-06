@@ -14,33 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      trabajadores: {
-        Row: {
-          activo: boolean
-          created_at: string
-          id: string
-          nombre: string
-          user_id: string
-          zona: string | null
-        }
-        Insert: {
-          activo?: boolean
-          created_at?: string
-          id?: string
-          nombre: string
-          user_id: string
-          zona?: string | null
-        }
-        Update: {
-          activo?: boolean
-          created_at?: string
-          id?: string
-          nombre?: string
-          user_id?: string
-          zona?: string | null
-        }
-        Relationships: []
-      }
       asistencia_bajas_laborales: {
         Row: {
           created_at: string
@@ -150,6 +123,475 @@ export type Database = {
         }
         Relationships: []
       }
+      calibres_dia: {
+        Row: {
+          calibre: string
+          clase: string | null
+          created_at: string
+          grupo_destino: string | null
+          id: string
+          kg: number
+          part_id: string
+          pct: number
+          piezas: number
+          source: string
+          user_id: string
+        }
+        Insert: {
+          calibre: string
+          clase?: string | null
+          created_at?: string
+          grupo_destino?: string | null
+          id?: string
+          kg?: number
+          part_id: string
+          pct?: number
+          piezas?: number
+          source?: string
+          user_id: string
+        }
+        Update: {
+          calibre?: string
+          clase?: string | null
+          created_at?: string
+          grupo_destino?: string | null
+          id?: string
+          kg?: number
+          part_id?: string
+          pct?: number
+          piezas?: number
+          source?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calibres_dia_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "partes_diarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calidad_adjuntos: {
+        Row: {
+          created_at: string
+          file_name: string
+          file_path: string
+          file_size: number | null
+          id: string
+          lote_id: string
+          mime_type: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          file_name: string
+          file_path: string
+          file_size?: number | null
+          id?: string
+          lote_id: string
+          mime_type?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          file_name?: string
+          file_path?: string
+          file_size?: number | null
+          id?: string
+          lote_id?: string
+          mime_type?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calidad_adjuntos_lote_id_fkey"
+            columns: ["lote_id"]
+            isOneToOne: false
+            referencedRelation: "calidad_lotes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calidad_jornadas: {
+        Row: {
+          created_at: string
+          estado: string
+          fecha: string
+          id: string
+          responsable: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          estado?: string
+          fecha: string
+          id?: string
+          responsable?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          estado?: string
+          fecha?: string
+          id?: string
+          responsable?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      calidad_lotes: {
+        Row: {
+          accion_recomendada: string
+          aerobotics_realizado: boolean
+          calidad: string
+          cantidad: string
+          created_at: string
+          defecto_otro: string
+          defectos: string[]
+          fecha: string
+          hora: string | null
+          ia_accion_recomendada: string
+          ia_calidad: string | null
+          ia_defectos: string[]
+          ia_resumen: string
+          id: string
+          informe_estado: string
+          informe_generado: string
+          jornada_id: string
+          motivo_reapertura: string
+          numero_lote: string
+          observacion: string
+          producto: string
+          productor_finca_id: string | null
+          productor_finca_nombre: string
+          reabierto_at: string | null
+          reabierto_by: string | null
+          updated_at: string
+          user_id: string
+          validado_at: string | null
+          validado_by: string | null
+          variedad: string
+        }
+        Insert: {
+          accion_recomendada?: string
+          aerobotics_realizado?: boolean
+          calidad?: string
+          cantidad?: string
+          created_at?: string
+          defecto_otro?: string
+          defectos?: string[]
+          fecha: string
+          hora?: string | null
+          ia_accion_recomendada?: string
+          ia_calidad?: string | null
+          ia_defectos?: string[]
+          ia_resumen?: string
+          id?: string
+          informe_estado?: string
+          informe_generado?: string
+          jornada_id: string
+          motivo_reapertura?: string
+          numero_lote?: string
+          observacion?: string
+          producto?: string
+          productor_finca_id?: string | null
+          productor_finca_nombre?: string
+          reabierto_at?: string | null
+          reabierto_by?: string | null
+          updated_at?: string
+          user_id: string
+          validado_at?: string | null
+          validado_by?: string | null
+          variedad?: string
+        }
+        Update: {
+          accion_recomendada?: string
+          aerobotics_realizado?: boolean
+          calidad?: string
+          cantidad?: string
+          created_at?: string
+          defecto_otro?: string
+          defectos?: string[]
+          fecha?: string
+          hora?: string | null
+          ia_accion_recomendada?: string
+          ia_calidad?: string | null
+          ia_defectos?: string[]
+          ia_resumen?: string
+          id?: string
+          informe_estado?: string
+          informe_generado?: string
+          jornada_id?: string
+          motivo_reapertura?: string
+          numero_lote?: string
+          observacion?: string
+          producto?: string
+          productor_finca_id?: string | null
+          productor_finca_nombre?: string
+          reabierto_at?: string | null
+          reabierto_by?: string | null
+          updated_at?: string
+          user_id?: string
+          validado_at?: string | null
+          validado_by?: string | null
+          variedad?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calidad_lotes_jornada_id_fkey"
+            columns: ["jornada_id"]
+            isOneToOne: false
+            referencedRelation: "calidad_jornadas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calidad_lotes_productor_finca_id_fkey"
+            columns: ["productor_finca_id"]
+            isOneToOne: false
+            referencedRelation: "calidad_productores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calidad_productores: {
+        Row: {
+          created_at: string
+          id: string
+          nombre: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          nombre: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          nombre?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      chat_conversations: {
+        Row: {
+          content: string
+          created_at: string | null
+          embedding: string | null
+          id: string
+          metadata: Json | null
+          role: string
+          user_id: string | null
+        }
+        Insert: {
+          content: string
+          created_at?: string | null
+          embedding?: string | null
+          id?: string
+          metadata?: Json | null
+          role: string
+          user_id?: string | null
+        }
+        Update: {
+          content?: string
+          created_at?: string | null
+          embedding?: string | null
+          id?: string
+          metadata?: Json | null
+          role?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      chat_knowledge: {
+        Row: {
+          answer: string
+          created_at: string | null
+          embedding: string | null
+          feedback_score: number | null
+          id: string
+          metadata: Json | null
+          question: string
+          user_id: string | null
+        }
+        Insert: {
+          answer: string
+          created_at?: string | null
+          embedding?: string | null
+          feedback_score?: number | null
+          id?: string
+          metadata?: Json | null
+          question: string
+          user_id?: string | null
+        }
+        Update: {
+          answer?: string
+          created_at?: string | null
+          embedding?: string | null
+          feedback_score?: number | null
+          id?: string
+          metadata?: Json | null
+          question?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      code_embeddings: {
+        Row: {
+          content: string
+          created_at: string | null
+          embedding: string
+          file_path: string
+          id: string
+          metadata: Json | null
+          updated_at: string | null
+        }
+        Insert: {
+          content: string
+          created_at?: string | null
+          embedding: string
+          file_path: string
+          id?: string
+          metadata?: Json | null
+          updated_at?: string | null
+        }
+        Update: {
+          content?: string
+          created_at?: string | null
+          embedding?: string
+          file_path?: string
+          id?: string
+          metadata?: Json | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      consumo_maquinas: {
+        Row: {
+          created_at: string
+          id: string
+          kwh: number
+          maquina_id: string
+          sesion_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kwh?: number
+          maquina_id: string
+          sesion_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kwh?: number
+          maquina_id?: string
+          sesion_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consumo_maquinas_maquina_id_fkey"
+            columns: ["maquina_id"]
+            isOneToOne: false
+            referencedRelation: "maquinas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consumo_maquinas_sesion_id_fkey"
+            columns: ["sesion_id"]
+            isOneToOne: false
+            referencedRelation: "sesiones_consumo"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      consumos_bases_kg: {
+        Row: {
+          created_at: string
+          fecha_fin: string
+          fecha_inicio: string
+          id: string
+          kg: number
+          notas: string | null
+          referencia: string | null
+          tipo_base: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          fecha_fin: string
+          fecha_inicio: string
+          id?: string
+          kg?: number
+          notas?: string | null
+          referencia?: string | null
+          tipo_base: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          fecha_fin?: string
+          fecha_inicio?: string
+          id?: string
+          kg?: number
+          notas?: string | null
+          referencia?: string | null
+          tipo_base?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      consumos_fisicos: {
+        Row: {
+          cantidad: number
+          created_at: string
+          fecha_fin: string
+          fecha_inicio: string
+          fuente: string
+          id: string
+          notas: string | null
+          recurso: string
+          referencia: string | null
+          unidad: string
+          user_id: string
+        }
+        Insert: {
+          cantidad?: number
+          created_at?: string
+          fecha_fin: string
+          fecha_inicio: string
+          fuente: string
+          id?: string
+          notas?: string | null
+          recurso: string
+          referencia?: string | null
+          unidad: string
+          user_id: string
+        }
+        Update: {
+          cantidad?: number
+          created_at?: string
+          fecha_fin?: string
+          fecha_inicio?: string
+          fuente?: string
+          id?: string
+          notas?: string | null
+          recurso?: string
+          referencia?: string | null
+          unidad?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       costes_diarios: {
         Row: {
           cantidad: number
@@ -230,54 +672,160 @@ export type Database = {
           },
         ]
       }
+      lote_clasificacion: {
+        Row: {
+          archivo_id: string | null
+          calidad: string | null
+          cartons: number | null
+          clase: string
+          created_at: string
+          duracion_min: number | null
+          fecha: string | null
+          grupo_destino: string | null
+          id: string
+          lote_codigo: string
+          lote_codigo_base: string | null
+          lote_dia_id: string | null
+          part_id: string
+          pct_cartons: number | null
+          pct_peso: number | null
+          pct_piezas: number | null
+          peso_fruta_promedio_g: number | null
+          peso_kg: number
+          piezas: number | null
+          producto: string
+          productor: string | null
+          tamano: string
+          toneladas_hora: number | null
+          user_id: string
+        }
+        Insert: {
+          archivo_id?: string | null
+          calidad?: string | null
+          cartons?: number | null
+          clase: string
+          created_at?: string
+          duracion_min?: number | null
+          fecha?: string | null
+          grupo_destino?: string | null
+          id?: string
+          lote_codigo: string
+          lote_codigo_base?: string | null
+          lote_dia_id?: string | null
+          part_id: string
+          pct_cartons?: number | null
+          pct_peso?: number | null
+          pct_piezas?: number | null
+          peso_fruta_promedio_g?: number | null
+          peso_kg?: number
+          piezas?: number | null
+          producto: string
+          productor?: string | null
+          tamano: string
+          toneladas_hora?: number | null
+          user_id: string
+        }
+        Update: {
+          archivo_id?: string | null
+          calidad?: string | null
+          cartons?: number | null
+          clase?: string
+          created_at?: string
+          duracion_min?: number | null
+          fecha?: string | null
+          grupo_destino?: string | null
+          id?: string
+          lote_codigo?: string
+          lote_codigo_base?: string | null
+          lote_dia_id?: string | null
+          part_id?: string
+          pct_cartons?: number | null
+          pct_peso?: number | null
+          pct_piezas?: number | null
+          peso_fruta_promedio_g?: number | null
+          peso_kg?: number
+          piezas?: number | null
+          producto?: string
+          productor?: string | null
+          tamano?: string
+          toneladas_hora?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lote_clasificacion_archivo_id_fkey"
+            columns: ["archivo_id"]
+            isOneToOne: false
+            referencedRelation: "partes_archivos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lote_clasificacion_lote_dia_id_fkey"
+            columns: ["lote_dia_id"]
+            isOneToOne: false
+            referencedRelation: "lotes_dia"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lote_clasificacion_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "partes_diarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lotes_dia: {
         Row: {
           created_at: string
           duracion_min: number | null
+          hora_inicio: string | null
           id: string
+          kg_industria: number
           kg_peso_total: number
           lote_codigo: string | null
           notas: string | null
           part_id: string
           peso_fruta_promedio_g: number | null
-          productor: string | null
           producto: string | null
+          productor: string | null
           source: Database["public"]["Enums"]["data_source"]
           toneladas_hora: number | null
           user_id: string
-          hora_inicio: string | null
         }
         Insert: {
           created_at?: string
           duracion_min?: number | null
+          hora_inicio?: string | null
           id?: string
+          kg_industria?: number
           kg_peso_total?: number
           lote_codigo?: string | null
           notas?: string | null
           part_id: string
           peso_fruta_promedio_g?: number | null
-          productor?: string | null
           producto?: string | null
+          productor?: string | null
           source?: Database["public"]["Enums"]["data_source"]
           toneladas_hora?: number | null
           user_id: string
-          hora_inicio?: string | null
         }
         Update: {
           created_at?: string
           duracion_min?: number | null
+          hora_inicio?: string | null
           id?: string
+          kg_industria?: number
           kg_peso_total?: number
           lote_codigo?: string | null
           notas?: string | null
           part_id?: string
           peso_fruta_promedio_g?: number | null
-          productor?: string | null
           producto?: string | null
+          productor?: string | null
           source?: Database["public"]["Enums"]["data_source"]
           toneladas_hora?: number | null
           user_id?: string
-          hora_inicio?: string | null
         }
         Relationships: [
           {
@@ -289,13 +837,37 @@ export type Database = {
           },
         ]
       }
+      maquinas: {
+        Row: {
+          created_at: string
+          id: string
+          nombre: string
+          user_id: string
+          zona: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          nombre: string
+          user_id: string
+          zona: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          nombre?: string
+          user_id?: string
+          zona?: string
+        }
+        Relationships: []
+      }
       palets_dia: {
         Row: {
+          campo: boolean
           cliente: string | null
           created_at: string
           destino: string | null
           egipto: boolean
-          campo: boolean
           id: string
           kg_neto: number
           n_cajas: number | null
@@ -303,15 +875,15 @@ export type Database = {
           part_id: string
           producto: string | null
           situacion: string | null
-          source: Database["public"]["Enums"]["data_source"]
+          source: string
           user_id: string
         }
         Insert: {
+          campo?: boolean
           cliente?: string | null
           created_at?: string
           destino?: string | null
           egipto?: boolean
-          campo?: boolean
           id?: string
           kg_neto?: number
           n_cajas?: number | null
@@ -319,15 +891,15 @@ export type Database = {
           part_id: string
           producto?: string | null
           situacion?: string | null
-          source?: Database["public"]["Enums"]["data_source"]
+          source?: string
           user_id: string
         }
         Update: {
+          campo?: boolean
           cliente?: string | null
           created_at?: string
           destino?: string | null
           egipto?: boolean
-          campo?: boolean
           id?: string
           kg_neto?: number
           n_cajas?: number | null
@@ -335,112 +907,12 @@ export type Database = {
           part_id?: string
           producto?: string | null
           situacion?: string | null
-          source?: Database["public"]["Enums"]["data_source"]
+          source?: string
           user_id?: string
         }
         Relationships: [
           {
             foreignKeyName: "palets_dia_part_id_fkey"
-            columns: ["part_id"]
-            isOneToOne: false
-            referencedRelation: "partes_diarios"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      calibres_dia: {
-        Row: {
-          calibre: string
-          clase: string | null
-          created_at: string
-          grupo_destino: string | null
-          id: string
-          kg: number
-          part_id: string
-          pct: number
-          piezas: number
-          source: Database["public"]["Enums"]["data_source"]
-          user_id: string
-        }
-        Insert: {
-          calibre: string
-          clase?: string | null
-          created_at?: string
-          grupo_destino?: string | null
-          id?: string
-          kg?: number
-          part_id: string
-          pct?: number
-          piezas?: number
-          source?: Database["public"]["Enums"]["data_source"]
-          user_id: string
-        }
-        Update: {
-          calibre?: string
-          clase?: string | null
-          created_at?: string
-          grupo_destino?: string | null
-          id?: string
-          kg?: number
-          part_id?: string
-          pct?: number
-          piezas?: number
-          source?: Database["public"]["Enums"]["data_source"]
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "calibres_dia_part_id_fkey"
-            columns: ["part_id"]
-            isOneToOne: false
-            referencedRelation: "partes_diarios"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      producto_dia: {
-        Row: {
-          created_at: string
-          formato_caja: string | null
-          grupo_destino: string | null
-          id: string
-          kg: number
-          linea: string | null
-          n_cajas: number | null
-          part_id: string
-          producto: string | null
-          source: Database["public"]["Enums"]["data_source"]
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          formato_caja?: string | null
-          grupo_destino?: string | null
-          id?: string
-          kg?: number
-          linea?: string | null
-          n_cajas?: number | null
-          part_id: string
-          producto?: string | null
-          source?: Database["public"]["Enums"]["data_source"]
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          formato_caja?: string | null
-          grupo_destino?: string | null
-          id?: string
-          kg?: number
-          linea?: string | null
-          n_cajas?: number | null
-          part_id?: string
-          producto?: string | null
-          source?: Database["public"]["Enums"]["data_source"]
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "producto_dia_part_id_fkey"
             columns: ["part_id"]
             isOneToOne: false
             referencedRelation: "partes_diarios"
@@ -503,8 +975,8 @@ export type Database = {
           kg_inventario_sin_alta: number
           kg_mujeres_calibrador: number
           kg_palets_brutos: number
-          kg_palets_egipto: number
           kg_palets_campo: number
+          kg_palets_egipto: number
           kg_podrido_bolsa_basura: number
           kg_podrido_calibrador_auto: number
           kg_produccion_calibrador: number
@@ -512,6 +984,7 @@ export type Database = {
           kg_reciclado_malla_z2: number
           notas_generales: string | null
           notas_inventario: string | null
+          resumen_analisis: Json | null
           resumen_ia: Json | null
           updated_at: string
           user_id: string
@@ -526,8 +999,8 @@ export type Database = {
           kg_inventario_sin_alta?: number
           kg_mujeres_calibrador?: number
           kg_palets_brutos?: number
-          kg_palets_egipto?: number
           kg_palets_campo?: number
+          kg_palets_egipto?: number
           kg_podrido_bolsa_basura?: number
           kg_podrido_calibrador_auto?: number
           kg_produccion_calibrador?: number
@@ -535,6 +1008,7 @@ export type Database = {
           kg_reciclado_malla_z2?: number
           notas_generales?: string | null
           notas_inventario?: string | null
+          resumen_analisis?: Json | null
           resumen_ia?: Json | null
           updated_at?: string
           user_id: string
@@ -549,8 +1023,8 @@ export type Database = {
           kg_inventario_sin_alta?: number
           kg_mujeres_calibrador?: number
           kg_palets_brutos?: number
-          kg_palets_egipto?: number
           kg_palets_campo?: number
+          kg_palets_egipto?: number
           kg_podrido_bolsa_basura?: number
           kg_podrido_calibrador_auto?: number
           kg_produccion_calibrador?: number
@@ -558,6 +1032,7 @@ export type Database = {
           kg_reciclado_malla_z2?: number
           notas_generales?: string | null
           notas_inventario?: string | null
+          resumen_analisis?: Json | null
           resumen_ia?: Json | null
           updated_at?: string
           user_id?: string
@@ -608,6 +1083,56 @@ export type Database = {
           },
         ]
       }
+      producto_dia: {
+        Row: {
+          created_at: string
+          formato_caja: string | null
+          grupo_destino: string | null
+          id: string
+          kg: number
+          linea: string | null
+          n_cajas: number | null
+          part_id: string
+          producto: string | null
+          source: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          formato_caja?: string | null
+          grupo_destino?: string | null
+          id?: string
+          kg?: number
+          linea?: string | null
+          n_cajas?: number | null
+          part_id: string
+          producto?: string | null
+          source?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          formato_caja?: string | null
+          grupo_destino?: string | null
+          id?: string
+          kg?: number
+          linea?: string | null
+          n_cajas?: number | null
+          part_id?: string
+          producto?: string | null
+          source?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "producto_dia_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "partes_diarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -632,168 +1157,6 @@ export type Database = {
           id?: string
           updated_at?: string
           user_id?: string
-        }
-        Relationships: []
-      }
-      user_roles: {
-        Row: {
-          created_at: string
-          id: string
-          role: Database["public"]["Enums"]["app_role"]
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          role: Database["public"]["Enums"]["app_role"]
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          role?: Database["public"]["Enums"]["app_role"]
-          user_id?: string
-        }
-        Relationships: []
-      }
-      consumo_maquinas: {
-        Row: {
-          created_at: string
-          id: string
-          kwh: number
-          maquina_id: string
-          sesion_id: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          kwh?: number
-          maquina_id: string
-          sesion_id: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          kwh?: number
-          maquina_id?: string
-          sesion_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "consumo_maquinas_maquina_id_fkey"
-            columns: ["maquina_id"]
-            isOneToOne: false
-            referencedRelation: "maquinas"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "consumo_maquinas_sesion_id_fkey"
-            columns: ["sesion_id"]
-            isOneToOne: false
-            referencedRelation: "sesiones_consumo"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      consumos_fisicos: {
-        Row: {
-          cantidad: number
-          created_at: string
-          fecha_fin: string
-          fecha_inicio: string
-          fuente: "contador" | "factura_detallada" | "albaran" | "estimacion_manual"
-          id: string
-          notas: string | null
-          recurso: "agua" | "electricidad" | "gasoil" | "quimicos"
-          referencia: string | null
-          unidad: "l" | "m3" | "kwh"
-          user_id: string
-        }
-        Insert: {
-          cantidad?: number
-          created_at?: string
-          fecha_fin: string
-          fecha_inicio: string
-          fuente: "contador" | "factura_detallada" | "albaran" | "estimacion_manual"
-          id?: string
-          notas?: string | null
-          recurso: "agua" | "electricidad" | "gasoil" | "quimicos"
-          referencia?: string | null
-          unidad: "l" | "m3" | "kwh"
-          user_id: string
-        }
-        Update: {
-          cantidad?: number
-          created_at?: string
-          fecha_fin?: string
-          fecha_inicio?: string
-          fuente?: "contador" | "factura_detallada" | "albaran" | "estimacion_manual"
-          id?: string
-          notas?: string | null
-          recurso?: "agua" | "electricidad" | "gasoil" | "quimicos"
-          referencia?: string | null
-          unidad?: "l" | "m3" | "kwh"
-          user_id?: string
-        }
-        Relationships: []
-      }
-      consumos_bases_kg: {
-        Row: {
-          created_at: string
-          fecha_fin: string
-          fecha_inicio: string
-          id: string
-          kg: number
-          notas: string | null
-          referencia: string | null
-          tipo_base: "ventas" | "manual"
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          fecha_fin: string
-          fecha_inicio: string
-          id?: string
-          kg?: number
-          notas?: string | null
-          referencia?: string | null
-          tipo_base: "ventas" | "manual"
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          fecha_fin?: string
-          fecha_inicio?: string
-          id?: string
-          kg?: number
-          notas?: string | null
-          referencia?: string | null
-          tipo_base?: "ventas" | "manual"
-          user_id?: string
-        }
-        Relationships: []
-      }
-      maquinas: {
-        Row: {
-          created_at: string
-          id: string
-          nombre: string
-          user_id: string
-          zona: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          nombre: string
-          user_id: string
-          zona: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          nombre?: string
-          user_id?: string
-          zona?: string
         }
         Relationships: []
       }
@@ -842,201 +1205,116 @@ export type Database = {
         }
         Relationships: []
       }
-      ventas_categorias: {
+      trabajadores: {
         Row: {
-          id: string
-          user_id: string | null
-          nombre: string
-          descripcion: string | null
+          activo: boolean
           created_at: string
-          updated_at: string
+          id: string
+          nombre: string
+          user_id: string
+          zona: string | null
         }
         Insert: {
-          id?: string
-          user_id?: string | null
-          nombre: string
-          descripcion?: string | null
+          activo?: boolean
           created_at?: string
-          updated_at?: string
+          id?: string
+          nombre: string
+          user_id: string
+          zona?: string | null
         }
         Update: {
-          id?: string
-          user_id?: string | null
-          nombre?: string
-          descripcion?: string | null
+          activo?: boolean
           created_at?: string
-          updated_at?: string
+          id?: string
+          nombre?: string
+          user_id?: string
+          zona?: string | null
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
         }
         Relationships: []
       }
       ventas_categoria_autorizados: {
         Row: {
-          id: string
-          email: string
-          nombre: string | null
           activo: boolean
           created_at: string
+          email: string
+          id: string
+          nombre: string | null
           updated_at: string
         }
         Insert: {
-          id?: string
-          email: string
-          nombre?: string | null
           activo?: boolean
           created_at?: string
+          email: string
+          id?: string
+          nombre?: string | null
           updated_at?: string
         }
         Update: {
-          id?: string
-          email?: string
-          nombre?: string | null
           activo?: boolean
           created_at?: string
+          email?: string
+          id?: string
+          nombre?: string | null
           updated_at?: string
         }
         Relationships: []
       }
-      ventas_categoria_productos: {
-        Row: {
-          id: string
-          categoria_id: string
-          metodo: string
-          descripcion: string | null
-          lineas: number
-          kilos: number
-          base_iva: number
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          categoria_id: string
-          metodo: string
-          descripcion?: string | null
-          lineas?: number
-          kilos?: number
-          base_iva?: number
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          categoria_id?: string
-          metodo?: string
-          descripcion?: string | null
-          lineas?: number
-          kilos?: number
-          base_iva?: number
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ventas_categoria_productos_categoria_id_fkey"
-            columns: ["categoria_id"]
-            isOneToOne: false
-            referencedRelation: "ventas_categorias"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      ventas_categoria_lineas: {
-        Row: {
-          id: string
-          categoria_id: string
-          fecha: string
-          campana: string
-          mes: string
-          cliente_codigo: string
-          cliente_nombre: string
-          referencia: string | null
-          articulo: string
-          metodo_producto: string | null
-          kilos: number
-          pvp: number
-          base_iva: number
-          pm_venta: number
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          categoria_id: string
-          fecha: string
-          campana: string
-          mes: string
-          cliente_codigo: string
-          cliente_nombre: string
-          referencia?: string | null
-          articulo: string
-          metodo_producto?: string | null
-          kilos?: number
-          pvp?: number
-          base_iva?: number
-          pm_venta?: number
-          created_at?: string
-        }
-        Update: {
-          id?: string
-          categoria_id?: string
-          fecha?: string
-          campana?: string
-          mes?: string
-          cliente_codigo?: string
-          cliente_nombre?: string
-          referencia?: string | null
-          articulo?: string
-          metodo_producto?: string | null
-          kilos?: number
-          pvp?: number
-          base_iva?: number
-          pm_venta?: number
-          created_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ventas_categoria_lineas_categoria_id_fkey"
-            columns: ["categoria_id"]
-            isOneToOne: false
-            referencedRelation: "ventas_categorias"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       ventas_categoria_clientes_ajustes: {
         Row: {
-          id: string
           categoria_id: string
           cliente_codigo: string
           cliente_nombre: string
-          comision_pct: number
           comision_cent_kg: number
-          transporte_pct: number
-          transporte_cent_kg: number
+          comision_pct: number
           created_at: string
+          id: string
+          transporte_cent_kg: number
+          transporte_pct: number
           updated_at: string
         }
         Insert: {
-          id?: string
           categoria_id: string
           cliente_codigo: string
           cliente_nombre: string
-          comision_pct?: number
           comision_cent_kg?: number
-          transporte_pct?: number
-          transporte_cent_kg?: number
+          comision_pct?: number
           created_at?: string
+          id?: string
+          transporte_cent_kg?: number
+          transporte_pct?: number
           updated_at?: string
         }
         Update: {
-          id?: string
           categoria_id?: string
           cliente_codigo?: string
           cliente_nombre?: string
-          comision_pct?: number
           comision_cent_kg?: number
-          transporte_pct?: number
-          transporte_cent_kg?: number
+          comision_pct?: number
           created_at?: string
+          id?: string
+          transporte_cent_kg?: number
+          transporte_pct?: number
           updated_at?: string
         }
         Relationships: [
@@ -1049,107 +1327,500 @@ export type Database = {
           },
         ]
       }
-    }
-    Views: {
-      ventas_categoria_resumen: {
+      ventas_categoria_lineas: {
         Row: {
-          categoria_id: string | null
-          lineas: number | null
-          kilos: number | null
-          base_iva: number | null
-          pm_bruto: number | null
-          pm_real: number | null
-          clientes: number | null
-          productos: number | null
-          articulos: number | null
-          fecha_min: string | null
-          fecha_max: string | null
+          articulo: string
+          base_iva: number
+          campana: string
+          categoria_id: string
+          cliente_codigo: string
+          cliente_nombre: string
+          created_at: string
+          fecha: string
+          id: string
+          kilos: number
+          mes: string
+          metodo_producto: string | null
+          pm_venta: number
+          pvp: number
+          referencia: string | null
+        }
+        Insert: {
+          articulo: string
+          base_iva?: number
+          campana: string
+          categoria_id: string
+          cliente_codigo: string
+          cliente_nombre: string
+          created_at?: string
+          fecha: string
+          id?: string
+          kilos?: number
+          mes: string
+          metodo_producto?: string | null
+          pm_venta?: number
+          pvp?: number
+          referencia?: string | null
+        }
+        Update: {
+          articulo?: string
+          base_iva?: number
+          campana?: string
+          categoria_id?: string
+          cliente_codigo?: string
+          cliente_nombre?: string
+          created_at?: string
+          fecha?: string
+          id?: string
+          kilos?: number
+          mes?: string
+          metodo_producto?: string | null
+          pm_venta?: number
+          pvp?: number
+          referencia?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ventas_categoria_lineas_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "ventas_categorias"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ventas_categoria_productos: {
+        Row: {
+          base_iva: number
+          categoria_id: string
+          created_at: string
+          descripcion: string | null
+          id: string
+          kilos: number
+          lineas: number
+          metodo: string
+          updated_at: string
+        }
+        Insert: {
+          base_iva?: number
+          categoria_id: string
+          created_at?: string
+          descripcion?: string | null
+          id?: string
+          kilos?: number
+          lineas?: number
+          metodo: string
+          updated_at?: string
+        }
+        Update: {
+          base_iva?: number
+          categoria_id?: string
+          created_at?: string
+          descripcion?: string | null
+          id?: string
+          kilos?: number
+          lineas?: number
+          metodo?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ventas_categoria_productos_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "ventas_categorias"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ventas_categorias: {
+        Row: {
+          created_at: string
+          descripcion: string | null
+          id: string
+          nombre: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          descripcion?: string | null
+          id?: string
+          nombre: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          descripcion?: string | null
+          id?: string
+          nombre?: string
+          updated_at?: string
+          user_id?: string | null
         }
         Relationships: []
+      }
+    }
+    Views: {
+      dashboard_produccion_mensual: {
+        Row: {
+          ano: number | null
+          cajas: number | null
+          clientes: number | null
+          destinos: number | null
+          dias: number | null
+          facturacion: number | null
+          kilos: number | null
+          lineas: number | null
+          lotes: number | null
+          mes: number | null
+          month_start: string | null
+          palets: number | null
+          precio_medio: number | null
+          productores: number | null
+          productos: number | null
+          refreshed_at: string | null
+        }
+        Relationships: []
+      }
+      precios_dashboard_mensual: {
+        Row: {
+          ano: number | null
+          clientes: number | null
+          facturacion: number | null
+          kilos: number | null
+          lineas: number | null
+          mes: number | null
+          month_start: string | null
+          precio_medio: number | null
+          productos: number | null
+          refreshed_at: string | null
+        }
+        Relationships: []
+      }
+      ventas_categoria_lineas_con_ajustes: {
+        Row: {
+          articulo: string | null
+          base_iva: number | null
+          campana: string | null
+          categoria_id: string | null
+          cliente_codigo: string | null
+          cliente_nombre: string | null
+          comision_cent_kg: number | null
+          comision_pct: number | null
+          created_at: string | null
+          fecha: string | null
+          id: string | null
+          kilos: number | null
+          mes: string | null
+          metodo_producto: string | null
+          pm_venta: number | null
+          pm_venta_real: number | null
+          pvp: number | null
+          referencia: string | null
+          transporte_cent_kg: number | null
+          transporte_pct: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ventas_categoria_lineas_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "ventas_categorias"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ventas_categoria_mensual_cliente: {
         Row: {
+          base_iva: number | null
           categoria_id: string | null
-          mes: string | null
           cliente_codigo: string | null
           cliente_nombre: string | null
-          lineas: number | null
           kilos: number | null
-          base_iva: number | null
+          lineas: number | null
+          mes: string | null
           pm_bruto: number | null
           pm_real: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "ventas_categoria_lineas_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "ventas_categorias"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ventas_categoria_mensual_producto: {
         Row: {
+          base_iva: number | null
           categoria_id: string | null
+          kilos: number | null
+          lineas: number | null
           mes: string | null
           metodo_producto: string | null
-          lineas: number | null
-          kilos: number | null
-          base_iva: number | null
           pm_bruto: number | null
           pm_real: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "ventas_categoria_lineas_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "ventas_categorias"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ventas_categoria_ranking_clientes: {
         Row: {
+          base_iva: number | null
           categoria_id: string | null
           cliente_codigo: string | null
           cliente_nombre: string | null
-          lineas: number | null
           kilos: number | null
-          base_iva: number | null
+          lineas: number | null
           pm_bruto: number | null
           pm_real: number | null
-          precio_real_max: number | null
           precio_bruto_max: number | null
+          precio_real_max: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "ventas_categoria_lineas_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "ventas_categorias"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ventas_categoria_resumen: {
+        Row: {
+          articulos: number | null
+          base_iva: number | null
+          categoria_id: string | null
+          clientes: number | null
+          fecha_max: string | null
+          fecha_min: string | null
+          kilos: number | null
+          lineas: number | null
+          pm_bruto: number | null
+          pm_real: number | null
+          productos: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ventas_categoria_lineas_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "ventas_categorias"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ventas_categoria_resumen_articulo: {
         Row: {
-          categoria_id: string | null
-          referencia: string | null
           articulo: string | null
-          lineas: number | null
-          kilos: number | null
           base_iva: number | null
+          categoria_id: string | null
+          kilos: number | null
+          lineas: number | null
           pm_bruto: number | null
           pm_real: number | null
+          referencia: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "ventas_categoria_lineas_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "ventas_categorias"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ventas_categoria_validacion_catalogo: {
         Row: {
-          categoria_id: string | null
-          metodo: string | null
-          descripcion: string | null
-          lineas_catalogo: number | null
-          lineas_detectadas: number | null
-          kilos_catalogo: number | null
-          kilos_lineas: number | null
-          diferencia_kilos: number | null
           base_iva_catalogo: number | null
           base_iva_lineas: number | null
+          categoria_id: string | null
+          descripcion: string | null
           diferencia_base_iva: number | null
+          diferencia_kilos: number | null
+          kilos_catalogo: number | null
+          kilos_lineas: number | null
+          lineas_catalogo: number | null
+          lineas_detectadas: number | null
+          metodo: string | null
         }
         Relationships: []
       }
     }
     Functions: {
-      has_role: {
+      can_access_ventas_categoria: { Args: never; Returns: boolean }
+      has_role:
+        | {
+            Args: {
+              _role: Database["public"]["Enums"]["app_role"]
+              _user_id: string
+            }
+            Returns: boolean
+          }
+        | { Args: { _role: string; _user_id: string }; Returns: boolean }
+      search_code: {
         Args: {
-          _role: Database["public"]["Enums"]["app_role"]
-          _user_id: string
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
         }
-        Returns: boolean
+        Returns: {
+          content: string
+          file_path: string
+          id: string
+          similarity: number
+        }[]
       }
-      can_access_ventas_categoria: {
-        Args: Record<PropertyKey, never>
-        Returns: boolean
+      search_conversations: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
+          user_uuid: string
+        }
+        Returns: {
+          content: string
+          created_at: string
+          id: string
+          role: string
+          similarity: number
+        }[]
+      }
+      search_knowledge: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
+        }
+        Returns: {
+          answer: string
+          id: string
+          question: string
+          similarity: number
+        }[]
+      }
+      ventas_categoria_articulos_filtrado: {
+        Args: {
+          p_campana?: string
+          p_categoria_id: string
+          p_cliente_codigo?: string
+          p_mes?: string
+          p_metodo?: string
+        }
+        Returns: {
+          articulo: string
+          base_iva: number
+          kilos: number
+          lineas: number
+          pm_bruto: number
+          pm_real: number
+          referencia: string
+        }[]
+      }
+      ventas_categoria_mensual_articulo_filtrado: {
+        Args: {
+          p_campana?: string
+          p_categoria_id: string
+          p_cliente_codigo?: string
+          p_mes?: string
+          p_metodo?: string
+        }
+        Returns: {
+          articulo: string
+          base_iva: number
+          kilos: number
+          lineas: number
+          mes: string
+          pm_bruto: number
+          referencia: string
+        }[]
+      }
+      ventas_categoria_mensual_cliente_filtrado: {
+        Args: {
+          p_campana?: string
+          p_categoria_id: string
+          p_cliente_codigo?: string
+          p_mes?: string
+          p_metodo?: string
+        }
+        Returns: {
+          base_iva: number
+          cliente_codigo: string
+          cliente_nombre: string
+          kilos: number
+          lineas: number
+          mes: string
+          pm_bruto: number
+          pm_real: number
+        }[]
+      }
+      ventas_categoria_mensual_producto_filtrado: {
+        Args: {
+          p_campana?: string
+          p_categoria_id: string
+          p_cliente_codigo?: string
+          p_mes?: string
+          p_metodo?: string
+        }
+        Returns: {
+          base_iva: number
+          kilos: number
+          lineas: number
+          mes: string
+          metodo_producto: string
+          pm_bruto: number
+          pm_real: number
+        }[]
+      }
+      ventas_categoria_ranking_clientes_filtrado: {
+        Args: {
+          p_campana?: string
+          p_categoria_id: string
+          p_cliente_codigo?: string
+          p_mes?: string
+          p_metodo?: string
+        }
+        Returns: {
+          base_iva: number
+          cliente_codigo: string
+          cliente_nombre: string
+          kilos: number
+          lineas: number
+          pm_bruto: number
+          pm_real: number
+          precio_bruto_max: number
+          precio_real_max: number
+        }[]
+      }
+      ventas_categoria_resumen_filtrado: {
+        Args: {
+          p_campana?: string
+          p_categoria_id: string
+          p_cliente_codigo?: string
+          p_mes?: string
+          p_metodo?: string
+        }
+        Returns: {
+          articulos: number
+          base_iva: number
+          clientes: number
+          kilos: number
+          pm_bruto: number
+          pm_real: number
+          productos: number
+        }[]
       }
     }
     Enums: {

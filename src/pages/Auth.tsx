@@ -23,7 +23,6 @@ export default function Auth() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
 
   useEffect(() => {
     if (user) navigate("/", { replace: true });
@@ -37,12 +36,6 @@ export default function Auth() {
       passwordSchema.parse(password);
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      if (!rememberMe) {
-        for (let i = localStorage.length - 1; i >= 0; i--) {
-          const key = localStorage.key(i);
-          if (key?.startsWith("sb-")) localStorage.removeItem(key);
-        }
-      }
       navigate("/", { replace: true });
     } catch (err: unknown) {
       toast({
@@ -236,20 +229,7 @@ export default function Auth() {
                   onBlur={(e) => { e.target.style.borderColor = "var(--auth-border)"; e.target.style.boxShadow = "none"; }}
                 />
               </div>
-              <div className="flex items-center gap-2 form-stagger-4">
-                <input
-                  id="remember"
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="h-4 w-4 rounded transition-transform duration-200 active:scale-90"
-                  style={{ accentColor: "var(--auth-orange)" }}
-                />
-                <Label htmlFor="remember" className="text-sm font-normal" style={{ color: "var(--auth-muted)" }}>
-                  Recordarme
-                </Label>
-              </div>
-              <div className="form-stagger-5">
+              <div className="form-stagger-4">
                 <button
                   type="submit"
                   disabled={loading}
@@ -268,7 +248,7 @@ export default function Auth() {
                 </button>
               </div>
 
-              <p className="text-center text-sm form-stagger-6" style={{ color: "var(--auth-muted)" }}>
+              <p className="text-center text-sm form-stagger-5" style={{ color: "var(--auth-muted)" }}>
                 ¿No tienes cuenta?{" "}
                 <button
                   type="button"

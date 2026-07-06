@@ -13,9 +13,8 @@ import { Download, Loader2, FileSpreadsheet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import ExcelPreviewer, {
   type ParsedExcel,
-  type Metric,
-  type DataTable,
 } from "./ExcelPreviewer";
+import { fillEmptyHeaders } from "./excel-preview";
 
 interface Archivo {
   file_name: string | null;
@@ -37,23 +36,6 @@ export function formatSize(bytes: number | null): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-// Detecta si una columna es mayoritariamente numérica (>50% de celdas válidas
-// son números con separador decimal/punto/miles). Se usa para alinear a la
-// derecha las columnas de cifras.
-function isNumericColumn(rows: string[][], colIdx: number): boolean {
-  let numeric = 0;
-  let total = 0;
-  for (const row of rows) {
-    const cell = row[colIdx];
-    if (!cell || !cell.trim()) continue;
-    total++;
-    if (/^-?\d{1,3}([.,]\d{3})*([.,]\d+)?%?$|^-?\d+([.,]\d+)?%?$/.test(cell.trim())) {
-      numeric++;
-    }
-  }
-  return total > 0 && numeric / total > 0.5;
 }
 
 // Detecta si una fila es un control de UI de Excel (filtros, fechas, etc.)
@@ -276,7 +258,10 @@ export function parseSheetToStructured(sheet: SheetData, filename: string): Pars
   let headers: string[];
   let actualDataStartIdx: number;
   if (headerIdx >= 0) {
-    headers = rows[headerIdx];
+    // Cabeceras detectadas en el archivo: si alguna celda viene vacía
+    // (columna sin nombre en el Excel original), se rellena con "Col N"
+    // en vez de dejarla en blanco para presentación.
+    headers = fillEmptyHeaders(rows[headerIdx]);
     actualDataStartIdx = dataStartIdx;
   } else {
     // Sin cabecera detectada: intentar usar cabeceras del módulo variant detectado
@@ -663,6 +648,7 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
       setBlob(data);
       const buffer = await data.arrayBuffer();
       const bytes = new Uint8Array(buffer);
+      const looksLikeCsvFile = /\.csv$/i.test(archivo.file_name ?? "") || (archivo.mime_type ?? "").includes("csv");
 
       // Función para verificar si el contenido parseado es válido.
       // Requiere al menos 3 celdas con contenido por hoja y que
@@ -707,17 +693,37 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
 
       let parsed: SheetData[] = [];
 
+      // Intento 0: si el archivo es .csv (por nombre o mime), xlsx ya sabe
+      // parsear texto CSV directamente vía type: "string" — es más barato y
+      // fiable que forzarlo por el camino de reparacion de ZIP binario.
+      if (looksLikeCsvFile) {
+        try {
+          console.log("Intento 0: CSV directo con XLSX.read");
+          const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+          const wb = XLSX.read(text, { type: "string", raw: true });
+          const csvParsed = parseWorkbook(wb);
+          if (isValidContent(csvParsed)) {
+            parsed = csvParsed;
+            console.log("Intento 0 exitoso: CSV parseado directamente");
+          }
+        } catch (e) {
+          console.warn("Error en intento 0 (CSV directo):", e);
+        }
+      }
+
       // Limpiar prefijo basura (PK00, BOM, etc.) UNA VEZ antes de los intentos XLSX
       const cleanBytes = repairXlsx(bytes);
 
       // Intento 1: Parsear normalmente
-      try {
-        console.log("Intento 1: Parseo normal");
-        const wb = XLSX.read(cleanBytes, { type: "array" });
-        parsed = parseWorkbook(wb);
-        console.log("Intento 1 exitoso, hojas:", parsed.length);
-      } catch (e) {
-        console.warn("Error en primer intento de parseo:", e);
+      if (!isValidContent(parsed)) {
+        try {
+          console.log("Intento 1: Parseo normal");
+          const wb = XLSX.read(cleanBytes, { type: "array" });
+          parsed = parseWorkbook(wb);
+          console.log("Intento 1 exitoso, hojas:", parsed.length);
+        } catch (e) {
+          console.warn("Error en primer intento de parseo:", e);
+        }
       }
 
       // Intento 2: Si el contenido no es válido, intentar con reparación
@@ -850,8 +856,6 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
         const looksLikeCsv = /^[\w\s,;:\t\-."']+$/m.test(text.split("\n")[0] ?? "");
         const strippedPrefix = cleanBytes.length !== bytes.length;
         // Detectar EOCD (End Of Central Directory) - si no está, el ZIP está corrupto
-        const last4 = cleanBytes.subarray(cleanBytes.length - 22, cleanBytes.length - 18);
-        const hasEocd = last4[0] === 0x50 && last4[1] === 0x4b && last4[2] === 0x05 && last4[3] === 0x06;
         // Buscar EOCD en los últimos 64 bytes
         let eocdFound = false;
         const searchStart = Math.max(0, cleanBytes.length - 64);
@@ -905,12 +909,10 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
     URL.revokeObjectURL(url);
   }
 
-  const currentSheet = sheets[Number(activeSheet)];
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[min(1500px,96vw)] max-h-[95vh] flex flex-col border-slate-200/70 bg-white/90 p-0 backdrop-blur-xl">
-        <DialogHeader className="shrink-0 border-b border-slate-200/70 px-5 py-4">
+      <DialogContent className="max-w-[min(1500px,96vw)] max-h-[95vh] flex flex-col p-0">
+        <DialogHeader className="shrink-0 border-b border-[var(--glass-border)] px-5 py-4">
           <div className="flex items-center justify-between pr-8">
             <div className="flex items-center gap-2 min-w-0">
               <FileSpreadsheet className="h-5 w-5 text-primary shrink-0" />
@@ -952,7 +954,7 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
           {!loading && !error && sheets.length > 0 && (
             <Tabs value={activeSheet} onValueChange={setActiveSheet} className="flex flex-col h-full">
               {sheets.length > 1 && (
-                <TabsList className="shrink-0 self-start bg-slate-100/80">
+                <TabsList className="shrink-0 self-start">
                   {sheets.map((s, i) => (
                     <TabsTrigger key={i} value={String(i)} className="text-xs">
                       {s.name}

@@ -1,21 +1,31 @@
+import type { ReactNode } from "react";
 import { CascadeResult } from "@/lib/cascade";
 import { formatKg, formatPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { InfoTooltip } from "@/components/InfoTooltip";
+import { DJPMN_HELP } from "@/lib/semaforo";
 import {
   Factory, Package, TrendingDown,
   BarChart2, Minus, Layers, Check, AlertTriangle, X,
-  Globe, ShoppingCart, Wrench, Flame, Gauge,
+  Gauge,
 } from "lucide-react";
+
+export interface DestinoFrutaItem {
+  grupo: string;
+  kg: number;
+  color: string;
+}
 
 // ─── Sub-componentes ──────────────────────────────────────────────────────────
 
-function SectionLabel({ icon: Icon, label }: { icon: React.ElementType; label: string }) {
+function SectionLabel({ icon: Icon, label, info }: { icon: React.ElementType; label: string; info?: ReactNode }) {
   return (
     <div className="flex items-center gap-1.5 pt-3 pb-1 first:pt-0">
       <Icon className="h-3.5 w-3.5 text-muted-foreground" />
       <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
         {label}
       </span>
+      {info && <InfoTooltip iconClassName="h-3 w-3">{info}</InfoTooltip>}
     </div>
   );
 }
@@ -70,40 +80,38 @@ function Divider() {
   return <div className="my-1 h-px bg-[var(--glass-border)]" />;
 }
 
-// ─── Barra de destino de fruta (M3) ──────────────────────────────────────────
+// ─── Barra de destino de fruta (también usada por PartDetailDestino) ─────────
 
-function DestinoBar({
+export function DestinoBar({
   label,
   kg,
   total,
   color,
-  icon: Icon,
 }: {
   label: string;
   kg: number;
   total: number;
   color: string;
-  icon: React.ElementType;
 }) {
   const pct = total > 0 ? (kg / total) * 100 : 0;
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-xs">
         <div className="flex items-center gap-1.5">
-          <Icon className="h-3 w-3 text-muted-foreground" />
+          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
           <span className="text-muted-foreground">{label}</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="tabular-nums text-foreground font-medium">{formatKg(kg)}</span>
-          <span className={cn("tabular-nums font-semibold text-[11px]", color)}>
+          <span className="tabular-nums font-semibold text-[11px]" style={{ color }}>
             {pct.toFixed(1)}%
           </span>
         </div>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
         <div
-          className={cn("h-full rounded-full transition-all", color.replace("text-", "bg-"))}
-          style={{ width: `${Math.min(pct, 100)}%` }}
+          className="h-full rounded-full transition-all"
+          style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: color }}
         />
       </div>
     </div>
@@ -146,7 +154,11 @@ export function CascadeView({ result }: { result: CascadeResult }) {
     <div className="flex flex-col gap-1">
 
       {/* ── Producción real ──────────────────────────────────────── */}
-      <SectionLabel icon={Factory} label="Producción real" />
+      <SectionLabel
+        icon={Factory}
+        label="Producción real"
+        info="Kg del calibrador, menos la fruta que las mujeres separan a mano y reintroducen (clase L, reciclado mallas Z1/Z2): el calibrador ya la cuenta, así que si no se resta, ese kg se contaría dos veces."
+      />
 
       <Row label="Calibrador" op="=" value={result.produccion_calibrador} variant="base" icon={BarChart2} />
       <Row label="Mujeres clase L" op="−" value={result.mujeres} variant="sub" icon={Minus} />
@@ -157,7 +169,11 @@ export function CascadeView({ result }: { result: CascadeResult }) {
       <Divider />
 
       {/* ── Palets e inventario ──────────────────────────────────── */}
-      <SectionLabel icon={Package} label="Palets e inventario" />
+      <SectionLabel
+        icon={Package}
+        label="Palets e inventario"
+        info="Palets dados de alta en el sistema, menos el inventario que quedó pendiente de registrar el día anterior, para no volver a contarlo."
+      />
 
       <Row label="Palets alta (bruto)" op="=" value={result.palets_brutos} variant="base" icon={Layers} />
       <Row label="Inv. día anterior (en palets)" op="−" value={result.inventario_anterior} variant="sub" icon={Minus} />
@@ -166,7 +182,11 @@ export function CascadeView({ result }: { result: CascadeResult }) {
       <Divider />
 
       {/* ── Mermas y DJPMN ───────────────────────────────────────── */}
-      <SectionLabel icon={TrendingDown} label="Mermas y DJPMN" />
+      <SectionLabel
+        icon={TrendingDown}
+        label="Mermas y DJPMN"
+        info="Compara la producción real con lo dado de alta en palets (y lo pendiente de registrar) para ver cuánto no cuadra. A eso se le resta el podrido manual (mermas) y el resultado es el DJPMN: cuanto más cerca de 0, mejor."
+      />
 
       <Row label="Producción real" op="=" value={result.produccion_real} variant="base" />
       <Row label="Palets alta ajustados" op="−" value={result.palets_ajustados} variant="sub" icon={Minus} />
@@ -179,7 +199,10 @@ export function CascadeView({ result }: { result: CascadeResult }) {
       {/* ── Resultado DJPMN ──────────────────────────────────────── */}
       <div className={cn("rounded-xl px-4 py-4 mt-2 flex items-center justify-between gap-4", semStyles.box)}>
         <div className="space-y-1.5">
-          <p className={cn("text-[10px] font-semibold uppercase tracking-widest", semStyles.label)}>DJPMN</p>
+          <div className="flex items-center gap-1.5">
+            <p className={cn("text-[10px] font-semibold uppercase tracking-widest", semStyles.label)}>DJPMN</p>
+            <InfoTooltip iconClassName="h-3 w-3">{DJPMN_HELP}</InfoTooltip>
+          </div>
           <p className={cn("text-2xl font-semibold tabular-nums", semStyles.pct)}>{formatKg(result.dsj)}</p>
           <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full", semStyles.badge)}>
             <SemIcon className="h-3 w-3" />
@@ -195,7 +218,7 @@ export function CascadeView({ result }: { result: CascadeResult }) {
         </div>
       </div>
 
-      {/* ── M6: T/h ──────────────────────────────────────────────── */}
+      {/* ── T/h ──────────────────────────────────────────────────── */}
       {result.tph_promedio !== null && result.tph_promedio > 0 && (
         <>
           <Divider />
@@ -207,71 +230,6 @@ export function CascadeView({ result }: { result: CascadeResult }) {
             <span className="tabular-nums font-semibold text-foreground">
               {result.tph_promedio.toFixed(2)} T/h
             </span>
-          </div>
-        </>
-      )}
-
-      {/* ── M3: Destino de fruta ──────────────────────────────────── */}
-      {result.tiene_datos_destino && (
-        <>
-          <Divider />
-          <SectionLabel icon={Globe} label="Destino de fruta" />
-
-          <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] px-4 py-3 space-y-3">
-            <DestinoBar
-              label="Exportación"
-              kg={result.kg_exportacion}
-              total={result.produccion_real}
-              color="text-success"
-              icon={Globe}
-            />
-            <DestinoBar
-              label="Mercado nacional"
-              kg={result.kg_mercado}
-              total={result.produccion_real}
-              color="text-info"
-              icon={ShoppingCart}
-            />
-            <DestinoBar
-              label="Industria generada"
-              kg={result.kg_industria_destino}
-              total={result.produccion_real}
-              color="text-warning"
-              icon={Wrench}
-            />
-            {result.kg_perdida_real > 0 && (
-              <DestinoBar
-                label="Pérdida real (no justificada)"
-                kg={result.kg_perdida_real}
-                total={result.produccion_real}
-                color="text-destructive"
-                icon={Flame}
-              />
-            )}
-
-            {/* Rendimiento comercial KPI */}
-            <div className="flex items-center justify-between border-t border-[var(--glass-border)] pt-2">
-              <div className="space-y-0.5">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                  Rendimiento comercial
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  kg exportación / kg producción real
-                </p>
-              </div>
-              <div className="text-right">
-                <p className={cn(
-                  "text-2xl font-bold tabular-nums",
-                  result.rendimiento_comercial_pct >= 70
-                    ? "text-success"
-                    : result.rendimiento_comercial_pct >= 50
-                    ? "text-warning"
-                    : "text-destructive"
-                )}>
-                  {result.rendimiento_comercial_pct.toFixed(1)}%
-                </p>
-              </div>
-            </div>
           </div>
         </>
       )}

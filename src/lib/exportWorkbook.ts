@@ -281,7 +281,7 @@ function injectWorksheetDrawing(xml: string, sheetNumber: number) {
 
 function styleWorksheetXml(xml: string) {
   // El grupo (\/?) captura celdas auto-cerradas (<c r="E4"/>) para no corromper el XML.
-  return xml.replace(/<c\b([^>]*?)r="([A-Z]+)(\d+)"([^>]*?)(\/?)>/g, (match, before, col, rowText, after, selfClose) => {
+  return xml.replace(/<c\b([^>]*?)r="([A-Z]+)(\d+)"([^>]*?)(\/?)>/g, (_match, before, col, rowText, after, selfClose) => {
     const row = Number(rowText);
     const attrs = `${before}r="${col}${rowText}"${after}`;
     const style = row === 2
@@ -363,7 +363,7 @@ function zipFiles(files: Record<string, Uint8Array>) {
   return output;
 }
 
-function buildLogoDrawingXml(sheetNumber: number) {
+function buildLogoDrawingXml(_sheetNumber: number) {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
   <xdr:oneCellAnchor>

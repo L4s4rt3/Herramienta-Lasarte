@@ -60,6 +60,10 @@ function isSummaryRow(row: string[]): "total" | "subcategory" | null {
   return null;
 }
 
+// Las cabeceras placeholder generadas por fillEmptyHeaders siguen el patrón
+// "Col N" — se muestran atenuadas para diferenciarlas de nombres reales.
+const PLACEHOLDER_HEADER_RE = /^Col \d+$/;
+
 function colPopulated(rows: string[][], colIdx: number): number {
   let count = 0;
   for (const row of rows) {
@@ -145,7 +149,7 @@ export function DataTable({
 
   if (table.headers.length === 0 || table.rows.length === 0) {
     return (
-      <div className="flex-1 min-h-0 flex items-center justify-center text-sm text-slate-500 p-8">
+      <div className="flex-1 min-h-0 flex items-center justify-center text-sm text-muted-foreground p-8">
         Esta sección no contiene datos.
       </div>
     );
@@ -154,25 +158,19 @@ export function DataTable({
   const hiddenCount = allColumns.length - columns.length;
 
   return (
-    <section
-      className={cn(
-        "shrink-0 w-full rounded-xl border border-slate-200/70",
-        "bg-white/85 backdrop-blur-sm shadow-[0_10px_28px_rgba(15,23,42,0.08)]",
-        "overflow-hidden flex flex-col"
-      )}
-    >
-      <header className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-200/80 bg-gradient-to-r from-slate-50 via-white to-emerald-50/45">
+    <section className={cn("shrink-0 w-full glass rounded-xl overflow-hidden flex flex-col")}>
+      <header className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--glass-border)]">
         <div className="min-w-0 flex items-center gap-3">
-          <span className="hidden sm:inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm">
+          <span className="hidden sm:inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg glass-strong text-muted-foreground">
             <Rows3 className="h-4 w-4" />
           </span>
           {table.section && (
-            <h3 className="text-[11px] font-bold text-slate-800 uppercase tracking-widest truncate">
+            <h3 className="text-[11px] font-bold text-foreground uppercase tracking-widest truncate">
               {table.section}
             </h3>
           )}
           {table.description && (
-            <p className="text-[11px] text-slate-500 truncate">
+            <p className="text-[11px] text-muted-foreground truncate">
               {table.description}
             </p>
           )}
@@ -184,8 +182,8 @@ export function DataTable({
               className={cn(
                 "inline-flex h-7 items-center gap-1.5 px-2.5 rounded-lg text-[10px] font-semibold border transition-colors",
                 hideEmpty
-                  ? "bg-orange-500/10 text-orange-700 border-orange-500/30"
-                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                  ? "bg-primary/10 text-primary border-primary/30"
+                  : "bg-[var(--glass-bg)] text-muted-foreground border-[var(--glass-border)] hover:bg-[var(--glass-bg-strong)]"
               )}
               title={
                 hideEmpty
@@ -202,7 +200,7 @@ export function DataTable({
             </button>
           )}
           {table.rows.length > 0 && (
-            <span className="inline-flex h-7 items-center gap-1.5 px-2.5 rounded-lg text-[10px] font-semibold bg-emerald-500/10 text-emerald-700 border border-emerald-500/25">
+            <span className="inline-flex h-7 items-center gap-1.5 px-2.5 rounded-lg text-[10px] font-semibold bg-success/10 text-success border border-success/40">
               <CheckCircle2 className="h-3 w-3" />
               Validado
             </span>
@@ -211,21 +209,21 @@ export function DataTable({
       </header>
 
       {hiddenCount > 0 && (
-        <div className="shrink-0 px-4 py-1 text-[10px] text-slate-500 bg-amber-50/60 border-b border-amber-200/40">
+        <div className="shrink-0 px-4 py-1 text-[10px] text-muted-foreground bg-warning/10 border-b border-warning/30">
           {hiddenCount} columna{hiddenCount !== 1 ? "s" : ""} con poca
           información ocultada{hiddenCount !== 1 ? "s" : ""}.
         </div>
       )}
 
-      <div className="overflow-auto scrollbar-midas max-h-[62vh] bg-white">
-        <table className="min-w-full w-max table-fixed border-collapse text-[12px]">
+      <div className="overflow-x-auto overflow-y-auto scrollbar-midas max-h-[62vh]">
+        <table className="min-w-full w-max table-fixed border-collapse text-[12.5px]">
           <colgroup>
             {columns.map((col) => (
               <col key={col.index} style={{ width: col.width }} />
             ))}
           </colgroup>
           <thead className="sticky top-0 z-20">
-            <tr className="bg-slate-100/95 backdrop-blur-sm shadow-[0_2px_8px_rgba(15,23,42,0.09)]">
+            <tr className="glass-strong">
               {columns.map((col) => {
                 const isSorted = sortCol === col.index;
                 const SortIcon =
@@ -234,15 +232,18 @@ export function DataTable({
                     : isSorted && sortDir === "desc"
                     ? ArrowDown
                     : ArrowUpDown;
+                const isPlaceholder = PLACEHOLDER_HEADER_RE.test(col.header);
                 return (
                   <th
                     key={col.index}
                     onClick={() => handleHeaderClick(col.index)}
                     className={cn(
-                      "px-3 py-3 font-bold border-b border-slate-300/80",
-                      "text-slate-700 cursor-pointer select-none whitespace-nowrap",
-                      "hover:bg-white transition-colors group",
-                      col.index === 0 && "sticky left-0 z-30 bg-slate-100/95 shadow-[1px_0_0_rgba(148,163,184,0.35)]",
+                      "px-3 py-2.5 border-b border-[var(--glass-border)]",
+                      "text-[11px] font-bold uppercase tracking-wider",
+                      isPlaceholder ? "text-muted-foreground/60" : "text-foreground",
+                      "cursor-pointer select-none whitespace-nowrap",
+                      "hover:bg-[var(--glass-bg-strong)] transition-colors group bg-[var(--glass-bg-strong)]",
+                      col.index === 0 && "sticky left-0 z-30",
                       col.numeric ? "text-right" : "text-left"
                     )}
                   >
@@ -256,7 +257,7 @@ export function DataTable({
                       <SortIcon
                         className={cn(
                           "h-3 w-3 shrink-0",
-                          isSorted ? "text-orange-600" : "text-slate-300 group-hover:text-slate-400"
+                          isSorted ? "text-primary" : "text-muted-foreground/40 group-hover:text-muted-foreground"
                         )}
                       />
                     </span>
@@ -270,23 +271,25 @@ export function DataTable({
               const originalIndex = table.rows.indexOf(row);
               const isSelected = selectedRowIndex === originalIndex;
               const summaryType = isSummaryRow(row);
+              const isZebra = ri % 2 === 1 && !summaryType;
               return (
                 <tr
                   key={ri}
                   onClick={() => onRowSelect?.(originalIndex, row)}
                     className={cn(
                       "transition-colors cursor-pointer",
-                    ri % 2 === 1 && !summaryType && "bg-slate-50/55",
-                    summaryType === "total" && "bg-slate-100/80 font-semibold",
-                    summaryType === "subcategory" && "bg-slate-50/60 pl-6",
+                    isZebra && "bg-[var(--glass-bg)]",
+                    summaryType === "total" && "bg-[var(--glass-bg-strong)] font-semibold",
+                    summaryType === "subcategory" && "bg-[var(--glass-bg)] pl-6",
                     isSelected
-                      ? "!bg-orange-50/70 border-l-2 border-l-orange-500"
-                      : "border-l-2 border-l-transparent hover:!bg-orange-50/40"
+                      ? "!bg-primary/10 border-l-2 border-l-primary"
+                      : "border-l-2 border-l-transparent hover:!bg-primary/5"
                   )}
                 >
                   {columns.map((col) => {
                     const raw = row[col.index] ?? "";
                     const isEmpty = !raw || !raw.trim();
+                    const isFirstTextCol = col.index === 0 && !col.numeric;
                     return (
                       <td
                         key={col.index}
@@ -295,20 +298,21 @@ export function DataTable({
                           handleCellClick(raw);
                         }}
                         className={cn(
-                          "px-3 py-2.5 border-b border-slate-200/70 align-middle",
+                          "px-3 py-1.5 border-b border-[var(--glass-border)] align-middle",
                           "whitespace-nowrap overflow-hidden text-ellipsis",
-                          isEmpty ? "select-none" : "text-slate-800",
+                          isEmpty ? "select-none text-muted-foreground/40" : "text-foreground",
+                          isFirstTextCol && !isEmpty && "font-semibold",
                           col.index === 0 && cn(
-                            "sticky left-0 z-10 shadow-[1px_0_0_rgba(226,232,240,0.9)]",
-                            summaryType === "total" ? "bg-slate-100" : ri % 2 === 1 ? "bg-slate-50" : "bg-white"
+                            "sticky left-0 z-10",
+                            summaryType === "total" ? "bg-[var(--glass-bg-strong)]" : isZebra ? "bg-[var(--glass-bg)]" : "bg-card"
                           ),
-                          isSelected && col.index === 0 && "!bg-orange-50",
+                          isSelected && col.index === 0 && "!bg-primary/10",
                           col.numeric ? "text-right tabular-nums" : "text-left"
                         )}
                         title={isEmpty ? "vacío" : raw}
                       >
                         {isEmpty ? (
-                          <span className="text-slate-200 text-base leading-none">·</span>
+                          <span aria-hidden="true">—</span>
                         ) : col.status ? (
                           <StatusBadge value={raw} status={matchStatus(raw)} />
                         ) : (

@@ -61,10 +61,6 @@ export interface PartesTotals {
   n_ok: number;
   n_amarillo: number;
   n_rojo: number;
-  kg_exportacion: number;
-  kg_mercado: number;
-  kg_industria_destino: number;
-  kg_perdida_real: number;
 }
 
 // ─── Helper ─────────────────────────────────────────────────────────────────
@@ -197,10 +193,6 @@ export function usePartesFiltered(filter: PartesFilter) {
       n_ok:             filtered.filter((p) => p.cascade.semaforo === "verde").length,
       n_amarillo:       filtered.filter((p) => p.cascade.semaforo === "amarillo").length,
       n_rojo:           filtered.filter((p) => p.cascade.semaforo === "rojo").length,
-      kg_exportacion:   filtered.reduce((s, p) => s + p.cascade.kg_exportacion, 0),
-      kg_mercado:        filtered.reduce((s, p) => s + p.cascade.kg_mercado, 0),
-      kg_industria_destino: filtered.reduce((s, p) => s + p.cascade.kg_industria_destino, 0),
-      kg_perdida_real:   filtered.reduce((s, p) => s + p.cascade.kg_perdida_real, 0),
     };
   }, [filtered]);
 

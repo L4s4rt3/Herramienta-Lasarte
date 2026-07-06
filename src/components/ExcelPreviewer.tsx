@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { Inbox } from "lucide-react";
 import {
   PreviewHeader,
@@ -18,6 +18,8 @@ interface ExcelPreviewerProps {
   activeSheetIndex?: number;
   onSheetChange?: (index: number) => void;
   mimeType?: string | null;
+  onDownload?: () => void;
+  downloadDisabled?: boolean;
 }
 
 export default function ExcelPreviewer({
@@ -26,6 +28,8 @@ export default function ExcelPreviewer({
   activeSheetIndex = 0,
   onSheetChange,
   mimeType,
+  onDownload,
+  downloadDisabled,
 }: ExcelPreviewerProps) {
   const [selectedRow, setSelectedRow] = useState<{
     tableIndex: number;
@@ -43,6 +47,11 @@ export default function ExcelPreviewer({
 
   const hasAnyData = data.metrics.length > 0 || data.tables.length > 0;
 
+  // Dimensiones de la hoja activa: filas × columnas totales sumando todas
+  // las tablas detectadas en la hoja (normalmente hay una sola tabla por hoja).
+  const rowCount = data.tables.reduce((sum, t) => sum + t.rows.length, 0);
+  const colCount = data.tables.reduce((max, t) => Math.max(max, t.headers.length), 0);
+
   return (
     <div className="h-full flex flex-col gap-4 min-h-0">
       <PreviewHeader
@@ -53,6 +62,10 @@ export default function ExcelPreviewer({
         sheets={sheetList}
         activeSheetIndex={activeSheetIndex}
         onSheetChange={onSheetChange}
+        rowCount={hasAnyData ? rowCount : undefined}
+        colCount={hasAnyData ? colCount : undefined}
+        onDownload={onDownload}
+        downloadDisabled={downloadDisabled}
       />
 
       {data.metrics.length > 0 && <MetricsStrip metrics={data.metrics} />}
@@ -61,12 +74,11 @@ export default function ExcelPreviewer({
         <div
           className={cn(
             "flex-1 min-h-0 flex flex-col items-center justify-center gap-2",
-            "rounded-xl border border-slate-200/70 bg-white/85 backdrop-blur-sm p-10",
-            "shadow-[0_10px_28px_rgba(15,23,42,0.08)]",
-            "text-sm text-slate-500"
+            "glass rounded-xl p-10",
+            "text-sm text-muted-foreground"
           )}
         >
-          <Inbox className="h-8 w-8 text-slate-300" />
+          <Inbox className="h-8 w-8 text-muted-foreground/40" />
           <p>El archivo no contiene datos legibles.</p>
         </div>
       ) : (

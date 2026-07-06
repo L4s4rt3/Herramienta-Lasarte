@@ -4,13 +4,8 @@ import { partesQueryOptions } from "@/hooks/usePartes";
 import { preloadRoute } from "@/lib/routePreload";
 import { useAuth } from "@/contexts/AuthProvider";
 
-declare global {
-  interface Window {
-    requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
-    cancelIdleCallback?: (handle: number) => void;
-  }
-}
-
+// requestIdleCallback/cancelIdleCallback ya vienen tipados en lib.dom;
+// redeclararlos como opcionales chocaba con los modificadores originales.
 export function useDataWarmup() {
   const queryClient = useQueryClient();
   const { user, loading } = useAuth();

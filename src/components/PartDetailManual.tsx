@@ -1,8 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { formatKg } from "@/lib/format";
-import type { PartDetailManualField, PartDetailManualFieldKey } from "@/lib/partDetailManualFields";
+import type { PartDetailManualField } from "@/lib/partDetailManualFields";
 
 interface Parte {
   id: string;
@@ -27,7 +28,7 @@ interface Parte {
 interface PartDetailManualProps {
   parte: Parte;
   readOnly: boolean;
-  update: <K extends PartDetailManualFieldKey>(key: K, value: Parte[K]) => void;
+  update: <K extends keyof Parte>(key: K, value: Parte[K]) => void;
   manualFields: readonly PartDetailManualField[];
 }
 
@@ -38,6 +39,8 @@ const AUTO_FIELDS: [string, keyof Parte][] = [
   ["Podrido calibrador", "kg_podrido_calibrador_auto"],
   ["Inv. día anterior", "kg_inventario_anterior_sin_alta"],
 ];
+
+const NOTAS_MAX = 2000;
 
 const NUMBER_INPUT_CLASS =
   "pr-10 tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
@@ -82,6 +85,23 @@ export default function PartDetailManual({
               </div>
             </div>
           ))}
+          <div className="space-y-1.5 sm:col-span-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="notas_inventario">Notas de inventario</Label>
+              <span className="text-[11px] tabular-nums text-muted-foreground">
+                {(parte.notas_inventario ?? "").length}/{NOTAS_MAX}
+              </span>
+            </div>
+            <Textarea
+              id="notas_inventario"
+              rows={3}
+              disabled={readOnly}
+              maxLength={NOTAS_MAX}
+              placeholder="Por qué no cuadra el inventario, ajustes hechos a mano..."
+              value={parte.notas_inventario ?? ""}
+              onChange={(e) => update("notas_inventario", e.target.value)}
+            />
+          </div>
         </CardContent>
       </Card>
 

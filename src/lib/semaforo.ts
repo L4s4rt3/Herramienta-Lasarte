@@ -1,6 +1,10 @@
 // Semáforo del DJPMN, compartido por Dashboard, Partes, etc. para mantener
 // el mismo criterio y estilo en toda la app: ≤3% verde, ≤5% ámbar, resto rojo.
 
+// Texto explicativo reutilizado en los tooltips de "?" de toda la app.
+export const DJPMN_HELP =
+  "DJPMN (Diferencia Sin Justificar en %) compara la producción real del calibrador con lo dado de alta en palets, tras restar mermas. Cuanto más cerca de 0%, mejor cuadra el día. Verde ≤3%, ámbar 3-5%, rojo >5%.";
+
 export type SemaforoKey = "verde" | "amarillo" | "rojo";
 export type SemaforoAccent = "success" | "warning" | "destructive";
 
