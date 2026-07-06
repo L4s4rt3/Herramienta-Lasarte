@@ -1,17 +1,22 @@
 /**
  * useChatBot — Hook para Vadim, el asistente de producción Lasarte SAT.
- * Al abrirse, carga datos de TODAS las secciones en paralelo y los inyecta
- * como contexto en el system prompt. El asistente sabe todo sin navegar.
- * 
- * NUEVO: Sistema RAG (Retrieval Augmented Generation) para:
+ * Al abrirse, carga un resumen agregado de TODAS las secciones (semana
+ * actual, Mercadona, productores del mes, consumos, calidad) y lo inyecta
+ * como contexto en el system prompt, manteniendo el total bajo ~8k tokens
+ * (resúmenes, no filas crudas). El contexto se cachea unos minutos para no
+ * repetir todas las consultas cada vez que se abre el panel.
+ *
+ * Sistema RAG (Retrieval Augmented Generation) opcional para:
  * - Búsqueda semántica en código fuente
  * - Memoria persistente de conversaciones
  * - Aprendizaje continuo
  */
 import { useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { callChatFunction, DOMAIN_PROMPT, TOOL_KNOWLEDGE_PROMPT, ChatContent } from "@/lib/gemini";
+import { callChatFunction, DOMAIN_PROMPT, ChatContent } from "@/lib/gemini";
 import { computeCascade } from "@/lib/cascade";
+import { normalizeConsumoCantidad, type ConsumoFisicoInput } from "@/lib/consumosFisicos";
+import { detectarTipoClasificacion } from "@/lib/destinoClasificacion";
 import { getRAGContext, formatRAGContext, saveConversation } from "@/lib/rag";
 import { useAuth } from "@/contexts/AuthProvider";
 
@@ -25,10 +30,11 @@ export interface ChatMessage {
   error?: boolean;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers de formato y fechas ───────────────────────────────────────────────
 
 function fmt(n: number) { return n.toLocaleString("es-ES", { maximumFractionDigits: 0 }); }
 function fmtT(kg: number) { return `${(kg / 1000).toFixed(1)} t`; }
+
 function sinceStr(days: number) {
   const d = new Date();
   d.setDate(d.getDate() - days);
@@ -41,425 +47,374 @@ function shortText(value: unknown, max = 120) {
   return text.length > max ? `${text.slice(0, max - 3)}...` : text;
 }
 
+/** Inicio (lunes) de la semana natural que contiene `date`, en formato YYYY-MM-DD. */
+function weekStartStr(date = new Date()) {
+  const d = new Date(date);
+  const day = d.getDay() === 0 ? 6 : d.getDay() - 1;
+  d.setDate(d.getDate() - day);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Primer día del mes actual, en formato YYYY-MM-DD. */
+function monthStartStr(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
 function currentSessionPrompt() {
   const now = new Date();
   return [
     DOMAIN_PROMPT,
-    TOOL_KNOWLEDGE_PROMPT,
     `FECHA ACTUAL DE LA SESION: ${now.toLocaleDateString("es-ES")} (${sinceStr(0)}). Zona horaria del usuario: Europe/Madrid.`,
+    `ESTILO: responde en español, cita siempre números concretos con su unidad cuando estén en el contexto de datos. Si un dato no está en el contexto, dilo con claridad y sugiere en qué sección de la app consultarlo.`,
   ].join("\n\n");
 }
 
-// ─── Carga de contexto completo ───────────────────────────────────────────────
+function normalizeGrupo(valor: string | null): string {
+  return detectarTipoClasificacion(valor);
+}
 
-async function fetchFullContext(): Promise<string> {
-  const since30 = sinceStr(30);
-  const since7  = sinceStr(7);
-  const sections: string[] = [];
+// ─── Carga de contexto agregado (resúmenes, no filas crudas) ──────────────────
 
-  // ── 1. Partes diarios (30 días) ──────────────────────────────────────────
+/** Cascada calculada para una fila cruda de partes_diarios. */
+function cascadeFromParteRow(p: Record<string, unknown>) {
+  const n = (v: unknown) => Number(v) || 0;
+  return computeCascade({
+    kg_produccion_calibrador: n(p.kg_produccion_calibrador),
+    kg_mujeres_calibrador: n(p.kg_mujeres_calibrador),
+    kg_palets_brutos: n(p.kg_palets_brutos) - n(p.kg_palets_egipto),
+    kg_podrido_calibrador: n(p.kg_podrido_calibrador_auto),
+    kg_industria_manual: n(p.kg_industria_manual),
+    kg_reciclado_malla_z1: n(p.kg_reciclado_malla_z1),
+    kg_reciclado_malla_z2: n(p.kg_reciclado_malla_z2),
+    kg_inventario_sin_alta: n(p.kg_inventario_sin_alta),
+    kg_podrido_bolsa_basura: n(p.kg_podrido_bolsa_basura),
+    kg_inventario_anterior_sin_alta: n(p.kg_inventario_anterior_sin_alta),
+  });
+}
+
+const PARTE_COLUMNS = `
+  id, date, estado,
+  kg_produccion_calibrador, kg_mujeres_calibrador,
+  kg_palets_brutos, kg_palets_egipto,
+  kg_podrido_calibrador_auto, kg_industria_manual,
+  kg_reciclado_malla_z1, kg_reciclado_malla_z2,
+  kg_inventario_sin_alta, kg_podrido_bolsa_basura,
+  kg_inventario_anterior_sin_alta
+`;
+
+async function buildResumenSemanal(sections: string[], weekStart: string, since30: string): Promise<string[]> {
   const { data: partesRaw } = await supabase
     .from("partes_diarios")
-    .select(`
-      date, estado,
-      kg_produccion_calibrador, kg_mujeres_calibrador,
-      kg_palets_brutos, kg_palets_egipto,
-      kg_podrido_calibrador_auto, kg_industria_manual,
-      kg_reciclado_malla_z1, kg_reciclado_malla_z2,
-      kg_inventario_sin_alta, kg_podrido_bolsa_basura,
-      kg_inventario_anterior_sin_alta
-    `)
+    .select(PARTE_COLUMNS)
     .gte("date", since30)
     .order("date", { ascending: false })
-    .limit(30);
+    .limit(60);
 
-  const partes = (partesRaw ?? []).map((p) => {
-    const cascade = computeCascade({
-      kg_produccion_calibrador:        Number(p.kg_produccion_calibrador) || 0,
-      kg_mujeres_calibrador:           Number(p.kg_mujeres_calibrador) || 0,
-      kg_palets_brutos:                (Number(p.kg_palets_brutos) || 0) - (Number(p.kg_palets_egipto) || 0),
-      kg_podrido_calibrador:           Number(p.kg_podrido_calibrador_auto) || 0,
-      kg_industria_manual:             Number(p.kg_industria_manual) || 0,
-      kg_reciclado_malla_z1:           Number(p.kg_reciclado_malla_z1) || 0,
-      kg_reciclado_malla_z2:           Number(p.kg_reciclado_malla_z2) || 0,
-      kg_inventario_sin_alta:          Number(p.kg_inventario_sin_alta) || 0,
-      kg_podrido_bolsa_basura:         Number(p.kg_podrido_bolsa_basura) || 0,
-      kg_inventario_anterior_sin_alta: Number(p.kg_inventario_anterior_sin_alta) || 0,
-    });
-    return { date: p.date as string, estado: p.estado as string, ...cascade };
-  });
+  const partes = (partesRaw ?? []).map((p) => ({
+    id: p.id as string,
+    date: p.date as string,
+    estado: p.estado as string,
+    ...cascadeFromParteRow(p as Record<string, unknown>),
+  }));
 
-  if (partes.length > 0) {
-    const totalProd = partes.reduce((s, p) => s + p.produccion_real, 0);
-    const avgDsj    = partes.reduce((s, p) => s + p.dsj_pct, 0) / partes.length;
-    const nVerde    = partes.filter((p) => p.semaforo === "verde").length;
-    const nAmarillo = partes.filter((p) => p.semaforo === "amarillo").length;
-    const nRojo     = partes.filter((p) => p.semaforo === "rojo").length;
-    const recentList = partes.slice(0, 10).map((p) =>
-      `  ${p.date}: ${fmtT(p.produccion_real)}, DJPMN ${p.dsj_pct.toFixed(2)}% (${p.semaforo}), ${p.estado}`
-    ).join("\n");
-
-    sections.push([
-      `── PARTES DIARIOS (últimos 30 días) ──`,
-      `Total: ${partes.length} partes | Producción: ${fmtT(totalProd)} | DJPMN medio: ${avgDsj.toFixed(2)}%`,
-      `Semáforos: ${nVerde} verde · ${nAmarillo} amarillo · ${nRojo} rojo`,
-      `Últimos 10 partes:`,
-      recentList,
-    ].join("\n"));
-  } else {
-    sections.push("── PARTES: Sin partes en los últimos 30 días.");
+  if (partes.length === 0) {
+    sections.push("-- PARTES: Sin partes en los ultimos 30 dias.");
+    return [];
   }
 
-  // ── Las siguientes consultas en paralelo ──────────────────────────────────
-  const [lotesRes, calibresRes, sesionesRes, asistenciaRes, trabajadoresRes, calidadJornadasRes, calidadLotesRes] = await Promise.allSettled([
+  const semanaActual = partes.filter((p) => p.date >= weekStart);
+  const totalProd = partes.reduce((s, p) => s + p.produccion_real, 0);
+  const avgDsj = partes.reduce((s, p) => s + p.dsj_pct, 0) / partes.length;
 
-    // 2. Productores (lotes_dia, 30 días)
+  const semanaProd = semanaActual.reduce((s, p) => s + p.produccion_real, 0);
+  const semanaPalets = semanaActual.reduce((s, p) => s + p.palets_ajustados, 0);
+  const semanaDsj = semanaActual.reduce((s, p) => s + p.dsj, 0);
+  const semanaDsjPct = semanaProd > 0 ? (semanaDsj / semanaProd) * 100 : 0;
+  const semanaSemaforo = Math.abs(semanaDsjPct) <= 3 ? "verde" : Math.abs(semanaDsjPct) <= 5 ? "amarillo" : "rojo";
+
+  const recentList = partes.slice(0, 10).map((p) =>
+    `  ${p.date}: ${fmtT(p.produccion_real)}, DJPMN ${p.dsj_pct.toFixed(2)}% (${p.semaforo}), ${p.estado}`
+  ).join("\n");
+
+  sections.push([
+    "-- RESUMEN SEMANA ACTUAL (desde " + weekStart + ") --",
+    semanaActual.length > 0
+      ? `Produccion: ${fmtT(semanaProd)} | Kg dados de alta (palets ajustados): ${fmtT(semanaPalets)} | DJPMN: ${semanaDsjPct.toFixed(2)}% (${semanaSemaforo}) | ${semanaActual.length} parte(s)`
+      : "Sin partes cargados todavia esta semana.",
+  ].join("\n"));
+
+  sections.push([
+    "-- PARTES DIARIOS (ultimos 30 dias) --",
+    `Total: ${partes.length} partes | Produccion: ${fmtT(totalProd)} | DJPMN medio: ${avgDsj.toFixed(2)}%`,
+    `Semaforos: ${partes.filter((p) => p.semaforo === "verde").length} verde | ${partes.filter((p) => p.semaforo === "amarillo").length} amarillo | ${partes.filter((p) => p.semaforo === "rojo").length} rojo`,
+    "Ultimos 10 partes:",
+    recentList,
+  ].join("\n"));
+
+  return partes.map((p) => p.id);
+}
+
+async function buildMercadonaSemanal(sections: string[], weekStart: string, weekEnd: string) {
+  const { data: partesIds } = await supabase
+    .from("partes_diarios")
+    .select("id")
+    .gte("date", weekStart)
+    .lte("date", weekEnd);
+
+  if (!partesIds?.length) {
+    sections.push("-- APROVECHAMIENTO MERCADONA (semana actual): sin partes esta semana.");
+    return;
+  }
+
+  const { data: productos } = await supabase
+    .from("producto_dia")
+    .select("producto, kg, n_cajas")
+    .in("part_id", partesIds.map((p) => p.id))
+    .limit(5000);
+
+  const rows = (productos ?? []).filter((p) => (p.producto ?? "").trim() !== "");
+  const kgTotal = rows.reduce((s, p) => s + (Number(p.kg) || 0), 0);
+  const mdna = rows.filter((p) => (p.producto ?? "").toUpperCase().includes("MDNA"));
+  const kgMdna = mdna.reduce((s, p) => s + (Number(p.kg) || 0), 0);
+  const cajasMdna = mdna.reduce((s, p) => s + (Number(p.n_cajas) || 0), 0);
+  const pct = kgTotal > 0 ? (kgMdna / kgTotal) * 100 : 0;
+
+  if (kgTotal === 0) {
+    sections.push("-- APROVECHAMIENTO MERCADONA (semana actual): sin kg confeccionados (informe de producto) todavia.");
+    return;
+  }
+
+  sections.push([
+    "-- APROVECHAMIENTO MERCADONA (formatos MDNA, semana actual) --",
+    `${pct.toFixed(1)}% de los kg confeccionados fueron Mercadona: ${fmtT(kgMdna)} de ${fmtT(kgTotal)} totales | ${cajasMdna.toLocaleString("es-ES")} cajas`,
+  ].join("\n"));
+}
+
+function normalizeNombreProductor(value: string | null | undefined): string {
+  return String(value ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+}
+
+async function buildProductoresDelMes(sections: string[], monthStart: string) {
+  const [{ data: lotes }, { data: clasifRaw }] = await Promise.all([
     supabase
       .from("lotes_dia")
-      .select("productor, toneladas_hora, duracion_min, kg_peso_total, partes_diarios!inner(date)")
-      .gte("partes_diarios.date", since30)
-      .limit(2000),
-
-    // 3. Distribución por destino (calibres_dia, 30 días)
-    (async () => {
-      const { data: partesIds } = await supabase
-        .from("partes_diarios").select("id").gte("date", since30);
-      if (!partesIds?.length) return { data: null };
-      return supabase
-        .from("calibres_dia")
-        .select("grupo_destino, kg")
-        .in("part_id", partesIds.map((p) => p.id))
-        .limit(100000);
-    })(),
-
-    // 4. Consumos (sesiones_consumo)
+      .select("productor, toneladas_hora, duracion_min, kg_peso_total, kg_industria, partes_diarios!inner(date)")
+      .gte("partes_diarios.date", monthStart)
+      .limit(3000),
     supabase
-      .from("sesiones_consumo")
-      .select("fecha_inicio, fecha_fin, kg_procesados, agua_linea_l, agua_drencher_l, electricidad_total_kwh, gasoil_l, quimicos_drencher_l")
-      .order("fecha_inicio", { ascending: false })
-      .limit(5),
+      .from("lote_clasificacion")
+      .select("productor, grupo_destino, peso_kg")
+      .gte("fecha", monthStart)
+      .limit(20000),
+  ]);
 
-    // 5. Asistencia (últimos 7 días)
+  if (!lotes?.length) {
+    sections.push("-- PRODUCTORES DEL MES: sin lotes registrados este mes.");
+    return;
+  }
+
+  // % export por productor, a partir del Informe LOTE (si existe para ese productor).
+  const exportPorProductor = new Map<string, { kgExport: number; kgTotal: number }>();
+  for (const c of clasifRaw ?? []) {
+    const nombre = normalizeNombreProductor(c.productor);
+    if (!nombre) continue;
+    const acc = exportPorProductor.get(nombre) ?? { kgExport: 0, kgTotal: 0 };
+    const kg = Number(c.peso_kg) || 0;
+    acc.kgTotal += kg;
+    if (detectarTipoClasificacion(c.grupo_destino) === "Exportación") acc.kgExport += kg;
+    exportPorProductor.set(nombre, acc);
+  }
+
+  const byProd = new Map<string, { kg: number; lotes: number; tphSum: number; tphMin: number; tphCount: number; kgIndustria: number }>();
+  for (const l of lotes) {
+    const k = l.productor || "Desconocido";
+    if (!byProd.has(k)) byProd.set(k, { kg: 0, lotes: 0, tphSum: 0, tphMin: 0, tphCount: 0, kgIndustria: 0 });
+    const p = byProd.get(k)!;
+    p.kg += Number(l.kg_peso_total) || 0;
+    p.lotes += 1;
+    p.kgIndustria += Number(l.kg_industria) || 0;
+    const tph = Number(l.toneladas_hora) || 0;
+    const min = Number(l.duracion_min) || 0;
+    if (tph > 0) { p.tphSum += tph * min; p.tphMin += min; p.tphCount += 1; }
+  }
+
+  const ranking = Array.from(byProd.entries())
+    .map(([nombre, s]) => {
+      const exportInfo = exportPorProductor.get(normalizeNombreProductor(nombre));
+      const pctExport = exportInfo && exportInfo.kgTotal > 0 ? (exportInfo.kgExport / exportInfo.kgTotal) * 100 : null;
+      return {
+        nombre,
+        kg: s.kg,
+        lotes: s.lotes,
+        tph: s.tphCount > 0 ? (s.tphMin > 0 ? s.tphSum / s.tphMin : s.tphSum / s.tphCount) : null,
+        pctIndustria: s.kg > 0 ? (s.kgIndustria / s.kg) * 100 : 0,
+        pctExport,
+      };
+    })
+    .sort((a, b) => b.kg - a.kg)
+    .slice(0, 8);
+
+  const list = ranking.map((p) =>
+    `  ${p.nombre}: ${fmtT(p.kg)}, ${p.lotes} lotes${p.tph ? `, ${p.tph.toFixed(1)} T/h` : ""}, ${p.pctIndustria.toFixed(1)}% industria${p.pctExport !== null ? `, ${p.pctExport.toFixed(1)}% exportación` : ""}`
+  ).join("\n");
+
+  sections.push(["-- TOP PRODUCTORES DEL MES (por kg, con T/h y % exportación) --", list].join("\n"));
+}
+
+async function buildDistribucionDestino(sections: string[], partIds: string[]) {
+  if (!partIds.length) return;
+  const { data: calibres } = await supabase
+    .from("calibres_dia")
+    .select("grupo_destino, kg")
+    .in("part_id", partIds)
+    .limit(50000);
+
+  if (!calibres?.length) return;
+  const map = new Map<string, number>();
+  for (const c of calibres) {
+    const grupo = normalizeGrupo(c.grupo_destino);
+    map.set(grupo, (map.get(grupo) ?? 0) + (Number(c.kg) || 0));
+  }
+  const total = Array.from(map.values()).reduce((s, v) => s + v, 0);
+  if (total <= 0) return;
+  const list = Array.from(map.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([g, kg]) => `  ${g}: ${((kg / total) * 100).toFixed(1)}% (${fmtT(kg)})`)
+    .join("\n");
+  sections.push([`-- DISTRIBUCION POR DESTINO (ultimos 30 dias) --`, list].join("\n"));
+}
+
+async function buildConsumosSemana(sections: string[], weekStart: string, weekEnd: string) {
+  const [{ data: consumosRaw }, { data: basesRaw }] = await Promise.all([
     supabase
-      .from("asistencia_detalle")
-      .select("date, presente, trabajador_id")
-      .gte("date", since7)
-      .limit(500),
-
-    // 6. Trabajadores activos/inactivos
+      .from("consumos_fisicos")
+      .select("recurso, fecha_inicio, fecha_fin, cantidad, unidad, fuente")
+      .lte("fecha_inicio", weekEnd)
+      .gte("fecha_fin", weekStart)
+      .limit(200),
     supabase
-      .from("trabajadores")
-      .select("id, nombre, zona, activo")
-      .limit(1000),
+      .from("consumos_bases_kg")
+      .select("tipo_base, fecha_inicio, fecha_fin, kg")
+      .lte("fecha_inicio", weekEnd)
+      .gte("fecha_fin", weekStart)
+      .limit(200),
+  ]);
 
-    // 7. Jornadas de Calidad (30 dias)
+  const consumos = (consumosRaw ?? []) as ConsumoFisicoInput[];
+  if (consumos.length === 0) {
+    sections.push("-- CONSUMOS (semana actual): sin lecturas/registros de consumo esta semana.");
+    return;
+  }
+
+  let aguaL = 0;
+  let elecKwh = 0;
+  let gasoilL = 0;
+  let quimicosL = 0;
+  for (const c of consumos) {
+    const { cantidadBase, unidadBase } = normalizeConsumoCantidad(c);
+    if (c.recurso === "agua") aguaL += cantidadBase;
+    else if (c.recurso === "electricidad" && unidadBase === "kwh") elecKwh += cantidadBase;
+    else if (c.recurso === "gasoil") gasoilL += cantidadBase;
+    else if (c.recurso === "quimicos") quimicosL += cantidadBase;
+  }
+
+  const kgBase = (basesRaw ?? []).reduce((s, b) => s + (Number(b.kg) || 0), 0);
+
+  const ratios = kgBase > 0
+    ? `Agua ${(aguaL / kgBase).toFixed(2)} L/kg | Electricidad ${(elecKwh / kgBase).toFixed(3)} kWh/kg | Gasoil ${((gasoilL * 1000) / kgBase).toFixed(1)} mL/kg`
+    : "Sin kg base para calcular ratios por kg esta semana.";
+
+  sections.push([
+    "-- CONSUMOS (semana actual) --",
+    `Agua ${fmt(aguaL)} L | Electricidad ${fmt(elecKwh)} kWh | Gasoil ${fmt(gasoilL)} L | Quimicos ${fmt(quimicosL)} L`,
+    ratios,
+  ].join("\n"));
+}
+
+async function buildEstadoCalidad(sections: string[], since30: string) {
+  const [jornadasRes, lotesRes] = await Promise.allSettled([
     supabase
       .from("calidad_jornadas" as any)
       .select("fecha, responsable, estado")
       .gte("fecha", since30)
       .order("fecha", { ascending: false })
       .limit(30),
-
-    // 8. Lotes de Calidad (30 dias)
     supabase
       .from("calidad_lotes" as any)
-      .select("fecha, numero_lote, productor_finca_nombre, producto, variedad, cantidad, hora, aerobotics_realizado, calidad, defectos, observacion, accion_recomendada")
+      .select("fecha, numero_lote, productor_finca_nombre, producto, variedad, calidad, defectos, observacion, accion_recomendada")
       .gte("fecha", since30)
       .order("fecha", { ascending: false })
-      .limit(200),
+      .limit(150),
   ]);
 
-  // ── 2. Productores ───────────────────────────────────────────────────────
-  if (lotesRes.status === "fulfilled" && lotesRes.value.data?.length) {
-    const lotes = lotesRes.value.data;
-    const byProd = new Map<string, { kg: number; lotes: number; tphSum: number; tphMin: number; tphCount: number }>();
-    for (const l of lotes) {
-      const k = l.productor || "Desconocido";
-      if (!byProd.has(k)) byProd.set(k, { kg: 0, lotes: 0, tphSum: 0, tphMin: 0, tphCount: 0 });
-      const p = byProd.get(k)!;
-      p.kg    += Number(l.kg_peso_total) || 0;
-      p.lotes += 1;
-      const tph = Number(l.toneladas_hora) || 0;
-      const min = Number(l.duracion_min)   || 0;
-      if (tph > 0) { p.tphSum += tph * min; p.tphMin += min; p.tphCount += 1; }
-    }
-    const ranking = Array.from(byProd.entries())
-      .map(([nombre, s]) => ({
-        nombre,
-        kg: s.kg,
-        lotes: s.lotes,
-        tph: s.tphCount > 0 ? (s.tphMin > 0 ? s.tphSum / s.tphMin : s.tphSum / s.tphCount) : null,
-      }))
-      .sort((a, b) => b.kg - a.kg)
-      .slice(0, 10);
+  const calidadJornadas = jornadasRes.status === "fulfilled" ? ((jornadasRes.value.data ?? []) as any[]) : [];
+  const calidadLotes = lotesRes.status === "fulfilled" ? ((lotesRes.value.data ?? []) as any[]) : [];
 
-    const list = ranking.map((p) =>
-      `  ${p.nombre}: ${fmtT(p.kg)}, ${p.lotes} lotes${p.tph ? `, ${p.tph.toFixed(1)} T/h` : ""}`
-    ).join("\n");
-
-    sections.push([
-      `── PRODUCTORES (top 10 por kg, últimos 30 días) ──`,
-      list,
-    ].join("\n"));
-  }
-
-  // ── 3. Distribución por destino ──────────────────────────────────────────
-  if (calibresRes.status === "fulfilled") {
-    const result = calibresRes.value as { data: { grupo_destino: string | null; kg: number }[] | null };
-    if (result?.data?.length) {
-      const map = new Map<string, number>();
-      for (const c of result.data) {
-        const grupo = normalizeGrupo(c.grupo_destino);
-        map.set(grupo, (map.get(grupo) ?? 0) + (Number(c.kg) || 0));
-      }
-      const total = Array.from(map.values()).reduce((s, v) => s + v, 0);
-      const list = Array.from(map.entries())
-        .sort((a, b) => b[1] - a[1])
-        .map(([g, kg]) => `  ${g}: ${((kg / total) * 100).toFixed(1)}% (${fmtT(kg)})`)
-        .join("\n");
-      sections.push([`── DISTRIBUCIÓN POR DESTINO (últimos 30 días) ──`, list].join("\n"));
-    }
-  }
-
-  // ── 4. Consumos ──────────────────────────────────────────────────────────
-  if (sesionesRes.status === "fulfilled" && sesionesRes.value.data?.length) {
-    const sesiones = sesionesRes.value.data;
-    const list = sesiones.slice(0, 3).map((s) => {
-      const kg = Number(s.kg_procesados) || 1;
-      const agua = ((Number(s.agua_linea_l) || 0) + (Number(s.agua_drencher_l) || 0)) / kg;
-      const elec = (Number(s.electricidad_total_kwh) || 0) / kg;
-      const gasoil = ((Number(s.gasoil_l) || 0) * 1000) / kg;
-      return `  ${s.fecha_inicio}→${s.fecha_fin}: ${fmt(kg)} kg | Agua ${agua.toFixed(2)} L/kg | Electricidad ${elec.toFixed(3)} kWh/kg | Gasoil ${gasoil.toFixed(1)} mL/kg`;
-    }).join("\n");
-    sections.push([`── CONSUMOS (últimas sesiones) ──`, list].join("\n"));
-  }
-
-  // ── 5. Asistencia ────────────────────────────────────────────────────────
-  if (asistenciaRes.status === "fulfilled" && asistenciaRes.value.data?.length) {
-    const rows = asistenciaRes.value.data;
-    const byDay = new Map<string, { presentes: number; total: number }>();
-    for (const r of rows) {
-      if (!byDay.has(r.date)) byDay.set(r.date, { presentes: 0, total: 0 });
-      const d = byDay.get(r.date)!;
-      d.total++;
-      if (r.presente) d.presentes++;
-    }
-    const avgPresentes = Array.from(byDay.values()).reduce((s, d) => s + d.presentes, 0) / Math.max(byDay.size, 1);
-    const list = Array.from(byDay.entries())
-      .sort((a, b) => b[0].localeCompare(a[0]))
-      .slice(0, 5)
-      .map(([date, d]) => `  ${date}: ${d.presentes}/${d.total} presentes`)
-      .join("\n");
-    sections.push([
-      `── ASISTENCIA (últimos 7 días) ──`,
-      `Media de presentes: ${avgPresentes.toFixed(0)} personas/día`,
-      list,
-    ].join("\n"));
-  }
-
-  return sections.join("\n\n");
-}
-
-async function fetchFullContextV2(): Promise<string> {
-  const since30 = sinceStr(30);
-  const since7 = sinceStr(7);
-  const sections: string[] = [];
-
-  sections.push(`-- SESION --\nFecha actual: ${new Date().toLocaleDateString("es-ES")} | Ventana principal de datos: ultimos 30 dias`);
-
-  const { data: partesRaw } = await supabase
-    .from("partes_diarios")
-    .select(`
-      id, date, estado,
-      kg_produccion_calibrador, kg_mujeres_calibrador,
-      kg_palets_brutos, kg_palets_egipto,
-      kg_podrido_calibrador_auto, kg_industria_manual,
-      kg_reciclado_malla_z1, kg_reciclado_malla_z2,
-      kg_inventario_sin_alta, kg_podrido_bolsa_basura,
-      kg_inventario_anterior_sin_alta
-    `)
-    .gte("date", since30)
-    .order("date", { ascending: false })
-    .limit(30);
-
-  const partes = (partesRaw ?? []).map((p) => {
-    const cascade = computeCascade({
-      kg_produccion_calibrador: Number(p.kg_produccion_calibrador) || 0,
-      kg_mujeres_calibrador: Number(p.kg_mujeres_calibrador) || 0,
-      kg_palets_brutos: (Number(p.kg_palets_brutos) || 0) - (Number(p.kg_palets_egipto) || 0),
-      kg_podrido_calibrador: Number(p.kg_podrido_calibrador_auto) || 0,
-      kg_industria_manual: Number(p.kg_industria_manual) || 0,
-      kg_reciclado_malla_z1: Number(p.kg_reciclado_malla_z1) || 0,
-      kg_reciclado_malla_z2: Number(p.kg_reciclado_malla_z2) || 0,
-      kg_inventario_sin_alta: Number(p.kg_inventario_sin_alta) || 0,
-      kg_podrido_bolsa_basura: Number(p.kg_podrido_bolsa_basura) || 0,
-      kg_inventario_anterior_sin_alta: Number(p.kg_inventario_anterior_sin_alta) || 0,
-    });
-    return { id: p.id as string, date: p.date as string, estado: p.estado as string, ...cascade };
-  });
-
-  if (partes.length > 0) {
-    const totalProd = partes.reduce((s, p) => s + p.produccion_real, 0);
-    const avgDsj = partes.reduce((s, p) => s + p.dsj_pct, 0) / partes.length;
-    const recentList = partes.slice(0, 10).map((p) =>
-      `  ${p.date}: ${fmtT(p.produccion_real)}, DJPMN ${p.dsj_pct.toFixed(2)}% (${p.semaforo}), ${p.estado}`
-    ).join("\n");
-    sections.push([
-      "-- PARTES DIARIOS (ultimos 30 dias) --",
-      `Total: ${partes.length} partes | Produccion: ${fmtT(totalProd)} | DJPMN medio: ${avgDsj.toFixed(2)}%`,
-      `Semaforos: ${partes.filter((p) => p.semaforo === "verde").length} verde | ${partes.filter((p) => p.semaforo === "amarillo").length} amarillo | ${partes.filter((p) => p.semaforo === "rojo").length} rojo`,
-      "Ultimos 10 partes:",
-      recentList,
-    ].join("\n"));
-  } else {
-    sections.push("-- PARTES: Sin partes en los ultimos 30 dias.");
-  }
-
-  const partIds = partes.map((p) => p.id);
-  const [lotesRes, calibresRes, sesionesRes, asistenciaRes, trabajadoresRes, calidadJornadasRes, calidadLotesRes] = await Promise.allSettled([
-    supabase.from("lotes_dia").select("productor, toneladas_hora, duracion_min, kg_peso_total, partes_diarios!inner(date)").gte("partes_diarios.date", since30).limit(2000),
-    partIds.length ? supabase.from("calibres_dia").select("grupo_destino, kg").in("part_id", partIds).limit(100000) : Promise.resolve({ data: [] }),
-    supabase.from("sesiones_consumo").select("fecha_inicio, fecha_fin, kg_procesados, agua_linea_l, agua_drencher_l, electricidad_total_kwh, gasoil_l, quimicos_drencher_l").order("fecha_inicio", { ascending: false }).limit(5),
-    supabase.from("asistencia_detalle").select("date, presente, trabajador_id").gte("date", since7).limit(500),
-    supabase.from("trabajadores").select("id, nombre, zona, activo").limit(1000),
-    supabase.from("calidad_jornadas" as any).select("fecha, responsable, estado").gte("fecha", since30).order("fecha", { ascending: false }).limit(30),
-    supabase.from("calidad_lotes" as any).select("fecha, numero_lote, productor_finca_nombre, producto, variedad, cantidad, hora, aerobotics_realizado, calidad, defectos, observacion, accion_recomendada").gte("fecha", since30).order("fecha", { ascending: false }).limit(200),
-  ]);
-
-  if (lotesRes.status === "fulfilled" && lotesRes.value.data?.length) {
-    const byProd = new Map<string, { kg: number; lotes: number; tphSum: number; tphMin: number; tphCount: number }>();
-    for (const l of lotesRes.value.data) {
-      const k = l.productor || "Desconocido";
-      if (!byProd.has(k)) byProd.set(k, { kg: 0, lotes: 0, tphSum: 0, tphMin: 0, tphCount: 0 });
-      const p = byProd.get(k)!;
-      p.kg += Number(l.kg_peso_total) || 0;
-      p.lotes += 1;
-      const tph = Number(l.toneladas_hora) || 0;
-      const min = Number(l.duracion_min) || 0;
-      if (tph > 0) {
-        p.tphSum += tph * min;
-        p.tphMin += min;
-        p.tphCount += 1;
-      }
-    }
-    const list = Array.from(byProd.entries())
-      .map(([nombre, s]) => ({ nombre, kg: s.kg, lotes: s.lotes, tph: s.tphCount > 0 ? (s.tphMin > 0 ? s.tphSum / s.tphMin : s.tphSum / s.tphCount) : null }))
-      .sort((a, b) => b.kg - a.kg)
-      .slice(0, 10)
-      .map((p) => `  ${p.nombre}: ${fmtT(p.kg)}, ${p.lotes} lotes${p.tph ? `, ${p.tph.toFixed(1)} T/h` : ""}`)
-      .join("\n");
-    sections.push(["-- PRODUCTORES (top 10 por kg, ultimos 30 dias) --", list].join("\n"));
-  }
-
-  if (calibresRes.status === "fulfilled") {
-    const result = calibresRes.value as { data: { grupo_destino: string | null; kg: number }[] | null };
-    if (result?.data?.length) {
-      const map = new Map<string, number>();
-      for (const c of result.data) {
-        const grupo = normalizeGrupo(c.grupo_destino);
-        map.set(grupo, (map.get(grupo) ?? 0) + (Number(c.kg) || 0));
-      }
-      const total = Array.from(map.values()).reduce((s, v) => s + v, 0);
-      const list = Array.from(map.entries()).sort((a, b) => b[1] - a[1]).map(([g, kg]) => `  ${g}: ${total ? ((kg / total) * 100).toFixed(1) : "0.0"}% (${fmtT(kg)})`).join("\n");
-      sections.push(["-- DISTRIBUCION POR DESTINO (ultimos 30 dias) --", list].join("\n"));
-    }
-  }
-
-  if (sesionesRes.status === "fulfilled" && sesionesRes.value.data?.length) {
-    const list = sesionesRes.value.data.slice(0, 3).map((s) => {
-      const kg = Number(s.kg_procesados) || 1;
-      const agua = ((Number(s.agua_linea_l) || 0) + (Number(s.agua_drencher_l) || 0)) / kg;
-      const elec = (Number(s.electricidad_total_kwh) || 0) / kg;
-      const gasoil = ((Number(s.gasoil_l) || 0) * 1000) / kg;
-      return `  ${s.fecha_inicio}->${s.fecha_fin}: ${fmt(kg)} kg | Agua ${agua.toFixed(2)} L/kg | Electricidad ${elec.toFixed(3)} kWh/kg | Gasoil ${gasoil.toFixed(1)} mL/kg`;
-    }).join("\n");
-    sections.push(["-- CONSUMOS (ultimas sesiones) --", list].join("\n"));
-  }
-
-  const calidadJornadas = calidadJornadasRes.status === "fulfilled" ? ((calidadJornadasRes.value.data ?? []) as any[]) : [];
-  const calidadLotes = calidadLotesRes.status === "fulfilled" ? ((calidadLotesRes.value.data ?? []) as any[]) : [];
-  if (calidadJornadas.length > 0 || calidadLotes.length > 0) {
-    const byQuality = new Map<string, number>();
-    let aerobotics = 0;
-    for (const lote of calidadLotes) {
-      const calidad = String(lote.calidad ?? "Sin calidad");
-      byQuality.set(calidad, (byQuality.get(calidad) ?? 0) + 1);
-      if (lote.aerobotics_realizado) aerobotics += 1;
-    }
-    const qualityLine = Array.from(byQuality.entries()).sort((a, b) => b[1] - a[1]).map(([q, c]) => `${q}: ${c}`).join(" | ");
-    const jornadaLine = calidadJornadas.slice(0, 5).map((j) => `  ${j.fecha}: ${j.estado ?? "sin estado"} | responsable ${j.responsable || "-"}`).join("\n");
-    const lotesLine = calidadLotes.slice(0, 8).map((lote) => {
-      const flags = [
-        lote.aerobotics_realizado ? "Aerobotics si" : "Aerobotics no",
-        lote.defectos?.length ? `defectos: ${lote.defectos.join(", ")}` : "",
-        lote.observacion ? `obs: ${shortText(lote.observacion, 80)}` : "",
-        lote.accion_recomendada ? `accion: ${shortText(lote.accion_recomendada, 80)}` : "",
-      ].filter(Boolean).join(" | ");
-      return `  ${lote.fecha} lote ${lote.numero_lote || "-"}: ${lote.productor_finca_nombre || "-"} | ${lote.producto || "-"} ${lote.variedad || ""} | ${lote.calidad || "-"}${flags ? ` | ${flags}` : ""}`;
-    }).join("\n");
-    sections.push([
-      "-- CALIDAD (ultimos 30 dias) --",
-      `Jornadas: ${calidadJornadas.length} | Lotes anotados: ${calidadLotes.length} | Aerobotics: ${aerobotics}`,
-      qualityLine ? `Estados: ${qualityLine}` : "Estados: sin lotes anotados",
-      jornadaLine ? `Ultimas jornadas:\n${jornadaLine}` : "",
-      lotesLine ? `Ultimos lotes anotados:\n${lotesLine}` : "",
-    ].filter(Boolean).join("\n"));
-  } else {
+  if (calidadJornadas.length === 0 && calidadLotes.length === 0) {
     sections.push("-- CALIDAD: Sin jornadas ni lotes anotados en los ultimos 30 dias.");
+    return;
   }
 
-  const trabajadores = trabajadoresRes.status === "fulfilled" ? ((trabajadoresRes.value.data ?? []) as any[]) : [];
-  const trabajadoresById = new Map<string, { nombre: string; zona: string | null; activo: boolean }>();
-  if (trabajadores.length > 0) {
-    const byZona = new Map<string, { activos: number; inactivos: number }>();
-    for (const trabajador of trabajadores) {
-      trabajadoresById.set(trabajador.id, { nombre: trabajador.nombre ?? "Sin nombre", zona: trabajador.zona ?? null, activo: Boolean(trabajador.activo) });
-      const zona = trabajador.zona || "Sin zona";
-      if (!byZona.has(zona)) byZona.set(zona, { activos: 0, inactivos: 0 });
-      const stats = byZona.get(zona)!;
-      if (trabajador.activo) stats.activos += 1;
-      else stats.inactivos += 1;
+  const byQuality = new Map<string, number>();
+  const incidencias: string[] = [];
+  for (const lote of calidadLotes) {
+    const calidad = String(lote.calidad ?? "Sin calidad");
+    byQuality.set(calidad, (byQuality.get(calidad) ?? 0) + 1);
+    const tieneDefectos = Array.isArray(lote.defectos) && lote.defectos.length > 0;
+    const esIncidencia = calidad === "Regular" || calidad === "Deficiente" || calidad === "Pésimo" || tieneDefectos || lote.observacion;
+    if (esIncidencia && incidencias.length < 8) {
+      const flags = [
+        tieneDefectos ? `defectos: ${lote.defectos.join(", ")}` : "",
+        lote.observacion ? `obs: ${shortText(lote.observacion, 80)}` : "",
+      ].filter(Boolean).join(" | ");
+      incidencias.push(`  ${lote.fecha} lote ${lote.numero_lote || "-"} (${lote.productor_finca_nombre || "-"}): ${calidad}${flags ? ` | ${flags}` : ""}`);
     }
-    const zonas = Array.from(byZona.entries()).sort((a, b) => b[1].activos - a[1].activos).map(([zona, stats]) => `  ${zona}: ${stats.activos} activos${stats.inactivos ? `, ${stats.inactivos} inactivos` : ""}`).join("\n");
-    sections.push(["-- TRABAJADORES --", `Total: ${trabajadores.length} | Activos: ${trabajadores.filter((t) => t.activo).length} | Inactivos: ${trabajadores.filter((t) => !t.activo).length}`, zonas].join("\n"));
   }
+  const qualityLine = Array.from(byQuality.entries()).sort((a, b) => b[1] - a[1]).map(([q, c]) => `${q}: ${c}`).join(" | ");
 
-  if (asistenciaRes.status === "fulfilled" && asistenciaRes.value.data?.length) {
-    const byDay = new Map<string, { presentes: number; total: number; ausentes: string[] }>();
-    for (const r of asistenciaRes.value.data) {
-      if (!byDay.has(r.date)) byDay.set(r.date, { presentes: 0, total: 0, ausentes: [] });
-      const d = byDay.get(r.date)!;
-      d.total += 1;
-      if (r.presente) d.presentes += 1;
-      else {
-        const trabajador = trabajadoresById.get(r.trabajador_id);
-        if (trabajador?.nombre) d.ausentes.push(trabajador.nombre);
-      }
-    }
-    const avgPresentes = Array.from(byDay.values()).reduce((s, d) => s + d.presentes, 0) / Math.max(byDay.size, 1);
-    const list = Array.from(byDay.entries())
-      .sort((a, b) => b[0].localeCompare(a[0]))
-      .slice(0, 5)
-      .map(([date, d]) => {
-        const absent = d.ausentes.length ? ` | ausentes: ${d.ausentes.slice(0, 8).join(", ")}${d.ausentes.length > 8 ? "..." : ""}` : "";
-        return `  ${date}: ${d.presentes}/${d.total} presentes${absent}`;
-      })
-      .join("\n");
-    sections.push(["-- ASISTENCIA (ultimos 7 dias) --", `Media de presentes: ${avgPresentes.toFixed(0)} personas/dia`, list].join("\n"));
-  }
+  sections.push([
+    "-- ESTADO DE CALIDAD (ultimos 30 dias) --",
+    `Jornadas: ${calidadJornadas.length} | Lotes anotados: ${calidadLotes.length}`,
+    qualityLine ? `Estados: ${qualityLine}` : "Estados: sin lotes anotados",
+    incidencias.length > 0 ? `Incidencias recientes:\n${incidencias.join("\n")}` : "Sin incidencias recientes.",
+  ].join("\n"));
+}
+
+async function fetchAggregatedContext(): Promise<string> {
+  const since30 = sinceStr(30);
+  const weekStart = weekStartStr();
+  const monthStart = monthStartStr();
+  const today = sinceStr(0);
+
+  const sections: string[] = [
+    `-- SESION --\nFecha actual: ${new Date().toLocaleDateString("es-ES")} | Semana actual desde ${weekStart} | Mes actual desde ${monthStart}`,
+  ];
+
+  const partIds = await buildResumenSemanal(sections, weekStart, since30);
+
+  await Promise.allSettled([
+    buildMercadonaSemanal(sections, weekStart, today),
+    buildProductoresDelMes(sections, monthStart),
+    buildDistribucionDestino(sections, partIds),
+    buildConsumosSemana(sections, weekStart, today),
+    buildEstadoCalidad(sections, since30),
+  ]);
 
   return sections.join("\n\n");
 }
 
-function normalizeGrupo(valor: string | null): string {
-  if (!valor) return "Otro";
-  const v = valor.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-  if (v.includes("no_export") || v.includes("no export")) return "No exportación";
-  if (v.includes("no_comerc") || v.includes("industria") || v.includes("ind")) return "No comercial";
-  if (v.includes("export") || v.includes("ext")) return "Exportación";
-  if (v.includes("mujer")) return "Mujeres";
-  if (v.includes("mercado") || v.includes("nac") || v.includes("interior")) return "Mercado";
-  return valor;
+// ─── Cache del contexto agregado (unos minutos, evita recargar todo al reabrir) ─
+
+const CONTEXT_CACHE_MS = 4 * 60 * 1000;
+let cachedContext: { value: string; expiresAt: number } | null = null;
+
+async function getCachedContext(): Promise<string> {
+  if (cachedContext && cachedContext.expiresAt > Date.now()) {
+    return cachedContext.value;
+  }
+  const value = await fetchAggregatedContext();
+  cachedContext = { value, expiresAt: Date.now() + CONTEXT_CACHE_MS };
+  return value;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -479,13 +434,13 @@ export function useChatBot() {
     if (initializedRef.current) return;
     initializedRef.current = true;
     try {
-      const context = await fetchFullContextV2();
+      const context = await getCachedContext();
       systemRef.current = `${currentSessionPrompt()}\n\n${"═".repeat(50)}\nDATOS ACTUALES DEL SISTEMA:\n${context}`;
       historyRef.current = [];
       setMessages([{
         id: "welcome",
         role: "assistant",
-        content: "¡Hola! Soy Vadim, tu asistente de producción. Tengo contexto de Partes, Calidad, productores, consumos, asistencia y exportaciones. ¿En qué puedo ayudarte?",
+        content: "¡Hola! Soy Vadim, tu asistente de producción. Tengo el resumen de la semana actual (producción, DJPMN, Mercadona), productores del mes, consumos y calidad. ¿En qué puedo ayudarte?",
         timestamp: new Date(),
       }]);
     } catch {
@@ -562,9 +517,10 @@ export function useChatBot() {
         content: fullText, timestamp: new Date(),
       }]);
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       setMessages((prev) => [...prev, {
         id: `err-${Date.now()}`, role: "assistant",
-        content: `Lo siento, hubo un error: ${err instanceof Error ? err.message : String(err)}`,
+        content: message,
         timestamp: new Date(), error: true,
       }]);
     } finally {

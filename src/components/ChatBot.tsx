@@ -109,13 +109,14 @@ export function ChatBot() {
         onClick={close}
       />
 
-      {/* Panel lateral derecho */}
+      {/* Panel lateral derecho — superficie superpuesta: fondo casi opaco
+          (glass-overlay) para que el contenido de detrás no se pueda leer. */}
       <aside
         className={cn(
           "fixed inset-y-0 right-0 z-40 flex flex-col pt-[env(safe-area-inset-top)] sm:bottom-0 sm:top-16 sm:pt-0",
           "w-full max-w-full sm:w-[420px]",
           "border-l border-[var(--glass-border-accent)]",
-          "bg-[var(--glass-bg-strong)] backdrop-blur-2xl",
+          "bg-[var(--glass-bg-solid)] backdrop-blur-2xl",
           "shadow-[-8px_0_32px_hsl(150_18%_14%/0.08)]",
           "transition-transform duration-300 ease-out",
           isOpen ? "translate-x-0" : "translate-x-full"
@@ -138,7 +139,7 @@ export function ChatBot() {
                   Vadim
                 </p>
                 <p className="mt-1 truncate text-[10px] text-muted-foreground">
-                  OpenCode · Ring 2.6 · acceso a datos en vivo
+                  Asistente Lasarte · acceso a datos en vivo
                 </p>
               </div>
             </div>
