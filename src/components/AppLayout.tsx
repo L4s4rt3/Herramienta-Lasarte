@@ -130,13 +130,17 @@ function AppLayoutContent() {
         </SidebarHeader>
 
         <SidebarContent>
-          {navGroups.map((group) => (
+          {navGroups.map((group) => {
+            const visibleItems = group.items.filter((item) => (
+              item.to !== "/ventas/categoria-segunda" || ventasCategoriaAccess.hasAccess
+            ));
+            // Un grupo sin items visibles (p.ej. "Comercial" sin acceso) no pinta ni su etiqueta.
+            if (visibleItems.length === 0) return null;
+            return (
             <SidebarGroup key={group.label}>
               <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
               <SidebarMenu>
-                {group.items.filter((item) => (
-                  item.to !== "/ventas/categoria-segunda" || ventasCategoriaAccess.hasAccess
-                )).map((item) => {
+                {visibleItems.map((item) => {
                   const Icon = item.icon;
                   const active = item.match
                     ? item.match(location.pathname)
@@ -161,7 +165,8 @@ function AppLayoutContent() {
                 })}
               </SidebarMenu>
             </SidebarGroup>
-          ))}
+            );
+          })}
         </SidebarContent>
 
         <SidebarFooter>

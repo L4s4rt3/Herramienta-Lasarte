@@ -530,6 +530,16 @@ function getCategoriaColors(nombre: string) {
   return CATEGORIA_COLORS[nombre as keyof typeof CATEGORIA_COLORS] ?? CATEGORIA_COLORS.Otro;
 }
 
+/** Grupo de destino con más kg dentro de una clase — las clases heredan su color. */
+function grupoDominanteDeClase(grupos: Record<string, number>): string {
+  let best = "Otro";
+  let bestKg = -1;
+  for (const [grupo, kg] of Object.entries(grupos)) {
+    if (kg > bestKg) { best = grupo; bestKg = kg; }
+  }
+  return best;
+}
+
 // ─── Resumen tab (vista de un vistazo) ─────────────────────────────────────
 
 type ClaseResumenLite = { clase: string; kg_total: number; n_registros: number; n_dias: number; grupos: Record<string, number>; por_dia?: Record<string, number> };
@@ -597,7 +607,7 @@ function ResumenTab({ grupos, clases, calibres, productores, lotes, kgTotal, onG
             action={<VerDetalleButton onClick={() => onGoToTab("destino")} />}
           />
           <ResumenTopBarras
-            items={clases.slice(0, 6).map((c) => ({ nombre: c.clase, kg: c.kg_total }))}
+            items={clases.slice(0, 6).map((c) => ({ nombre: c.clase, kg: c.kg_total, grupo: grupoDominanteDeClase(c.grupos) }))}
             totalKg={kgTotal}
           />
         </CardContent>
@@ -744,7 +754,7 @@ function ResumenDestinoBar({ grupos, totalKg }: { grupos: GrupoResumenLite[]; to
 function ResumenTopBarras({
   items, totalKg, neutral = false,
 }: {
-  items: Array<{ nombre: string; kg: number }>;
+  items: Array<{ nombre: string; kg: number; grupo?: string }>;
   totalKg: number;
   neutral?: boolean;
 }) {
@@ -757,7 +767,7 @@ function ResumenTopBarras({
       {items.map((item) => {
         const barWidth = (item.kg / maxKg) * 100;
         const pct = totalKg > 0 ? (item.kg / totalKg) * 100 : 0;
-        const colors = neutral ? null : getCategoriaColors(item.nombre);
+        const colors = neutral ? null : getCategoriaColors(item.grupo ?? item.nombre);
         return (
           <div key={item.nombre} className="flex items-center gap-3">
             <span className="w-20 shrink-0 truncate text-sm font-medium sm:w-28">{item.nombre}</span>
@@ -941,7 +951,7 @@ function ClaseList({ clases, totalKg, days }: { clases: ClaseResumenLite[]; tota
 
 function ClaseRow({ clase: c, totalKg, maxKg, days }: { clase: ClaseResumenLite; totalKg: number; maxKg: number; days: string[] }) {
   const [open, setOpen] = useState(false);
-  const colors = getCategoriaColors(c.clase);
+  const colors = getCategoriaColors(grupoDominanteDeClase(c.grupos));
   const pct = totalKg > 0 ? (c.kg_total / totalKg) * 100 : 0;
   const barWidth = maxKg > 0 ? (c.kg_total / maxKg) * 100 : 0;
   const gruposOrdenados = Object.entries(c.grupos).sort((a, b) => b[1] - a[1]);
