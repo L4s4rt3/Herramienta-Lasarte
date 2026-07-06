@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -37,6 +38,8 @@ import { ChatBot } from "@/components/ChatBot";
 import { useDataWarmup } from "@/hooks/useDataWarmup";
 import { useVentasCategoriaAccess } from "@/hooks/useVentasCategoria";
 import { preloadRoute } from "@/lib/routePreload";
+import { TourGuiado } from "@/components/tour/TourGuiado";
+import { TOUR_STORAGE_KEY, getVisibleTourSteps } from "@/components/tour/tourSteps";
 
 type NavItem = {
   to: string;
@@ -108,6 +111,29 @@ function AppLayoutContent() {
     if (isMobile) setOpenMobile(false);
   }
 
+  const [tourOpen, setTourOpen] = useState(false);
+  const tourSteps = getVisibleTourSteps(ventasCategoriaAccess.hasAccess);
+
+  // Arranque automático la primera vez que un usuario autenticado entra a la app.
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const seen = localStorage.getItem(TOUR_STORAGE_KEY);
+      if (!seen) setTourOpen(true);
+    } catch {
+      // Si localStorage no está disponible simplemente no auto-arrancamos el tour.
+    }
+  }, [user]);
+
+  // Relanzable desde el botón "Guía" del TopBar.
+  useEffect(() => {
+    function handleStartTour() {
+      setTourOpen(true);
+    }
+    window.addEventListener("lasarte:start-tour", handleStartTour);
+    return () => window.removeEventListener("lasarte:start-tour", handleStartTour);
+  }, []);
+
   return (
     <>
       <Sidebar collapsible="icon">
@@ -152,6 +178,7 @@ function AppLayoutContent() {
                         <NavLink
                           to={item.to}
                           end={item.to === "/"}
+                          data-tour={item.to}
                           onClick={closeMobileSidebar}
                           onFocus={() => preloadRoute(item.to)}
                           onMouseEnter={() => preloadRoute(item.to)}
@@ -214,6 +241,7 @@ function AppLayoutContent() {
       </SidebarInset>
       <CommandPalette open={cmd.open} onOpenChange={cmd.setOpen} />
       <ChatBot />
+      {tourOpen && <TourGuiado steps={tourSteps} onFinish={() => setTourOpen(false)} />}
     </>
   );
 }

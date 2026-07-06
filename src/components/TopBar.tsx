@@ -10,7 +10,8 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles } from "lucide-react";
+import { Sparkles, GraduationCap } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: string; parentLabel?: string }> = {
   "/": {
@@ -104,6 +105,20 @@ function TopBar() {
       <Badge variant="outline" className="hidden rounded-xl border-primary/20 bg-[var(--glass-bg-strong)] px-2.5 py-1 font-medium text-primary backdrop-blur-sm md:inline-flex">
         Producción
       </Badge>
+
+      {/* Botón guía / tour */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("lasarte:start-tour"))}
+            aria-label="Ver el tour de la herramienta"
+            className="flex h-8 w-8 items-center justify-center rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground shadow-[var(--glass-shadow)] backdrop-blur-sm transition-all hover:border-[var(--glass-border-accent)] hover:bg-primary/10 hover:text-primary active:scale-95"
+          >
+            <GraduationCap className="h-4 w-4" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Ver el tour de la herramienta</TooltipContent>
+      </Tooltip>
 
       {/* Botón asistente */}
       <button
