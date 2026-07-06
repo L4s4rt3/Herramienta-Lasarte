@@ -33,7 +33,7 @@ const SITE_URL = "https://lasartesat.es";
 const SITE_TITLE = "Herramienta Lasarte";
 
 const OPENCODE_API_URL = "https://opencode.ai/zen/v1/chat/completions";
-const OPENCODE_MODEL = "ring-2.6-1t-free";
+const OPENCODE_MODEL = "deepseek-v4-flash"; // requiere método de pago en el workspace de OpenCode (su free tier fue retirado)
 
 const PUTER_API_URL = "https://api.puter.com/puterai/openai/v1/chat/completions";
 const PUTER_MODEL = "qwen/qwen3.6-flash";
