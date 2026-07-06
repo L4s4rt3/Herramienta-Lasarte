@@ -90,7 +90,7 @@ export function TourGuiado({ steps, onFinish }: TourGuiadoProps) {
         "sm:bottom-6 sm:right-6 sm:max-w-md",
       )}
     >
-      <div className="glass-accented rounded-xl p-4 shadow-[var(--glass-shadow-lg)] backdrop-blur-xl transition-all duration-300 sm:p-5">
+      <div className="glass-overlay rounded-xl p-4 transition-all duration-300 sm:p-5">
         <div className="flex items-start justify-between gap-3">
           <span className="panel-kicker">
             Paso {stepIndex + 1} de {total}

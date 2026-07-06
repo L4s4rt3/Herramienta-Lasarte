@@ -57,7 +57,7 @@ export function DailyMatrixTable({
           <table className="w-full text-sm data-table">
             <thead>
               <tr>
-                <th className="sticky left-0 z-10 bg-[var(--glass-bg-strong)]">Dia</th>
+                <th className="sticky left-0 z-10 bg-[var(--glass-bg-solid)]">Dia</th>
                 {dimensions.map((dim) => (
                   <th key={dim} className="text-right">
                     <Badge variant="outline" className={`text-[10px] ${DIMENSION_BADGE_CLASSES[dim] ?? DIMENSION_BADGE_CLASSES["Otro"]}`}>
@@ -65,7 +65,7 @@ export function DailyMatrixTable({
                     </Badge>
                   </th>
                 ))}
-                <th className="sticky right-0 z-10 bg-[var(--glass-bg-strong)] text-right border-l border-[var(--glass-border)]">
+                <th className="sticky right-0 z-10 bg-[var(--glass-bg-solid)] text-right border-l border-[var(--glass-border)]">
                   Total
                 </th>
               </tr>
@@ -78,7 +78,7 @@ export function DailyMatrixTable({
                 const total = dayTotals[day] ?? 0;
                 return (
                   <tr key={day}>
-                    <td className="sticky left-0 z-10 bg-[var(--glass-bg)]">
+                    <td className="sticky left-0 z-10 bg-[var(--glass-bg-solid)]">
                       <Badge variant="outline" className="font-mono text-xs">
                         {diaSemana} {fechaCorta}
                       </Badge>
@@ -91,7 +91,7 @@ export function DailyMatrixTable({
                         </td>
                       );
                     })}
-                    <td className="sticky right-0 z-10 bg-[var(--glass-bg)] text-right font-mono font-semibold tabular-nums border-l border-[var(--glass-border)]">
+                    <td className="sticky right-0 z-10 bg-[var(--glass-bg-solid)] text-right font-mono font-semibold tabular-nums border-l border-[var(--glass-border)]">
                       {formatKg(total)}
                     </td>
                   </tr>
@@ -100,13 +100,13 @@ export function DailyMatrixTable({
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-[var(--glass-border-accent)] font-semibold">
-                <td className="sticky left-0 z-10 bg-[var(--glass-bg-strong)]">Total</td>
+                <td className="sticky left-0 z-10 bg-[var(--glass-bg-solid)]">Total</td>
                 {dimensions.map((dim) => (
                   <td key={dim} className="text-right font-mono tabular-nums">
                     {formatKg(dimensionTotals[dim] ?? 0)}
                   </td>
                 ))}
-                <td className="sticky right-0 z-10 bg-[var(--glass-bg-strong)] text-right font-mono font-bold tabular-nums border-l border-[var(--glass-border)]">
+                <td className="sticky right-0 z-10 bg-[var(--glass-bg-solid)] text-right font-mono font-bold tabular-nums border-l border-[var(--glass-border)]">
                   {formatKg(grandTotal)}
                 </td>
               </tr>

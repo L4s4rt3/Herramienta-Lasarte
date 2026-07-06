@@ -312,7 +312,7 @@ export default function AsistenciaComparativa() {
                 <table className="w-full text-sm whitespace-nowrap">
                   <thead>
                     <tr className="border-b border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
-                      <th className="sticky left-0 z-10 bg-[var(--glass-bg-strong)] px-4 py-3 text-left text-xs font-bold uppercase text-muted-foreground backdrop-blur-xl">Semana</th>
+                      <th className="sticky left-0 z-10 bg-[var(--glass-bg-solid)] px-4 py-3 text-left text-xs font-bold uppercase text-muted-foreground backdrop-blur-xl">Semana</th>
                       {DAYS.map((d) => (
                         <th key={d} className="text-center px-3 py-3 font-bold text-xs uppercase text-muted-foreground">{d}</th>
                       ))}
@@ -332,7 +332,7 @@ export default function AsistenciaComparativa() {
                       const maxKgP = values.length > 0 ? Math.max(...values.map(d => d.kgPorPersona)) : 0;
                       return (
                         <tr key={sem.weekStart}>
-                          <td className="sticky left-0 z-10 bg-[var(--glass-bg-strong)] px-4 py-3 text-left font-medium backdrop-blur-xl">Semana del {sem.label}</td>
+                          <td className="sticky left-0 z-10 bg-[var(--glass-bg-solid)] px-4 py-3 text-left font-medium backdrop-blur-xl">Semana del {sem.label}</td>
                           {DAY_KEYS.map((dk) => {
                             const dia = sem.days[dk];
                             if (!dia) return <td key={dk} className="text-center px-3 py-3 text-muted-foreground text-xs">—</td>;

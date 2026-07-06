@@ -85,7 +85,7 @@ export const TOUR_STEPS: TourStep[] = [
     icon: Droplet,
     title: "Consumos",
     description:
-      "El consumo de agua, electricidad, gasoil y tratamientos, con el consumo por kg de naranja de cada día y vistas por semana, mes o campaña. Ojo con el agua: la foto del contador de cada mañana registra el consumo del día anterior — la app ya lo atribuye sola al día correcto.",
+      "El consumo de agua, electricidad, gasoil y tratamientos, con el consumo por kg de naranja de cada día y vistas por semana, mes o campaña. Apunta las lecturas de los contadores y la app calcula el consumo de cada día por ti.",
   },
   {
     id: "asistencia",

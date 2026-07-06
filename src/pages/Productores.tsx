@@ -423,7 +423,7 @@ function RankingTable({ productores, kgTotalPeriodo, sortKey, sortDir, onToggleS
         {/* Escritorio: tabla densa */}
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-[13px]">
-            <thead className="sticky top-0 z-10 bg-[var(--glass-bg)] backdrop-blur-xl">
+            <thead className="sticky top-0 z-10 bg-[var(--glass-bg-solid)] backdrop-blur-xl">
               <tr className="border-b border-[var(--glass-border)] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>th]:px-3 [&>th]:py-1.5">
                 <ColHead label="Productor"  sk="productor"     sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
                 <ColHead label="Kg"         sk="kg"            sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} right />
@@ -1026,7 +1026,7 @@ function HistorialLotes({ dossier, onLoteClick }: { dossier: ProductorDossier; o
       <CardContent className="p-0">
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-[13px]">
-            <thead className="sticky top-0 z-10 bg-[var(--glass-bg)] backdrop-blur-xl">
+            <thead className="sticky top-0 z-10 bg-[var(--glass-bg-solid)] backdrop-blur-xl">
               <tr className="border-b border-[var(--glass-border)] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>th]:px-3 [&>th]:py-1.5">
                 <th className="whitespace-nowrap">Fecha</th>
                 <th className="whitespace-nowrap">Hora</th>
@@ -1185,7 +1185,7 @@ function MatrizCalibreClase({ dossier }: { dossier: ProductorDossier }) {
           <table className="w-full border-collapse text-[13px]">
             <thead>
               <tr className="border-b border-[var(--glass-border)]">
-                <th className="sticky left-0 z-10 bg-[var(--glass-bg)] px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Calibre</th>
+                <th className="sticky left-0 z-10 bg-[var(--glass-bg-solid)] px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Calibre</th>
                 {clasesCols.map((clase) => (
                   <th key={clase} className="px-3 py-1.5 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">{clase}</th>
                 ))}
@@ -1197,7 +1197,7 @@ function MatrizCalibreClase({ dossier }: { dossier: ProductorDossier }) {
                 const filaMatriz = dossier.matriz_calibre_clase[fila.tamano] ?? {};
                 return (
                   <tr key={fila.tamano} className={cn("border-b border-[var(--glass-border)] last:border-b-0", i % 2 === 1 && "bg-[var(--glass-bg)]/40")}>
-                    <td className="sticky left-0 z-10 bg-[var(--glass-bg)] px-3 py-1.5 font-medium whitespace-nowrap">{fila.tamano}</td>
+                    <td className="sticky left-0 z-10 bg-[var(--glass-bg-solid)] px-3 py-1.5 font-medium whitespace-nowrap">{fila.tamano}</td>
                     {clasesCols.map((clase) => {
                       const kg = filaMatriz[clase] ?? 0;
                       const alpha = kg > 0 ? 0.04 + (kg / maxCell) * 0.24 : 0;

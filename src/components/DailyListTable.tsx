@@ -206,7 +206,7 @@ export function DailyListTable({ lotes, defaultExpandFirst = true, onLoteClick }
         />
       ))}
       {/* Footer sticky */}
-      <div className="sticky bottom-0 flex items-center justify-between rounded-lg border border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] backdrop-blur-xl px-3 py-2 text-[13px] font-medium shadow-[var(--glass-shadow)]">
+      <div className="sticky bottom-0 flex items-center justify-between rounded-lg border border-[var(--glass-border-accent)] bg-[var(--glass-bg-solid)] backdrop-blur-xl px-3 py-2 text-[13px] font-medium shadow-[var(--glass-shadow)]">
         <span className="panel-kicker">Total periodo</span>
         <div className="flex items-center gap-3">
           <span className="tabular-nums font-semibold">{formatKg(totalKg)}</span>

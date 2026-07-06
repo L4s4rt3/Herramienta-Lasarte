@@ -86,8 +86,8 @@ export function DailyGroupTable({ lines, pageSize = 5 }: DailyGroupTableProps) {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="sticky left-0 z-10 bg-[var(--glass-bg)]">Cliente</TableHead>
-                      <TableHead className="sticky left-[180px] z-10 bg-[var(--glass-bg)] min-w-[280px]">Articulo</TableHead>
+                      <TableHead className="sticky left-0 z-10 bg-[var(--glass-bg-solid)]">Cliente</TableHead>
+                      <TableHead className="sticky left-[180px] z-10 bg-[var(--glass-bg-solid)] min-w-[280px]">Articulo</TableHead>
                       <TableHead>Metodo</TableHead>
                       <TableHead className="text-right">Kilos</TableHead>
                       <TableHead className="text-right">PM</TableHead>
@@ -97,10 +97,10 @@ export function DailyGroupTable({ lines, pageSize = 5 }: DailyGroupTableProps) {
                   <TableBody>
                     {day.lines.map((line) => (
                       <TableRow key={line.id}>
-                        <TableCell className="sticky left-0 z-10 bg-[var(--glass-bg)] min-w-[180px]">
+                        <TableCell className="sticky left-0 z-10 bg-[var(--glass-bg-solid)] min-w-[180px]">
                           <div className="font-medium truncate max-w-[170px]">{line.cliente_nombre}</div>
                         </TableCell>
-                        <TableCell className="sticky left-[180px] z-10 bg-[var(--glass-bg)] min-w-[280px]">
+                        <TableCell className="sticky left-[180px] z-10 bg-[var(--glass-bg-solid)] min-w-[280px]">
                           <div className="truncate max-w-[270px]">{line.articulo}</div>
                         </TableCell>
                         <TableCell>{line.metodo_producto ?? "Sin clasificar"}</TableCell>

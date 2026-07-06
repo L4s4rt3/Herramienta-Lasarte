@@ -122,7 +122,7 @@ export function AnalisisCalibres({ calibres, days, kgClasificados, kgProduccionR
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-[var(--glass-border)]">
-                  <th className="sticky left-0 z-10 bg-[var(--glass-bg)] px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Calibre</th>
+                  <th className="sticky left-0 z-10 bg-[var(--glass-bg-solid)] px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Calibre</th>
                   {clasesCols.map((clase) => (
                     <th key={clase} className="px-4 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">{clase}</th>
                   ))}
@@ -133,7 +133,7 @@ export function AnalisisCalibres({ calibres, days, kgClasificados, kgProduccionR
               <tbody>
                 {calibres.map((c) => (
                   <tr key={c.calibre} className="border-b border-[var(--glass-border)] last:border-b-0">
-                    <td className="sticky left-0 z-10 bg-[var(--glass-bg)] px-4 py-3 font-medium whitespace-nowrap">{c.calibre}</td>
+                    <td className="sticky left-0 z-10 bg-[var(--glass-bg-solid)] px-4 py-3 font-medium whitespace-nowrap">{c.calibre}</td>
                     {clasesCols.map((clase) => {
                       const kg = c.por_clase[clase] ?? 0;
                       const alpha = kg > 0 ? 0.04 + (kg / maxCell) * 0.24 : 0;

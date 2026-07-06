@@ -311,7 +311,7 @@ export default function AnalisisDiario() {
            Siempre visible tras cargar (incluso sin datos) para poder
            navegar a una semana anterior que sí tenga información. ── */}
       {!loading && !error && (
-        <div className="sticky top-[calc(3.5rem+1rem)] z-10 glass-accented rounded-xl p-3 space-y-3 sm:top-[calc(4rem+1.25rem)]">
+        <div className="sticky top-[calc(3.5rem+1rem)] z-10 glass-overlay rounded-xl p-3 space-y-3 sm:top-[calc(4rem+1.25rem)]">
           <div className="flex flex-wrap items-center gap-2.5">
             <WeekSelector
               periodo={periodo}

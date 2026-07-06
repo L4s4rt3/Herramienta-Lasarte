@@ -506,7 +506,7 @@ export default function VentasCategoriaSegunda() {
               <CardContent className="p-0">
                 <div className="hidden overflow-x-auto md:block">
                   <table className="w-full text-[13px]">
-                    <thead className="sticky top-0 z-10 bg-[var(--glass-bg)] backdrop-blur-xl">
+                    <thead className="sticky top-0 z-10 bg-[var(--glass-bg-solid)] backdrop-blur-xl">
                       <tr className="border-b border-[var(--glass-border)] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>th]:px-3 [&>th]:py-1.5">
                         <th className="w-8 whitespace-nowrap">#</th>
                         <th className="whitespace-nowrap">Cliente</th>
@@ -648,7 +648,7 @@ export default function VentasCategoriaSegunda() {
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
                     <table className="w-full text-[13px]">
-                      <thead className="sticky top-0 z-10 bg-[var(--glass-bg)] backdrop-blur-xl text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>th]:px-3 [&>th]:py-1.5">
+                      <thead className="sticky top-0 z-10 bg-[var(--glass-bg-solid)] backdrop-blur-xl text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>th]:px-3 [&>th]:py-1.5">
                         <tr className="border-b border-[var(--glass-border)]">
                           <th className="whitespace-nowrap">Metodo</th>
                           <th className="whitespace-nowrap">Descripcion</th>

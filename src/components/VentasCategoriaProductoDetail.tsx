@@ -89,7 +89,7 @@ export function VentasCategoriaProductoDetail({ metodo, descripcion, allLines }:
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
-              <thead className="sticky top-0 z-10 bg-[var(--glass-bg)] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground backdrop-blur-xl [&>tr>th]:px-3 [&>tr>th]:py-1.5">
+              <thead className="sticky top-0 z-10 bg-[var(--glass-bg-solid)] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground backdrop-blur-xl [&>tr>th]:px-3 [&>tr>th]:py-1.5">
                 <tr className="border-b border-[var(--glass-border)]">
                   <th>Cliente</th>
                   <th className="text-right">Kilos</th>

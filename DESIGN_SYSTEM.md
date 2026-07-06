@@ -23,6 +23,7 @@ semi-transparentes y blur. El componente de referencia es el Dashboard principal
 | `--color-surface-hover` | `var(--glass-bg-strong)` — `hsl(38 50% 99% / 0.55)` | Estado hover en celdas de tabla, rows |
 | `--color-border` | `var(--glass-border)` — `hsl(38 30% 75% / 0.35)` | Borde estándar glass |
 | `--glass-border-accent` | `hsl(24 95% 53% / 0.22)` | Borde con tono naranja (tarjetas activas) |
+| `--glass-bg-solid` | `hsl(38 50% 98% / 0.94)` (dark: `hsl(150 22% 12% / 0.95)`) | Fondo casi opaco para superficies **superpuestas** (dialogs, sheets, popovers, selects, dropdowns) — nunca deja leer el contenido de detrás |
 
 ### Tipografía
 | Token | Valor | Uso |
@@ -43,6 +44,7 @@ semi-transparentes y blur. El componente de referencia es el Dashboard principal
 | Token | Valor | Uso |
 |---|---|---|
 | `--blur` | `blur(24px)` (`backdrop-blur-xl`) | Blur de superficies glass |
+| `.glass-overlay` blur | `blur(32px)` (`backdrop-blur-2xl`) | Blur reforzado de superficies superpuestas |
 | `--radius` | `0.625rem` | Radio de bordes (lg=radius, md=radius-2px) |
 | `--shadow` / `--glass-shadow` | `0 4px 16px hsl(150 18% 14% / 0.05), ...` | Sombra estándar |
 | `--glass-shadow-lg` | `0 8px 30px hsl(150 18% 14% / 0.07), ...` | Sombra elevada |
@@ -55,7 +57,8 @@ semi-transparentes y blur. El componente de referencia es el Dashboard principal
 | Clase | Uso |
 |---|---|
 | `.glass` | Superficie glass base: border + bg + shadow + backdrop-blur-xl |
-| `.glass-strong` | Glass con bg más opaco (modales dentro de modales) |
+| `.glass-strong` | Glass con bg más opaco (hovers, filas de tabla, elementos **dentro** de página) |
+| `.glass-overlay` | Glass **opaco** (`--glass-bg-solid` + backdrop-blur-2xl + `--glass-border-accent` + `--glass-shadow-lg`) para superficies **superpuestas**: dialogs, sheets, popovers, selects, dropdowns, command palette, drawer, tooltip. Nunca deja leer el contenido de detrás |
 | `.glass-accented` | Glass con border naranja accent (cards de datos principales) |
 | `.glass-hover` | Añade glow en hover sobre .glass |
 | `.glass-lift` | Glass + translateY(-2px) en hover |
@@ -124,11 +127,15 @@ bg-muted / text-muted-foreground
 | `Button (outline)` | `--glass-border`, `--glass-bg` | ✅ |
 | `TabsList` | `--glass-border`, `--glass-bg` | ✅ |
 | `SelectTrigger` | `--glass-border`, `--glass-bg` | ✅ |
-| `SelectContent` | `.glass-strong` | ✅ |
-| `PopoverContent` | `.glass` | ✅ |
-| `Dialog` | `.glass-accented`, overlay `bg-black/10 backdrop-blur-sm` | ✅ |
-| `AlertDialog` | `.glass-accented`, overlay `bg-black/10 backdrop-blur-sm` | ✅ |
-| `Sheet` | `.glass`, overlay `bg-black/10 backdrop-blur-sm` | ✅ |
+| `SelectContent` | `.glass-overlay` (opaco, superpuesto) | ✅ |
+| `PopoverContent` | `.glass-overlay` (opaco, superpuesto) | ✅ |
+| `DropdownMenuContent` / `SubContent` | `.glass-overlay` (opaco, superpuesto) | ✅ |
+| `CommandDialog` / `Command` | `.glass-overlay` (opaco, superpuesto) | ✅ |
+| `Dialog` | `.glass-overlay`, overlay `bg-foreground/20 backdrop-blur-md` | ✅ |
+| `AlertDialog` | `.glass-overlay`, overlay `bg-foreground/20 backdrop-blur-md` | ✅ |
+| `Sheet` | `.glass-overlay`, overlay `bg-foreground/20 backdrop-blur-md` | ✅ |
+| `Drawer` | `.glass-overlay`, overlay `bg-foreground/20 backdrop-blur-md` | ✅ |
+| `TooltipContent` | `--glass-bg-solid` + `backdrop-blur-xl` (opaco, algo más ligero que `.glass-overlay`) | ✅ |
 | `Toast` | `.glass-accented rounded-xl` | ✅ |
 | `Alert (default)` | `--glass-bg backdrop-blur-xl` | ✅ |
 | `Table (rows)` | `--glass-border`, `--glass-bg-strong` hover | ✅ |
@@ -168,8 +175,9 @@ bg-muted / text-muted-foreground
 ## Reglas que NO romper
 
 1. **Nunca** usar `bg-white` o `bg-background` en superficies visibles — usar `--glass-bg`
-2. **Nunca** usar overlays `bg-black/80` — usar `bg-black/10 backdrop-blur-sm`
+2. **Nunca** usar overlays `bg-black/80` — usar `bg-foreground/20 backdrop-blur-md` (overlays de fondo de dialogs/sheets)
 3. **Nunca** hardcodear colores Tailwind (`emerald-50`, `red-200`, `blue-50`) — usar tokens semánticos
 4. **Nunca** `shadow-lg` suelto — usar `--glass-shadow` o `--glass-shadow-lg`
 5. **Siempre** `rounded-xl` en panels/modales principales (no `rounded-lg` o `rounded-md`)
 6. **Siempre** leer este archivo antes de crear o modificar estilos
+7. **Superficies superpuestas** (dialogs, sheets, popovers, selects, dropdowns, command palette, drawer) **siempre** usan `.glass-overlay` (o el equivalente opaco de `TooltipContent`) — **nunca** `.glass` ni `.glass-accented`, que son demasiado transparentes para elementos que flotan sobre contenido. Una superficie superpuesta nunca debe dejar leer el contenido de detrás; el fondo solo debe intuirse como manchas de color difusas. Las cards normales de página (`.glass`, `.glass-accented`) no se ven afectadas por esta regla.

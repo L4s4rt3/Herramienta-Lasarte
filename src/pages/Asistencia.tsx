@@ -1480,7 +1480,7 @@ export default function Asistencia() {
       </header>
 
       {/* ── Toolbar única: navegación + acciones ────────────────── */}
-      <div className="section-toolbar sticky top-14 z-10 flex flex-wrap items-center gap-2 sm:top-16">
+      <div className="section-toolbar glass-overlay sticky top-14 z-10 flex flex-wrap items-center gap-2 sm:top-16">
         <div className="flex flex-wrap items-center gap-2">
           {viewMode === "daily" ? (
             <>

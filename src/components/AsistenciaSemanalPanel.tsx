@@ -226,7 +226,7 @@ export default function AsistenciaSemanalPanel({
             <table className="w-full text-sm whitespace-nowrap">
               <thead>
                 <tr className="border-b border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
-                  <th className="sticky left-0 z-20 bg-[var(--glass-bg-strong)] px-3 py-3 text-left text-xs font-bold uppercase text-muted-foreground">Trabajador</th>
+                  <th className="sticky left-0 z-20 bg-[var(--glass-bg-solid)] px-3 py-3 text-left text-xs font-bold uppercase text-muted-foreground">Trabajador</th>
                   <th className="px-3 py-3 text-left text-xs font-bold uppercase text-muted-foreground">Zona</th>
                   {dates.map((date, i) => {
                     const esDomingo = new Date(date + "T12:00:00").getDay() === 0;
@@ -257,7 +257,7 @@ export default function AsistenciaSemanalPanel({
                     const zebraClass = index % 2 === 1 ? "bg-[var(--glass-bg)]" : "bg-[var(--glass-bg-strong)]";
                     return (
                     <tr key={row.trabajadorId} className={cn("hover:bg-[var(--color-surface-hover)]", zebraClass)}>
-                      <td className={cn("sticky left-0 z-10 px-3 py-2 text-sm font-semibold", zebraClass)}>{row.nombre}</td>
+                      <td className={cn("sticky left-0 z-10 bg-[var(--glass-bg-solid)] px-3 py-2 text-sm font-semibold")}>{row.nombre}</td>
                       <td className="px-3 py-2 text-xs text-muted-foreground">{row.zona ?? "—"}</td>
                       {dates.map((date) => {
                         const status = row.days[date] ?? "sinRegistrar";

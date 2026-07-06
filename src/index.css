@@ -59,6 +59,9 @@
     --glass-border-accent: hsl(24 95% 53% / 0.22);
     --glass-bg: hsl(38 45% 98% / 0.38);
     --glass-bg-strong: hsl(38 45% 98% / 0.60);
+    /* Superficie opaca para elementos SUPERPUESTOS (dialogs, sheets, popovers,
+       selects, dropdowns): no debe dejar leer el contenido de detrás. */
+    --glass-bg-solid: hsl(38 50% 98% / 0.94);
     --glass-shadow: 0 4px 16px hsl(150 18% 14% / 0.07), 0 1px 3px hsl(150 18% 14% / 0.05);
     --glass-shadow-lg: 0 8px 30px hsl(150 18% 14% / 0.10), 0 2px 6px hsl(150 18% 14% / 0.06);
     --glass-glow: 0 0 24px hsl(24 95% 53% / 0.07);
@@ -125,6 +128,9 @@
     --glass-border-accent: hsl(24 95% 58% / 0.15);
     --glass-bg: hsl(150 20% 13% / 0.7);
     --glass-bg-strong: hsl(150 20% 13% / 0.85);
+    /* Superficie opaca para elementos SUPERPUESTOS (dialogs, sheets, popovers,
+       selects, dropdowns): no debe dejar leer el contenido de detrás. */
+    --glass-bg-solid: hsl(150 22% 12% / 0.95);
     --glass-shadow: 0 4px 20px hsl(0 0% 0% / 0.15);
     --glass-shadow-lg: 0 8px 32px hsl(0 0% 0% / 0.2);
     --glass-glow: 0 0 20px hsl(24 95% 58% / 0.08);
@@ -192,6 +198,14 @@
 
   .glass-strong {
     @apply rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] shadow-[var(--glass-shadow)] backdrop-blur-xl;
+  }
+
+  /* Superficies SUPERPUESTAS (dialogs, sheets, popovers, selects, dropdowns,
+     command palette): fondo casi opaco + blur fuerte para que el contenido
+     de detrás se intuya como manchas de color difusas pero nunca se pueda
+     leer. No usar en cards de página — solo en overlays/portals. */
+  .glass-overlay {
+    @apply rounded-xl border border-[var(--glass-border-accent)] bg-[var(--glass-bg-solid)] shadow-[var(--glass-shadow-lg)] backdrop-blur-2xl;
   }
 
   .glass-lg {

@@ -83,7 +83,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function signOut() {
-    await supabase.auth.signOut();
+    // scope "local": cierra solo la sesión de ESTE navegador. El scope global
+    // (por defecto) revocaba los tokens de todos los dispositivos de la cuenta
+    // compartida y obligaba al resto a volver a iniciar sesión.
+    await supabase.auth.signOut({ scope: "local" });
     dispatch({ type: "RESET" });
   }
 
