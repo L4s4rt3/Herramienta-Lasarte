@@ -426,3 +426,50 @@ describe("buildSemanaExportRows", () => {
     expect(descensoRow).toBeDefined();
   });
 });
+
+// ─── Regresión: hoja HISTÓRICA con la disposición REAL del archivo del dueño ──
+// (filas en blanco intercaladas que rompían el parser basado en índices fijos:
+// tomaba "Total general" como planificado semanal, "ANTEQUERA II" como
+// planificado y la cabecera "Método" como si fuera un método más).
+describe("parseSemanaSheet con la disposición real del Excel histórico", () => {
+  const rowsRealesS21 = [
+    ["PLANIFICACION VENTAS RECIBIDA DE MERCADONA", "", ""],
+    ["", "", ""],
+    ["NARANJAS TOTALES", "18 May - 31 May", ""],
+    ["ANTEQUERA II", "16,329", ""],
+    ["ANTEQUERA VERDURA", "400,879", ""],
+    ["Total general", "417,208", ""],
+    ["", " 208,604 ", ""],
+    ["EL TOTAL GENERAL SE DIVIDE ENTRE 2, PUES SON DOS SEMANAS", "", ""],
+    ["", "", ""],
+    ["Método", "Descripción", "PORCENTAJE", " KILOS ", "PALETS", "CAJAS"],
+    ["MA12KGC", "GENERICA GRANEL 12 KG PLASTICO", "19%", " 40,703 ", "141", "3316"],
+    ["MA3KGC", "HACENDADO D-PACK 4 X 3 KG PLASTICO", "23%", " 49,306 ", "175", "4107"],
+    ["MA4KGC", "GENERICA GIRSAC 3 X 4 KG PLASTICO", "22%", " 46,851 ", "160", "3775"],
+    ["MA5KGC", "HACENDADO D-PACK 2 X 5 KG PLASTICO", "36%", " 78,400 ", "329", "7840"],
+    ["", "", "", " 215,260 ", "805", "19038"],
+    ["SEMANA 21 HEMOS VENDIDO ", "", " 215,260 "],
+    ["SEMANA 21 HABIA PLANIFICADO", "", " 208,604 "],
+    ["AUMENTO DEL", "3.2%", " 6,656 "],
+    ["NOTA; LA INFORMACION DE LA PLANIFICACION LA SACO DEL EMAIL RECIBIDO EL DIA 24/12/2025", "", ""],
+  ];
+
+  it("extrae todos los datos guiándose por etiquetas, no por índices", () => {
+    const s = parseSemanaSheet(rowsRealesS21, 21, 2026);
+    expect(s.planificadoQuincenaKg).toBe(417208);
+    expect(s.planificadoSemanaKg).toBe(208604);
+    expect(s.vendidoKg).toBe(215260);
+    expect(s.diferenciaPct).toBe(3.2);
+    expect(s.rangoPlanificacion).toBe("18 May - 31 May");
+    expect(s.metodos).toHaveLength(4);
+    expect(s.metodos.map((m) => m.metodo)).toEqual(["MA12KGC", "MA3KGC", "MA4KGC", "MA5KGC"]);
+    expect(s.metodos.reduce((a, m) => a + m.kilos, 0)).toBe(215260);
+    expect(s.totales).toEqual({ kilos: 215260, palets: 805, cajas: 19038 });
+    expect(s.notas).toHaveLength(1);
+  });
+
+  it("la nota 'EL TOTAL GENERAL SE DIVIDE...' no machaca el total quincenal", () => {
+    const s = parseSemanaSheet(rowsRealesS21, 21, 2026);
+    expect(s.planificadoQuincenaKg).toBe(417208);
+  });
+});

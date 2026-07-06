@@ -151,66 +151,37 @@ function firstNumberInRow(row: SheetRow | undefined, from = 0): number | null {
  * declara, lo elige el usuario en el importador).
  */
 export function parseSemanaSheet(rows: SheetRows, semana: number, anio: number): ParsedSemana {
-  // Fila 1: rango de planificacion quincenal ("NARANJAS TOTALES" | "18 May - 31 May").
-  const rangoPlanificacion = cellText(rows[1], 1) || null;
-
-  // Fila 4: "Total general" + kg quincenal.
-  const planificadoQuincenaKg = firstNumberInRow(rows[4], 1);
-
-  // Fila 5: total/2 -> planificacion semanal. Si no esta escrita explicitamente
-  // se deriva de la quincenal.
-  const planificadoSemanaKgFila = firstNumberInRow(rows[5], 1);
-  const planificadoSemanaKg = planificadoSemanaKgFila ?? (
-    planificadoQuincenaKg !== null ? planificadoQuincenaKg / 2 : null
-  );
-
-  // Fila 7: cabecera de la tabla de metodos (puede o no traer "COMPARATIVA...").
-  // Filas 8-11: los 4 metodos conocidos, en ese orden fijo.
-  const metodos: MetodoVenta[] = [];
-  for (let i = 8; i <= 11; i++) {
-    const row = rows[i];
-    if (!row) continue;
-    const metodo = cellText(row, 0);
-    if (!metodo) continue;
-    metodos.push({
-      metodo,
-      descripcion: cellText(row, 1),
-      pct: parseNumeroVentas(row[2]),
-      kilos: parseNumeroVentasOrZero(row[3]),
-      palets: parseNumeroVentasOrZero(row[4]),
-      cajas: parseNumeroVentasOrZero(row[5]),
-      comparativaAnteriorPct: parseNumeroVentas(row[6]),
-    });
-  }
-
-  // Fila 12: totales de la tabla de metodos.
-  const totalesRow = rows[12];
-  const totales = totalesRow
-    ? {
-        kilos: parseNumeroVentasOrZero(totalesRow[3]),
-        palets: parseNumeroVentasOrZero(totalesRow[4]),
-        cajas: parseNumeroVentasOrZero(totalesRow[5]),
-      }
-    : null;
-
-  // Filas 13-15: vendido / planificado / aumento-descenso. Se buscan por
-  // contenido (no por indice fijo) porque alguna hoja puede desplazar 1 fila.
+  // Guiado por ETIQUETAS, no por índices de fila: el Excel real intercala filas
+  // en blanco de forma distinta en cada hoja y los índices fijos leían celdas
+  // equivocadas (p. ej. "ANTEQUERA II" como planificado o la cabecera como método).
+  let rangoPlanificacion: string | null = null;
+  let planificadoQuincenaKg: number | null = null;
+  let planificadoSemanaDerivado: number | null = null;
+  let planificadoSemanaEtiqueta: number | null = null;
   let vendidoKg: number | null = null;
-  let planificadoSemanaKgFallback: number | null = null;
   let diferenciaPct: number | null = null;
+  let headerIdx = -1;
+  const metodos: MetodoVenta[] = [];
+  let totales: ParsedSemana["totales"] = null;
   const notas: string[] = [];
 
-  for (let i = 13; i < rows.length; i++) {
-    const row = rows[i];
-    if (!row) continue;
-    const label = cellText(row, 0).toUpperCase();
-    if (!label) continue;
+  rows.forEach((row, i) => {
+    if (!row) return;
+    const c0 = cellText(row, 0);
+    const label = c0.toUpperCase();
 
-    if (label.includes("HEMOS VENDIDO")) {
+    if (label.includes("NARANJAS TOTALES")) {
+      rangoPlanificacion = cellText(row, 1) || null;
+    } else if (label === "TOTAL GENERAL") {
+      // Coincidencia exacta: la nota "EL TOTAL GENERAL SE DIVIDE ENTRE 2..."
+      // también contiene la etiqueta pero no lleva número.
+      planificadoQuincenaKg = firstNumberInRow(row, 1) ?? planificadoQuincenaKg;
+    } else if (label.includes("HEMOS VENDIDO")) {
       vendidoKg = firstNumberInRow(row, 1);
     } else if (label.includes("HABIA PLANIFICADO")) {
-      // Respaldo: si la cabecera (fila 4/5) no trajo el dato, se usa esta fila.
-      planificadoSemanaKgFallback = firstNumberInRow(row, 1);
+      // La fila "SEMANA N HABIA PLANIFICADO | kg" es la fuente autorizada del
+      // planificado semanal.
+      planificadoSemanaEtiqueta = firstNumberInRow(row, 1);
     } else if (label.includes("AUMENTO") || label.includes("DESCENSO")) {
       diferenciaPct = firstNumberInRow(row, 1);
     } else if (label.startsWith("NOTA")) {
@@ -220,15 +191,46 @@ export function parseSemanaSheet(rows: SheetRows, semana: number, anio: number):
         .join(" ")
         .trim();
       if (texto) notas.push(texto);
+    } else if (label === "MÉTODO" || label === "METODO") {
+      headerIdx = i;
+    } else if (isMetodoConocido(c0)) {
+      metodos.push({
+        metodo: c0,
+        descripcion: cellText(row, 1),
+        pct: parseNumeroVentas(row[2]),
+        kilos: parseNumeroVentasOrZero(row[3]),
+        palets: parseNumeroVentasOrZero(row[4]),
+        cajas: parseNumeroVentasOrZero(row[5]),
+        comparativaAnteriorPct: parseNumeroVentas(row[6]),
+      });
+    } else if (!label && headerIdx === -1 && planificadoQuincenaKg !== null && planificadoSemanaDerivado === null) {
+      // Entre "Total general" y la cabecera de métodos hay una fila sin etiqueta
+      // con el total/2 (la planificación llega por quincenas).
+      planificadoSemanaDerivado = firstNumberInRow(row, 0);
+    } else if (!label && headerIdx !== -1 && metodos.length > 0 && totales === null) {
+      // Fila de totales de la tabla de métodos (sin etiqueta en las 3 primeras
+      // columnas, kilos en la 4ª).
+      const kilos = parseNumeroVentas(row[3]);
+      if (kilos !== null && kilos > 0) {
+        totales = {
+          kilos,
+          palets: parseNumeroVentasOrZero(row[4]),
+          cajas: parseNumeroVentasOrZero(row[5]),
+        };
+      }
     }
-  }
+  });
+
+  const planificadoSemanaKg = planificadoSemanaEtiqueta
+    ?? planificadoSemanaDerivado
+    ?? (planificadoQuincenaKg !== null ? planificadoQuincenaKg / 2 : null);
 
   return {
     anio,
     semana,
     rangoPlanificacion,
     planificadoQuincenaKg,
-    planificadoSemanaKg: planificadoSemanaKg ?? planificadoSemanaKgFallback,
+    planificadoSemanaKg,
     vendidoKg,
     diferenciaPct,
     notas,
