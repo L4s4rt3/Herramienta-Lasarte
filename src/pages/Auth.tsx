@@ -156,16 +156,11 @@ export default function Auth() {
           {/* Brand */}
           <div className="mb-5 flex items-center gap-3 form-stagger-1 sm:mb-6">
             <img
-              src="/logo.jpg"
+              src="/branding/lasarte-logo-horizontal.jpg"
               alt="Lasarte SAT"
-              width={44}
-              height={44}
-              style={{ borderRadius: "10px" }}
+              className="h-12 w-auto"
             />
             <div>
-              <p className="text-base font-semibold" style={{ color: "var(--auth-text)" }}>
-                Lasarte SAT
-              </p>
               <p className="text-xs" style={{ color: "var(--auth-muted)" }}>
                 Control de producción citrícola
               </p>

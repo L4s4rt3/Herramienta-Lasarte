@@ -3,13 +3,15 @@ import { strFromU8, strToU8, unzipSync, Zip, ZipPassThrough } from "fflate";
 import { toast } from "@/hooks/use-toast";
 
 export const EXCEL_CELL_MAX = 32000;
-const LASARTE_LOGO_PATH = "/branding/lasarte-sat-logo.jpeg";
+const LASARTE_LOGO_PATH = "/branding/lasarte-logo-horizontal.jpg";
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-const LOGO_BLOCK_COL_WIDTHS = [18, 18, 22, 22];
+// Bloque de cabecera dimensionado para el logo horizontal nuevo (ratio 900x357 ~= 2,52:1),
+// apuntando a ~7,5 cm de ancho x ~2,97 cm de alto.
+const LOGO_BLOCK_COL_WIDTHS = [9, 9, 11, 11];
 const LOGO_BLOCK_COL_COUNT = LOGO_BLOCK_COL_WIDTHS.length;
-const LOGO_ROW_HEIGHT_PT = 72;
-const LOGO_WIDTH_EMU = 4484370;
-const LOGO_HEIGHT_EMU = 869384;
+const LOGO_ROW_HEIGHT_PT = 84;
+const LOGO_WIDTH_EMU = 2700000;
+const LOGO_HEIGHT_EMU = 1071000;
 
 const TEMPLATE_STYLE = {
   title: 2,

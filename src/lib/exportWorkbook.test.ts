@@ -26,12 +26,12 @@ describe("Lasarte export workbook template", () => {
     expect(ws["!autofilter"]?.ref).toBe("A3:B4");
     expect(ws["!freeze"]).toEqual({ xSplit: 0, ySplit: 3 });
     expect(ws["!cols"]?.slice(0, 4)).toEqual([
-      { wch: 18 },
-      { wch: 18 },
-      { wch: 22 },
-      { wch: 22 },
+      { wch: 9 },
+      { wch: 9 },
+      { wch: 11 },
+      { wch: 11 },
     ]);
-    expect(ws["!rows"]?.[0]).toEqual({ hpt: 72 });
+    expect(ws["!rows"]?.[0]).toEqual({ hpt: 84 });
     expect(ws["!merges"]).toEqual(expect.arrayContaining([
       { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
       { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } },
@@ -49,10 +49,10 @@ describe("Lasarte export workbook template", () => {
     );
 
     expect(ws["!cols"]?.slice(0, 4)).toEqual([
-      { wch: 18 },
-      { wch: 18 },
-      { wch: 22 },
-      { wch: 22 },
+      { wch: 9 },
+      { wch: 9 },
+      { wch: 11 },
+      { wch: 11 },
     ]);
     expect(ws["!cols"]?.[4]).toEqual({ wch: 30 });
     expect(ws["!merges"]).toEqual(expect.arrayContaining([
@@ -71,12 +71,12 @@ describe("Lasarte export workbook template", () => {
     ], [12, 20]);
 
     expect(ws["!cols"]?.slice(0, 4)).toEqual([
-      { wch: 18 },
-      { wch: 18 },
-      { wch: 22 },
-      { wch: 22 },
+      { wch: 9 },
+      { wch: 9 },
+      { wch: 11 },
+      { wch: 11 },
     ]);
-    expect(ws["!rows"]?.[0]).toEqual({ hpt: 72 });
+    expect(ws["!rows"]?.[0]).toEqual({ hpt: 84 });
     expect(ws["!merges"]).toEqual(expect.arrayContaining([
       { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
     ]));
@@ -108,7 +108,7 @@ describe("Lasarte export workbook template", () => {
     expect(drawing).toContain("<xdr:oneCellAnchor>");
     expect(drawing).not.toContain("<xdr:twoCellAnchor");
     expect(drawing).toContain('<xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>');
-    expect(drawing).toContain('<xdr:ext cx="4484370" cy="869384"/>');
+    expect(drawing).toContain('<xdr:ext cx="2700000" cy="1071000"/>');
     expect(drawing).toContain('name="Logo Lasarte SAT"');
     expect(drawing).toContain('r:embed="rId1"');
     expect(styles).toContain("102030");

@@ -137,7 +137,7 @@ export function drawReportCover(doc: jsPDF, meta: ReportMeta, kpis: ReportKpi[] 
   doc.setFillColor(...PDF_THEME.primary);
   doc.rect(0, 0, pageWidth, 4, "F");
 
-  const logoWidth = drawLogoOrFallback(doc, 12, 8, 16, { x: 12, yBaseline: 16, fontSize: 11 });
+  const logoWidth = drawLogoOrFallback(doc, 12, 7, 18, { x: 12, yBaseline: 18, fontSize: 11 });
   const textX = logoWidth > 0 ? 12 + logoWidth + 6 : 12;
 
   doc.setFont("helvetica", "bold");

@@ -18,9 +18,9 @@ export const PDF_THEME = {
 
 export const EXPORT_FOOTER_TEXT = "Lasarte SAT · Herramienta de control operativo";
 
-const LASARTE_LOGO_PATH = "/branding/lasarte-sat-logo.jpeg";
-// Relacion de aspecto real del logo (aprox. 1200x233 px en el jpeg fuente).
-const LASARTE_LOGO_ASPECT = 1200 / 233;
+const LASARTE_LOGO_PATH = "/branding/lasarte-logo-horizontal.jpg";
+// Relacion de aspecto real del logo horizontal nuevo (900x357 px en el jpg fuente).
+const LASARTE_LOGO_ASPECT = 900 / 357;
 
 let logoDataUrlPromise: Promise<string | null> | null = null;
 
@@ -103,12 +103,13 @@ export function drawExportHeader(doc: jsPDF, pageIndex: number, title: string, s
   doc.setDrawColor(...PDF_THEME.border);
   doc.line(8, 22, pageWidth - 8, 22);
 
-  drawLogoOrFallback(doc, 8, 5, 6, { x: 8, yBaseline: 10, fontSize: 10 });
+  const logoWidth = drawLogoOrFallback(doc, 8, 6, 10, { x: 8, yBaseline: 12, fontSize: 10 });
+  const titleX = logoWidth > 0 ? 8 + logoWidth + 4 : 8;
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(...PDF_THEME.text);
-  doc.text(title, 8, 16);
+  doc.text(title, titleX, 16);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
