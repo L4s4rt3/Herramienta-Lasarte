@@ -7,7 +7,7 @@ import {
   Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  AlertTriangle, Boxes, ChevronLeft, ChevronRight, Package, PackageCheck, ShoppingCart, TrendingUp, Trophy, Upload,
+  AlertTriangle, Boxes, ChevronLeft, ChevronRight, Euro, Package, PackageCheck, ShoppingCart, TrendingUp, Trophy, Upload,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ import { MercadonaImportar } from "@/components/mercadona/MercadonaImportar";
 import { MercadonaExportar } from "@/components/mercadona/MercadonaExportar";
 import { useMercadona } from "@/hooks/useMercadona";
 import { useMercadonaVentas, useMercadonaTopProductores, type MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
-import { isoWeekDateRange } from "@/lib/mercadonaVentas";
+import { formatMercadonaWeekRangeLabel, mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
 import { formatKg, formatNumber, formatPct } from "@/lib/format";
 import { BAR_STYLE, C, CHART_PANEL_CLASS, GlassTooltip, GRID, lineStyle, MARGIN, XAXIS, YAXIS } from "@/lib/chartTheme";
 import { cn } from "@/lib/utils";
@@ -47,7 +47,11 @@ export default function Mercadona() {
     setSelectedId(semanas[nextIndex].id);
   };
 
-  const rango = activeSemana ? isoWeekDateRange(activeSemana.anio, activeSemana.semana) : null;
+  // La semana de Mercadona va de LUNES A SABADO (6 dias, sin domingo): todo cruce
+  // con datos internos (aprovechamiento MDNA, mejores dias, top productores) debe
+  // usar este rango, no la semana ISO completa (que incluiria el domingo).
+  const rango = activeSemana ? mercadonaWeekDateRange(activeSemana.anio, activeSemana.semana) : null;
+  const rangoLabel = activeSemana ? formatMercadonaWeekRangeLabel(activeSemana.anio, activeSemana.semana) : null;
   const mercadona = useMercadona(rango?.desde ?? "1970-01-01", rango?.hasta ?? "1970-01-01");
   const topProductores = useMercadonaTopProductores(rango?.desde ?? "1970-01-01", rango?.hasta ?? "1970-01-01");
 
@@ -113,6 +117,7 @@ export default function Mercadona() {
             <>
               <WeekNav
                 semana={activeSemana}
+                rangoLabel={rangoLabel}
                 onPrev={() => navigateWeek(-1)}
                 onNext={() => navigateWeek(1)}
                 canPrev={activeIndex > 0}
@@ -134,6 +139,7 @@ export default function Mercadona() {
             <>
               <WeekNav
                 semana={activeSemana}
+                rangoLabel={rangoLabel}
                 onPrev={() => navigateWeek(-1)}
                 onNext={() => navigateWeek(1)}
                 canPrev={activeIndex > 0}
@@ -168,7 +174,7 @@ function EmptyState({ onImport }: { onImport: () => void }) {
         <div>
           <h2 className="text-lg font-semibold">Todavía no hay semanas importadas</h2>
           <p className="mt-1 max-w-md text-sm text-muted-foreground">
-            Importa el Excel semanal de Mercadona ("VENTAS SEMANA X PLATAFORMA ANTEQUERA.xlsx") para ver el resumen.
+            Importa el Excel de Mercadona (histórico o semanal, p. ej. "mercadona s27.xlsx") para ver el resumen.
           </p>
         </div>
         <Button size="sm" className="gap-2" onClick={onImport}>
@@ -180,9 +186,10 @@ function EmptyState({ onImport }: { onImport: () => void }) {
 }
 
 function WeekNav({
-  semana, onPrev, onNext, canPrev, canNext,
+  semana, rangoLabel, onPrev, onNext, canPrev, canNext,
 }: {
   semana: MercadonaSemanaConMetodos | null;
+  rangoLabel: string | null;
   onPrev: () => void;
   onNext: () => void;
   canPrev: boolean;
@@ -197,8 +204,8 @@ function WeekNav({
         <p className="text-sm font-semibold">
           {semana ? `Semana ${semana.semana} · ${semana.anio}` : "Sin semana seleccionada"}
         </p>
-        {semana?.rango_planificacion ? (
-          <p className="text-xs text-muted-foreground">Planificación: {semana.rango_planificacion}</p>
+        {rangoLabel ? (
+          <p className="text-xs text-muted-foreground">{rangoLabel}</p>
         ) : null}
       </div>
       <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={onNext} disabled={!canNext}>
@@ -227,9 +234,16 @@ function ResumenSemana({
   const totalPalets = semana.metodos.reduce((s, m) => s + (m.palets ?? 0), 0);
   const totalCajas = semana.metodos.reduce((s, m) => s + (m.cajas ?? 0), 0);
 
+  // KPI "Facturación (base IVA)": solo si el formato semanal real trajo base_iva.
+  // Métodos + ajustes/abonos (estos últimos casi siempre negativos).
+  const tieneBaseIva = semana.metodos.some((m) => m.base_iva != null) || semana.ajustes_base_iva != null;
+  const facturacionMetodos = semana.metodos.reduce((s, m) => s + (m.base_iva ?? 0), 0);
+  const facturacionTotal = facturacionMetodos + (semana.ajustes_base_iva ?? 0);
+  const eurosPorKg = vendido > 0 ? facturacionTotal / vendido : 0;
+
   return (
     <div className="space-y-4">
-      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <section className={cn("grid grid-cols-2 gap-3", tieneBaseIva ? "xl:grid-cols-5" : "xl:grid-cols-4")}>
         <KPICard
           className="glass-accented"
           label="Vendido"
@@ -241,8 +255,9 @@ function ResumenSemana({
         <KPICard
           className="glass-accented"
           label="Planificado"
-          value={planificado > 0 ? formatKg(planificado) : "Sin dato"}
-          hint={semana.planificado_quincena_kg != null ? `${formatKg(semana.planificado_quincena_kg)} / quincena` : undefined}
+          value={planificado > 0 ? formatKg(planificado) : "Previsto pendiente"}
+          hint={semana.planificado_quincena_kg != null ? `${formatKg(semana.planificado_quincena_kg)} / quincena` : (planificado > 0 ? undefined : "Añádelo en Importar → Planificación manual")}
+          accent={planificado > 0 ? "primary" : "warning"}
           icon={TrendingUp}
         />
         <KPICard
@@ -257,9 +272,19 @@ function ResumenSemana({
           className="glass-accented"
           label="Palets / cajas"
           value={`${formatNumber(totalPalets)} / ${formatNumber(totalCajas)}`}
-          hint="Totales de los 4 métodos"
+          hint="Totales de los métodos"
           icon={Boxes}
         />
+        {tieneBaseIva ? (
+          <KPICard
+            className="glass-accented"
+            label="Facturación (base IVA)"
+            value={`${formatNumber(facturacionTotal, 2)} €`}
+            hint={`${formatNumber(eurosPorKg, 3)} €/kg medio`}
+            icon={Euro}
+            labelInfo="Suma de la base IVA de los métodos más los ajustes/abonos de la semana (estos últimos habitualmente negativos)."
+          />
+        ) : null}
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
@@ -326,32 +351,60 @@ function ResumenSemana({
                 <tr>
                   <th className="text-left">Método</th>
                   <th className="text-left">Descripción</th>
-                  <th className="text-right">%</th>
                   <th className="text-right">Kilos</th>
-                  <th className="text-right">Palets</th>
-                  <th className="text-right">Cajas</th>
-                  <th className="text-right">Comparativa</th>
+                  {tieneBaseIva ? (
+                    <>
+                      <th className="text-right">Líneas</th>
+                      <th className="text-right">Base IVA</th>
+                    </>
+                  ) : (
+                    <>
+                      <th className="text-right">%</th>
+                      <th className="text-right">Palets</th>
+                      <th className="text-right">Cajas</th>
+                      <th className="text-right">Comparativa</th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {semana.metodos.length === 0 ? (
-                  <tr><td colSpan={7} className="py-6 text-center text-sm text-muted-foreground">Sin métodos registrados.</td></tr>
+                  <tr><td colSpan={tieneBaseIva ? 5 : 7} className="py-6 text-center text-sm text-muted-foreground">Sin métodos registrados.</td></tr>
                 ) : semana.metodos.map((m, i) => (
                   <tr key={m.id} className={i % 2 === 1 ? "bg-[var(--glass-bg)]/40" : undefined}>
                     <td className="px-3 py-1.5 font-semibold">{m.metodo}</td>
                     <td className="px-3 py-1.5 text-muted-foreground">{m.descripcion ?? "—"}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{m.pct != null ? `${formatNumber(m.pct, 0)}%` : "—"}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums font-medium">{formatKg(m.kilos ?? 0)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(m.palets ?? 0)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(m.cajas ?? 0)}</td>
-                    <td className={cn(
-                      "px-3 py-1.5 text-right tabular-nums",
-                      m.comparativa_anterior_pct != null && m.comparativa_anterior_pct >= 0 ? "text-success" : "text-destructive",
-                    )}>
-                      {m.comparativa_anterior_pct != null ? `${m.comparativa_anterior_pct >= 0 ? "+" : ""}${formatNumber(m.comparativa_anterior_pct, 0)}%` : "—"}
-                    </td>
+                    {tieneBaseIva ? (
+                      <>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{m.lineas != null ? formatNumber(m.lineas) : "—"}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{m.base_iva != null ? `${formatNumber(m.base_iva, 2)} €` : "—"}</td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{m.pct != null ? `${formatNumber(m.pct, 0)}%` : "—"}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(m.palets ?? 0)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(m.cajas ?? 0)}</td>
+                        <td className={cn(
+                          "px-3 py-1.5 text-right tabular-nums",
+                          m.comparativa_anterior_pct != null && m.comparativa_anterior_pct >= 0 ? "text-success" : "text-destructive",
+                        )}>
+                          {m.comparativa_anterior_pct != null ? `${m.comparativa_anterior_pct >= 0 ? "+" : ""}${formatNumber(m.comparativa_anterior_pct, 0)}%` : "—"}
+                        </td>
+                      </>
+                    )}
                   </tr>
                 ))}
+                {tieneBaseIva && semana.ajustes_base_iva != null ? (
+                  <tr className="border-t border-[var(--glass-border)] font-medium">
+                    <td className="px-3 py-1.5" colSpan={2}>Ajustes/abonos</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">—</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{semana.ajustes_lineas != null ? formatNumber(semana.ajustes_lineas) : "—"}</td>
+                    <td className={cn("px-3 py-1.5 text-right tabular-nums", semana.ajustes_base_iva < 0 ? "text-destructive" : "text-success")}>
+                      {formatNumber(semana.ajustes_base_iva, 2)} €
+                    </td>
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>

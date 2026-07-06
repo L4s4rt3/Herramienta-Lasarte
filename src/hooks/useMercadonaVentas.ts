@@ -12,6 +12,16 @@
  * Mientras tanto, cualquier query falla con "relation does not exist" (Postgres
  * 42P01) o similar: se detecta ese caso y se expone `tablesMissing` para que la
  * pagina muestre un estado "seccion pendiente de activar" en vez de un error crudo.
+ *
+ * COLUMNAS v2 (lineas/base_iva/ajustes_*): forman parte de scratchpad/
+ * migracion_mercadona_v2.sql, tambien pendiente de aplicar. select("*") no falla
+ * si aun no existen (simplemente no vienen en la fila), pero el INSERT/UPSERT que
+ * las escribe si puede fallar con "column ... does not exist" (Postgres 42703 /
+ * PostgREST PGRST204) si se ejecuta antes de aplicar esa migracion. Por eso
+ * importSemanas reintenta sin esas columnas cuando detecta ese error concreto,
+ * para que la importacion del formato semanal real no rompa ANTES de que la
+ * migracion v2 este aplicada (los kg/lineas/€ del import se pierden ese primer
+ * intento, pero la fila principal se guarda igualmente).
  */
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -35,6 +45,10 @@ export interface MercadonaMetodoRow {
   palets: number | null;
   cajas: number | null;
   comparativa_anterior_pct: number | null;
+  /** v2 (migracion_mercadona_v2.sql): nº de líneas, solo formato semanal real. undefined si la columna aun no existe en BD. */
+  lineas?: number | null;
+  /** v2: base IVA (€) del método, solo formato semanal real. undefined si la columna aun no existe en BD. */
+  base_iva?: number | null;
 }
 
 export interface MercadonaSemanaRow {
@@ -50,6 +64,10 @@ export interface MercadonaSemanaRow {
   notas: string[];
   created_at: string;
   updated_at: string;
+  /** v2: base IVA (€, negativa) de la fila de ajustes/abonos. undefined si la columna aun no existe en BD. */
+  ajustes_base_iva?: number | null;
+  /** v2: nº de líneas de la fila de ajustes/abonos. undefined si la columna aun no existe en BD. */
+  ajustes_lineas?: number | null;
 }
 
 export interface MercadonaSemanaConMetodos extends MercadonaSemanaRow {
@@ -57,6 +75,7 @@ export interface MercadonaSemanaConMetodos extends MercadonaSemanaRow {
 }
 
 const TABLE_MISSING_CODES = new Set(["42P01", "PGRST205", "PGRST204"]);
+const COLUMN_MISSING_CODES = new Set(["42703", "PGRST204"]);
 
 function isTableMissingError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -64,6 +83,15 @@ function isTableMissingError(error: unknown): boolean {
   if (record.code && TABLE_MISSING_CODES.has(record.code)) return true;
   const message = (record.message ?? "").toLowerCase();
   return message.includes("does not exist") || message.includes("could not find the table");
+}
+
+/** Distingue "columna no existe" (degradar y reintentar) de otros errores (relanzar). */
+function isColumnMissingError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { code?: string; message?: string };
+  if (record.code && COLUMN_MISSING_CODES.has(record.code)) return true;
+  const message = (record.message ?? "").toLowerCase();
+  return message.includes("column") && (message.includes("does not exist") || message.includes("could not find"));
 }
 
 export function useMercadonaVentas() {
@@ -129,7 +157,7 @@ export function useMercadonaVentas() {
           .maybeSingle();
         if (existenteError) throw existenteError;
 
-        const payload = {
+        const payloadBase = {
           user_id: user.id,
           anio: semana.anio,
           semana: semana.semana,
@@ -140,14 +168,34 @@ export function useMercadonaVentas() {
           diferencia_pct: semana.diferenciaPct,
           notas: semana.notas,
         };
+        // Columnas v2 (migracion_mercadona_v2.sql): solo se rellenan si el Excel
+        // las trae (formato semanal real); en formato historico quedan null.
+        const payloadV2 = {
+          ajustes_base_iva: semana.ajustesBaseIva ?? null,
+          ajustes_lineas: semana.ajustesLineas ?? null,
+        };
 
-        const upsertPayload: Record<string, unknown> = existente ? { id: existente.id, ...payload } : payload;
-        const { data: saved, error: saveError } = await SUPA
-          .from("mercadona_semanas")
-          .upsert(upsertPayload, { onConflict: "anio,semana" })
-          .select("id")
-          .single();
-        if (saveError) throw saveError;
+        const idPatch = existente ? { id: existente.id } : {};
+        let saved: { id: string } | null = null;
+        try {
+          const { data, error } = await SUPA
+            .from("mercadona_semanas")
+            .upsert({ ...idPatch, ...payloadBase, ...payloadV2 }, { onConflict: "anio,semana" })
+            .select("id")
+            .single();
+          if (error) throw error;
+          saved = data as { id: string };
+        } catch (error) {
+          if (!isColumnMissingError(error)) throw error;
+          // La migracion v2 aun no esta aplicada: reintenta sin las columnas nuevas.
+          const { data, error: retryError } = await SUPA
+            .from("mercadona_semanas")
+            .upsert({ ...idPatch, ...payloadBase }, { onConflict: "anio,semana" })
+            .select("id")
+            .single();
+          if (retryError) throw retryError;
+          saved = data as { id: string };
+        }
 
         if (existente) actualizadas += 1;
         else creadas += 1;
@@ -160,19 +208,34 @@ export function useMercadonaVentas() {
         if (deleteError) throw deleteError;
 
         if (semana.metodos.length > 0) {
-          const { error: insertError } = await SUPA
-            .from("mercadona_semana_metodos")
-            .insert(semana.metodos.map((m) => ({
-              semana_id: semanaId,
-              metodo: m.metodo,
-              descripcion: m.descripcion,
-              pct: m.pct,
-              kilos: m.kilos,
-              palets: m.palets,
-              cajas: m.cajas,
-              comparativa_anterior_pct: m.comparativaAnteriorPct,
-            })));
-          if (insertError) throw insertError;
+          const metodosBase = semana.metodos.map((m) => ({
+            semana_id: semanaId,
+            metodo: m.metodo,
+            descripcion: m.descripcion,
+            pct: m.pct,
+            kilos: m.kilos,
+            palets: m.palets,
+            cajas: m.cajas,
+            comparativa_anterior_pct: m.comparativaAnteriorPct,
+          }));
+          const metodosV2 = semana.metodos.map((m) => ({
+            lineas: m.lineas ?? null,
+            base_iva: m.baseIva ?? null,
+          }));
+
+          try {
+            const { error: insertError } = await SUPA
+              .from("mercadona_semana_metodos")
+              .insert(metodosBase.map((m, i) => ({ ...m, ...metodosV2[i] })));
+            if (insertError) throw insertError;
+          } catch (error) {
+            if (!isColumnMissingError(error)) throw error;
+            // Idem: reintenta sin lineas/base_iva si la migracion v2 no esta aplicada.
+            const { error: retryError } = await SUPA
+              .from("mercadona_semana_metodos")
+              .insert(metodosBase);
+            if (retryError) throw retryError;
+          }
         }
       }
 

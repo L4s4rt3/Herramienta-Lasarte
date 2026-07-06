@@ -1,28 +1,28 @@
 /**
- * mercadonaVentas.ts — parseo puro del Excel semanal "VENTAS SEMANA X PLATAFORMA
- * ANTEQUERA.xlsx" que el dueño importa cada semana. Una hoja por semana ("SEMANA 21"..).
+ * mercadonaVentas.ts — parseo puro de los dos formatos de Excel que maneja Mercadona:
  *
- * Estructura real de cada hoja (0-indexed):
- *  0: "PLANIFICACION VENTAS RECIBIDA DE MERCADONA"
- *  1: "NARANJAS TOTALES" + rango quincenal ("18 May - 31 May")
- *  2: "ANTEQUERA II" + kg
- *  3: "ANTEQUERA VERDURA" + kg
- *  4: "Total general" + kg (planificacion QUINCENAL)
- *  5: total/2 (planificacion SEMANAL, la planificacion llega por quincenas)
- *  6: nota "EL TOTAL GENERAL SE DIVIDE ENTRE 2..."
- *  7: cabecera tabla: Metodo | Descripcion | PORCENTAJE | KILOS | PALETS | CAJAS | COMPARATIVA SEMANA ANTERIOR
- *  8-11: MA12KGC / MA3KGC / MA4KGC / MA5KGC con pct, kilos, palets, cajas, comparativa pct
- *  12: totales (kilos, palets, cajas)
- *  13-15: "...HEMOS VENDIDO" kg | "...HABIA PLANIFICADO" kg | "AUMENTO DEL/DESCENSO DEL" pct + diferencia kg
- *  resto: "NOTA; ..." texto libre
+ * 1) HISTORICO: "VENTAS SEMANA X PLATAFORMA ANTEQUERA.xlsx", una hoja por semana
+ *    ("SEMANA 21".."SEMANA N"), con planificacion quincenal/semanal. Ver
+ *    parseSemanaSheet mas abajo para el detalle fila a fila.
+ *
+ * 2) SEMANAL REAL: el que se sube cada semana en adelante (ej. "mercadona s27.xlsx"),
+ *    UNA sola hoja ("Sheet 1" u otro nombre) con solo esta tabla, sin planificacion:
+ *      Fila 0 (cabecera): Método | Descripción | Líneas | KILOS | UNID | LITROS | Base Iva
+ *      Fila 1: metodo vacio, 4 lineas, 0 kg, Base Iva NEGATIVA -> fila de AJUSTES/ABONOS
+ *      Filas 2-5: MA12KGC/MA3KGC/MA4KGC/MA5KGC con lineas, kilos y base_iva
+ *    El numero de semana NO figura en la hoja: se infiere del nombre de archivo
+ *    (regex /s(\d{1,2})/i, p.ej. "mercadona s27.xlsx" -> 27) y se confirma/edita en
+ *    el preview de importacion. vendidoKg = suma de kilos de los metodos (sin la
+ *    fila de ajustes, que no tiene kg). El planificado queda a null (se teclea a
+ *    mano via el flujo "planificacion manual" ya existente).
  *
  * Los numeros vienen con formato es/en mezclado ("215,260" = 215260, con o sin
  * espacios) y porcentajes como texto ("19%", "-2%"). Algunas hojas no tienen la
  * columna "COMPARATIVA SEMANA ANTERIOR" y traen celdas basura sueltas en columnas
  * altas que deben ignorarse.
  */
-import { endOfISOWeek, setISOWeek, setISOWeekYear, startOfISOWeek } from "date-fns";
-import { toISODateLocal } from "@/lib/format";
+import { endOfISOWeek, setISOWeek, setISOWeekYear, startOfISOWeek, subDays } from "date-fns";
+import { formatDate, toISODateLocal } from "@/lib/format";
 
 export type SheetRow = Array<string | number | null | undefined>;
 export type SheetRows = SheetRow[];
@@ -35,7 +35,13 @@ export interface MetodoVenta {
   palets: number;
   cajas: number;
   comparativaAnteriorPct: number | null;
+  /** Solo formato semanal real: nº de líneas de pedido del método. */
+  lineas?: number | null;
+  /** Solo formato semanal real: base IVA (€) facturada de ese método. */
+  baseIva?: number | null;
 }
+
+export type MercadonaFormatoOrigen = "historico" | "semanal_real";
 
 export interface ParsedSemana {
   anio: number;
@@ -48,6 +54,12 @@ export interface ParsedSemana {
   notas: string[];
   metodos: MetodoVenta[];
   totales: { kilos: number; palets: number; cajas: number } | null;
+  /** Formato de origen del Excel importado. */
+  origen?: MercadonaFormatoOrigen;
+  /** Solo formato semanal real: base IVA (€, negativa) de la fila de ajustes/abonos. */
+  ajustesBaseIva?: number | null;
+  /** Solo formato semanal real: nº de líneas de la fila de ajustes/abonos. */
+  ajustesLineas?: number | null;
 }
 
 export interface ParseMercadonaWorkbookResult {
@@ -222,27 +234,157 @@ export function parseSemanaSheet(rows: SheetRows, semana: number, anio: number):
     notas,
     metodos,
     totales,
+    origen: "historico",
+  };
+}
+
+// ─── Formato SEMANAL REAL (una sola hoja, sin planificación) ─────────────────
+
+/**
+ * Detecta si una hoja es del formato "semanal real": cabecera con Método +
+ * Descripción + Líneas + KILOS (en cualquiera de las primeras filas, por si
+ * hay alguna fila en blanco antes). Devuelve el índice de la fila de cabecera
+ * o null si no matchea.
+ */
+export function detectarCabeceraSemanalReal(rows: SheetRows): number | null {
+  for (let i = 0; i < Math.min(rows.length, 5); i++) {
+    const row = rows[i];
+    if (!row) continue;
+    const cells = row.map((c) => cellTextValue(c).toUpperCase());
+    const hasMetodo = cells.some((c) => c.startsWith("MÉTODO") || c.startsWith("METODO"));
+    const hasDescripcion = cells.some((c) => c.startsWith("DESCRIP"));
+    const hasLineas = cells.some((c) => c.startsWith("LÍNEA") || c.startsWith("LINEA"));
+    const hasKilos = cells.some((c) => c.startsWith("KILOS") || c === "KG");
+    if (hasMetodo && hasDescripcion && hasLineas && hasKilos) return i;
+  }
+  return null;
+}
+
+function cellTextValue(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+
+/** Extrae el nº de semana de un nombre de archivo tipo "mercadona s27.xlsx" (case-insensitive). */
+export function parseNombreArchivoSemana(fileName: string): number | null {
+  const match = /s[\s_-]?(\d{1,2})(?!\d)/i.exec(fileName);
+  if (!match) return null;
+  const n = Number(match[1]);
+  return Number.isFinite(n) && n >= 1 && n <= 53 ? n : null;
+}
+
+/**
+ * Parsea la hoja unica del formato "semanal real": Método | Descripción | Líneas |
+ * KILOS | UNID | LITROS | Base Iva. La primera fila de datos (metodo vacio, 0 kg,
+ * base iva negativa) es la fila de AJUSTES/ABONOS y se extrae aparte; el resto de
+ * filas son los metodos conocidos (o cualquier codigo con kilos > 0).
+ * semana/anio se pasan desde fuera: el Excel no declara el numero de semana,
+ * se infiere del nombre de archivo (parseNombreArchivoSemana) y se confirma a
+ * mano en el preview de importacion.
+ */
+export function parseSemanaSheetSemanalReal(rows: SheetRows, semana: number, anio: number): ParsedSemana {
+  const headerIdx = detectarCabeceraSemanalReal(rows) ?? 0;
+  const header = rows[headerIdx] ?? [];
+  const colIndex = (predicate: (upper: string) => boolean, fallback: number): number => {
+    const idx = header.findIndex((c) => predicate(cellTextValue(c).toUpperCase()));
+    return idx === -1 ? fallback : idx;
+  };
+
+  const colMetodo = colIndex((c) => c.startsWith("MÉTODO") || c.startsWith("METODO"), 0);
+  const colDescripcion = colIndex((c) => c.startsWith("DESCRIP"), 1);
+  const colLineas = colIndex((c) => c.startsWith("LÍNEA") || c.startsWith("LINEA"), 2);
+  const colKilos = colIndex((c) => c.startsWith("KILOS") || c === "KG", 3);
+  const colBaseIva = colIndex((c) => c.startsWith("BASE"), 6);
+
+  const metodos: MetodoVenta[] = [];
+  let ajustesBaseIva: number | null = null;
+  let ajustesLineas: number | null = null;
+
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row) continue;
+    const metodoRaw = cellText(row, colMetodo);
+    const lineas = parseNumeroVentas(row[colLineas]);
+    const kilos = parseNumeroVentasOrZero(row[colKilos]);
+    const baseIva = parseNumeroVentas(row[colBaseIva]);
+
+    // Si toda la fila esta vacia, se ignora (filas en blanco al final).
+    if (!metodoRaw && lineas === null && kilos === 0 && baseIva === null) continue;
+
+    if (!metodoRaw && kilos === 0) {
+      // Fila de ajustes/abonos: sin metodo, sin kg, base iva (normalmente negativa).
+      ajustesBaseIva = baseIva;
+      ajustesLineas = lineas;
+      continue;
+    }
+
+    if (!metodoRaw) continue;
+
+    metodos.push({
+      metodo: metodoRaw,
+      descripcion: cellText(row, colDescripcion),
+      pct: null,
+      kilos,
+      palets: 0,
+      cajas: 0,
+      comparativaAnteriorPct: null,
+      lineas,
+      baseIva,
+    });
+  }
+
+  const vendidoKg = metodos.reduce((s, m) => s + (m.kilos || 0), 0);
+  const totales = metodos.length > 0 ? { kilos: vendidoKg, palets: 0, cajas: 0 } : null;
+
+  return {
+    anio,
+    semana,
+    rangoPlanificacion: null,
+    planificadoQuincenaKg: null,
+    planificadoSemanaKg: null,
+    vendidoKg,
+    diferenciaPct: null,
+    notas: [],
+    metodos,
+    totales,
+    origen: "semanal_real",
+    ajustesBaseIva,
+    ajustesLineas,
   };
 }
 
 /**
- * Parsea un libro completo: recorre todas las hojas cuyo nombre matchea
- * "SEMANA N" y descarta el resto (hojas de portada, resumenes, etc. si las hubiera).
+ * Parsea un libro completo autodetectando el formato de cada hoja:
+ *  - hojas cuyo nombre matchea "SEMANA N" -> formato historico (parseSemanaSheet).
+ *  - hoja unica (o varias) con cabecera Método/Descripción/Líneas/KILOS -> formato
+ *    semanal real (parseSemanaSheetSemanalReal); el numero de semana se infiere de
+ *    fileNameHint (nombre del archivo subido) y puede no coincidir siempre, por eso
+ *    el importador debe dejarlo editable en el preview.
+ * Cualquier otra hoja (portadas, resumenes) se descarta.
  */
 export function parseMercadonaWorkbook(
   sheets: Record<string, SheetRows>,
   anio: number,
+  fileNameHint?: string,
 ): ParseMercadonaWorkbookResult {
   const semanas: ParsedSemana[] = [];
   const hojasIgnoradas: string[] = [];
+  const semanaDelArchivo = fileNameHint ? parseNombreArchivoSemana(fileNameHint) : null;
 
   for (const [sheetName, rows] of Object.entries(sheets)) {
-    const semana = parseNombreHojaSemana(sheetName);
-    if (semana === null) {
-      hojasIgnoradas.push(sheetName);
+    const semanaHistorico = parseNombreHojaSemana(sheetName);
+    if (semanaHistorico !== null) {
+      semanas.push(parseSemanaSheet(rows, semanaHistorico, anio));
       continue;
     }
-    semanas.push(parseSemanaSheet(rows, semana, anio));
+
+    if (detectarCabeceraSemanalReal(rows) !== null) {
+      const semana = semanaDelArchivo ?? parseNombreHojaSemana(sheetName) ?? 0;
+      semanas.push(parseSemanaSheetSemanalReal(rows, semana, anio));
+      continue;
+    }
+
+    hojasIgnoradas.push(sheetName);
   }
 
   semanas.sort((a, b) => a.semana - b.semana);
@@ -263,6 +405,32 @@ export function isoWeekDateRange(anio: number, semana: number): { desde: string;
   const desde = startOfISOWeek(base);
   const hasta = endOfISOWeek(base);
   return { desde: toISODateLocal(desde), hasta: toISODateLocal(hasta) };
+}
+
+/**
+ * Rango de fechas [desde, hasta] ("YYYY-MM-DD") de la semana de MERCADONA, que va
+ * de LUNES A SABADO (6 dias, sin domingo) — a diferencia de la semana ISO completa
+ * (lunes a domingo) que usa isoWeekDateRange. Usar esta version en cualquier cruce
+ * con datos internos (aprovechamiento MDNA, mejores dias, top productores): el
+ * domingo no cuenta para Mercadona y no debe filtrarse ni promediarse con el.
+ */
+export function mercadonaWeekDateRange(anio: number, semana: number): { desde: string; hasta: string } {
+  const { desde } = isoWeekDateRange(anio, semana);
+  const base = setISOWeekYear(setISOWeek(new Date(anio, 0, 4, 12, 0, 0), semana), anio);
+  const hasta = subDays(endOfISOWeek(base), 1); // domingo - 1 dia = sabado
+  return { desde, hasta: toISODateLocal(hasta) };
+}
+
+/**
+ * Etiqueta legible del rango semanal de Mercadona, p.ej. "30 jun – 5 jul (L-S)".
+ */
+export function formatMercadonaWeekRangeLabel(anio: number, semana: number): string {
+  const { desde, hasta } = mercadonaWeekDateRange(anio, semana);
+  // formatDate da "30 jun 2026": se quita el año y el cero inicial del día ("30 jun", "5 jul").
+  const stripYear = (s: string) => s.replace(/\s+\d{4}$/, "").replace(/^0/, "");
+  const desdeLabel = stripYear(formatDate(desde));
+  const hastaLabel = stripYear(formatDate(hasta));
+  return `${desdeLabel} – ${hastaLabel} (L-S)`;
 }
 
 // ─── Export: reconstruir el Excel original a partir de una semana guardada ────

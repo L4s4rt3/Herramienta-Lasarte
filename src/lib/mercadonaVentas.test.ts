@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSemanaExportRows,
+  detectarCabeceraSemanalReal,
+  formatMercadonaWeekRangeLabel,
   isMetodoConocido,
   isoWeekDateRange,
+  mercadonaWeekDateRange,
   parseMercadonaWorkbook,
+  parseNombreArchivoSemana,
   parseNombreHojaSemana,
   parseNumeroVentas,
   parseNumeroVentasOrZero,
   parseSemanaSheet,
+  parseSemanaSheetSemanalReal,
   type SheetRows,
 } from "./mercadonaVentas";
 
@@ -236,6 +241,140 @@ describe("isoWeekDateRange", () => {
     const semana22 = isoWeekDateRange(2026, 22);
     expect(semana21.desde).toBe("2026-05-18");
     expect(semana22.hasta).toBe("2026-05-31");
+  });
+});
+
+describe("mercadonaWeekDateRange", () => {
+  it("devuelve lunes a SABADO (6 dias, sin domingo)", () => {
+    const { desde, hasta } = mercadonaWeekDateRange(2026, 21);
+    expect(desde).toBe("2026-05-18"); // lunes
+    expect(hasta).toBe("2026-05-23"); // sabado (isoWeekDateRange daria 2026-05-24, domingo)
+  });
+
+  it("recorta exactamente 1 dia respecto al rango ISO completo", () => {
+    const iso = isoWeekDateRange(2026, 27);
+    const mercadona = mercadonaWeekDateRange(2026, 27);
+    expect(mercadona.desde).toBe(iso.desde);
+    expect(mercadona.hasta).not.toBe(iso.hasta);
+  });
+});
+
+describe("formatMercadonaWeekRangeLabel", () => {
+  it("etiqueta el rango L-S sin año y sin ceros iniciales", () => {
+    // Semana 27 de 2026: lunes 29 jun - sabado 4 jul.
+    const label = formatMercadonaWeekRangeLabel(2026, 27);
+    expect(label).toMatch(/^\d{1,2} jun – \d{1,2} jul \(L-S\)$/);
+    expect(label).not.toMatch(/\d{4}/);
+  });
+});
+
+// ─── Formato SEMANAL REAL (fixture basada en las filas reales de "mercadona s27.xlsx") ─
+
+function buildSemanalRealSheet(): SheetRows {
+  return [
+    ["Método", "Descripción", "Líneas", "KILOS", "UNID", "LITROS", "Base Iva"],
+    [null, null, 4, 0, null, null, -6327.47],
+    ["MA12KGC", "GENERICA GRANEL 12 KG", 120, 19690, null, null, 4789.92],
+    ["MA3KGC", "HACENDADO D-PACK 4X3KG", 95, 15200, null, null, 3820.15],
+    ["MA4KGC", "GENERICA GIRSAC 3X4KG", 80, 12400, null, null, 3105.6],
+    ["MA5KGC", "HACENDADO D-PACK 2X5KG", 60, 9800, null, null, 2450.3],
+  ];
+}
+
+describe("parseNombreArchivoSemana", () => {
+  it("infiere el numero de semana de 'mercadona s27.xlsx'", () => {
+    expect(parseNombreArchivoSemana("mercadona s27.xlsx")).toBe(27);
+  });
+
+  it("es case-insensitive y tolera espacio entre 's' y el numero", () => {
+    expect(parseNombreArchivoSemana("MERCADONA S 5.xlsx")).toBe(5);
+    expect(parseNombreArchivoSemana("Mercadona_S09_2026.xlsx")).toBe(9);
+  });
+
+  it("devuelve null si no hay patron 's<numero>' reconocible", () => {
+    expect(parseNombreArchivoSemana("ventas.xlsx")).toBeNull();
+  });
+});
+
+describe("detectarCabeceraSemanalReal", () => {
+  it("detecta la cabecera Método/Descripción/Líneas/KILOS en la fila 0", () => {
+    expect(detectarCabeceraSemanalReal(buildSemanalRealSheet())).toBe(0);
+  });
+
+  it("devuelve null para una hoja de formato historico (SEMANA N)", () => {
+    const rows = buildRealSheet({ withComparativa: true });
+    expect(detectarCabeceraSemanalReal(rows)).toBeNull();
+  });
+});
+
+describe("parseSemanaSheetSemanalReal", () => {
+  const rows = buildSemanalRealSheet();
+  const parsed = parseSemanaSheetSemanalReal(rows, 27, 2026);
+
+  it("marca el origen como semanal_real y no trae planificacion", () => {
+    expect(parsed.origen).toBe("semanal_real");
+    expect(parsed.planificadoQuincenaKg).toBeNull();
+    expect(parsed.planificadoSemanaKg).toBeNull();
+    expect(parsed.rangoPlanificacion).toBeNull();
+  });
+
+  it("extrae la fila de ajustes/abonos (metodo vacio, 0 kg, base iva negativa) por separado", () => {
+    expect(parsed.ajustesBaseIva).toBeCloseTo(-6327.47, 2);
+    expect(parsed.ajustesLineas).toBe(4);
+  });
+
+  it("extrae los 4 metodos con lineas, kilos y base_iva, sin contaminarse con la fila de ajustes", () => {
+    expect(parsed.metodos).toHaveLength(4);
+    const [ma12] = parsed.metodos;
+    expect(ma12.metodo).toBe("MA12KGC");
+    expect(ma12.descripcion).toBe("GENERICA GRANEL 12 KG");
+    expect(ma12.lineas).toBe(120);
+    expect(ma12.kilos).toBe(19690);
+    expect(ma12.baseIva).toBeCloseTo(4789.92, 2);
+    // Campos que no aplican a este formato quedan neutros.
+    expect(ma12.pct).toBeNull();
+    expect(ma12.palets).toBe(0);
+    expect(ma12.cajas).toBe(0);
+  });
+
+  it("vendidoKg es la suma de kilos de los metodos (sin contar la fila de ajustes)", () => {
+    const sumaEsperada = 19690 + 15200 + 12400 + 9800;
+    expect(parsed.vendidoKg).toBe(sumaEsperada);
+  });
+
+  it("anio y semana vienen del parametro (inferido del nombre de archivo fuera de esta funcion)", () => {
+    expect(parsed.anio).toBe(2026);
+    expect(parsed.semana).toBe(27);
+  });
+});
+
+describe("parseMercadonaWorkbook — autodeteccion de formato", () => {
+  it("detecta el formato semanal real en una hoja unica e infiere la semana del nombre de archivo", () => {
+    const sheets: Record<string, SheetRows> = { "Sheet 1": buildSemanalRealSheet() };
+    const result = parseMercadonaWorkbook(sheets, 2026, "mercadona s27.xlsx");
+    expect(result.semanas).toHaveLength(1);
+    expect(result.hojasIgnoradas).toEqual([]);
+    const [semana] = result.semanas;
+    expect(semana.semana).toBe(27);
+    expect(semana.origen).toBe("semanal_real");
+    expect(semana.vendidoKg).toBe(19690 + 15200 + 12400 + 9800);
+    expect(semana.ajustesBaseIva).toBeCloseTo(-6327.47, 2);
+  });
+
+  it("sigue detectando el formato historico cuando las hojas se llaman 'SEMANA N'", () => {
+    const sheets: Record<string, SheetRows> = {
+      "SEMANA 21": buildRealSheet({ withComparativa: false }),
+    };
+    const result = parseMercadonaWorkbook(sheets, 2026, "VENTAS SEMANA 21 PLATAFORMA ANTEQUERA.xlsx");
+    expect(result.semanas).toHaveLength(1);
+    expect(result.semanas[0].origen).toBe("historico");
+    expect(result.semanas[0].semana).toBe(21);
+  });
+
+  it("sin fileNameHint, cae a 0 si la hoja semanal real no trae numero de semana en su nombre", () => {
+    const sheets: Record<string, SheetRows> = { "Sheet 1": buildSemanalRealSheet() };
+    const result = parseMercadonaWorkbook(sheets, 2026);
+    expect(result.semanas[0].semana).toBe(0);
   });
 });
 
