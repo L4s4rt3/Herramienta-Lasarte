@@ -1,0 +1,289 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildSemanaExportRows,
+  isMetodoConocido,
+  isoWeekDateRange,
+  parseMercadonaWorkbook,
+  parseNombreHojaSemana,
+  parseNumeroVentas,
+  parseNumeroVentasOrZero,
+  parseSemanaSheet,
+  type SheetRows,
+} from "./mercadonaVentas";
+
+describe("parseNumeroVentas", () => {
+  it("parsea numeros con coma como separador de miles", () => {
+    expect(parseNumeroVentas("215,260")).toBe(215260);
+  });
+
+  it("parsea numeros con espacios alrededor y como separador de miles", () => {
+    expect(parseNumeroVentas(" 40,703 ")).toBe(40703);
+  });
+
+  it("parsea numeros con formato es (punto miles, coma decimal)", () => {
+    expect(parseNumeroVentas("1.234,56")).toBeCloseTo(1234.56, 6);
+  });
+
+  it("parsea porcentajes positivos y negativos", () => {
+    expect(parseNumeroVentas("19%")).toBe(19);
+    expect(parseNumeroVentas("-2%")).toBe(-2);
+  });
+
+  it("parsea numeros ya numericos tal cual", () => {
+    expect(parseNumeroVentas(1234)).toBe(1234);
+  });
+
+  it("devuelve null para vacio, null o undefined", () => {
+    expect(parseNumeroVentas("")).toBeNull();
+    expect(parseNumeroVentas(null)).toBeNull();
+    expect(parseNumeroVentas(undefined)).toBeNull();
+  });
+
+  it("devuelve null para texto no numerico", () => {
+    expect(parseNumeroVentas("NOTA; texto libre")).toBeNull();
+  });
+
+  it("parseNumeroVentasOrZero fuerza 0 en vez de null", () => {
+    expect(parseNumeroVentasOrZero(null)).toBe(0);
+    expect(parseNumeroVentasOrZero("")).toBe(0);
+    expect(parseNumeroVentasOrZero("215,260")).toBe(215260);
+  });
+});
+
+describe("parseNombreHojaSemana", () => {
+  it("extrae el numero de 'SEMANA 21'", () => {
+    expect(parseNombreHojaSemana("SEMANA 21")).toBe(21);
+  });
+
+  it("es case-insensitive y tolera espacios extra", () => {
+    expect(parseNombreHojaSemana("semana  27")).toBe(27);
+  });
+
+  it("devuelve null para hojas que no son de semana", () => {
+    expect(parseNombreHojaSemana("Resumen")).toBeNull();
+    expect(parseNombreHojaSemana("Portada")).toBeNull();
+  });
+});
+
+describe("isMetodoConocido", () => {
+  it("reconoce los 4 metodos de Mercadona", () => {
+    expect(isMetodoConocido("MA12KGC")).toBe(true);
+    expect(isMetodoConocido("ma3kgc")).toBe(true);
+    expect(isMetodoConocido("MA4KGC")).toBe(true);
+    expect(isMetodoConocido("MA5KGC")).toBe(true);
+  });
+
+  it("rechaza metodos desconocidos", () => {
+    expect(isMetodoConocido("XX99")).toBe(false);
+  });
+});
+
+// ─── Fixtures basadas en la estructura real verificada del Excel ─────────────
+// (una hoja "SEMANA N" por semana, filas 0-15 fijas + notas variables).
+
+function buildRealSheet(options: {
+  withComparativa?: boolean;
+  garbageCells?: boolean;
+} = {}): SheetRows {
+  const { withComparativa = true, garbageCells = false } = options;
+
+  const header = withComparativa
+    ? ["Método", "Descripción", "PORCENTAJE", "KILOS", "PALETS", "CAJAS", "COMPARATIVA SEMANA ANTERIOR"]
+    : ["Método", "Descripción", "PORCENTAJE", "KILOS", "PALETS", "CAJAS"];
+
+  const metodoRow = (metodo: string, desc: string, pct: string, kilos: string, palets: string, cajas: string, comp?: string): SheetRows[number] =>
+    withComparativa ? [metodo, desc, pct, kilos, palets, cajas, comp ?? ""] : [metodo, desc, pct, kilos, palets, cajas];
+
+  const rows: SheetRows = [
+    ["PLANIFICACION VENTAS RECIBIDA DE MERCADONA"],
+    ["NARANJAS TOTALES", "18 May - 31 May"],
+    ["ANTEQUERA II", "120,000"],
+    ["ANTEQUERA VERDURA", "95,260"],
+    ["Total general", "215,260"],
+    [null, "107,630"],
+    ["EL TOTAL GENERAL SE DIVIDE ENTRE 2 YA QUE LA PLANIFICACION LLEGA POR QUINCENAS"],
+    header,
+    metodoRow("MA12KGC", "GENERICA GRANEL 12 KG", "19%", "40,703", "85", "3392", "-2%"),
+    metodoRow("MA3KGC", "HACENDADO D-PACK 4X3KG", "35%", "75,000", "150", "6250", "5%"),
+    metodoRow("MA4KGC", "GENERICA GIRSAC 3X4KG", "28%", "60,000", "120", "5000", "1%"),
+    metodoRow("MA5KGC", "HACENDADO D-PACK 2X5KG", "18%", "38,557", "77", "3213", "-1%"),
+    [null, "TOTAL", null, "214,260", "432", "17855"],
+    ["SEMANA 21 HEMOS VENDIDO", "214,260"],
+    ["SEMANA 21 HABIA PLANIFICADO", "107,630"],
+    ["AUMENTO DEL", "99%", "106,630"],
+    ["NOTA; Semana con alta demanda por campaña de verano."],
+    ["NOTA; Se ha ajustado el reparto de palets por incidencia logistica."],
+  ];
+
+  if (garbageCells) {
+    // Celdas numericas sueltas en columnas altas que deben ignorarse.
+    rows[8] = [...rows[8], null, null, null, 42];
+    rows[9] = [...rows[9], 7];
+  }
+
+  return rows;
+}
+
+describe("parseSemanaSheet — hoja con columna comparativa (semana 22+)", () => {
+  const rows = buildRealSheet({ withComparativa: true });
+  const parsed = parseSemanaSheet(rows, 22, 2026);
+
+  it("extrae el rango de planificacion quincenal", () => {
+    expect(parsed.rangoPlanificacion).toBe("18 May - 31 May");
+  });
+
+  it("extrae planificado quincenal y semanal", () => {
+    expect(parsed.planificadoQuincenaKg).toBe(215260);
+    expect(parsed.planificadoSemanaKg).toBe(107630);
+  });
+
+  it("extrae los 4 metodos con pct/kilos/palets/cajas/comparativa", () => {
+    expect(parsed.metodos).toHaveLength(4);
+    const [ma12] = parsed.metodos;
+    expect(ma12.metodo).toBe("MA12KGC");
+    expect(ma12.descripcion).toBe("GENERICA GRANEL 12 KG");
+    expect(ma12.pct).toBe(19);
+    expect(ma12.kilos).toBe(40703);
+    expect(ma12.palets).toBe(85);
+    expect(ma12.cajas).toBe(3392);
+    expect(ma12.comparativaAnteriorPct).toBe(-2);
+  });
+
+  it("extrae los totales de la tabla de metodos", () => {
+    expect(parsed.totales).toEqual({ kilos: 214260, palets: 432, cajas: 17855 });
+  });
+
+  it("extrae vendido, planificado (redundante) y diferencia", () => {
+    expect(parsed.vendidoKg).toBe(214260);
+    expect(parsed.diferenciaPct).toBe(99);
+  });
+
+  it("extrae las notas de texto libre", () => {
+    expect(parsed.notas).toHaveLength(2);
+    expect(parsed.notas[0]).toContain("alta demanda");
+    expect(parsed.notas[1]).toContain("incidencia logistica");
+  });
+
+  it("anio y semana vienen del parametro, no del contenido", () => {
+    expect(parsed.anio).toBe(2026);
+    expect(parsed.semana).toBe(22);
+  });
+});
+
+describe("parseSemanaSheet — hoja SIN columna comparativa (semana 21)", () => {
+  const rows = buildRealSheet({ withComparativa: false });
+  const parsed = parseSemanaSheet(rows, 21, 2026);
+
+  it("sigue extrayendo pct/kilos/palets/cajas sin romper", () => {
+    expect(parsed.metodos).toHaveLength(4);
+    expect(parsed.metodos[0].kilos).toBe(40703);
+    expect(parsed.metodos[0].cajas).toBe(3392);
+  });
+
+  it("comparativaAnteriorPct es null cuando la columna no existe", () => {
+    expect(parsed.metodos.every((m) => m.comparativaAnteriorPct === null)).toBe(true);
+  });
+});
+
+describe("parseSemanaSheet — celdas basura numericas sueltas en columnas altas", () => {
+  it("ignora columnas fuera de rango y no contamina pct/kilos/palets/cajas", () => {
+    const rows = buildRealSheet({ withComparativa: true, garbageCells: true });
+    const parsed = parseSemanaSheet(rows, 22, 2026);
+    expect(parsed.metodos[0].comparativaAnteriorPct).toBe(-2);
+    expect(parsed.metodos[1].comparativaAnteriorPct).toBe(5);
+  });
+});
+
+describe("parseSemanaSheet — numeros con espacios como separador de miles", () => {
+  it("parsea ' 40,703 ' correctamente dentro de una fila de metodo", () => {
+    const rows = buildRealSheet({ withComparativa: true });
+    rows[8] = ["MA12KGC", "GENERICA GRANEL 12 KG", "19%", " 40,703 ", "85", "3392", "-2%"];
+    const parsed = parseSemanaSheet(rows, 22, 2026);
+    expect(parsed.metodos[0].kilos).toBe(40703);
+  });
+});
+
+describe("parseMercadonaWorkbook", () => {
+  it("parsea todas las hojas 'SEMANA N' y ordena por numero de semana", () => {
+    const sheets: Record<string, SheetRows> = {
+      "SEMANA 22": buildRealSheet({ withComparativa: true }),
+      "SEMANA 21": buildRealSheet({ withComparativa: false }),
+      Portada: [["Portada del informe"]],
+    };
+    const result = parseMercadonaWorkbook(sheets, 2026);
+    expect(result.semanas.map((s) => s.semana)).toEqual([21, 22]);
+    expect(result.hojasIgnoradas).toEqual(["Portada"]);
+  });
+
+  it("propaga el mismo anio a todas las semanas parseadas", () => {
+    const sheets: Record<string, SheetRows> = {
+      "SEMANA 21": buildRealSheet(),
+    };
+    const result = parseMercadonaWorkbook(sheets, 2026);
+    expect(result.semanas[0].anio).toBe(2026);
+  });
+});
+
+describe("isoWeekDateRange", () => {
+  it("devuelve lunes a domingo de la semana ISO dada", () => {
+    const { desde, hasta } = isoWeekDateRange(2026, 21);
+    expect(desde).toBe("2026-05-18");
+    expect(hasta).toBe("2026-05-24");
+  });
+
+  it("es coherente con el rango de planificacion real '18 May - 31 May' (quincena = semanas 21+22)", () => {
+    const semana21 = isoWeekDateRange(2026, 21);
+    const semana22 = isoWeekDateRange(2026, 22);
+    expect(semana21.desde).toBe("2026-05-18");
+    expect(semana22.hasta).toBe("2026-05-31");
+  });
+});
+
+describe("buildSemanaExportRows", () => {
+  it("reconstruye filas con la disposicion del excel original", () => {
+    const rows = buildSemanaExportRows({
+      anio: 2026,
+      semana: 21,
+      rangoPlanificacion: "18 May - 31 May",
+      planificadoQuincenaKg: 215260,
+      planificadoSemanaKg: 107630,
+      vendidoKg: 214260,
+      diferenciaPct: 99,
+      notas: ["NOTA; Semana con alta demanda."],
+      metodos: [
+        { metodo: "MA12KGC", descripcion: "GENERICA GRANEL 12 KG", pct: 19, kilos: 40703, palets: 85, cajas: 3392, comparativaAnteriorPct: -2 },
+        { metodo: "MA3KGC", descripcion: "HACENDADO D-PACK 4X3KG", pct: 35, kilos: 75000, palets: 150, cajas: 6250, comparativaAnteriorPct: 5 },
+        { metodo: "MA4KGC", descripcion: "GENERICA GIRSAC 3X4KG", pct: 28, kilos: 60000, palets: 120, cajas: 5000, comparativaAnteriorPct: 1 },
+        { metodo: "MA5KGC", descripcion: "HACENDADO D-PACK 2X5KG", pct: 18, kilos: 38557, palets: 77, cajas: 3213, comparativaAnteriorPct: -1 },
+      ],
+    });
+
+    expect(rows[0]).toEqual(["PLANIFICACION VENTAS RECIBIDA DE MERCADONA"]);
+    expect(rows[1]).toEqual(["NARANJAS TOTALES", "18 May - 31 May"]);
+    expect(rows[4]).toEqual(["Total general", 215260]);
+    expect(rows[5]).toEqual([null, 107630]);
+    expect(rows[7]).toEqual(["Metodo", "Descripcion", "PORCENTAJE", "KILOS", "PALETS", "CAJAS", "COMPARATIVA SEMANA ANTERIOR"]);
+    expect(rows[8]).toEqual(["MA12KGC", "GENERICA GRANEL 12 KG", 19, 40703, 85, 3392, -2]);
+    expect(rows[12]).toEqual([null, "TOTAL", null, 214260, 432, 17855, null]);
+    expect(rows[13]).toEqual(["SEMANA 21 HEMOS VENDIDO", 214260]);
+    expect(rows[14]).toEqual(["SEMANA 21 HABIA PLANIFICADO", 107630]);
+    expect(rows[15]).toEqual(["AUMENTO DEL", 99, 106630]);
+    expect(rows[16]).toEqual(["NOTA; Semana con alta demanda."]);
+  });
+
+  it("usa DESCENSO DEL cuando la diferencia es negativa", () => {
+    const rows = buildSemanaExportRows({
+      anio: 2026,
+      semana: 23,
+      rangoPlanificacion: null,
+      planificadoQuincenaKg: null,
+      planificadoSemanaKg: 100000,
+      vendidoKg: 90000,
+      diferenciaPct: -10,
+      notas: [],
+      metodos: [],
+    });
+    const descensoRow = rows.find((r) => typeof r[0] === "string" && r[0].includes("DESCENSO"));
+    expect(descensoRow).toBeDefined();
+  });
+});

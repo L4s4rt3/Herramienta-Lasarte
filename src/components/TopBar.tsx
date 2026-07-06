@@ -60,6 +60,12 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/",
     parentLabel: "Comercial",
   },
+  "/mercadona": {
+    label: "Mercadona",
+    subtitle: "Aprovechamiento, ventas semanales y planificación del cliente principal",
+    parent: "/",
+    parentLabel: "Comercial",
+  },
 };
 
 function TopBar() {
@@ -72,7 +78,7 @@ function TopBar() {
   const meta = baseRoute ? ROUTE_META[baseRoute] : null;
 
   return (
-    <header className="sticky top-0 z-20 flex min-h-14 shrink-0 items-center gap-2 border-b border-primary/10 bg-[var(--glass-bg-strong)] px-3 py-2.5 shadow-[var(--glass-shadow)] backdrop-blur-xl sm:min-h-16 sm:gap-3 sm:px-5 sm:py-3 lg:px-8">
+    <header className="sticky top-0 z-20 flex min-h-14 shrink-0 items-center gap-2 border-b border-primary/10 bg-[var(--glass-bg-solid)] px-3 py-2.5 shadow-[var(--glass-shadow)] backdrop-blur-2xl sm:min-h-16 sm:gap-3 sm:px-5 sm:py-3 lg:px-8">
       <SidebarTrigger className="-ml-1 size-9 shrink-0 rounded-xl border bg-[var(--glass-bg)] shadow-[var(--glass-shadow)] sm:size-8" />
       <Separator orientation="vertical" className="hidden h-6 sm:block" />
 

@@ -25,6 +25,7 @@ const NotFound = lazy(pageLoaders.notFound);
 const Productores = lazy(pageLoaders.productores);
 const AnalisisDiario = lazy(pageLoaders.analisisDiario);
 const VentasCategoriaSegunda = lazy(pageLoaders.ventasCategoriaSegunda);
+const Mercadona = lazy(pageLoaders.mercadona);
 const ExcelViewerPage = lazy(() => import("@/pages/ExcelViewerPage"));
 
 const LoadingFallback = () => (
@@ -66,6 +67,7 @@ const App = () => (
                     <Route path="/productores" element={<Productores />} />
                     <Route path="/analisis/diario" element={<AnalisisDiario />} />
                     <Route path="/ventas/categoria-segunda" element={<VentasCategoriaSegunda />} />
+                    <Route path="/mercadona" element={<Mercadona />} />
                   </Route>
                   <Route
                     path="/ver-excel/:fileId"

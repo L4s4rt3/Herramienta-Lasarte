@@ -861,6 +861,98 @@ export type Database = {
         }
         Relationships: []
       }
+      mercadona_semana_metodos: {
+        Row: {
+          cajas: number | null
+          comparativa_anterior_pct: number | null
+          created_at: string
+          descripcion: string | null
+          id: string
+          kilos: number | null
+          metodo: string
+          palets: number | null
+          pct: number | null
+          semana_id: string
+        }
+        Insert: {
+          cajas?: number | null
+          comparativa_anterior_pct?: number | null
+          created_at?: string
+          descripcion?: string | null
+          id?: string
+          kilos?: number | null
+          metodo: string
+          palets?: number | null
+          pct?: number | null
+          semana_id: string
+        }
+        Update: {
+          cajas?: number | null
+          comparativa_anterior_pct?: number | null
+          created_at?: string
+          descripcion?: string | null
+          id?: string
+          kilos?: number | null
+          metodo?: string
+          palets?: number | null
+          pct?: number | null
+          semana_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mercadona_semana_metodos_semana_id_fkey"
+            columns: ["semana_id"]
+            isOneToOne: false
+            referencedRelation: "mercadona_semanas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mercadona_semanas: {
+        Row: {
+          anio: number
+          created_at: string
+          diferencia_pct: number | null
+          id: string
+          notas: string[]
+          planificado_quincena_kg: number | null
+          planificado_semana_kg: number | null
+          rango_planificacion: string | null
+          semana: number
+          updated_at: string
+          user_id: string
+          vendido_kg: number | null
+        }
+        Insert: {
+          anio: number
+          created_at?: string
+          diferencia_pct?: number | null
+          id?: string
+          notas?: string[]
+          planificado_quincena_kg?: number | null
+          planificado_semana_kg?: number | null
+          rango_planificacion?: string | null
+          semana: number
+          updated_at?: string
+          user_id: string
+          vendido_kg?: number | null
+        }
+        Update: {
+          anio?: number
+          created_at?: string
+          diferencia_pct?: number | null
+          id?: string
+          notas?: string[]
+          planificado_quincena_kg?: number | null
+          planificado_semana_kg?: number | null
+          rango_planificacion?: string | null
+          semana?: number
+          updated_at?: string
+          user_id?: string
+          vendido_kg?: number | null
+        }
+        Relationships: []
+      }
       palets_dia: {
         Row: {
           campo: boolean

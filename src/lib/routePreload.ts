@@ -11,6 +11,7 @@ export const pageLoaders = {
   productores: () => import("@/pages/Productores"),
   analisisDiario: () => import("@/pages/AnalisisDiario"),
   ventasCategoriaSegunda: () => import("@/pages/VentasCategoriaSegunda"),
+  mercadona: () => import("@/pages/Mercadona"),
 };
 
 const preloadByPath: Record<string, () => Promise<unknown>> = {
@@ -23,6 +24,7 @@ const preloadByPath: Record<string, () => Promise<unknown>> = {
   "/productores": pageLoaders.productores,
   "/analisis/diario": pageLoaders.analisisDiario,
   "/ventas/categoria-segunda": pageLoaders.ventasCategoriaSegunda,
+  "/mercadona": pageLoaders.mercadona,
 };
 
 export function preloadRoute(path: string) {

@@ -11,6 +11,7 @@ import {
   Users,
   BarChart3,
   Sprout,
+  ShoppingCart,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
 
@@ -72,6 +73,7 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
   {
     label: "Comercial",
     items: [
+      { to: "/mercadona", label: "Mercadona", icon: ShoppingCart },
       { to: "/ventas/categoria-segunda", label: "Categoria segunda", icon: FileSpreadsheet },
     ],
   },
