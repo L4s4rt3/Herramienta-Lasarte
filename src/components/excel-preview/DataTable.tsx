@@ -242,7 +242,9 @@ export function DataTable({
                       "text-[11px] font-bold uppercase tracking-wider",
                       isPlaceholder ? "text-muted-foreground/60" : "text-foreground",
                       "cursor-pointer select-none whitespace-nowrap",
-                      "hover:bg-[var(--glass-bg-strong)] transition-colors group bg-[var(--glass-bg-strong)]",
+                      // Fondo casi opaco: al hacer scroll, el contenido de las
+                      // filas no debe leerse a través de la cabecera fija.
+                      "hover:bg-[var(--glass-bg-solid)] transition-colors group bg-[var(--glass-bg-solid)]",
                       col.index === 0 && "sticky left-0 z-30",
                       col.numeric ? "text-right" : "text-left"
                     )}
@@ -302,10 +304,10 @@ export function DataTable({
                           "whitespace-nowrap overflow-hidden text-ellipsis",
                           isEmpty ? "select-none text-muted-foreground/40" : "text-foreground",
                           isFirstTextCol && !isEmpty && "font-semibold",
-                          col.index === 0 && cn(
-                            "sticky left-0 z-10",
-                            summaryType === "total" ? "bg-[var(--glass-bg-strong)]" : isZebra ? "bg-[var(--glass-bg)]" : "bg-card"
-                          ),
+                          // Fondo casi opaco en la columna fija: evita que el
+                          // resto de columnas se transparente por debajo al
+                          // hacer scroll horizontal.
+                          col.index === 0 && "sticky left-0 z-10 bg-[var(--glass-bg-solid)]",
                           isSelected && col.index === 0 && "!bg-primary/10",
                           col.numeric ? "text-right tabular-nums" : "text-left"
                         )}
@@ -325,6 +327,36 @@ export function DataTable({
               );
             })}
           </tbody>
+          {table.totalRow && (
+            <tfoot className="sticky bottom-0 z-20">
+              <tr className="bg-[var(--glass-bg-solid)] font-bold">
+                {columns.map((col) => {
+                  const raw = table.totalRow?.[col.index] ?? "";
+                  const isEmpty = !raw || !raw.trim();
+                  return (
+                    <td
+                      key={col.index}
+                      className={cn(
+                        "px-3 py-2 border-t-2 border-[var(--glass-border-accent)] align-middle",
+                        "whitespace-nowrap overflow-hidden text-ellipsis text-foreground",
+                        col.index === 0 && "sticky left-0 z-10 bg-[var(--glass-bg-solid)]",
+                        col.numeric ? "text-right tabular-nums" : "text-left"
+                      )}
+                      title={isEmpty ? "" : raw}
+                    >
+                      {isEmpty ? (
+                        col.index === 0 ? "Total" : ""
+                      ) : col.status ? (
+                        <StatusBadge value={raw} status={matchStatus(raw)} />
+                      ) : (
+                        formatCell(raw)
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </section>

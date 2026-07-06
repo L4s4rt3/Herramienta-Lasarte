@@ -14,7 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import ExcelPreviewer, {
   type ParsedExcel,
 } from "./ExcelPreviewer";
-import { fillEmptyHeaders } from "./excel-preview";
+import { fillEmptyHeaders, type Metric, type KeyValueBlock } from "./excel-preview";
 
 interface Archivo {
   file_name: string | null;
@@ -107,14 +107,105 @@ function detectModuleVariant(filename: string, firstRow?: string[]): keyof typeo
   return null;
 }
 
-// Convierte una hoja cruda en una estructura limpia { metrics, tables, title, subtitle }.
+// Fila que empieza por "NOTA" (con o sin ":"/";" tras la palabra) → nota suelta.
+const NOTE_RE = /^nota\s*[:;]?\s*/i;
+
+// Palabras clave de filas-resumen tipo mini-KPI que aparecen tras una tabla
+// ("SEMANA 21 HEMOS VENDIDO", "AUMENTO DEL", "DESCENSO DEL"...).
+const SUMMARY_ROW_RE = /\b(hemos vendido|hab[ií]a planificado|aumento( del)?|descenso( del)?|total(es)?\s+(vendid|planific))/i;
+
+function isNoteRow(cells: string[]): boolean {
+  return cells.length > 0 && NOTE_RE.test(cells[0]);
+}
+
+// Extrae el texto de nota (quita el prefijo "NOTA;"/"NOTA:") y concatena
+// el resto de celdas no vacías de la fila por si la nota está partida en columnas.
+function extractNoteText(cells: string[]): string {
+  const joined = cells.filter((c) => c.length > 0).join(" ");
+  return joined.replace(NOTE_RE, "").trim();
+}
+
+// Una fila es "label→value" de 2 celdas si la primera celda es texto (no
+// puramente numérica) y el resto de celdas (más allá de la 2ª) están vacías.
+function isTwoCellKvRow(row: string[]): { label: string; value: string } | null {
+  const nonEmpty = row.map((c, i) => ({ c, i })).filter((x) => x.c.length > 0);
+  if (nonEmpty.length !== 2) return null;
+  const [a, b] = nonEmpty;
+  if (isNumericCellLoose(a.c)) return null;
+  return { label: a.c, value: b.c };
+}
+
+// Fila con DOS pares etiqueta→valor lado a lado, típico de informes GSTOCK:
+// ["Commodity", "VALENCIA DELTA", "Fecha y Hora de Comienzo", "02/07/2026"].
+// Se detecta por tener exactamente 4 celdas no vacías donde la 1ª y 3ª son
+// texto (etiqueta) y no son puramente numéricas.
+function extractFourCellKvPairs(row: string[]): Array<{ label: string; value: string }> | null {
+  const nonEmpty = row.map((c, i) => ({ c, i })).filter((x) => x.c.length > 0);
+  if (nonEmpty.length !== 4) return null;
+  const [a, b, c, d] = nonEmpty;
+  if (isNumericCellLoose(a.c) || isNumericCellLoose(c.c)) return null;
+  return [
+    { label: a.c, value: b.c },
+    { label: c.c.replace(/:$/, ""), value: d.c },
+  ];
+}
+
+const NUMERIC_LOOSE_RE = /^-?\d{1,3}([.,]\d{3})*([.,]\d+)?%?$|^-?\d+([.,]\d+)?%?$/;
+function isNumericCellLoose(value: string): boolean {
+  return NUMERIC_LOOSE_RE.test(value.trim());
+}
+
+// Fila-resumen tras la tabla: primera celda es texto con keyword de resumen
+// y hay al menos un valor numérico en el resto de la fila.
+function matchSummaryRow(row: string[]): { label: string; value: string } | null {
+  const nonEmpty = row.map((c, i) => ({ c, i })).filter((x) => x.c.length > 0);
+  if (nonEmpty.length < 2) return null;
+  const [first, ...rest] = nonEmpty;
+  if (isNumericCellLoose(first.c)) return null;
+  if (!SUMMARY_ROW_RE.test(first.c)) return null;
+  const valueCell = rest.find((x) => isNumericCellLoose(x.c));
+  if (!valueCell) return null;
+  return { label: first.c.replace(/\s+$/, ""), value: valueCell.c };
+}
+
+// Fila de TOTAL al pie de una tabla: o bien la primera celda empieza por
+// "total", o bien la primera celda está vacía pero el resto de la fila
+// tiene valores numéricos (patrón típico de fila de totales sin etiqueta).
+function isTotalRow(row: string[], headerLen: number): boolean {
+  const nonEmpty = row.filter((c) => c.length > 0);
+  if (nonEmpty.length === 0) return false;
+  const first = (row[0] ?? "").trim();
+  if (/^total(es)?\b/i.test(first)) return true;
+  if (first.length > 0) return false;
+  // Primera celda vacía: exigir que haya al menos 2 valores numéricos y que
+  // ocupe una fracción relevante de las columnas de la tabla (evita marcar
+  // como total una fila dispersa cualquiera).
+  const numericCount = nonEmpty.filter((c) => isNumericCellLoose(c)).length;
+  return numericCount >= 2 && numericCount === nonEmpty.length && nonEmpty.length >= Math.min(2, headerLen - 1);
+}
+
+// Un texto suelto "parece una frase/aclaración" (y no un título, subtítulo o
+// nombre de sección corto) cuando tiene muchas palabras y/o es muy largo.
+// Ej: "EL TOTAL GENERAL SE DIVIDE ENTRE 2, PUES SON DOS SEMANAS" (10 palabras).
+const MAX_LABEL_WORDS = 8;
+const MAX_LABEL_LEN = 55;
+function looksLikeSentence(text: string): boolean {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  return words.length > MAX_LABEL_WORDS || text.length > MAX_LABEL_LEN;
+}
+
+// Convierte una hoja cruda en una estructura por SECCIONES en orden documental:
+// título/subtítulo → bloques clave-valor → tabla(s) (con fila de total) →
+// filas-resumen (mini-KPIs) → notas sueltas.
 // Estrategia:
 //  1) Recortar filas/columnas vacías.
-//  2) Localizar la fila de encabezados: primera fila con 2+ celdas de texto
+//  2) Extraer notas ("NOTA; ...") de cualquier punto de la hoja.
+//  3) Localizar la fila de encabezados: primera fila con 2+ celdas de texto
 //     (no numéricas) y sin ":" en ninguna celda (excluye filas de métrica).
 //     También se saltan filas con controles de UI de Excel (filtros, etc.).
-//  3) Las filas anteriores se clasifican como title/subtitle/métricas/sección.
-//  4) Las filas posteriores son datos de la tabla.
+//  4) Las filas anteriores se clasifican como title/subtitle/kvBlocks.
+//  5) Las filas posteriores son datos de la tabla, hasta detectar fila de
+//     total, fila-resumen o nota.
 export function parseSheetToStructured(sheet: SheetData, filename: string): ParsedExcel {
   const result: ParsedExcel = { filename, metrics: [], tables: [] };
 
@@ -124,9 +215,23 @@ export function parseSheetToStructured(sheet: SheetData, filename: string): Pars
       : sheet.rows;
 
   // 1) Trim + drop filas vacías
-  const clean = sourceRows
+  const cleanAll = sourceRows
     .map((r) => r.map((c) => (c ?? "").trim()))
     .filter((r) => r.some((c) => c.length > 0));
+  if (cleanAll.length === 0) return result;
+
+  // 1b) Extraer notas sueltas ("NOTA; ...") de cualquier punto de la hoja,
+  // antes de seguir clasificando filas. Se muestran aparte al final (sección 5).
+  const notes: string[] = [];
+  const clean = cleanAll.filter((row) => {
+    if (isNoteRow(row)) {
+      const text = extractNoteText(row);
+      if (text) notes.push(text);
+      return false;
+    }
+    return true;
+  });
+  if (notes.length > 0) result.notes = notes;
   if (clean.length === 0) return result;
 
   // DEBUG: Dump de las primeras 20 filas para diagnosticar estructura del archivo
@@ -143,6 +248,22 @@ export function parseSheetToStructured(sheet: SheetData, filename: string): Pars
     if (clean.some((r) => r[c] && r[c].length > 0)) usedCols.push(c);
   }
   const rows = clean.map((r) => usedCols.map((c) => r[c] ?? ""));
+
+  // 2b) Cuenta cuántas de las siguientes `count` filas (desde `from`) son
+  // pares clave-valor de 2 celdas. Sirve para no confundir la primera fila
+  // de un bloque etiqueta→valor (p.ej. "NARANJAS TOTALES | 18 May - 31 May")
+  // con la cabecera real de una tabla.
+  function followingKvRatio(from: number, count: number): number {
+    let checked = 0;
+    let kv = 0;
+    for (let i = from; i < rows.length && checked < count; i++) {
+      const cells = rows[i].filter((c) => c.length > 0);
+      if (cells.length === 0) continue;
+      checked++;
+      if (isTwoCellKvRow(rows[i])) kv++;
+    }
+    return checked > 0 ? kv / checked : 0;
+  }
 
   // 3) Localizar fila de encabezados
   // Estrategia: la cabecera real tiene celdas CORTAS (<30 chars), mayoría texto,
@@ -176,6 +297,20 @@ export function parseSheetToStructured(sheet: SheetData, filename: string): Pars
       if (i < 20) console.log(`[DEBUG] row ${i} SKIPPED: ≥50% numeric (${numericCount}/${cells.length}) (cells: [${cells.slice(0, 4).join(", ")}])`);
       continue;
     }
+    // No es cabecera si es exactamente un par "label | value" de 2 celdas Y
+    // las filas siguientes también son mayoritariamente pares label→value:
+    // es un bloque clave-valor (p.ej. "NARANJAS TOTALES | 18 May - 31 May",
+    // "ANTEQUERA VERDURA | 400.879"), no la fila de cabecera de una tabla.
+    if (cells.length === 2 && isTwoCellKvRow(row) && followingKvRatio(i + 1, 4) >= 0.5) {
+      if (i < 20) console.log(`[DEBUG] row ${i} SKIPPED: looks like kv-block row (followed by more kv rows)`);
+      continue;
+    }
+    // Fila con DOS pares etiqueta→valor lado a lado (informes GSTOCK tipo
+    // "Commodity | VALENCIA DELTA | Fecha y Hora de Comienzo | 02/07/2026").
+    if (cells.length === 4 && extractFourCellKvPairs(row)) {
+      if (i < 20) console.log(`[DEBUG] row ${i} SKIPPED: looks like double kv row`);
+      continue;
+    }
     // TODAS las celdas deben ser cortas (cabeceras reales son cortas: "Producto", "Fecha"...)
     const longCells = cells.filter((c) => c.length > MAX_HEADER_CELL_LEN).length;
     if (longCells > 0) {
@@ -205,10 +340,22 @@ export function parseSheetToStructured(sheet: SheetData, filename: string): Pars
     console.log(`[DEBUG] no header found, will use generic headers`);
   }
 
-  // 4) Clasificar filas previas al header
+  // 4) Clasificar filas previas al header en título/subtítulo, bloques
+  // clave-valor (sección 2) y nombres de sección sueltos.
   const preRows = headerIdx > 0 ? rows.slice(0, headerIdx) : rows;
   const dataStartIdx = headerIdx >= 0 ? headerIdx + 1 : -1;
   const lastSingleCellText: string[] = [];
+  const kvBlocks: KeyValueBlock[] = [];
+  let currentKvPairs: Metric[] = [];
+  let pendingBlockTitle: string | undefined;
+
+  function flushKvBlock() {
+    if (currentKvPairs.length > 0) {
+      kvBlocks.push({ title: pendingBlockTitle, pairs: currentKvPairs });
+      currentKvPairs = [];
+      pendingBlockTitle = undefined;
+    }
+  }
 
   for (const row of preRows) {
     const cells = row.filter((c) => c.length > 0);
@@ -222,21 +369,43 @@ export function parseSheetToStructured(sheet: SheetData, filename: string): Pars
       const idx = cells[0].indexOf(":");
       const label = cells[0].slice(0, idx).trim();
       const value = cells[0].slice(idx + 1).trim();
-      if (label && value) result.metrics.push({ label, value });
+      if (label && value) {
+        result.metrics.push({ label, value });
+        currentKvPairs.push({ label, value });
+      }
       continue;
     }
 
-    // Métrica "Label | Value" en dos celdas
-    if (cells.length === 2) {
-      result.metrics.push({ label: cells[0], value: cells[1] });
+    // Fila con DOS pares etiqueta→valor lado a lado (informes GSTOCK)
+    const fourCellPairs = cells.length === 4 ? extractFourCellKvPairs(row) : null;
+    if (fourCellPairs) {
+      for (const p of fourCellPairs) {
+        result.metrics.push(p);
+        currentKvPairs.push(p);
+      }
       continue;
     }
 
-    // Texto de una sola celda → título, subtítulo, o nombre de sección
-    if (cells.length === 1) {
+    // Métrica "Label | Value" en dos celdas → par clave-valor
+    const kv = isTwoCellKvRow(row);
+    if (kv) {
+      result.metrics.push({ label: kv.label, value: kv.value });
+      currentKvPairs.push({ label: kv.label, value: kv.value });
+      continue;
+    }
+
+    // Texto de una sola celda → título, subtítulo, o nombre de sección.
+    // Si ya veníamos acumulando un bloque clave-valor, esta fila corta el
+    // bloque (posible encabezado de sección o de la siguiente tabla).
+    // Una celda puramente numérica suelta (p.ej. resto de un cálculo de
+    // Excel: "208604.025") no es texto de título/sección: se ignora.
+    if (cells.length === 1 && !isNumericCellLoose(cells[0])) {
+      flushKvBlock();
+      pendingBlockTitle = cells[0];
       lastSingleCellText.push(cells[0]);
     }
   }
+  flushKvBlock();
 
   // Asignar título/subtítulo (primeras dos filas de texto) y descartar el resto
   // (que probablemente son nombres de sección que mostraremos en la tabla)
@@ -251,8 +420,26 @@ export function parseSheetToStructured(sheet: SheetData, filename: string): Pars
     }
     return text;
   }
+  // El subtítulo debe ser un texto corto tipo etiqueta (nombre de
+  // clasificación, fecha...), no una frase/aclaración larga como
+  // "EL TOTAL GENERAL SE DIVIDE ENTRE 2, PUES SON DOS SEMANAS" (looksLikeSentence).
   if (lastSingleCellText.length >= 1) result.title = formatTitleText(lastSingleCellText[0]);
-  if (lastSingleCellText.length >= 2) result.subtitle = formatTitleText(lastSingleCellText[1]);
+  if (lastSingleCellText.length >= 2 && !looksLikeSentence(lastSingleCellText[1])) {
+    result.subtitle = formatTitleText(lastSingleCellText[1]);
+  }
+
+  // Los bloques clave-valor no deben repetir el título/subtítulo ya asignado
+  // como si fuera el nombre de un bloque.
+  const finalKvBlocks = kvBlocks
+    .map((block) => ({
+      ...block,
+      title:
+        block.title && block.title !== result.title && block.title !== result.subtitle
+          ? block.title
+          : undefined,
+    }))
+    .filter((block) => block.pairs.length > 0);
+  if (finalKvBlocks.length > 0) result.kvBlocks = finalKvBlocks;
 
   // 5) Extraer tabla
   let headers: string[];
@@ -284,18 +471,50 @@ export function parseSheetToStructured(sheet: SheetData, filename: string): Pars
 
   if (headers.length > 0) {
     const dataRows: string[][] = [];
+    let totalRow: string[] | undefined;
+    const summaryRows: Metric[] = [];
+    // Una vez que la tabla "cierra" (fila de total o primera fila-resumen),
+    // las filas siguientes solo pueden ser más resumen o quedan descartadas
+    // (evita que texto suelto tras la tabla se cuele como dato).
+    let tableClosed = false;
+
     for (let i = actualDataStartIdx; i < rows.length; i++) {
       const row = rows[i];
       if (row.every((c) => !c)) continue;
+
+      if (tableClosed) {
+        const summary = matchSummaryRow(row);
+        if (summary) summaryRows.push(summary);
+        continue;
+      }
+
+      // Fila-resumen tipo mini-KPI ("SEMANA 21 HEMOS VENDIDO | 215260"):
+      // cierra la tabla sin añadirse como fila de datos.
+      const summary = matchSummaryRow(row);
+      if (summary) {
+        summaryRows.push(summary);
+        tableClosed = true;
+        continue;
+      }
+
+      // Fila de TOTAL al pie de la tabla: se guarda aparte para pintarla
+      // como pie de tabla en vez de una fila de datos más.
+      if (!totalRow && isTotalRow(row, headers.length)) {
+        totalRow = headers.map((_, ci) => row[ci] ?? "");
+        continue;
+      }
+
       dataRows.push(headers.map((_, ci) => row[ci] ?? ""));
     }
 
     // Sección: la última fila de texto de una sola celda antes del header
-    // que no sea el título ni el subtítulo.
+    // que no sea el título ni el subtítulo. Se descartan frases largas tipo
+    // nota/aclaración (p.ej. "EL TOTAL GENERAL SE DIVIDE ENTRE 2, PUES...")
+    // que no son un nombre de sección real.
     let section = "";
     for (let i = lastSingleCellText.length - 1; i >= 0; i--) {
       const t = lastSingleCellText[i];
-      if (t !== result.title && t !== result.subtitle) {
+      if (t !== result.title && t !== result.subtitle && !looksLikeSentence(t)) {
         section = t;
         break;
       }
@@ -328,7 +547,10 @@ export function parseSheetToStructured(sheet: SheetData, filename: string): Pars
       description: `${filteredRows.length} fila${filteredRows.length !== 1 ? "s" : ""} · ${headers.length} columna${headers.length !== 1 ? "s" : ""}`,
       headers,
       rows: filteredRows,
+      totalRow,
     });
+
+    if (summaryRows.length > 0) result.summaryRows = summaryRows;
   }
 
   return result;

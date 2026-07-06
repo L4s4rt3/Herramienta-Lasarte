@@ -5,12 +5,15 @@ import {
   MetricsStrip,
   DataTable,
   RowDetailDrawer,
+  KeyValueGrid,
+  SummaryRowsStrip,
+  NotesList,
   type ParsedExcel,
   type SheetData,
 } from "./excel-preview";
 import { cn } from "@/lib/utils";
 
-export type { ParsedExcel, Metric, DataTable } from "./excel-preview/types";
+export type { ParsedExcel, Metric, DataTable, KeyValueBlock } from "./excel-preview/types";
 
 interface ExcelPreviewerProps {
   data: ParsedExcel;
@@ -45,7 +48,12 @@ export default function ExcelPreviewer({
   const sheetList =
     sheets?.map((s, i) => ({ name: s.name, index: i })) ?? [];
 
-  const hasAnyData = data.metrics.length > 0 || data.tables.length > 0;
+  const hasAnyData =
+    data.metrics.length > 0 ||
+    data.tables.length > 0 ||
+    (data.kvBlocks?.length ?? 0) > 0 ||
+    (data.summaryRows?.length ?? 0) > 0 ||
+    (data.notes?.length ?? 0) > 0;
 
   // Dimensiones de la hoja activa: filas × columnas totales sumando todas
   // las tablas detectadas en la hoja (normalmente hay una sola tabla por hoja).
@@ -68,8 +76,6 @@ export default function ExcelPreviewer({
         downloadDisabled={downloadDisabled}
       />
 
-      {data.metrics.length > 0 && <MetricsStrip metrics={data.metrics} />}
-
       {!hasAnyData ? (
         <div
           className={cn(
@@ -88,6 +94,16 @@ export default function ExcelPreviewer({
             "flex flex-col gap-4 pr-1"
           )}
         >
+          {/* Sección 2: bloques clave-valor de la cabecera del informe.
+              Si el parser no agrupó bloques (kvBlocks) pero sí hay métricas
+              sueltas (rutas legacy), se usa el strip plano como fallback. */}
+          {data.kvBlocks && data.kvBlocks.length > 0 ? (
+            <KeyValueGrid blocks={data.kvBlocks} />
+          ) : (
+            data.metrics.length > 0 && <MetricsStrip metrics={data.metrics} />
+          )}
+
+          {/* Sección 3: tabla(s) principales, con fila de total como pie. */}
           {data.tables.map((table, i) => {
             const isSelectedTable = selectedRow?.tableIndex === i;
             return (
@@ -99,6 +115,14 @@ export default function ExcelPreviewer({
               />
             );
           })}
+
+          {/* Sección 4: filas-resumen tipo mini-KPI tras la tabla. */}
+          {data.summaryRows && data.summaryRows.length > 0 && (
+            <SummaryRowsStrip rows={data.summaryRows} />
+          )}
+
+          {/* Sección 5: notas sueltas, al final. */}
+          {data.notes && data.notes.length > 0 && <NotesList notes={data.notes} />}
         </div>
       )}
 
