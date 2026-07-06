@@ -71,13 +71,14 @@ describe("consumos fisicos helpers", () => {
       drencherL: 30,
     })).toEqual({
       recurso: "agua",
-      fecha_inicio: "2026-06-20",
-      fecha_fin: "2026-06-20",
+      // El delta entre la foto del 19 y la del 20 es el consumo del día 19.
+      fecha_inicio: "2026-06-19",
+      fecha_fin: "2026-06-19",
       cantidad: 3500,
       unidad: "l",
       fuente: "contador",
       referencia: "agua-contador-general",
-      notas: "Lectura contador: 38662.5 m3. Lectura anterior: 38659 m3 (2026-06-19). Consumo calculado: 3500 L. Linea tratamiento: 120 L. Drencher: 30 L.",
+      notas: "Lectura contador: 38662.5 m3 (foto del 2026-06-20). Lectura anterior: 38659 m3 (2026-06-19). Consumo calculado: 3500 L. Linea tratamiento: 120 L. Drencher: 30 L.",
     });
   });
 

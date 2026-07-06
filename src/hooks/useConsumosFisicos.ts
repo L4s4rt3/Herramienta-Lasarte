@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  buildAnnualConsumptionRows,
   buildDailyConsumptionRows,
   buildMonthlyConsumptionRows,
   buildWeeklyConsumptionRows,
@@ -308,6 +309,17 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
     [rangeStart, rangeEnd, consumos, basesKg, partes],
   );
 
+  const annualRows = useMemo(
+    () => buildAnnualConsumptionRows({
+      rangeStart,
+      rangeEnd,
+      consumos,
+      basesKg,
+      partes,
+    }),
+    [rangeStart, rangeEnd, consumos, basesKg, partes],
+  );
+
   return {
     consumos,
     registrosConsumo: persistedConsumos,
@@ -317,6 +329,7 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
     monthlyRows,
     weeklyRows,
     dailyRows,
+    annualRows,
     isLoading: loadingConsumos || loadingBasesKg || loadingPartes,
     addConsumo: addConsumoMutation,
     addBaseKg: addBaseKgMutation,

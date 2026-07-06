@@ -188,6 +188,25 @@ export function buildDailyWaterMeterConsumo(input: DailyWaterMeterInput): DailyW
   };
 }
 
+/**
+ * Resta un día a una fecha "YYYY-MM-DD" en horario local, sin desplazamiento UTC.
+ * Usa mediodía local como ancla (igual criterio que parseLocalDate en lib/format)
+ * para evitar que el cambio de horario de verano/invierno mueva el día resultante.
+ */
+export function subtractOneDayLocal(date: string): string {
+  const { year, month, day } = parseDateParts(date);
+  const d = new Date(year, month - 1, day, 12, 0, 0);
+  d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/**
+ * REGLA 1 (atribución de lecturas de contador): la foto de hoy registra el consumo
+ * de AYER (y de todos los días transcurridos desde la foto anterior, si hubo un hueco
+ * -p.ej. fin de semana-). Por eso el consumo calculado se fecha [fechaLecturaAnterior,
+ * fecha de la foto actual − 1 día] y NUNCA el día de la foto en sí. Si no hay lectura
+ * anterior (primera vez), no hay delta que atribuir y el rango colapsa a fecha−1.
+ */
 export function buildDailyWaterMeterConsumoFromReading(input: DailyWaterMeterReadingInput): DailyWaterMeterConsumo {
   const lecturaContadorM3 = finiteOrZero(input.lecturaContadorM3);
   const lecturaAnteriorM3 = input.lecturaAnteriorM3 == null ? null : finiteOrZero(input.lecturaAnteriorM3);
@@ -195,19 +214,21 @@ export function buildDailyWaterMeterConsumoFromReading(input: DailyWaterMeterRea
   const consumoL = consumoM3 * 1000;
   const lineaTratamientoL = finiteOrZero(input.lineaTratamientoL);
   const drencherL = finiteOrZero(input.drencherL);
+  const diaAnterior = subtractOneDayLocal(input.fecha);
+  const fechaInicio = input.fechaLecturaAnterior ?? diaAnterior;
   const previousNote = lecturaAnteriorM3 == null
     ? "Lectura anterior: sin referencia."
     : `Lectura anterior: ${lecturaAnteriorM3} m3${input.fechaLecturaAnterior ? ` (${input.fechaLecturaAnterior})` : ""}.`;
 
   return {
     recurso: "agua",
-    fecha_inicio: input.fecha,
-    fecha_fin: input.fecha,
+    fecha_inicio: fechaInicio,
+    fecha_fin: diaAnterior,
     cantidad: consumoL,
     unidad: "l",
     fuente: "contador",
     referencia: "agua-contador-general",
-    notas: `Lectura contador: ${lecturaContadorM3} m3. ${previousNote} Consumo calculado: ${consumoL} L. Linea tratamiento: ${lineaTratamientoL} L. Drencher: ${drencherL} L.`,
+    notas: `Lectura contador: ${lecturaContadorM3} m3 (foto del ${input.fecha}). ${previousNote} Consumo calculado: ${consumoL} L. Linea tratamiento: ${lineaTratamientoL} L. Drencher: ${drencherL} L.`,
   };
 }
 
@@ -216,19 +237,21 @@ export function buildTratamientoWaterMeterConsumoFromReading(input: WaterMeterTr
   const lecturaAnteriorM3 = input.lecturaAnteriorM3 == null ? null : finiteOrZero(input.lecturaAnteriorM3);
   const consumoM3 = lecturaAnteriorM3 == null ? 0 : Math.max(0, lecturaContadorM3 - lecturaAnteriorM3);
   const consumoL = consumoM3 * 1000;
+  const diaAnterior = subtractOneDayLocal(input.fecha);
+  const fechaInicio = input.fechaLecturaAnterior ?? diaAnterior;
   const previousNote = lecturaAnteriorM3 == null
     ? "Lectura anterior: sin referencia."
     : `Lectura anterior: ${lecturaAnteriorM3} m3${input.fechaLecturaAnterior ? ` (${input.fechaLecturaAnterior})` : ""}.`;
 
   return {
     recurso: "agua",
-    fecha_inicio: input.fecha,
-    fecha_fin: input.fecha,
+    fecha_inicio: fechaInicio,
+    fecha_fin: diaAnterior,
     cantidad: consumoL,
     unidad: "l",
     fuente: "contador",
     referencia: "agua-contador-tratamiento",
-    notas: `Lectura contador (m3): ${lecturaContadorM3} m3. ${previousNote} Consumo calculado: ${consumoL} L.`,
+    notas: `Lectura contador (m3): ${lecturaContadorM3} m3 (foto del ${input.fecha}). ${previousNote} Consumo calculado: ${consumoL} L.`,
   };
 }
 
@@ -236,19 +259,21 @@ export function buildJabonWaterMeterConsumoFromReading(input: WaterMeterJabonRea
   const lecturaContadorL = finiteOrZero(input.lecturaContadorL);
   const lecturaAnteriorL = input.lecturaAnteriorL == null ? null : finiteOrZero(input.lecturaAnteriorL);
   const consumoL = lecturaAnteriorL == null ? 0 : Math.max(0, lecturaContadorL - lecturaAnteriorL);
+  const diaAnterior = subtractOneDayLocal(input.fecha);
+  const fechaInicio = input.fechaLecturaAnterior ?? diaAnterior;
   const previousNote = lecturaAnteriorL == null
     ? "Lectura anterior: sin referencia."
     : `Lectura anterior: ${lecturaAnteriorL} L${input.fechaLecturaAnterior ? ` (${input.fechaLecturaAnterior})` : ""}.`;
 
   return {
     recurso: "agua",
-    fecha_inicio: input.fecha,
-    fecha_fin: input.fecha,
+    fecha_inicio: fechaInicio,
+    fecha_fin: diaAnterior,
     cantidad: consumoL,
     unidad: "l",
     fuente: "contador",
     referencia: "agua-contador-tratamiento-jabon",
-    notas: `Lectura contador (L): ${lecturaContadorL} L. ${previousNote} Consumo calculado: ${consumoL} L.`,
+    notas: `Lectura contador (L): ${lecturaContadorL} L (foto del ${input.fecha}). ${previousNote} Consumo calculado: ${consumoL} L.`,
   };
 }
 
@@ -282,6 +307,19 @@ export function parseWaterMeterReadingM3(input: Pick<ConsumoFisicoInput, "notas"
   return lecturaM3;
 }
 
+/**
+ * Extrae la fecha REAL de la foto/lectura desde las notas (formato "(foto del
+ * YYYY-MM-DD)", escrito por los builders de lectura). Necesario porque desde la
+ * REGLA 1 la fila guarda el consumo en [fecha_inicio, fecha_fin] = día(s) anterior(es)
+ * a la foto, así que fecha_fin ya NO es la fecha de la lectura en sí. Para filas sin
+ * esa anotación (facturas, datos antiguos) se usa fecha_fin como aproximación.
+ */
+export function extractFotoFecha(consumo: Pick<ConsumoFisicoInput, "notas" | "fecha_fin">): string {
+  const notes = consumo.notas ?? "";
+  const match = notes.match(/foto del (\d{4}-\d{2}-\d{2})/i);
+  return match ? match[1] : consumo.fecha_fin;
+}
+
 export function findPreviousWaterMeterReading(
   consumos: ConsumoFisicoInput[],
   fecha: string,
@@ -290,7 +328,7 @@ export function findPreviousWaterMeterReading(
   return consumos
     .filter((consumo) => {
       if (consumo.recurso !== "agua") return false;
-      if (consumo.fecha_fin >= fecha) return false;
+      if (extractFotoFecha(consumo) >= fecha) return false;
       const { lecturaM3, lecturaL } = parseWaterMeterReading(consumo);
       if (lecturaM3 == null && lecturaL == null) return false;
       if (consumo.referencia === referencia) return true;
@@ -303,7 +341,7 @@ export function findPreviousWaterMeterReading(
       const { lecturaM3, lecturaL } = parseWaterMeterReading(consumo);
       return {
         id: consumo.id,
-        fecha: consumo.fecha_fin,
+        fecha: extractFotoFecha(consumo),
         lecturaM3,
         lecturaL,
         consumoL: normalizeConsumoCantidad(consumo).cantidadBase,
@@ -311,6 +349,60 @@ export function findPreviousWaterMeterReading(
       };
     })
     .sort((a, b) => b.fecha.localeCompare(a.fecha))[0] ?? null;
+}
+
+export interface WaterBreakdown {
+  tratamientoL: number;
+  tratamientoJabonL: number;
+}
+
+/**
+ * REGLA 2 (desglose informativo): tratamiento y tratamiento+jabon no suman al total
+ * de agua (ver isWaterSubmeterReference / distributeWaterConsumptions), pero sí se
+ * quieren mostrar como desglose de qué parte del consumo general fue de cada uno.
+ * Prorratea por solape de días igual que el resto del reparto físico del módulo.
+ */
+export function waterBreakdownForRange(
+  consumos: ConsumoFisicoInput[],
+  start: string,
+  end: string,
+): WaterBreakdown {
+  const period: ConsumptionPeriod = {
+    periodo: "",
+    fechaInicio: start,
+    fechaFin: end,
+    startMs: dateToUtcMs(start),
+    endMs: dateToUtcMs(end),
+  };
+
+  return consumos.reduce<WaterBreakdown>(
+    (acc, consumo) => {
+      if (consumo.recurso !== "agua") {
+        return acc;
+      }
+
+      const ref = normalizeText(consumo.referencia ?? "");
+      if (ref !== "agua-contador-tratamiento" && ref !== "agua-contador-tratamiento-jabon") {
+        return acc;
+      }
+
+      const factor = overlapFactor(consumo.fecha_inicio, consumo.fecha_fin, period);
+      if (factor <= 0) {
+        return acc;
+      }
+
+      const litros = normalizeConsumoCantidad(consumo).cantidadBase * factor;
+
+      if (ref === "agua-contador-tratamiento") {
+        acc.tratamientoL += litros;
+      } else {
+        acc.tratamientoJabonL += litros;
+      }
+
+      return acc;
+    },
+    { tratamientoL: 0, tratamientoJabonL: 0 },
+  );
 }
 
 export function buildMonthlyConsumptionRows(input: BuildConsumptionRowsInput): ConsumoPeriodoRow[] {
@@ -323,6 +415,16 @@ export function buildWeeklyConsumptionRows(input: BuildConsumptionRowsInput): Co
 
 export function buildDailyConsumptionRows(input: BuildConsumptionRowsInput): ConsumoPeriodoRow[] {
   return buildConsumptionRows(input, buildDayPeriods(input.rangeStart, input.rangeEnd), "daily");
+}
+
+/**
+ * Vista anual: un único periodo que cubre todo [rangeStart, rangeEnd] (normalmente
+ * una campaña completa). Reutiliza la granularidad "monthly" a propósito: es la más
+ * gruesa que ya entiende el resto del reparto (proxy de palets, huecos de gasoil sin
+ * kg en el tramo), y una campaña entera nunca debería tener menos cobertura que un mes.
+ */
+export function buildAnnualConsumptionRows(input: BuildConsumptionRowsInput): ConsumoPeriodoRow[] {
+  return buildConsumptionRows(input, buildYearPeriods(input.rangeStart, input.rangeEnd), "monthly");
 }
 
 function buildConsumptionRows(input: BuildConsumptionRowsInput, periods: ConsumptionPeriod[], granularity: PeriodGranularity): ConsumoPeriodoRow[] {
@@ -443,6 +545,18 @@ function totalConsumosForPeriod(consumos: ConsumoFisicoInput[], period: Consumpt
   );
 }
 
+/**
+ * REGLA 2 (subcontadores): tratamiento y tratamiento+jabon son SUBCONTADORES del
+ * contador general -su consumo ya viaja dentro del delta del general-, así que jamás
+ * deben sumarse al total de agua (ni como lectura diaria exacta, ni por reparto
+ * proporcional). Solo sirven para el desglose informativo (ver waterBreakdownForRange).
+ */
+function isWaterSubmeterReference(reference: string | null | undefined): boolean {
+  const normalizedReference = normalizeText(reference ?? "");
+  return normalizedReference === "agua-contador-tratamiento"
+    || normalizedReference === "agua-contador-tratamiento-jabon";
+}
+
 function distributeWaterConsumptions(
   input: BuildConsumptionRowsInput,
   periods: ConsumptionPeriod[],
@@ -459,6 +573,10 @@ function distributeWaterConsumptions(
 
   input.consumos.forEach((consumo) => {
     if (consumo.recurso !== "agua") {
+      return;
+    }
+
+    if (isWaterSubmeterReference(consumo.referencia)) {
       return;
     }
 
@@ -530,7 +648,8 @@ function isDailyMeterReading(consumo: ConsumoFisicoInput): boolean {
   return consumo.recurso === "agua"
     && consumo.fuente === "contador"
     && consumo.fecha_inicio === consumo.fecha_fin
-    && !isWaterBreakdownReference(consumo.referencia);
+    && !isWaterBreakdownReference(consumo.referencia)
+    && !isWaterSubmeterReference(consumo.referencia);
 }
 
 function isWaterBreakdownReference(reference: string | null | undefined): boolean {
@@ -832,6 +951,28 @@ function buildCampaignWeekPeriods(rangeStart: string, rangeEnd: string): Consump
   }
 
   return weeks;
+}
+
+function buildYearPeriods(rangeStart: string, rangeEnd: string): ConsumptionPeriod[] {
+  const rangeStartMs = dateToUtcMs(rangeStart);
+  const rangeEndMs = dateToUtcMs(rangeEnd);
+
+  if (rangeEndMs < rangeStartMs) {
+    return [];
+  }
+
+  // Año agrícola: septiembre a agosto. Si el inicio del rango ya cae en
+  // septiembre o después, la campaña es (año, año+1); si cae antes, (año-1, año).
+  const start = parseDateParts(rangeStart);
+  const campaignStartYear = start.month >= 9 ? start.year : start.year - 1;
+
+  return [{
+    periodo: `${campaignStartYear}-${campaignStartYear + 1}`,
+    fechaInicio: rangeStart,
+    fechaFin: rangeEnd,
+    startMs: rangeStartMs,
+    endMs: rangeEndMs,
+  }];
 }
 
 function buildDayPeriods(rangeStart: string, rangeEnd: string): ConsumptionPeriod[] {
