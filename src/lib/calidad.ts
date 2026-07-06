@@ -1,8 +1,10 @@
 import jsPDF from "jspdf";
 import { unzipSync } from "fflate";
 import * as XLSX from "xlsx";
+import { getISOWeek, getISOWeekYear } from "date-fns";
 import { appendAoaSheet, appendDictionarySheet, appendRowsSheet, createWorkbook, saveWorkbook } from "@/lib/exportWorkbook";
-import { PDF_THEME } from "@/lib/exportTheme";
+import { drawLogoOrFallback, EXPORT_FOOTER_TEXT, finalizeExportPageNumbers, PDF_THEME } from "@/lib/exportTheme";
+import { buildLasarteFilename, ensureExportLogoLoaded } from "@/lib/reportKit";
 import { formatDate } from "@/lib/format";
 
 export const CALIDAD_OPTIONS = ["Excelente", "Bueno", "Regular", "Deficiente", "Pésimo"] as const;
@@ -220,7 +222,7 @@ export function createCalidadDraftReport(lote: CalidadLote, photoCount: number, 
     lote.productor_finca_nombre || "productor/finca pendiente",
     lote.variedad || lote.producto || "variedad pendiente",
     lote.cantidad || "box pendiente",
-    lote.hora ? `${lote.hora} h` : "hora pendiente",
+    lote.hora ? `${formatHoraCorta(lote.hora)} h` : "hora pendiente",
   ].join(" - ");
   const defects = (lote.defectos ?? []).length > 0 ? ` Defectos marcados: ${(lote.defectos ?? []).join(", ")}.` : "";
   const photoText = photoCount === 1 ? "1 foto adjunta" : `${photoCount} fotos adjuntas`;
@@ -256,7 +258,7 @@ export function buildCalidadComentarioSugerido(current: CalidadLote, history: Ca
     current.productor_finca_nombre || "productor/finca pendiente",
     current.variedad || current.producto || "variedad pendiente",
     current.cantidad || "box pendiente",
-    current.hora ? `${current.hora} h` : "hora pendiente",
+    current.hora ? `${formatHoraCorta(current.hora)} h` : "hora pendiente",
   ].join(" - ");
   const defects = (current.defectos ?? []).length > 0 ? ` Defectos marcados: ${(current.defectos ?? []).join(", ")}.` : "";
   const photoText = photoCount === 1 ? "1 foto adjunta" : `${photoCount} fotos adjuntas`;
@@ -299,7 +301,174 @@ export function attachmentCountMap(adjuntos: CalidadAdjunto[]) {
   }, {});
 }
 
-  export function buildCalidadExcelRows(lotes: CalidadLote[], attachmentCounts: Record<string, number> = {}) {
+// ── Importar lotes del parte del día ────────────────────────────────────────
+
+/** Fila mínima de `lotes_dia` necesaria para prellenar un lote de calidad. */
+export interface LoteDiaImportable {
+  lote_codigo: string | null;
+  productor: string | null;
+  producto: string | null;
+  kg_peso_total: number | null;
+  hora_inicio: string | null;
+}
+
+/** Formatea kg como "20.635 kg" (separador de miles es-ES) para el campo cantidad. */
+export function formatKgCantidad(kg: number | null | undefined): string {
+  if (!kg || kg <= 0) return "";
+  return `${new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 }).format(Math.round(kg))} kg`;
+}
+
+/** Recorta un valor de hora (timestamp o HH:mm:ss) a "HH:mm". */
+export function formatHoraCorta(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const match = value.match(/(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  return `${match[1].padStart(2, "0")}:${match[2]}`;
+}
+
+/**
+ * Compara un `numero_lote` de calidad con un `lote_codigo` de producción:
+ * mismo criterio de normalización (trim + case-insensitive es) usado para el
+ * cruce calidad↔productor en la ficha de Productores.
+ */
+export function sameLoteCodigo(a: string | null | undefined, b: string | null | undefined): boolean {
+  const na = (a ?? "").trim();
+  const nb = (b ?? "").trim();
+  if (!na || !nb) return false;
+  return na.localeCompare(nb, "es", { sensitivity: "accent" }) === 0;
+}
+
+/**
+ * Construye los payloads de `calidad_lotes` a insertar a partir de los lotes
+ * de producción del día (`lotes_dia`) que todavía no existan en la jornada de
+ * calidad (comparando numero_lote vs lote_codigo). No incluye lotes sin código.
+ */
+export function buildLotesParaImportar(
+  lotesDia: LoteDiaImportable[],
+  lotesExistentes: Pick<CalidadLote, "numero_lote">[],
+): Array<{ numero_lote: string; productor_finca_nombre: string; producto: string; cantidad: string; hora: string | null }> {
+  const existentes = lotesExistentes.map((lote) => lote.numero_lote);
+  const vistos = new Set<string>();
+  const result: Array<{ numero_lote: string; productor_finca_nombre: string; producto: string; cantidad: string; hora: string | null }> = [];
+
+  for (const lote of lotesDia) {
+    const codigo = (lote.lote_codigo ?? "").trim();
+    if (!codigo) continue;
+    if (existentes.some((numero) => sameLoteCodigo(numero, codigo))) continue;
+    if ([...vistos].some((v) => sameLoteCodigo(v, codigo))) continue;
+    vistos.add(codigo);
+
+    result.push({
+      numero_lote: codigo,
+      productor_finca_nombre: normalizeCalidadName(lote.productor ?? ""),
+      producto: normalizeCalidadName(lote.producto ?? "") || "Naranja",
+      cantidad: formatKgCantidad(lote.kg_peso_total),
+      hora: formatHoraCorta(lote.hora_inicio),
+    });
+  }
+
+  return result;
+}
+
+// ── Histórico (últimas semanas) ─────────────────────────────────────────────
+
+/** Etiqueta de semana ISO ("2026-W27") a partir de una fecha "YYYY-MM-DD". */
+export function isoWeekKey(fecha: string): string {
+  const date = new Date(`${fecha}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return fecha;
+  const year = getISOWeekYear(date);
+  const week = getISOWeek(date);
+  return `${year}-W${String(week).padStart(2, "0")}`;
+}
+
+export interface CalidadHistoricoSemana {
+  key: string;
+  label: string;
+  total: number;
+  byQuality: Record<CalidadEstado, number>;
+}
+
+export interface CalidadHistoricoDefecto {
+  defecto: string;
+  count: number;
+}
+
+export interface CalidadHistoricoProductor {
+  productor: string;
+  notas: number;
+  incidencias: number;
+  pctIncidencias: number;
+  ultimaFecha: string;
+}
+
+export interface CalidadHistoricoResumen {
+  semanas: CalidadHistoricoSemana[];
+  defectos: CalidadHistoricoDefecto[];
+  productores: CalidadHistoricoProductor[];
+}
+
+/** Considera "incidencia" un lote Regular/Deficiente/Pésimo o con algún defecto marcado. */
+export function esIncidenciaCalidad(lote: Pick<CalidadLote, "calidad" | "defectos">): boolean {
+  return lote.calidad === "Regular" || lote.calidad === "Deficiente" || lote.calidad === "Pésimo" || (lote.defectos ?? []).length > 0;
+}
+
+/**
+ * Agrega lotes de calidad de las últimas semanas en: distribución semanal por
+ * estado, top defectos y ranking de productores con más incidencias. Pensado
+ * para la pestaña "Histórico" (v1 informativa, sin drill-down).
+ */
+export function buildCalidadHistorico(lotes: CalidadLote[]): CalidadHistoricoResumen {
+  const porSemana = new Map<string, CalidadHistoricoSemana>();
+  for (const lote of lotes) {
+    const key = isoWeekKey(lote.fecha);
+    const entry = porSemana.get(key) ?? {
+      key,
+      label: key.replace("-W", " · Sem "),
+      total: 0,
+      byQuality: Object.fromEntries(CALIDAD_OPTIONS.map((q) => [q, 0])) as Record<CalidadEstado, number>,
+    };
+    entry.total += 1;
+    if (lote.calidad in entry.byQuality) entry.byQuality[lote.calidad] += 1;
+    porSemana.set(key, entry);
+  }
+  const semanas = Array.from(porSemana.values()).sort((a, b) => a.key.localeCompare(b.key));
+
+  const defectosCount = new Map<string, number>();
+  for (const lote of lotes) {
+    for (const defecto of lote.defectos ?? []) {
+      defectosCount.set(defecto, (defectosCount.get(defecto) ?? 0) + 1);
+    }
+  }
+  const defectos = Array.from(defectosCount.entries())
+    .map(([defecto, count]) => ({ defecto, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
+
+  const porProductor = new Map<string, { notas: number; incidencias: number; ultimaFecha: string }>();
+  for (const lote of lotes) {
+    const nombre = normalizeCalidadName(lote.productor_finca_nombre || "");
+    if (!nombre) continue;
+    const entry = porProductor.get(nombre) ?? { notas: 0, incidencias: 0, ultimaFecha: lote.fecha };
+    entry.notas += 1;
+    if (esIncidenciaCalidad(lote)) entry.incidencias += 1;
+    if (lote.fecha > entry.ultimaFecha) entry.ultimaFecha = lote.fecha;
+    porProductor.set(nombre, entry);
+  }
+  const productores = Array.from(porProductor.entries())
+    .map(([productor, v]) => ({
+      productor,
+      notas: v.notas,
+      incidencias: v.incidencias,
+      pctIncidencias: v.notas > 0 ? (v.incidencias / v.notas) * 100 : 0,
+      ultimaFecha: v.ultimaFecha,
+    }))
+    .filter((p) => p.incidencias > 0)
+    .sort((a, b) => b.incidencias - a.incidencias || b.pctIncidencias - a.pctIncidencias);
+
+  return { semanas, defectos, productores };
+}
+
+export function buildCalidadExcelRows(lotes: CalidadLote[], attachmentCounts: Record<string, number> = {}) {
   return lotes.map((lote) => ({
     Fecha: formatCalidadDate(lote.fecha),
     Lote: lote.numero_lote,
@@ -307,7 +476,7 @@ export function attachmentCountMap(adjuntos: CalidadAdjunto[]) {
     Producto: lote.producto,
     Variedad: lote.variedad,
     Cantidad: lote.cantidad,
-    Hora: lote.hora ?? "",
+    Hora: formatHoraCorta(lote.hora) ?? "",
     "Aerobotics realizado": lote.aerobotics_realizado ? "Si" : "No",
     Calidad: lote.calidad,
     Defectos: (lote.defectos ?? []).join(", "),
@@ -335,7 +504,7 @@ export function buildCalidadIncidentRows(lotes: CalidadLote[], attachmentCounts:
       Producto: lote.producto,
       Variedad: lote.variedad,
       Cantidad: lote.cantidad,
-      Hora: lote.hora ?? "",
+      Hora: formatHoraCorta(lote.hora) ?? "",
       Calidad: lote.calidad,
       Defectos: (lote.defectos ?? []).join(", "),
       "Otro defecto": lote.defecto_otro,
@@ -426,7 +595,7 @@ function drawCalidadFooter(doc: jsPDF, pageIndex: number) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(6.5);
   doc.setTextColor(...PDF_THEME.muted);
-  doc.text("Lasarte SAT - Informe de Calidad", 10, pageHeight - 5.8);
+  doc.text(EXPORT_FOOTER_TEXT, 10, pageHeight - 5.8);
   doc.text(`Pag. ${pageIndex}`, pageWidth - 10, pageHeight - 5.8, { align: "right" });
 }
 
@@ -436,15 +605,14 @@ function drawCalidadHeader(doc: jsPDF, jornada: CalidadJornada, summary: Calidad
   doc.rect(0, 0, pageWidth, 18, "F");
   doc.setFillColor(...PDF_THEME.primary);
   doc.rect(0, 0, pageWidth, 3, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(...PDF_THEME.white);
-  doc.text("LASARTE SAT", 10, 10);
+  drawLogoOrFallback(doc, 10, 5, 8, { x: 10, yBaseline: 10, fontSize: 10, color: PDF_THEME.white });
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
+  doc.setTextColor(...PDF_THEME.white);
   doc.text("Departamento de Calidad", 10, 14.5);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(7.5);
+  doc.setTextColor(...PDF_THEME.white);
   doc.text(safePdf(formatCalidadDate(jornada.fecha)), pageWidth - 10, 10, { align: "right" });
   doc.setFont("helvetica", "normal");
   doc.text(safePdf(`${summary.total} lotes anotados`), pageWidth - 10, 14.5, { align: "right" });
@@ -513,7 +681,7 @@ function drawLoteCard(doc: jsPDF, lote: CalidadLote, index: number, photoCount: 
   doc.setFontSize(7);
   doc.setTextColor(...PDF_THEME.muted);
   doc.text(safePdf(`Lote ${lote.numero_lote || "-"} - ${lote.producto || "-"} - ${lote.variedad || "-"}`), x + 25, y + 15.2);
-  doc.text(safePdf(`Cantidad: ${lote.cantidad || "-"}   Hora: ${lote.hora || "-"}   Aerobotics: ${lote.aerobotics_realizado ? "Si" : "No"}   Fotos: ${photoCount}`), x + 25, y + 20.3);
+  doc.text(safePdf(`Cantidad: ${lote.cantidad || "-"}   Hora: ${formatHoraCorta(lote.hora) || "-"}   Aerobotics: ${lote.aerobotics_realizado ? "Si" : "No"}   Fotos: ${photoCount}`), x + 25, y + 20.3);
 
   drawQualityPill(doc, x + w - 34, y + 7, lote.calidad, qualityColor, softColor, 27);
 
@@ -610,15 +778,16 @@ export function exportCalidadToExcel(jornada: CalidadJornada, lotes: CalidadLote
     { Hoja: "Adjuntos", Campo: "Ruta storage", Descripcion: "Referencia de fotos y documentos guardados.", Uso: "Trazabilidad." },
   ]);
 
-  saveWorkbook(wb, `calidad_${jornada.fecha}.xlsx`);
+  saveWorkbook(wb, buildLasarteFilename("Calidad", "xlsx", { from: jornada.fecha }));
 }
 
-export function exportCalidadToPDF(
+export async function exportCalidadToPDF(
   jornada: CalidadJornada,
   lotes: CalidadLote[],
   adjuntos: CalidadAdjunto[],
   options: { mode?: "borrador" | "oficial" } = {},
 ) {
+  await ensureExportLogoLoaded();
   const mode = options.mode ?? "borrador";
   const filteredLotes = mode === "oficial" ? lotes.filter((l) => l.informe_estado === "validado") : lotes;
   const counts = attachmentCountMap(adjuntos);
@@ -708,6 +877,7 @@ export function exportCalidadToPDF(
     }
   }
 
-  const suffix = mode === "oficial" ? "oficial" : "borrador";
-  doc.save(`calidad_${jornada.fecha}_${suffix}.pdf`);
+  finalizeExportPageNumbers(doc);
+  const suffix = mode === "oficial" ? "Oficial" : "Borrador";
+  doc.save(buildLasarteFilename(`Calidad-${suffix}`, "pdf", { from: jornada.fecha }));
 }

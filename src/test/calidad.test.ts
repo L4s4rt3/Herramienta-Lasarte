@@ -3,12 +3,19 @@ import {
   buildCalidadAttachmentRows,
   buildCalidadComentarioSugerido,
   buildCalidadExcelRows,
+  buildCalidadHistorico,
   buildCalidadIncidentRows,
   buildComentarioCalidad,
+  buildLotesParaImportar,
   calidadSummary,
+  esIncidenciaCalidad,
   extractWordXmlText,
   formatCalidadDate,
+  formatHoraCorta,
+  formatKgCantidad,
+  isoWeekKey,
   normalizeCalidadName,
+  sameLoteCodigo,
   splitComentarioCalidad,
   sameCalidadName,
   type CalidadLote,
@@ -156,5 +163,76 @@ describe("calidad helpers", () => {
     expect(suggestion).toContain("2 foto");
     expect(suggestion).toContain("Deficiente");
     expect(suggestion).toContain("Accion recomendada:");
+  });
+});
+
+describe("importar lotes del parte", () => {
+  it("formats kg as a thousands-separated quantity string", () => {
+    expect(formatKgCantidad(20635)).toBe("20.635 kg");
+    expect(formatKgCantidad(0)).toBe("");
+    expect(formatKgCantidad(null)).toBe("");
+  });
+
+  it("shortens a timestamp or HH:mm:ss value to HH:mm", () => {
+    expect(formatHoraCorta("2026-06-03T06:05:00")).toBe("06:05");
+    expect(formatHoraCorta("6:05:00")).toBe("06:05");
+    expect(formatHoraCorta(null)).toBeNull();
+  });
+
+  it("matches lote codes with trim + case-insensitive comparison", () => {
+    expect(sameLoteCodigo("26041704", " 26041704 ")).toBe(true);
+    expect(sameLoteCodigo("ABC123", "abc123")).toBe(true);
+    expect(sameLoteCodigo("ABC123", "ABC124")).toBe(false);
+    expect(sameLoteCodigo(null, "ABC123")).toBe(false);
+  });
+
+  it("builds one importable lot per lotes_dia row not already in the jornada", () => {
+    const lotesDia = [
+      { lote_codigo: "26041704", productor: "Los Corrales", producto: "Naranja", kg_peso_total: 20635, hora_inicio: "06:05:00" },
+      { lote_codigo: "26041705", productor: "La Torrecilla", producto: "Naranja", kg_peso_total: 15000, hora_inicio: "07:00:00" },
+      { lote_codigo: null, productor: "Sin codigo", producto: "Naranja", kg_peso_total: 500, hora_inicio: null },
+    ];
+
+    const result = buildLotesParaImportar(lotesDia, [{ numero_lote: "26041704" }]);
+
+    expect(result).toEqual([
+      { numero_lote: "26041705", productor_finca_nombre: "La Torrecilla", producto: "Naranja", cantidad: "15.000 kg", hora: "07:00" },
+    ]);
+  });
+
+  it("skips duplicate lote_codigo values within the same import batch", () => {
+    const lotesDia = [
+      { lote_codigo: "26041706", productor: "Finca A", producto: "Naranja", kg_peso_total: 1000, hora_inicio: "08:00:00" },
+      { lote_codigo: "26041706", productor: "Finca A", producto: "Naranja", kg_peso_total: 1000, hora_inicio: "08:00:00" },
+    ];
+
+    expect(buildLotesParaImportar(lotesDia, [])).toHaveLength(1);
+  });
+});
+
+describe("historico de calidad", () => {
+  it("groups lots by ISO week and quality state", () => {
+    expect(isoWeekKey("2026-06-03")).toMatch(/^2026-W\d{2}$/);
+  });
+
+  it("flags a lot as an incidence when quality needs follow-up or has defects", () => {
+    expect(esIncidenciaCalidad({ calidad: "Regular", defectos: [] })).toBe(true);
+    expect(esIncidenciaCalidad({ calidad: "Bueno", defectos: ["Golpe"] })).toBe(true);
+    expect(esIncidenciaCalidad({ calidad: "Excelente", defectos: [] })).toBe(false);
+  });
+
+  it("aggregates weeks, top defects and producer incident ranking", () => {
+    const historico: CalidadLote[] = [
+      lotes[0],
+      { ...lotes[0], id: "3", numero_lote: "26041706", fecha: "2026-05-27", calidad: "Deficiente", defectos: ["Rameado", "Golpe"] },
+      { ...lotes[1], id: "4", productor_finca_nombre: "Los Corrales", calidad: "Bueno", defectos: [] },
+    ];
+
+    const resumen = buildCalidadHistorico(historico);
+
+    expect(resumen.semanas.length).toBeGreaterThan(0);
+    expect(resumen.defectos[0]).toMatchObject({ defecto: "Rameado", count: 2 });
+    expect(resumen.productores[0].productor).toBe("Los Corrales");
+    expect(resumen.productores[0].incidencias).toBe(2);
   });
 });

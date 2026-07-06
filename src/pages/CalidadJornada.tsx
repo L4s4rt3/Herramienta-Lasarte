@@ -8,19 +8,25 @@ import {
   Camera,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
   Clock,
+  Copy,
   Download,
   FileSpreadsheet,
   FileText,
   History,
   Image as ImageIcon,
   Loader2,
+  Lock,
   MoreHorizontal,
   Plus,
   Save,
   Search,
   Sparkles,
   Trash2,
+  Upload,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthProvider";
@@ -35,10 +41,12 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/hooks/use-toast";
 import { today } from "@/lib/format";
-import { format, parseISO } from "date-fns";
+import { addDays, format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import {
   CALIDAD_OPTIONS,
@@ -46,6 +54,7 @@ import {
   attachmentCountMap,
   buildCalidadComentarioSugerido,
   buildComentarioCalidad,
+  buildLotesParaImportar,
   calidadSummary,
   canValidateCalidadLote,
   createCalidadDraftReport,
@@ -54,10 +63,13 @@ import {
   extractDocxText,
   findCalidadHistoricoSimilar,
   formatCalidadDate,
+  formatHoraCorta,
+  formatKgCantidad,
   isCalidadLoteLocked,
   normalizeCalidadName,
   reopenCalidadLote,
   sameCalidadName,
+  sameLoteCodigo,
   splitComentarioCalidad,
   validateCalidadLote,
   type CalidadAdjunto,
@@ -66,27 +78,43 @@ import {
   type CalidadJornada,
   type CalidadLote,
   type CalidadProductor,
-  type DraftReport,
+  type LoteDiaImportable,
 } from "@/lib/calidad";
 import { cn } from "@/lib/utils";
+import { CalidadHistoricoTab } from "@/components/calidad/CalidadHistoricoTab";
+import { CalidadAdjuntoThumb } from "@/components/calidad/CalidadAdjuntoThumb";
+import { PartFilePreviewDialog, type PreviewableArchivo } from "@/components/PartFilePreviewDialog";
 
 const RESPONSABLES = ["Eusebio Rodríguez"] as const;
 
 const QUALITY_STYLES: Record<CalidadEstado, string> = {
-  Excelente: "border-emerald-500/30 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
-  Bueno: "border-emerald-500/30 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
-  Regular: "border-amber-500/35 bg-amber-500/14 text-amber-700 dark:text-amber-300",
-  Deficiente: "border-orange-500/35 bg-orange-500/14 text-orange-700 dark:text-orange-300",
-  Pésimo: "border-red-500/35 bg-red-500/12 text-red-700 dark:text-red-300",
+  Excelente: "border-success/40 bg-success/10 text-success",
+  Bueno: "border-success/40 bg-success/10 text-success",
+  Regular: "border-warning/40 bg-warning/10 text-warning",
+  Deficiente: "border-warning/40 bg-warning/10 text-warning",
+  Pésimo: "border-destructive/40 bg-destructive/10 text-destructive",
 };
 
 const QUALITY_BAR: Record<CalidadEstado, string> = {
-  Excelente: "bg-emerald-500",
-  Bueno: "bg-emerald-400",
-  Regular: "bg-amber-400",
-  Deficiente: "bg-orange-400",
-  Pésimo: "bg-red-500",
+  Excelente: "bg-success",
+  Bueno: "bg-success/80",
+  Regular: "bg-warning",
+  Deficiente: "bg-warning/80",
+  Pésimo: "bg-destructive",
 };
+
+type LoteFiltro = "todos" | "revisar" | "validados" | "borrador";
+
+const LOTE_FILTROS: { value: LoteFiltro; label: string }[] = [
+  { value: "todos", label: "Todos" },
+  { value: "revisar", label: "Revisar" },
+  { value: "validados", label: "Validados" },
+  { value: "borrador", label: "Borrador" },
+];
+
+function esLoteRevisar(lote: CalidadLote) {
+  return lote.calidad === "Regular" || lote.calidad === "Deficiente" || lote.calidad === "Pésimo";
+}
 
 function errorMessage(error: unknown) {
   return error && typeof error === "object" && "message" in error ? String((error as { message: unknown }).message) : String(error);
@@ -283,18 +311,30 @@ function TimeGlassPicker({ id, value, onChange }: { id: string; value: string; o
   );
 }
 
-function emptyLote(jornada: CalidadJornada, userId: string, index: number) {
+function currentHora() {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
+
+function emptyLote(jornada: CalidadJornada, userId: string, index: number, overrides: Partial<{
+  numero_lote: string;
+  productor_finca_nombre: string;
+  producto: string;
+  variedad: string;
+  cantidad: string;
+  hora: string | null;
+}> = {}) {
   return {
     jornada_id: jornada.id,
     user_id: userId,
     fecha: jornada.fecha,
-    numero_lote: "",
+    numero_lote: overrides.numero_lote ?? "",
     productor_finca_id: null,
-    productor_finca_nombre: "",
-    producto: "Naranja",
-    variedad: "",
-    cantidad: "",
-    hora: null,
+    productor_finca_nombre: overrides.productor_finca_nombre ?? "",
+    producto: overrides.producto ?? "Naranja",
+    variedad: overrides.variedad ?? "",
+    cantidad: overrides.cantidad ?? "",
+    hora: overrides.hora ?? currentHora(),
     aerobotics_realizado: false,
     calidad: "Regular" as CalidadEstado,
     defectos: [],
@@ -329,21 +369,41 @@ export default function CalidadJornadaPage() {
   const [historicalLotes, setHistoricalLotes] = useState<CalidadLote[]>([]);
   const [productores, setProductores] = useState<CalidadProductor[]>([]);
   const [adjuntos, setAdjuntos] = useState<CalidadAdjunto[]>([]);
+  const [lotesDia, setLotesDia] = useState<LoteDiaImportable[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [comentarioDraft, setComentarioDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [productorPickerOpen, setProductorPickerOpen] = useState(false);
   const [productorSearch, setProductorSearch] = useState("");
+  const [loteFiltro, setLoteFiltro] = useState<LoteFiltro>("todos");
+  const [tab, setTab] = useState<"jornada" | "historico">("jornada");
+  const [previewArchivo, setPreviewArchivo] = useState<PreviewableArchivo | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [historicoRango, setHistoricoRango] = useState<CalidadLote[]>([]);
+  const [historicoLoading, setHistoricoLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const wordInputRef = useRef<HTMLInputElement | null>(null);
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const autosaveTimerRef = useRef<number | null>(null);
-  const [draftReport, setDraftReport] = useState<DraftReport | null>(null);
 
   const attachmentCounts = useMemo(() => attachmentCountMap(adjuntos), [adjuntos]);
   const summary = useMemo(() => calidadSummary(lotes, attachmentCounts), [lotes, attachmentCounts]);
+  const validadosCount = useMemo(() => lotes.filter((lote) => isCalidadLoteLocked(lote)).length, [lotes]);
+  const filteredLotes = useMemo(() => {
+    switch (loteFiltro) {
+      case "revisar":
+        return lotes.filter((lote) => esLoteRevisar(lote));
+      case "validados":
+        return lotes.filter((lote) => isCalidadLoteLocked(lote));
+      case "borrador":
+        return lotes.filter((lote) => !isCalidadLoteLocked(lote));
+      default:
+        return lotes;
+    }
+  }, [lotes, loteFiltro]);
   const selected = useMemo(() => lotes.find((lote) => lote.id === selectedId) ?? lotes[0] ?? null, [lotes, selectedId]);
   const selectedAdjuntos = useMemo(() => adjuntos.filter((adjunto) => adjunto.lote_id === selected?.id), [adjuntos, selected?.id]);
   const selectedHistoricalSimilar = useMemo(
@@ -371,58 +431,76 @@ export default function CalidadJornadaPage() {
     if (!user) return;
     setLoading(true);
     try {
-      const [{ data: calidadProductoresData }, { data: parteProductoresData }, jornadaResponse, historicoResponse] = await Promise.all([
-        supabase.from("calidad_productores" as any).select("*").order("nombre", { ascending: true }),
-        supabase.from("lotes_dia" as any).select("productor").not("productor", "is", null).limit(5000),
-        supabase.from("calidad_jornadas" as any).select("*").eq("fecha", fecha).maybeSingle(),
+      const [{ data: calidadProductoresData }, { data: parteProductoresData }, jornadaResponse, historicoResponse, parteDelDiaResponse] = await Promise.all([
+        supabase.from("calidad_productores").select("*").order("nombre", { ascending: true }),
+        supabase.from("lotes_dia").select("productor").not("productor", "is", null).limit(5000),
+        supabase.from("calidad_jornadas").select("*").eq("fecha", fecha).maybeSingle(),
         supabase
-          .from("calidad_lotes" as any)
+          .from("calidad_lotes")
           .select("*")
           .eq("user_id", user.id)
           .lt("fecha", fecha)
           .order("fecha", { ascending: false })
           .limit(300),
+        supabase.from("partes_diarios").select("id").eq("date", fecha).maybeSingle(),
       ]);
 
-      let currentJornada = jornadaResponse.data as CalidadJornada | null;
+      // El cliente Supabase tipado no siempre infiere bien el resultado de
+      // `.maybeSingle()`/`.select("*")` en tablas nuevas: se castea vía
+      // `unknown` para recuperar el shape real de la fila (CalidadJornada).
+      let currentJornada = jornadaResponse.data as unknown as CalidadJornada | null;
       if (jornadaResponse.error) throw jornadaResponse.error;
       if (historicoResponse.error) throw historicoResponse.error;
 
       if (!currentJornada) {
         const fallbackResponsible = "Eusebio Rodríguez";
         const { data: inserted, error } = await supabase
-          .from("calidad_jornadas" as any)
+          .from("calidad_jornadas")
           .insert({ user_id: user.id, fecha, responsable: fallbackResponsible })
           .select("*")
           .single();
         if (error) throw error;
-        currentJornada = inserted as CalidadJornada;
+        currentJornada = inserted as unknown as CalidadJornada;
       }
 
       const { data: lotesData, error: lotesError } = await supabase
-        .from("calidad_lotes" as any)
+        .from("calidad_lotes")
         .select("*")
         .eq("jornada_id", currentJornada.id)
         .order("created_at", { ascending: true });
       if (lotesError) throw lotesError;
 
-      const loadedLotes = (lotesData ?? []) as CalidadLote[];
+      const loadedLotes = (lotesData ?? []) as unknown as CalidadLote[];
       let loadedAdjuntos: CalidadAdjunto[] = [];
       if (loadedLotes.length > 0) {
         const { data: adjuntosData, error: adjuntosError } = await supabase
-          .from("calidad_adjuntos" as any)
+          .from("calidad_adjuntos")
           .select("*")
           .in("lote_id", loadedLotes.map((lote) => lote.id))
           .order("created_at", { ascending: false });
         if (adjuntosError) throw adjuntosError;
 
         loadedAdjuntos = await Promise.all(
-          ((adjuntosData ?? []) as CalidadAdjunto[]).map(async (adjunto) => {
+          ((adjuntosData ?? []) as unknown as CalidadAdjunto[]).map(async (adjunto) => {
             if (!adjunto.mime_type?.startsWith("image/")) return adjunto;
             const { data } = await supabase.storage.from("partes-archivos").createSignedUrl(adjunto.file_path, 60 * 60);
             return { ...adjunto, signedUrl: data?.signedUrl };
           }),
         );
+      }
+
+      // Lotes del parte de producción del mismo día, para "Importar lotes del
+      // parte" y el autocompletar de número de lote.
+      let lotesDiaDelParte: LoteDiaImportable[] = [];
+      const parteId = (parteDelDiaResponse.data as unknown as { id: string } | null)?.id;
+      if (parteId) {
+        const { data: lotesDiaData, error: lotesDiaError } = await supabase
+          .from("lotes_dia")
+          .select("lote_codigo, productor, producto, kg_peso_total, hora_inicio")
+          .eq("part_id", parteId)
+          .order("hora_inicio", { ascending: true });
+        if (lotesDiaError) throw lotesDiaError;
+        lotesDiaDelParte = (lotesDiaData ?? []) as LoteDiaImportable[];
       }
 
       const calidadProductores = (calidadProductoresData ?? []) as CalidadProductor[];
@@ -431,12 +509,13 @@ export default function CalidadJornadaPage() {
         return nombre ? [{ id: `db-${nombre}`, nombre }] : [];
       });
       setProductores([...calidadProductores, ...importedProductores]);
-      setHistoricalLotes((historicoResponse.data ?? []) as CalidadLote[]);
+      setHistoricalLotes((historicoResponse.data ?? []) as unknown as CalidadLote[]);
       setJornada(currentJornada);
       setResponsable(currentJornada.responsable || "");
       setResponsableCustom(RESPONSABLES.includes(currentJornada.responsable as typeof RESPONSABLES[number]) ? "" : currentJornada.responsable || "");
       setLotes(loadedLotes);
       setAdjuntos(loadedAdjuntos);
+      setLotesDia(lotesDiaDelParte);
       setSelectedId((current) => (current && loadedLotes.some((lote) => lote.id === current) ? current : loadedLotes[0]?.id ?? null));
     } catch (error) {
       toast({ title: "Error cargando Calidad", description: errorMessage(error), variant: "destructive" });
@@ -444,6 +523,30 @@ export default function CalidadJornadaPage() {
       setLoading(false);
     }
   }, [fecha, user]);
+
+  const loadHistorico = useCallback(async () => {
+    if (!user) return;
+    setHistoricoLoading(true);
+    try {
+      const desde = format(addDays(new Date(), -7 * 8), "yyyy-MM-dd");
+      const { data, error } = await supabase
+        .from("calidad_lotes")
+        .select("*")
+        .eq("user_id", user.id)
+        .gte("fecha", desde)
+        .order("fecha", { ascending: true });
+      if (error) throw error;
+      setHistoricoRango((data ?? []) as unknown as CalidadLote[]);
+    } catch (error) {
+      toast({ title: "Error cargando histórico", description: errorMessage(error), variant: "destructive" });
+    } finally {
+      setHistoricoLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (tab === "historico") void loadHistorico();
+  }, [tab, loadHistorico]);
 
   useEffect(() => {
     void load();
@@ -495,9 +598,9 @@ export default function CalidadJornadaPage() {
         reabierto_by: lote.reabierto_by,
         motivo_reapertura: lote.motivo_reapertura,
       };
-      const { data, error } = await supabase.from("calidad_lotes" as any).update(payload).eq("id", lote.id).select("*").single();
+      const { data, error } = await supabase.from("calidad_lotes").update(payload).eq("id", lote.id).select("*").single();
       if (error) throw error;
-      const saved = data as CalidadLote;
+      const saved = data as unknown as CalidadLote;
       setLotes((items) => items.map((item) => (item.id === saved.id ? saved : item)));
       setAutosaveStatus("saved");
     } catch (error) {
@@ -522,12 +625,12 @@ export default function CalidadJornadaPage() {
     if (existing) return existing;
 
     const { data, error } = await supabase
-      .from("calidad_productores" as any)
+      .from("calidad_productores")
       .insert({ user_id: user.id, nombre: trimmed })
       .select("*")
       .single();
     if (error) throw error;
-    const created = data as CalidadProductor;
+    const created = data as unknown as CalidadProductor;
     setProductores((items) => [...items, created].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")));
     return created;
   }
@@ -558,7 +661,7 @@ export default function CalidadJornadaPage() {
     }
 
     try {
-      const { error } = await supabase.from("calidad_productores" as any).delete().eq("id", productor.id);
+      const { error } = await supabase.from("calidad_productores").delete().eq("id", productor.id);
       if (error) throw error;
       setProductores((items) => items.filter((item) => item.id !== productor.id));
       if (selected?.productor_finca_id === productor.id || sameCalidadName(selected?.productor_finca_nombre ?? "", productor.nombre)) {
@@ -570,24 +673,83 @@ export default function CalidadJornadaPage() {
     }
   }
 
-  async function addLote() {
-    if (!jornada || !user) return;
+  async function addLote(overrides?: Partial<{
+    numero_lote: string;
+    productor_finca_nombre: string;
+    producto: string;
+    variedad: string;
+    cantidad: string;
+    hora: string | null;
+  }>) {
+    if (!jornada || !user) return null;
     setSaving(true);
     try {
       const { data, error } = await supabase
-        .from("calidad_lotes" as any)
-        .insert(emptyLote(jornada, user.id, lotes.length))
+        .from("calidad_lotes")
+        .insert(emptyLote(jornada, user.id, lotes.length, overrides))
         .select("*")
         .single();
       if (error) throw error;
-      const created = data as CalidadLote;
+      const created = data as unknown as CalidadLote;
       setLotes((items) => [...items, created]);
       setSelectedId(created.id);
+      return created;
     } catch (error) {
       toast({ title: "Error creando lote", description: errorMessage(error), variant: "destructive" });
+      return null;
     } finally {
       setSaving(false);
     }
+  }
+
+  async function duplicateSelectedLote() {
+    if (!selected) return;
+    const created = await addLote({
+      productor_finca_nombre: selected.productor_finca_nombre,
+      producto: selected.producto,
+      variedad: selected.variedad,
+      hora: currentHora(),
+    });
+    if (created) {
+      toast({ title: "Lote duplicado", description: "Productor, finca y producto copiados. Completa lote y cantidad." });
+    }
+  }
+
+  /** Importa como lotes de calidad los lotes del parte del día que aún no existan (por numero_lote). */
+  async function importarLotesDelParte() {
+    if (!jornada || !user) return;
+    const nuevos = buildLotesParaImportar(lotesDia, lotes);
+    if (nuevos.length === 0) {
+      toast({ title: "Todos los lotes ya estaban", description: "No hay lotes nuevos que importar del parte de este día." });
+      return;
+    }
+    setImporting(true);
+    try {
+      const payload = nuevos.map((lote, index) => emptyLote(jornada, user.id, lotes.length + index, lote));
+      const { data, error } = await supabase.from("calidad_lotes").insert(payload).select("*");
+      if (error) throw error;
+      const created = (data ?? []) as unknown as CalidadLote[];
+      setLotes((items) => [...items, ...created]);
+      if (created.length > 0 && !selectedId) setSelectedId(created[0].id);
+      toast({ title: `${created.length} lote${created.length === 1 ? "" : "s"} importado${created.length === 1 ? "" : "s"}` });
+    } catch (error) {
+      toast({ title: "Error importando lotes", description: errorMessage(error), variant: "destructive" });
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  /** Al elegir un lote_codigo sugerido, rellena campos vacíos del lote seleccionado. */
+  function applyLoteDiaSuggestion(codigo: string) {
+    if (!selected) return;
+    const match = lotesDia.find((lote) => sameLoteCodigo(lote.lote_codigo, codigo));
+    patchSelected({
+      numero_lote: codigo,
+      productor_finca_nombre: selected.productor_finca_nombre || normalizeCalidadName(match?.productor ?? ""),
+      producto: selected.producto || normalizeCalidadName(match?.producto ?? ""),
+      cantidad: selected.cantidad || formatKgCantidad(match?.kg_peso_total ?? null),
+      hora: selected.hora || formatHoraCorta(match?.hora_inicio ?? null),
+    });
   }
 
   async function saveJornada() {
@@ -595,7 +757,7 @@ export default function CalidadJornadaPage() {
     setSaving(true);
     try {
       const { error } = await supabase
-        .from("calidad_jornadas" as any)
+        .from("calidad_jornadas")
         .update({ responsable, estado: "guardada" })
         .eq("id", jornada.id);
       if (error) throw error;
@@ -639,9 +801,9 @@ export default function CalidadJornadaPage() {
         reabierto_by: selected.reabierto_by,
         motivo_reapertura: selected.motivo_reapertura,
       };
-      const { data, error } = await supabase.from("calidad_lotes" as any).update(payload).eq("id", selected.id).select("*").single();
+      const { data, error } = await supabase.from("calidad_lotes").update(payload).eq("id", selected.id).select("*").single();
       if (error) throw error;
-      const saved = data as CalidadLote;
+      const saved = data as unknown as CalidadLote;
       setLotes((items) => items.map((lote) => (lote.id === saved.id ? saved : lote)));
       toast({ title: "Lote guardado", description: selected.numero_lote ? `Lote ${selected.numero_lote}` : "Anotacion actualizada" });
     } catch (error) {
@@ -657,7 +819,7 @@ export default function CalidadJornadaPage() {
       const files = adjuntos.filter((adjunto) => adjunto.lote_id === lote.id);
       const paths = files.map((file) => file.file_path).filter(Boolean);
       if (paths.length > 0) await supabase.storage.from("partes-archivos").remove(paths);
-      const { error } = await supabase.from("calidad_lotes" as any).delete().eq("id", lote.id);
+      const { error } = await supabase.from("calidad_lotes").delete().eq("id", lote.id);
       if (error) throw error;
       setLotes((items) => items.filter((item) => item.id !== lote.id));
       setAdjuntos((items) => items.filter((item) => item.lote_id !== lote.id));
@@ -682,12 +844,12 @@ export default function CalidadJornadaPage() {
         const { error: uploadError } = await supabase.storage.from("partes-archivos").upload(path, file);
         if (uploadError) throw uploadError;
         const { data, error } = await supabase
-          .from("calidad_adjuntos" as any)
+          .from("calidad_adjuntos")
           .insert({ lote_id: selected.id, user_id: user.id, file_name: file.name, file_path: path, mime_type: file.type, file_size: file.size })
           .select("*")
           .single();
         if (error) throw error;
-        const adjunto = data as CalidadAdjunto;
+        const adjunto = data as unknown as CalidadAdjunto;
         if (adjunto.mime_type?.startsWith("image/")) {
           const { data: signed } = await supabase.storage.from("partes-archivos").createSignedUrl(adjunto.file_path, 60 * 60);
           created.push({ ...adjunto, signedUrl: signed?.signedUrl });
@@ -708,7 +870,7 @@ export default function CalidadJornadaPage() {
   async function deleteAdjunto(adjunto: CalidadAdjunto) {
     try {
       await supabase.storage.from("partes-archivos").remove([adjunto.file_path]);
-      const { error } = await supabase.from("calidad_adjuntos" as any).delete().eq("id", adjunto.id);
+      const { error } = await supabase.from("calidad_adjuntos").delete().eq("id", adjunto.id);
       if (error) throw error;
       setAdjuntos((items) => items.filter((item) => item.id !== adjunto.id));
       toast({ title: "Adjunto eliminado" });
@@ -806,7 +968,7 @@ export default function CalidadJornadaPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {autosaveStatus !== "idle" && (
-            <span className={cn("flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium", autosaveStatus === "saving" && "bg-amber-500/10 text-amber-600", autosaveStatus === "saved" && "bg-emerald-500/10 text-emerald-600", autosaveStatus === "error" && "bg-red-500/10 text-red-600")}>
+            <span className={cn("flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium", autosaveStatus === "saving" && "border-warning/40 bg-warning/10 text-warning", autosaveStatus === "saved" && "border-success/40 bg-success/10 text-success", autosaveStatus === "error" && "border-destructive/40 bg-destructive/10 text-destructive")}>
               {autosaveStatus === "saving" && <Loader2 className="h-3 w-3 animate-spin" />}
               {autosaveStatus === "saving" ? "Guardando..." : autosaveStatus === "saved" ? "Guardado" : "Error al guardar"}
             </span>
@@ -820,12 +982,12 @@ export default function CalidadJornadaPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => jornada && exportCalidadToPDF(jornada, lotes, adjuntos, { mode: "borrador" })}>
+              <DropdownMenuItem onClick={() => jornada && exportCalidadToPDF(jornada, lotes, adjuntos, { mode: "borrador" }).catch((e) => toast({ title: "Error al exportar", description: e instanceof Error ? e.message : String(e), variant: "destructive" }))}>
                 <FileText className="h-4 w-4" />
                 PDF borrador
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => jornada && exportCalidadToPDF(jornada, lotes, adjuntos, { mode: "oficial" })}
+                onClick={() => jornada && exportCalidadToPDF(jornada, lotes, adjuntos, { mode: "oficial" }).catch((e) => toast({ title: "Error al exportar", description: e instanceof Error ? e.message : String(e), variant: "destructive" }))}
                 disabled={!lotes.some((l) => l.informe_estado === "validado")}
               >
                 <FileText className="h-4 w-4" />
@@ -851,7 +1013,37 @@ export default function CalidadJornadaPage() {
               <Label htmlFor="fecha-calidad" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Fecha
               </Label>
-              <DateGlassPicker id="fecha-calidad" value={fecha} onChange={changeDate} />
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 rounded-xl bg-[var(--glass-bg)] border border-[var(--glass-border)] px-1 py-1 shadow-[var(--glass-shadow)]">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-lg glass-hover"
+                    onClick={() => changeDate(format(addDays(parseISO(fecha), -1), "yyyy-MM-dd"))}
+                    aria-label="Día anterior"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-lg glass-hover"
+                    onClick={() => changeDate(format(addDays(parseISO(fecha), 1), "yyyy-MM-dd"))}
+                    disabled={fecha >= today()}
+                    aria-label="Día siguiente"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <DateGlassPicker id="fecha-calidad" value={fecha} onChange={changeDate} />
+                </div>
+                {fecha !== today() && (
+                  <Button variant="ghost" size="sm" className="h-7 shrink-0 text-xs text-muted-foreground" onClick={() => changeDate(today())}>
+                    Hoy
+                  </Button>
+                )}
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="responsable-calidad" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -896,10 +1088,10 @@ export default function CalidadJornadaPage() {
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
-              { label: "Lotes", value: summary.total, tone: "" },
-              { label: "Aerobotics", value: summary.aerobotics, tone: "" },
-              { label: "Bueno", value: summary.byQuality.Excelente + summary.byQuality.Bueno, tone: "text-success" },
-              { label: "Revisar", value: summary.byQuality.Regular + summary.byQuality.Deficiente + summary.byQuality.Pésimo, tone: "text-warning" },
+              { label: "Lotes", value: String(summary.total), tone: "" },
+              { label: "Aerobotics", value: `${summary.aerobotics}/${summary.total}`, tone: "" },
+              { label: "Bueno", value: String(summary.byQuality.Excelente + summary.byQuality.Bueno), tone: "text-success" },
+              { label: "Revisar", value: String(summary.byQuality.Regular + summary.byQuality.Deficiente + summary.byQuality.Pésimo), tone: "text-warning" },
             ].map((stat) => (
               <div key={stat.label} className="glass rounded-xl p-3">
                 <p className="panel-kicker mb-1">{stat.label}</p>
@@ -934,22 +1126,73 @@ export default function CalidadJornadaPage() {
         </CardContent>
       </Card>
 
+      <Tabs value={tab} onValueChange={(value) => setTab(value as "jornada" | "historico")} className="space-y-5">
+        <TabsList className="glass w-full justify-start sm:w-auto">
+          <TabsTrigger value="jornada">Jornada</TabsTrigger>
+          <TabsTrigger value="historico">Histórico</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="jornada" className="space-y-5">
       <div className="grid gap-5 xl:grid-cols-[minmax(320px,0.86fr)_minmax(0,1.5fr)]">
         <Card className={cn("glass", selected && "hidden xl:block")}>
           <CardHeader className="space-y-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="panel-kicker">Lotes ({summary.total})</p>
+                <p className="panel-kicker">
+                  Lotes ({summary.total}) · {validadosCount}/{summary.total} validados
+                </p>
                 <CardTitle className="text-xl">Notas del dia</CardTitle>
               </div>
-              <Button size="sm" onClick={addLote} disabled={saving || !jornada} className="glass glass-hover">
-                <Plus className="h-4 w-4" />
-                Añadir
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="glass glass-hover"
+                        onClick={importarLotesDelParte}
+                        disabled={importing || !jornada || lotesDia.length === 0}
+                      >
+                        {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                        Importar lotes del parte
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  {lotesDia.length === 0 && (
+                    <TooltipContent side="bottom" className="max-w-[240px] text-xs">
+                      No hay parte de producción para {formatCalidadDate(fecha)} todavía.
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+                <Button size="sm" onClick={() => addLote()} disabled={saving || !jornada} className="glass glass-hover">
+                  <Plus className="h-4 w-4" />
+                  Añadir
+                </Button>
+              </div>
             </div>
             <div className="rounded-xl border border-primary/10 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
               Al abrir un parte de {formatCalidadDate(fecha)}, estas notas apareceran en su pestaña de Calidad.
             </div>
+            {lotes.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {LOTE_FILTROS.map((f) => (
+                  <button
+                    key={f.value}
+                    type="button"
+                    onClick={() => setLoteFiltro(f.value)}
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs font-medium transition-all",
+                      loteFiltro === f.value
+                        ? "border-primary/40 bg-primary/10 text-primary"
+                        : "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground hover:border-primary/25",
+                    )}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </CardHeader>
           <CardContent className="space-y-2">
             {lotes.length === 0 ? (
@@ -958,9 +1201,16 @@ export default function CalidadJornadaPage() {
                 <p className="mt-2 text-sm font-medium">Sin lotes todavia</p>
                 <p className="mt-1 text-xs text-muted-foreground">Crea el primer lote y empieza a tomar notas.</p>
               </div>
+            ) : filteredLotes.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-primary/25 bg-[var(--glass-bg)] p-5 text-center">
+                <p className="text-sm font-medium">Sin lotes en este filtro</p>
+                <p className="mt-1 text-xs text-muted-foreground">Prueba con otro filtro rápido.</p>
+              </div>
             ) : (
-              lotes.map((lote, index) => {
+              filteredLotes.map((lote) => {
                 const active = selected?.id === lote.id;
+                const index = lotes.findIndex((item) => item.id === lote.id);
+                const locked = isCalidadLoteLocked(lote);
                 return (
                   <button
                     key={lote.id}
@@ -977,6 +1227,11 @@ export default function CalidadJornadaPage() {
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 items-center gap-2">
+                          {locked ? (
+                            <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-success" aria-label="Validado" />
+                          ) : (
+                            <Circle className="h-2 w-2 shrink-0 fill-muted-foreground/40 text-muted-foreground/40" aria-label="Borrador" />
+                          )}
                           <p className="truncate text-sm font-semibold">{lote.productor_finca_nombre || "Productor/Finca pendiente"}</p>
                           <Badge variant="outline" className={cn("shrink-0", QUALITY_STYLES[lote.calidad])}>
                             {lote.calidad}
@@ -987,7 +1242,7 @@ export default function CalidadJornadaPage() {
                         </p>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {lote.aerobotics_realizado && (
-                            <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+                            <Badge variant="outline" className="border-success/40 bg-success/10 text-success">
                               Aerobotics
                             </Badge>
                           )}
@@ -1022,18 +1277,22 @@ export default function CalidadJornadaPage() {
                       </CardTitle>
                     </div>
                     {isCalidadLoteLocked(selected) && (
-                      <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
-                        <BadgeCheck className="mr-1 h-3 w-3" />
+                      <Badge variant="outline" className="border-success/40 bg-success/10 text-success">
+                        <Lock className="mr-1 h-3 w-3" />
                         Validado
                       </Badge>
                     )}
                     {selected.informe_estado === "reabierto" && (
-                      <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30">
+                      <Badge variant="outline" className="border-warning/40 bg-warning/10 text-warning">
                         Reabierto
                       </Badge>
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" className="hidden glass glass-hover sm:inline-flex" onClick={duplicateSelectedLote} disabled={saving}>
+                      <Copy className="h-4 w-4" />
+                      Duplicar
+                    </Button>
                     {!isCalidadLoteLocked(selected) && (
                       <Button variant="outline" className="hidden glass glass-hover sm:inline-flex" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
                         {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
@@ -1056,7 +1315,6 @@ export default function CalidadJornadaPage() {
                       <Button variant="outline" className="glass glass-hover" onClick={() => {
                         const photoCount = attachmentCounts[selected.id] ?? 0;
                         const report = createCalidadDraftReport(selected, photoCount, historicalLotes);
-                        setDraftReport(report);
                         patchSelected({
                           informe_estado: "generado",
                           informe_generado: report.informe,
@@ -1105,6 +1363,10 @@ export default function CalidadJornadaPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={duplicateSelectedLote} disabled={saving}>
+                            <Copy className="h-4 w-4" />
+                            Duplicar
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => fileInputRef.current?.click()} disabled={uploading}>
                             <Camera className="h-4 w-4" />
                             Fotos
@@ -1125,7 +1387,24 @@ export default function CalidadJornadaPage() {
                 <section className="grid gap-4 lg:grid-cols-4">
                   <div className="space-y-2">
                     <Label htmlFor="numero-lote">Lote</Label>
-                    <Input id="numero-lote" value={selected.numero_lote} onChange={(event) => patchSelected({ numero_lote: event.target.value })} placeholder="26041704" className={glassInputClassName()} disabled={isCalidadLoteLocked(selected)} />
+                    <Input
+                      id="numero-lote"
+                      list="lotes-dia-sugeridos"
+                      value={selected.numero_lote}
+                      onChange={(event) => patchSelected({ numero_lote: event.target.value })}
+                      onBlur={(event) => {
+                        const value = event.target.value.trim();
+                        if (value) applyLoteDiaSuggestion(value);
+                      }}
+                      placeholder="26041704"
+                      className={glassInputClassName()}
+                      disabled={isCalidadLoteLocked(selected)}
+                    />
+                    <datalist id="lotes-dia-sugeridos">
+                      {lotesDia.map((lote) => (
+                        lote.lote_codigo ? <option key={lote.lote_codigo} value={lote.lote_codigo} /> : null
+                      ))}
+                    </datalist>
                   </div>
                   <div className="space-y-2 lg:col-span-2">
                     <Label htmlFor="productor-finca">Productor/Finca</Label>
@@ -1207,7 +1486,7 @@ export default function CalidadJornadaPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="hora-lote">Hora</Label>
-                    <TimeGlassPicker id="hora-lote" value={selected.hora ?? ""} onChange={(value) => patchSelected({ hora: value || null })} />
+                    <TimeGlassPicker id="hora-lote" value={formatHoraCorta(selected.hora) ?? ""} onChange={(value) => patchSelected({ hora: value || null })} />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="producto-lote">Producto</Label>
@@ -1333,7 +1612,7 @@ export default function CalidadJornadaPage() {
                             </div>
                             <p className="mt-1 truncate text-sm font-medium">{lote.productor_finca_nombre || "Sin productor/finca"}</p>
                             <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                              {lote.variedad || lote.producto || "Sin variedad"} - {lote.cantidad || "Sin box"} - {lote.hora || "Sin hora"}
+                              {lote.variedad || lote.producto || "Sin variedad"} - {lote.cantidad || "Sin box"} - {formatHoraCorta(lote.hora) || "Sin hora"}
                             </p>
                             {(lote.observacion || lote.accion_recomendada) && (
                               <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
@@ -1366,13 +1645,17 @@ export default function CalidadJornadaPage() {
                     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                       {selectedAdjuntos.map((adjunto) => (
                         <div key={adjunto.id} className="overflow-hidden rounded-xl border border-border/70 bg-background/70">
-                          {adjunto.signedUrl ? (
-                            <img src={adjunto.signedUrl} alt={adjunto.file_name} className="h-32 w-full object-cover" />
-                          ) : (
-                            <div className="flex h-32 items-center justify-center bg-primary/6">
-                              <ImageIcon className="h-7 w-7 text-primary" />
-                            </div>
-                          )}
+                          <button
+                            type="button"
+                            className="block w-full"
+                            onClick={() => {
+                              setPreviewArchivo(adjunto);
+                              setPreviewOpen(true);
+                            }}
+                            aria-label={`Ver ${adjunto.file_name}`}
+                          >
+                            <CalidadAdjuntoThumb adjunto={adjunto} />
+                          </button>
                           <div className="flex items-center gap-2 p-2">
                             <p className="min-w-0 flex-1 truncate text-xs font-medium">{adjunto.file_name}</p>
                             <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => deleteAdjunto(adjunto)}>
@@ -1392,7 +1675,7 @@ export default function CalidadJornadaPage() {
                 <BadgeCheck className="mx-auto h-10 w-10 text-primary" />
                 <h2 className="mt-4 text-xl font-semibold">Prepara la jornada</h2>
                 <p className="mt-2 text-sm text-muted-foreground">Añade un lote para empezar a registrar las notas de calidad del dia.</p>
-                <Button className="mt-5 glass glass-hover" onClick={addLote} disabled={!jornada || saving}>
+                <Button className="mt-5 glass glass-hover" onClick={() => addLote()} disabled={!jornada || saving}>
                   <Plus className="h-4 w-4" />
                   Añadir primer lote
                 </Button>
@@ -1403,9 +1686,9 @@ export default function CalidadJornadaPage() {
       </div>
 
       {summary.byQuality.Deficiente + summary.byQuality.Pésimo > 0 && (
-        <Card className="glass border-orange-500/25 bg-orange-500/6">
+        <Card className="glass border-warning/30 bg-warning/6">
           <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center">
-            <AlertTriangle className="h-5 w-5 text-orange-600" />
+            <AlertTriangle className="h-5 w-5 text-warning" />
             <div className="flex-1">
               <p className="text-sm font-semibold">Hay lotes con incidencia</p>
               <p className="text-xs text-muted-foreground">Quedaran visibles en el parte de {formatCalidadDate(fecha)} para que el informe no pierda contexto.</p>
@@ -1416,6 +1699,14 @@ export default function CalidadJornadaPage() {
           </CardContent>
         </Card>
       )}
+        </TabsContent>
+
+        <TabsContent value="historico">
+          <CalidadHistoricoTab lotes={historicoRango} loading={historicoLoading} />
+        </TabsContent>
+      </Tabs>
+
+      <PartFilePreviewDialog open={previewOpen} onOpenChange={setPreviewOpen} archivo={previewArchivo} />
     </div>
   );
 }
