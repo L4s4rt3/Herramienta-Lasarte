@@ -385,7 +385,7 @@ export async function exportPartesToPDF(partes: ParteRow[], from: string, to: st
 
   let y = drawReportCover(doc, summary.meta, summary.kpis);
   y = drawReportInsights(doc, summary.insights, 8, y, 281) + 4;
-  y = drawReportSectionTitle(doc, "Resumen ejecutivo", y, "Detalle diario con semaforo y totales del periodo");
+  y = drawReportSectionTitle(doc, "Resumen del periodo", y, "Detalle diario con semaforo y totales del rango exportado");
 
   const barY = y;
   const totalSem = nOk + nWarn + nCrit;
@@ -443,7 +443,7 @@ export async function exportPartesToPDF(partes: ParteRow[], from: string, to: st
         data.cell.styles.fillColor = PDF_THEME.creamStrong;
       }
     },
-    didDrawPage: () => addAutoTablePageHeader(doc, pageIndex, from, to, "Resumen ejecutivo"),
+    didDrawPage: () => addAutoTablePageHeader(doc, pageIndex, from, to, "Resumen del periodo"),
   });
 
   drawFooter(doc);
@@ -460,7 +460,7 @@ export async function exportPartesToPDF(partes: ParteRow[], from: string, to: st
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.setTextColor(...PDF_THEME.primaryDark);
-    doc.text(`Parte diario - ${pdfDate(p.date)}`, 14, 35);
+    doc.text(`Detalle por parte - ${pdfDate(p.date)}`, 14, 35);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(...PDF_THEME.muted);
@@ -481,6 +481,8 @@ export async function exportPartesToPDF(partes: ParteRow[], from: string, to: st
       { label: "DJPMN", val: pdfKg(c.dsj), sub: semLabel(c.semaforo) },
     ].forEach((card, i) => drawKpiCard(doc, 8 + i * 70.5, 46, 68, card.label, card.val, card.sub));
 
+    const cascadeSectionY = drawReportSectionTitle(doc, "Cascada DJPMN", 70, "De la produccion bruta al descuadre final, paso a paso");
+
     const cascadeRows = [
       ["Produccion real", "Calibrador", "=", pdfKg(c.produccion_calibrador)],
       ["Produccion real", "Mujeres clase L", "-", pdfKg(c.mujeres)],
@@ -500,16 +502,21 @@ export async function exportPartesToPDF(partes: ParteRow[], from: string, to: st
     ];
 
     autoTable(doc, {
-      startY: 72,
+      startY: cascadeSectionY,
       head: [["Bloque", "Concepto", "Op.", "Valor"]],
       body: cascadeRows,
       margin: PDF_TABLE_MARGIN,
       ...pdfTableTheme(),
       styles: { ...pdfTableTheme().styles, fontSize: 7.2, cellPadding: 2.1 },
       headStyles: { ...pdfTableTheme().headStyles, fontSize: 6.8 },
+      // Los 4 anchos deben sumar el ancho util de la tabla (281mm = 297mm A4
+      // landscape - 8mm de margen a cada lado): al fijar cellWidth en todas las
+      // columnas ninguna queda "resizable" para autoTable, así que si la suma no
+      // llena el ancho util, la librería no puede repartir el sobrante y avisa
+      // "N units width could not fit page" (aunque en realidad sobre espacio).
       columnStyles: {
-        0: { cellWidth: 48 },
-        1: { cellWidth: 150 },
+        0: { cellWidth: 50 },
+        1: { cellWidth: 164 },
         2: { cellWidth: 12, halign: "center" },
         3: { cellWidth: 55, halign: "right", fontStyle: "bold" },
       },
@@ -548,20 +555,33 @@ export async function exportPartesToPDF(partes: ParteRow[], from: string, to: st
       ...pdfTableTheme(),
       styles: { ...pdfTableTheme().styles, fontSize: 6.8, cellPadding: 1.8 },
       headStyles: { ...pdfTableTheme().headStyles, fontSize: 6.5 },
+      // Igual que en la tabla de cascada: los 3 anchos deben sumar 281mm (ancho
+      // util) para que autoTable no reporte una tabla "que no cabe" cuando en
+      // realidad sobra espacio sin repartir.
       columnStyles: {
-        0: { cellWidth: 70 },
-        1: { cellWidth: 45, halign: "right", fontStyle: "bold" },
-        2: { cellWidth: 150 },
+        0: { cellWidth: 75 },
+        1: { cellWidth: 50, halign: "right", fontStyle: "bold" },
+        2: { cellWidth: 156 },
       },
       didDrawPage: () => addAutoTablePageHeader(doc, pageIndex, from, to, `${detailTitle} - datos entrada`),
     });
 
-    let noteY = lastAutoTableY(doc, rawStartY) + 6;
+    let noteY = lastAutoTableY(doc, rawStartY) + 8;
     const noteBlocks = [
       { title: "Notas generales", text: p.notas_generales },
       { title: "Notas inventario", text: p.notas_inventario },
       { title: "Analisis IA", text: p.resumen_ia?.analisis ? String(p.resumen_ia.analisis) : "" },
     ].filter((block) => block.text);
+
+    if (noteBlocks.length > 0) {
+      if (noteY > 172) {
+        doc.addPage();
+        pageIndex.value = doc.getNumberOfPages();
+        drawHeader(doc, pageIndex.value, from, to, `${detailTitle} - notas`);
+        noteY = 28;
+      }
+      noteY = drawReportSectionTitle(doc, "Notas", noteY, "Notas operativas y analisis IA del parte");
+    }
 
     for (const block of noteBlocks) {
       if (noteY > 178) {

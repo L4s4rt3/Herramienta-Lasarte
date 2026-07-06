@@ -5,10 +5,17 @@ import { toast } from "@/hooks/use-toast";
 export const EXCEL_CELL_MAX = 32000;
 const LASARTE_LOGO_PATH = "/branding/lasarte-logo-horizontal.jpg";
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-// Bloque de cabecera dimensionado para el logo horizontal nuevo (ratio 900x357 ~= 2,52:1),
-// apuntando a ~7,5 cm de ancho x ~2,97 cm de alto.
-const LOGO_BLOCK_COL_WIDTHS = [9, 9, 11, 11];
-const LOGO_BLOCK_COL_COUNT = LOGO_BLOCK_COL_WIDTHS.length;
+// El logo horizontal (ratio 900x357 ~= 2,52:1, ~7,5 cm x ~2,97 cm) se ancla como
+// imagen flotante con dimensiones EMU absolutas (ver LOGO_WIDTH_EMU/LOGO_HEIGHT_EMU
+// y buildLogoDrawingXml). Por eso NO depende del ancho de las columnas: flota por
+// encima de A1 con independencia de "!cols". El bloque de cabecera de logo son las
+// primeras 4 columnas usadas para fusionar (merge) la fila de fondo tras la imagen,
+// pero su ancho visual debe ser el mismo que usa el contenido de la hoja para que
+// los indicadores/títulos no queden cortados (regresión: antes se forzaban anchos
+// estrechos [9,9,11,11] pensados "para el logo", cuando el logo no los necesita).
+const LOGO_BLOCK_COL_COUNT = 4;
+const MIN_FIRST_COL_WIDTH = 22;
+const MIN_OTHER_COL_WIDTH = 14;
 const LOGO_ROW_HEIGHT_PT = 84;
 const LOGO_WIDTH_EMU = 2700000;
 const LOGO_HEIGHT_EMU = 1071000;
@@ -71,9 +78,14 @@ function normalizeColumns(cols: number[], minCols: number) {
   const width = Math.max(minCols, LOGO_BLOCK_COL_COUNT);
   const normalized = cols.length >= width
     ? [...cols]
-    : [...cols, ...Array.from({ length: width - cols.length }, () => 16)];
-  for (let index = 0; index < LOGO_BLOCK_COL_COUNT; index += 1) {
-    normalized[index] = LOGO_BLOCK_COL_WIDTHS[index];
+    : [...cols, ...Array.from({ length: width - cols.length }, () => MIN_OTHER_COL_WIDTH)];
+  // El logo flota por EMU y no necesita columnas estrechas: solo garantizamos un
+  // ancho mínimo legible en las primeras columnas (donde vive el bloque de
+  // cabecera/título), respetando el ancho de contenido pedido por el caller si es
+  // mayor.
+  normalized[0] = Math.max(normalized[0] ?? 0, MIN_FIRST_COL_WIDTH);
+  for (let index = 1; index < LOGO_BLOCK_COL_COUNT; index += 1) {
+    normalized[index] = Math.max(normalized[index] ?? 0, MIN_OTHER_COL_WIDTH);
   }
   return normalized;
 }

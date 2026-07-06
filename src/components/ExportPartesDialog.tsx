@@ -33,6 +33,21 @@ export function ExportPartesDialog({ defaultFrom, defaultTo }: Props) {
   const [to, setTo] = useState(defaultTo ?? today());
   const [busy, setBusy] = useState<null | "xlsx" | "pdf">(null);
 
+  // defaultFrom/defaultTo reflejan el periodo visible en la pagina (semana, mes,
+  // dia del parte...) y pueden cambiar mientras el dialogo permanece cerrado y
+  // montado (p.ej. al navegar de un parte a otro, o cambiar de semana/mes en
+  // PartesList). useState solo usa el valor inicial una vez, asi que sin este
+  // reset el dialogo se abriria con fechas obsoletas de la primera vez que se
+  // monto. Al abrir, siempre se recargan los defaults actuales (editables
+  // despues a mano dentro de la sesion de apertura).
+  function handleOpenChange(next: boolean) {
+    if (next) {
+      setFrom(defaultFrom ?? daysAgo(30));
+      setTo(defaultTo ?? today());
+    }
+    setOpen(next);
+  }
+
   async function fetchRows(): Promise<ParteRow[]> {
     const { data, error } = await supabase
       .from("partes_diarios")
@@ -65,7 +80,7 @@ export function ExportPartesDialog({ defaultFrom, defaultTo }: Props) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant="outline" className="glass glass-hover">
           <Download className="h-4 w-4" /> Exportar

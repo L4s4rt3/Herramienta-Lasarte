@@ -25,11 +25,14 @@ describe("Lasarte export workbook template", () => {
     expect(ws.B4?.v).toBe(1200);
     expect(ws["!autofilter"]?.ref).toBe("A3:B4");
     expect(ws["!freeze"]).toEqual({ xSplit: 0, ySplit: 3 });
+    // El logo flota por EMU (independiente de "!cols"): las columnas deben
+    // reflejar el ancho de CONTENIDO pedido por el caller (con un mínimo legible),
+    // no un ancho estrecho pensado para el logo.
     expect(ws["!cols"]?.slice(0, 4)).toEqual([
-      { wch: 9 },
-      { wch: 9 },
-      { wch: 11 },
-      { wch: 11 },
+      { wch: 24 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 14 },
     ]);
     expect(ws["!rows"]?.[0]).toEqual({ hpt: 84 });
     expect(ws["!merges"]).toEqual(expect.arrayContaining([
@@ -38,7 +41,7 @@ describe("Lasarte export workbook template", () => {
     ]));
   });
 
-  it("keeps the logo block width fixed even when the sheet has many columns", () => {
+  it("respects wide content columns instead of forcing a narrow logo block", () => {
     const wb = createWorkbook("Test", "Template");
     const ws = appendRowsSheet(
       wb,
@@ -49,10 +52,10 @@ describe("Lasarte export workbook template", () => {
     );
 
     expect(ws["!cols"]?.slice(0, 4)).toEqual([
-      { wch: 9 },
-      { wch: 9 },
-      { wch: 11 },
-      { wch: 11 },
+      { wch: 22 }, // MIN_FIRST_COL_WIDTH, mayor que el pedido (10)
+      { wch: 14 }, // MIN_OTHER_COL_WIDTH, mayor que el pedido (12)
+      { wch: 40 }, // respeta el ancho de contenido pedido
+      { wch: 14 }, // MIN_OTHER_COL_WIDTH, mayor que el pedido (8)
     ]);
     expect(ws["!cols"]?.[4]).toEqual({ wch: 30 });
     expect(ws["!merges"]).toEqual(expect.arrayContaining([
@@ -71,10 +74,10 @@ describe("Lasarte export workbook template", () => {
     ], [12, 20]);
 
     expect(ws["!cols"]?.slice(0, 4)).toEqual([
-      { wch: 9 },
-      { wch: 9 },
-      { wch: 11 },
-      { wch: 11 },
+      { wch: 22 },
+      { wch: 20 },
+      { wch: 14 },
+      { wch: 14 },
     ]);
     expect(ws["!rows"]?.[0]).toEqual({ hpt: 84 });
     expect(ws["!merges"]).toEqual(expect.arrayContaining([
