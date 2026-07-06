@@ -25,14 +25,17 @@ export const C = {
 // Paleta para series múltiples (máx 5 series)
 export const SERIES_PALETTE = [C.primary, C.info, C.success, C.warning, C.destructive];
 
-// Colores de destino de producción (semánticos)
+// Colores de destino de producción — fuente única de verdad para toda la app
+// (Dashboard, LoteDetailSheet, DailyListTable, Productores, AnalisisDiario...).
+// Usan hex fijo (no tokens CSS) para que el mismo grupo se vea siempre igual,
+// independientemente de la página. Ver también GRUPO_COLORS en destinoClasificacion.ts.
 export const DEST_COLORS = {
-  exportacion:   C.success,
-  mercado:       C.info,
-  industria:     C.warning,
-  noExportacion: C.primary,
-  noComercial:   C.destructive,
-  mujeres:       C.muted,
+  exportacion:   "#10b981", // emerald
+  mercado:       "#3b82f6", // blue
+  industria:     "#f59e0b", // amber (alias de noComercial, mismo concepto)
+  noExportacion: "#f97316", // orange
+  noComercial:   "#f59e0b", // amber
+  mujeres:       "#8b5cf6", // violet
   otro:          C.muted,
 } as const;
 

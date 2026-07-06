@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { usePartesDashboard } from "@/hooks/usePartes";
 import { useMercadona } from "@/hooks/useMercadona";
@@ -7,6 +7,7 @@ import { SemaforoPill } from "@/components/SemaforoPill";
 import { InfoTooltip } from "@/components/InfoTooltip";
 import { DsjScale } from "@/components/DsjScale";
 import { Sparkline } from "@/components/Sparkline";
+import { AutoWeekFallbackNotice } from "@/components/AutoWeekFallbackNotice";
 import { getSemaforo, DJPMN_HELP } from "@/lib/semaforo";
 import { detectarTipoClasificacion, GRUPO_COLORS } from "@/lib/destinoClasificacion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -146,6 +147,37 @@ export default function Dashboard() {
     });
   }, [partes, weeks]);
 
+  // ─── Fallback automático a la semana anterior (solo en la carga inicial) ──
+  // Si al terminar de cargar la semana actual no tiene partes y la anterior sí,
+  // saltamos una única vez a la semana anterior y lo avisamos explícitamente.
+  const autoFallbackTried = useRef(false);
+  const [autoFallbackActive, setAutoFallbackActive] = useState(false);
+  const manualNavRef = useRef(false);
+
+  useEffect(() => {
+    if (loading || autoFallbackTried.current || manualNavRef.current) return;
+    if (weekOffset !== 0) return;
+    autoFallbackTried.current = true;
+    const current = weeklyRows[weeklyRows.length - 1];
+    const previous = weeklyRows[weeklyRows.length - 2];
+    if (current && current.partes === 0 && previous && previous.partes > 0) {
+      setWeekOffset(-1);
+      setAutoFallbackActive(true);
+    }
+  }, [loading, weekOffset, weeklyRows]);
+
+  function handleWeekOffsetChange(updater: (o: number) => number) {
+    manualNavRef.current = true;
+    setAutoFallbackActive(false);
+    setWeekOffset(updater);
+  }
+
+  function handleGoToCurrentWeek() {
+    manualNavRef.current = true;
+    setAutoFallbackActive(false);
+    setWeekOffset(0);
+  }
+
   const currentWeekData = weeklyRows[weeklyRows.length - 1];
   const previousWeekData = weeklyRows[weeklyRows.length - 2];
   const weekChangePct = previousWeekData?.produccion
@@ -219,7 +251,7 @@ export default function Dashboard() {
             <div className="flex items-center gap-0.5 rounded-lg bg-[var(--glass-bg)] border border-[var(--glass-border)] px-1 py-0.5 shadow-[var(--glass-shadow)]">
               <button
                 type="button"
-                onClick={() => setWeekOffset((o) => o - 1)}
+                onClick={() => handleWeekOffsetChange((o) => o - 1)}
                 className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--glass-bg-strong)] hover:text-foreground"
                 aria-label="Semana anterior"
               >
@@ -227,7 +259,7 @@ export default function Dashboard() {
               </button>
               <button
                 type="button"
-                onClick={() => setWeekOffset((o) => Math.min(0, o + 1))}
+                onClick={() => handleWeekOffsetChange((o) => Math.min(0, o + 1))}
                 disabled={isCurrentWeek}
                 className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--glass-bg-strong)] hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
                 aria-label="Semana siguiente"
@@ -241,7 +273,7 @@ export default function Dashboard() {
             {!isCurrentWeek && (
               <button
                 type="button"
-                onClick={() => setWeekOffset(0)}
+                onClick={handleGoToCurrentWeek}
                 className="text-xs font-medium text-primary hover:underline underline-offset-2"
               >
                 Volver a hoy
@@ -273,6 +305,14 @@ export default function Dashboard() {
           </Link>
         </div>
       </header>
+
+      {/* ─── Aviso de fallback automático a la semana anterior ─────────────── */}
+      {autoFallbackActive && (
+        <AutoWeekFallbackNotice
+          message={`Esta semana aún no tiene datos — mostrando la semana anterior (${currentWeek.rangeLabel})`}
+          onGoToCurrentWeek={handleGoToCurrentWeek}
+        />
+      )}
 
       {/* ─── KPIs principales ─────────────────────────────────────────────── */}
       <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">

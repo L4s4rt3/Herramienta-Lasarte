@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthProvider";
@@ -14,6 +14,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SemaforoPill } from "@/components/SemaforoPill";
 import { InfoTooltip } from "@/components/InfoTooltip";
+import { AutoWeekFallbackNotice } from "@/components/AutoWeekFallbackNotice";
 import { ExportPartesDialog } from "@/components/ExportPartesDialog";
 import { PartesPeriodoNav, computePeriodoRango, parseAnchorDate, type VistaPeriodo } from "@/components/PartesPeriodoNav";
 import { useI18n } from "@/lib/i18n";
@@ -190,10 +191,14 @@ export default function PartesList() {
   }
 
   function handleVistaChange(v: VistaPeriodo) {
+    manualNavRef.current = true;
+    setAutoFallbackActive(false);
     updateParams({ vista: v });
   }
 
   function handleAnchorChange(d: Date) {
+    manualNavRef.current = true;
+    setAutoFallbackActive(false);
     updateParams({ fecha: format(d, "yyyy-MM-dd") });
   }
 
@@ -293,6 +298,43 @@ export default function PartesList() {
 
   const totalsSem = getSemaforo(totals.dsj_pct);
   const hasFilter = filter.search || filter.estado !== "todos" || filter.soloAlertas;
+
+  // ─── Fallback automático a la semana anterior (solo en la carga inicial) ──
+  // Si la vista es "semana" (por defecto), no hay ?fecha/?vista en la URL, no
+  // hay filtros activos, y la semana actual no tiene partes pero la anterior
+  // sí, saltamos el ancla 7 días atrás una única vez y lo avisamos.
+  const hasUrlPeriodo = Boolean(searchParams.get("fecha")) || Boolean(searchParams.get("vista"));
+  const autoFallbackTried = useRef(false);
+  const [autoFallbackActive, setAutoFallbackActive] = useState(false);
+  const manualNavRef = useRef(false);
+
+  useEffect(() => {
+    if (loading || autoFallbackTried.current || manualNavRef.current) return;
+    if (hasUrlPeriodo || hasFilter || vista !== "semana") return;
+    if (!periodo.desde || !periodo.hasta) return;
+    autoFallbackTried.current = true;
+
+    const currentWeekCount = allPartes.filter((p) => p.date >= periodo.desde! && p.date <= periodo.hasta!).length;
+    if (currentWeekCount > 0) return;
+
+    const prevAnchor = new Date(anchor);
+    prevAnchor.setDate(prevAnchor.getDate() - 7);
+    const prevPeriodo = computePeriodoRango("semana", prevAnchor);
+    if (!prevPeriodo.desde || !prevPeriodo.hasta) return;
+    const previousWeekCount = allPartes.filter((p) => p.date >= prevPeriodo.desde! && p.date <= prevPeriodo.hasta!).length;
+
+    if (previousWeekCount > 0) {
+      updateParams({ fecha: format(prevAnchor, "yyyy-MM-dd") });
+      setAutoFallbackActive(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, hasUrlPeriodo, hasFilter, vista, periodo.desde, periodo.hasta, allPartes, anchor]);
+
+  function handleGoToCurrentWeek() {
+    manualNavRef.current = true;
+    setAutoFallbackActive(false);
+    updateParams({ fecha: null });
+  }
 
   const deleteDialog = (p: Parte) => (
     <AlertDialog>
@@ -441,13 +483,13 @@ export default function PartesList() {
           <Input
             placeholder="Buscar fecha…"
             value={filter.search}
-            onChange={(e) => setFilter((f) => ({ ...f, search: e.target.value }))}
+            onChange={(e) => { manualNavRef.current = true; setFilter((f) => ({ ...f, search: e.target.value })); }}
             className="pl-8 w-full sm:w-40 h-8"
           />
         </div>
 
         {/* Estado */}
-        <Select value={filter.estado} onValueChange={(v) => setFilter((f) => ({ ...f, estado: v as EstadoFiltro }))}>
+        <Select value={filter.estado} onValueChange={(v) => { manualNavRef.current = true; setFilter((f) => ({ ...f, estado: v as EstadoFiltro })); }}>
           <SelectTrigger className="w-full sm:w-36 h-8">
             <SelectValue placeholder="Estado" />
           </SelectTrigger>
@@ -462,7 +504,7 @@ export default function PartesList() {
         <Button
           variant={filter.soloAlertas ? "default" : "outline"}
           size="sm" className="h-8 glass glass-hover"
-          onClick={() => setFilter((f) => ({ ...f, soloAlertas: !f.soloAlertas }))}
+          onClick={() => { manualNavRef.current = true; setFilter((f) => ({ ...f, soloAlertas: !f.soloAlertas })); }}
         >
           <AlertTriangle className="h-3.5 w-3.5" /> Críticos
         </Button>
@@ -513,6 +555,14 @@ export default function PartesList() {
           </Button>
         </div>
       </div>
+
+      {/* ─── Aviso de fallback automático a la semana anterior ─────────────── */}
+      {autoFallbackActive && (
+        <AutoWeekFallbackNotice
+          message={`Esta semana aún no tiene datos — mostrando la semana anterior (${periodo.label})`}
+          onGoToCurrentWeek={handleGoToCurrentWeek}
+        />
+      )}
 
       {/* Tabla / tarjetas */}
       <Card className="glass-accented overflow-hidden">

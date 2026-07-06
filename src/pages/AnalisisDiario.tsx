@@ -1,5 +1,5 @@
 // src/pages/AnalisisDiario.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -23,6 +23,7 @@ import {
 } from "@/hooks/useAnalisisDiario";
 import type { LoteResumen, ProductorResumen } from "@/hooks/useAnalisisDiario";
 import { DailyListTable } from "@/components/DailyListTable";
+import { AutoWeekFallbackNotice } from "@/components/AutoWeekFallbackNotice";
 import { LoteDetailSheet } from "@/components/LoteDetailSheet";
 import { WeekSelector } from "@/components/WeekSelector";
 import { AnalisisCalibres } from "@/components/AnalisisCalibres";
@@ -30,6 +31,7 @@ import { AnalisisProductores } from "@/components/AnalisisProductores";
 import { buildWeekRange } from "@/lib/analisisDiarioView";
 import type { Periodo } from "@/lib/analisisDiarioView";
 import { today, toISODateLocal } from "@/lib/format";
+import { GRUPO_COLORS } from "@/lib/destinoClasificacion";
 import {
   C, GRID, XAXIS, YAXIS, MARGIN, barFill, activeDotStyle, GlassTooltip, CHART_PANEL_CLASS,
 } from "@/lib/chartTheme";
@@ -106,6 +108,54 @@ export default function AnalisisDiario() {
   const { data, loading, error, refetch } = useAnalisisDiario(weekRange.start, weekRange.end);
 
   const hayDatos = data.totals.n_lotes > 0 || data.totals.kg_calibres > 0;
+
+  const handleNavigateWeek = (direction: -1 | 1) => {
+    const start = new Date(weekRange.start + "T12:00:00");
+    start.setDate(start.getDate() + direction * 7);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    setCustomDesde(start.toISOString().slice(0, 10));
+    setCustomHasta(end.toISOString().slice(0, 10));
+    setPeriodo("custom");
+  };
+
+  // ─── Fallback automático a la semana anterior (solo en la carga inicial) ──
+  // Si "esta_semana" está vacía y el usuario no ha navegado/filtrado todavía ni
+  // llegó con un rango fijado por URL, saltamos una única vez a la semana
+  // anterior (enfoque optimista: si también está vacía, se ve el empty state
+  // normal con el aviso encima).
+  const autoFallbackTried = useRef(false);
+  const [autoFallbackActive, setAutoFallbackActive] = useState(false);
+  const manualNavRef = useRef(false);
+
+  useEffect(() => {
+    if (loading || autoFallbackTried.current || manualNavRef.current) return;
+    if (hasQueryRange || periodo !== "esta_semana") return;
+    autoFallbackTried.current = true;
+    if (!hayDatos) {
+      handleNavigateWeek(-1);
+      setAutoFallbackActive(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, hasQueryRange, periodo, hayDatos]);
+
+  function handleGoToCurrentWeek() {
+    manualNavRef.current = true;
+    setAutoFallbackActive(false);
+    setPeriodo("esta_semana");
+  }
+
+  function handleManualPeriodoChange(p: Periodo) {
+    manualNavRef.current = true;
+    setAutoFallbackActive(false);
+    setPeriodo(p);
+  }
+
+  function handleManualNavigateWeek(direction: -1 | 1) {
+    manualNavRef.current = true;
+    setAutoFallbackActive(false);
+    handleNavigateWeek(direction);
+  }
 
   const searchLower = normalizeText(search).trim();
 
@@ -188,16 +238,6 @@ export default function AnalisisDiario() {
     setSheetOpen(true);
   };
 
-  const handleNavigateWeek = (direction: -1 | 1) => {
-    const start = new Date(weekRange.start + "T12:00:00");
-    start.setDate(start.getDate() + direction * 7);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 6);
-    setCustomDesde(start.toISOString().slice(0, 10));
-    setCustomHasta(end.toISOString().slice(0, 10));
-    setPeriodo("custom");
-  };
-
   // KPIs de cabecera: reflejan los lotes filtrados (si hay filtros activos).
   const kgLotesMostrado = hayFiltrosActivos ? kgFiltrado : data.totals.kg_lotes;
   const kgIndustriaMostrado = hayFiltrosActivos
@@ -275,12 +315,12 @@ export default function AnalisisDiario() {
           <div className="flex flex-wrap items-center gap-2.5">
             <WeekSelector
               periodo={periodo}
-              onPeriodoChange={setPeriodo}
+              onPeriodoChange={handleManualPeriodoChange}
               customDesde={customDesde}
               customHasta={customHasta}
               onCustomDesdeChange={setCustomDesde}
               onCustomHastaChange={setCustomHasta}
-              onNavigateWeek={handleNavigateWeek}
+              onNavigateWeek={handleManualNavigateWeek}
               canNavigateNext={weekRange.end < today()}
             />
           </div>
@@ -328,6 +368,14 @@ export default function AnalisisDiario() {
             </div>
           )}
         </div>
+      )}
+
+      {/* ─── Aviso de fallback automático a la semana anterior ─────────────── */}
+      {!loading && !error && autoFallbackActive && (
+        <AutoWeekFallbackNotice
+          message={`Esta semana aún no tiene datos — mostrando la semana anterior (${formatFechaLarga(weekRange.start)} – ${formatFechaLarga(weekRange.end)})`}
+          onGoToCurrentWeek={handleGoToCurrentWeek}
+        />
       )}
 
       {/* ─── Contenido principal (solo si hay datos en el periodo) ── */}
@@ -439,10 +487,10 @@ export default function AnalisisDiario() {
               Para ver datos aquí necesitas subir el informe de tamaños/calibres al parte y pulsar "Analizar".
             </p>
             <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
-              <Button variant="outline" className="glass glass-hover" onClick={() => handleNavigateWeek(-1)}>
+              <Button variant="outline" className="glass glass-hover" onClick={() => handleManualNavigateWeek(-1)}>
                 <ChevronLeft className="h-4 w-4" /> Ver semana anterior
               </Button>
-              <Button variant="outline" className="glass glass-hover" onClick={() => setPeriodo("ultimas_4")}>
+              <Button variant="outline" className="glass glass-hover" onClick={() => handleManualPeriodoChange("ultimas_4")}>
                 Ampliar a 4 semanas
               </Button>
               <Button asChild variant="outline" className="glass glass-hover">
@@ -515,19 +563,23 @@ function VerDetalleButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-// Solo el acento (pill / barras / puntos) lleva color semántico — el resto de la
-// tarjeta usa los tokens glass estándar, igual que el resto de la app.
-const CATEGORIA_COLORS = {
-  Exportación:      { pill: "bg-success text-success-foreground",       bar: "bg-success" },
-  Mercado:          { pill: "bg-info text-info-foreground",             bar: "bg-info" },
-  "No exportación": { pill: "bg-warning text-warning-foreground",       bar: "bg-warning" },
-  "No comercial":   { pill: "bg-destructive text-destructive-foreground", bar: "bg-destructive" },
-  Mujeres:          { pill: "bg-info text-info-foreground",             bar: "bg-info" },
-  Otro:             { pill: "glass border border-[var(--glass-border)] text-muted-foreground", bar: "bg-muted-foreground/50" },
-} as const;
+// Solo el acento (pill / barras / puntos) lleva color — el resto de la tarjeta
+// usa los tokens glass estándar, igual que el resto de la app. El color en sí
+// sale de GRUPO_COLORS (destinoClasificacion.ts), única fuente de verdad para
+// los grupos de destino en toda la app (Dashboard, Productores, LoteDetailSheet...).
+function getGrupoColor(nombre: string): string {
+  return GRUPO_COLORS[nombre] ?? GRUPO_COLORS.Otro;
+}
 
-function getCategoriaColors(nombre: string) {
-  return CATEGORIA_COLORS[nombre as keyof typeof CATEGORIA_COLORS] ?? CATEGORIA_COLORS.Otro;
+/** Pill de grupo/clase: fondo suave del color + texto del mismo color (mismo hex en toda la app). */
+function grupoPillStyle(nombre: string): React.CSSProperties {
+  const color = getGrupoColor(nombre);
+  return { backgroundColor: barFill(color, 0.14), color };
+}
+
+/** Barra sólida rellena con el color del grupo. */
+function grupoBarStyle(nombre: string): React.CSSProperties {
+  return { backgroundColor: getGrupoColor(nombre) };
 }
 
 /** Grupo de destino con más kg dentro de una clase — las clases heredan su color. */
@@ -722,12 +774,10 @@ function ResumenDestinoBar({ grupos, totalKg }: { grupos: GrupoResumenLite[]; to
         {grupos.map((g) => {
           const pct = total > 0 ? (g.kg_total / total) * 100 : 0;
           if (pct <= 0) return null;
-          const colors = getCategoriaColors(g.grupo);
           return (
             <div
               key={g.grupo}
-              className={colors.bar}
-              style={{ width: `${pct}%` }}
+              style={{ width: `${pct}%`, ...grupoBarStyle(g.grupo) }}
               title={`${g.grupo}: ${formatKg(g.kg_total)} (${pct.toFixed(1)}%)`}
             />
           );
@@ -736,10 +786,9 @@ function ResumenDestinoBar({ grupos, totalKg }: { grupos: GrupoResumenLite[]; to
       <ul className="space-y-2">
         {grupos.map((g) => {
           const pct = totalKg > 0 ? (g.kg_total / totalKg) * 100 : (total > 0 ? (g.kg_total / total) * 100 : 0);
-          const colors = getCategoriaColors(g.grupo);
           return (
             <li key={g.grupo} className="flex items-center gap-2.5 text-sm">
-              <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", colors.bar)} />
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={grupoBarStyle(g.grupo)} />
               <span className="min-w-0 flex-1 truncate font-medium">{g.grupo}</span>
               <span className="tabular-nums font-semibold">{formatKg(g.kg_total)}</span>
               <span className="w-12 shrink-0 text-right tabular-nums text-xs text-muted-foreground">{pct.toFixed(1)}%</span>
@@ -767,14 +816,13 @@ function ResumenTopBarras({
       {items.map((item) => {
         const barWidth = (item.kg / maxKg) * 100;
         const pct = totalKg > 0 ? (item.kg / totalKg) * 100 : 0;
-        const colors = neutral ? null : getCategoriaColors(item.grupo ?? item.nombre);
         return (
           <div key={item.nombre} className="flex items-center gap-3">
             <span className="w-20 shrink-0 truncate text-sm font-medium sm:w-28">{item.nombre}</span>
             <div className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
               <div
-                className={cn("h-full rounded-full transition-all duration-500", colors ? colors.bar : "bg-primary")}
-                style={{ width: `${barWidth}%` }}
+                className={cn("h-full rounded-full transition-all duration-500", neutral && "bg-primary")}
+                style={{ width: `${barWidth}%`, ...(neutral ? {} : grupoBarStyle(item.grupo ?? item.nombre)) }}
               />
             </div>
             <span className="w-16 shrink-0 text-right text-sm font-semibold tabular-nums">{formatKg(item.kg)}</span>
@@ -832,7 +880,7 @@ const MINI_KPI_TONE_BADGE: Record<string, string> = {
 
 // ─── Mini-barras de evolución por día (compartidas por Destino) ────────────
 
-function MiniDias({ porDia, days, dotClass }: { porDia: Record<string, number> | undefined; days: string[]; dotClass: string }) {
+function MiniDias({ porDia, days, dotColor }: { porDia: Record<string, number> | undefined; days: string[]; dotColor: string }) {
   if (!porDia || days.length <= 1) return null;
   const max = Math.max(...days.map((d) => porDia[d] ?? 0), 1);
   return (
@@ -844,8 +892,8 @@ function MiniDias({ porDia, days, dotClass }: { porDia: Record<string, number> |
             <div
               key={d}
               title={`${formatFechaLarga(d)} · ${formatKg(kg)}`}
-              className={cn("flex-1 rounded-t-[2px] opacity-80", dotClass)}
-              style={{ height: `${kg > 0 ? Math.max(8, (kg / max) * 100) : 2}%` }}
+              className="flex-1 rounded-t-[2px] opacity-80"
+              style={{ height: `${kg > 0 ? Math.max(8, (kg / max) * 100) : 2}%`, backgroundColor: dotColor }}
             />
           );
         })}
@@ -912,11 +960,11 @@ function GrupoCards({ grupos, totalKg, days }: { grupos: GrupoResumenLite[]; tot
       {grupos.map((g) => {
         const pct = totalKg > 0 ? (g.kg_total / totalKg) * 100 : 0;
         const barWidth = maxKg > 0 ? (g.kg_total / maxKg) * 100 : 0;
-        const colors = getCategoriaColors(g.grupo);
+        const color = getGrupoColor(g.grupo);
         return (
           <div key={g.grupo} className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] shadow-[var(--glass-shadow)] backdrop-blur-xl p-5 space-y-3">
             <div className="flex items-center justify-between gap-3">
-              <span className={cn("inline-flex items-center rounded-lg px-2.5 py-1 text-sm font-bold", colors.pill)}>
+              <span className="inline-flex items-center rounded-lg px-2.5 py-1 text-sm font-bold" style={grupoPillStyle(g.grupo)}>
                 {g.grupo}
               </span>
               <span className="text-sm font-semibold text-muted-foreground tabular-nums">{pct.toFixed(1)}%</span>
@@ -924,11 +972,11 @@ function GrupoCards({ grupos, totalKg, days }: { grupos: GrupoResumenLite[]; tot
             <p className="text-2xl font-bold tabular-nums text-foreground">{formatKg(g.kg_total)}</p>
             <div className="space-y-1.5">
               <div className="h-2 w-full rounded-full bg-[var(--glass-bg-strong)] overflow-hidden">
-                <div className={cn("h-full rounded-full transition-all duration-500", colors.bar)} style={{ width: `${barWidth}%` }} />
+                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${barWidth}%`, backgroundColor: color }} />
               </div>
               <p className="text-[11px] text-muted-foreground">{g.n_registros} lotes · {g.n_dias} {g.n_dias === 1 ? "día" : "días"}</p>
             </div>
-            <MiniDias porDia={g.por_dia} days={days} dotClass={colors.bar} />
+            <MiniDias porDia={g.por_dia} days={days} dotColor={color} />
           </div>
         );
       })}
@@ -951,7 +999,8 @@ function ClaseList({ clases, totalKg, days }: { clases: ClaseResumenLite[]; tota
 
 function ClaseRow({ clase: c, totalKg, maxKg, days }: { clase: ClaseResumenLite; totalKg: number; maxKg: number; days: string[] }) {
   const [open, setOpen] = useState(false);
-  const colors = getCategoriaColors(grupoDominanteDeClase(c.grupos));
+  const grupoDominante = grupoDominanteDeClase(c.grupos);
+  const color = getGrupoColor(grupoDominante);
   const pct = totalKg > 0 ? (c.kg_total / totalKg) * 100 : 0;
   const barWidth = maxKg > 0 ? (c.kg_total / maxKg) * 100 : 0;
   const gruposOrdenados = Object.entries(c.grupos).sort((a, b) => b[1] - a[1]);
@@ -960,11 +1009,14 @@ function ClaseRow({ clase: c, totalKg, maxKg, days }: { clase: ClaseResumenLite;
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-[var(--glass-bg-strong)] sm:gap-4">
-        <span className={cn("inline-flex w-24 shrink-0 items-center justify-center rounded-lg px-2 py-1 text-xs font-bold sm:w-32 sm:text-sm", colors.pill)}>
+        <span
+          className="inline-flex w-24 shrink-0 items-center justify-center rounded-lg px-2 py-1 text-xs font-bold sm:w-32 sm:text-sm"
+          style={grupoPillStyle(grupoDominante)}
+        >
           {c.clase}
         </span>
         <div className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
-          <div className={cn("h-full rounded-full transition-all duration-500", colors.bar)} style={{ width: `${barWidth}%` }} />
+          <div className="h-full rounded-full transition-all duration-500" style={{ width: `${barWidth}%`, backgroundColor: color }} />
         </div>
         <span className="w-20 shrink-0 text-right text-sm font-bold tabular-nums sm:w-24 sm:text-base">{formatKg(c.kg_total)}</span>
         <span className="hidden w-14 shrink-0 text-right text-sm font-semibold tabular-nums text-muted-foreground sm:inline">{pct.toFixed(1)}%</span>
@@ -981,13 +1033,13 @@ function ClaseRow({ clase: c, totalKg, maxKg, days }: { clase: ClaseResumenLite;
               {gruposOrdenados.map(([g, kg]) => {
                 const gPct = c.kg_total > 0 ? (kg / c.kg_total) * 100 : 0;
                 const gBarWidth = maxGrupoKg > 0 ? (kg / maxGrupoKg) * 100 : 0;
-                const gc = getCategoriaColors(g);
+                const gColor = getGrupoColor(g);
                 return (
                   <div key={g} className="flex items-center gap-2.5">
-                    <div className={cn("h-2 w-2 shrink-0 rounded-full", gc.bar)} />
+                    <div className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: gColor }} />
                     <span className="w-24 shrink-0 truncate text-sm font-medium sm:w-28">{g}</span>
                     <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
-                      <div className={cn("h-full rounded-full transition-all duration-500", gc.bar)} style={{ width: `${gBarWidth}%` }} />
+                      <div className="h-full rounded-full transition-all duration-500" style={{ width: `${gBarWidth}%`, backgroundColor: gColor }} />
                     </div>
                     <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{formatKg(kg)}</span>
                     <span className="w-8 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">{gPct.toFixed(0)}%</span>
@@ -997,7 +1049,7 @@ function ClaseRow({ clase: c, totalKg, maxKg, days }: { clase: ClaseResumenLite;
             </div>
           )}
 
-          <MiniDias porDia={c.por_dia} days={days} dotClass={colors.bar} />
+          <MiniDias porDia={c.por_dia} days={days} dotColor={color} />
         </div>
       </CollapsibleContent>
     </Collapsible>
