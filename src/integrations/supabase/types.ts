@@ -445,6 +445,39 @@ export type Database = {
         }
         Relationships: []
       }
+      chat_memoria: {
+        Row: {
+          activa: boolean
+          clave: string
+          contenido: string
+          created_at: string
+          id: string
+          origen: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          activa?: boolean
+          clave: string
+          contenido: string
+          created_at?: string
+          id?: string
+          origen?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          activa?: boolean
+          clave?: string
+          contenido?: string
+          created_at?: string
+          id?: string
+          origen?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       code_embeddings: {
         Row: {
           content: string
@@ -863,36 +896,42 @@ export type Database = {
       }
       mercadona_semana_metodos: {
         Row: {
+          base_iva: number | null
           cajas: number | null
           comparativa_anterior_pct: number | null
           created_at: string
           descripcion: string | null
           id: string
           kilos: number | null
+          lineas: number | null
           metodo: string
           palets: number | null
           pct: number | null
           semana_id: string
         }
         Insert: {
+          base_iva?: number | null
           cajas?: number | null
           comparativa_anterior_pct?: number | null
           created_at?: string
           descripcion?: string | null
           id?: string
           kilos?: number | null
+          lineas?: number | null
           metodo: string
           palets?: number | null
           pct?: number | null
           semana_id: string
         }
         Update: {
+          base_iva?: number | null
           cajas?: number | null
           comparativa_anterior_pct?: number | null
           created_at?: string
           descripcion?: string | null
           id?: string
           kilos?: number | null
+          lineas?: number | null
           metodo?: string
           palets?: number | null
           pct?: number | null
@@ -910,7 +949,11 @@ export type Database = {
       }
       mercadona_semanas: {
         Row: {
+          ajustes_base_iva: number | null
+          ajustes_lineas: number | null
           anio: number
+          antequera_ii_kg: number | null
+          antequera_verdura_kg: number | null
           created_at: string
           diferencia_pct: number | null
           id: string
@@ -924,7 +967,11 @@ export type Database = {
           vendido_kg: number | null
         }
         Insert: {
+          ajustes_base_iva?: number | null
+          ajustes_lineas?: number | null
           anio: number
+          antequera_ii_kg?: number | null
+          antequera_verdura_kg?: number | null
           created_at?: string
           diferencia_pct?: number | null
           id?: string
@@ -938,7 +985,11 @@ export type Database = {
           vendido_kg?: number | null
         }
         Update: {
+          ajustes_base_iva?: number | null
+          ajustes_lineas?: number | null
           anio?: number
+          antequera_ii_kg?: number | null
+          antequera_verdura_kg?: number | null
           created_at?: string
           diferencia_pct?: number | null
           id?: string

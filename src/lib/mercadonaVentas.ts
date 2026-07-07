@@ -47,6 +47,10 @@ export interface ParsedSemana {
   anio: number;
   semana: number;
   rangoPlanificacion: string | null;
+  /** v3 (migracion_mercadona_v3.sql): kg planificados de "ANTEQUERA II" (solo formato histórico). */
+  antequeraIiKg?: number | null;
+  /** v3: kg planificados de "ANTEQUERA VERDURA" (solo formato histórico). */
+  antequeraVerduraKg?: number | null;
   planificadoQuincenaKg: number | null;
   planificadoSemanaKg: number | null;
   vendidoKg: number | null;
@@ -155,6 +159,8 @@ export function parseSemanaSheet(rows: SheetRows, semana: number, anio: number):
   // en blanco de forma distinta en cada hoja y los índices fijos leían celdas
   // equivocadas (p. ej. "ANTEQUERA II" como planificado o la cabecera como método).
   let rangoPlanificacion: string | null = null;
+  let antequeraIiKg: number | null = null;
+  let antequeraVerduraKg: number | null = null;
   let planificadoQuincenaKg: number | null = null;
   let planificadoSemanaDerivado: number | null = null;
   let planificadoSemanaEtiqueta: number | null = null;
@@ -172,6 +178,10 @@ export function parseSemanaSheet(rows: SheetRows, semana: number, anio: number):
 
     if (label.includes("NARANJAS TOTALES")) {
       rangoPlanificacion = cellText(row, 1) || null;
+    } else if (label === "ANTEQUERA II") {
+      antequeraIiKg = firstNumberInRow(row, 1);
+    } else if (label === "ANTEQUERA VERDURA") {
+      antequeraVerduraKg = firstNumberInRow(row, 1);
     } else if (label === "TOTAL GENERAL") {
       // Coincidencia exacta: la nota "EL TOTAL GENERAL SE DIVIDE ENTRE 2..."
       // también contiene la etiqueta pero no lleva número.
@@ -229,6 +239,8 @@ export function parseSemanaSheet(rows: SheetRows, semana: number, anio: number):
     anio,
     semana,
     rangoPlanificacion,
+    antequeraIiKg,
+    antequeraVerduraKg,
     planificadoQuincenaKg,
     planificadoSemanaKg,
     vendidoKg,
@@ -436,63 +448,201 @@ export function formatMercadonaWeekRangeLabel(anio: number, semana: number): str
 }
 
 // ─── Export: reconstruir el Excel original a partir de una semana guardada ────
+//
+// Disposicion verificada celda a celda contra el archivo real del dueño
+// ("VENTAS SEMANA 21 MAYO PLATAFORMA ANTEQUERA (1).xlsx", las 7 hojas SEMANA
+// 21-27): sin merges, anchos de columna holgados para A/B/C (título/etiquetas/
+// descripción) y estrechos para los numéricos, y 3 number formats distintos:
+//   - "#,##0"                                   -> ANTEQUERA II/VERDURA/Total general
+//   - "_-* #,##0_-;-* #,##0_-;_-* \"-\"??_-;_-@_-" (contable) -> planificado semanal,
+//     KILOS de la tabla de métodos + su total, y el bloque vendido/planificado/diferencia
+//   - "0%" / "0.0%"                              -> PORCENTAJE de métodos / AUMENTO-DESCENSO
+// Los PALETS/CAJAS y el resto de celdas de texto van en "General".
 
 export interface MercadonaSemanaExport {
   anio: number;
   semana: number;
   rangoPlanificacion: string | null;
+  /** v3: kg planificados de "ANTEQUERA II" (solo formato histórico; vacío en semanal_real). */
+  antequeraIiKg?: number | null;
+  /** v3: kg planificados de "ANTEQUERA VERDURA" (solo formato histórico; vacío en semanal_real). */
+  antequeraVerduraKg?: number | null;
   planificadoQuincenaKg: number | null;
   planificadoSemanaKg: number | null;
   vendidoKg: number | null;
   diferenciaPct: number | null;
   notas: string[];
   metodos: MetodoVenta[];
+  /** Solo semanal_real: base IVA (€, negativa) de ajustes/abonos, si la hay. */
+  ajustesBaseIva?: number | null;
+  /** Solo semanal_real: nº de líneas de la fila de ajustes/abonos. */
+  ajustesLineas?: number | null;
+}
+
+/** Number formats clonados literalmente del Excel original (ver cabecera de sección). */
+export const MERCADONA_EXPORT_NUMFMT = {
+  miles: "#,##0",
+  milesContable: '_-* #,##0_-;\\-* #,##0_-;_-* "-"??_-;_-@_-',
+  pctEntero: "0%",
+  pctDecimal: "0.0%",
+} as const;
+
+/** Ancho de columna (unidades "wch", como !cols de xlsx) clonado del original. */
+export const MERCADONA_EXPORT_COL_WIDTHS = [22, 34, 16, 12, 10, 10, 30];
+
+/** Celda con su number format opcional, para poder aplicar !cols/z tras aoa_to_sheet. */
+export interface MercadonaExportCellFormat {
+  row: number;
+  col: number;
+  numFmt: string;
+}
+
+export interface MercadonaSemanaExportSheet {
+  rows: SheetRows;
+  /** Formatos numéricos a aplicar celda a celda tras crear la hoja (ws[addr].z = numFmt). */
+  formats: MercadonaExportCellFormat[];
+  /** Anchos de columna (!cols), clonados del original. */
+  colWidths: number[];
+  /** El original no tiene ninguna celda fusionada: se deja vacío mismo para que el caller no invente merges. */
+  merges: never[];
 }
 
 /**
  * Reconstruye las filas (array-of-arrays) con la MISMA disposicion que el Excel
- * original de Mercadona, para exportar un libro fiel a la fuente. Usado por
- * mercadona export junto con appendAoaSheet (src/lib/exportWorkbook.ts).
+ * original de Mercadona. Mantiene la firma histórica (usada por tests y por
+ * quien solo necesite las filas); usa buildSemanaExportSheet si además hacen
+ * falta anchos/formatos para clonar la hoja con fidelidad visual.
  */
 export function buildSemanaExportRows(data: MercadonaSemanaExport): SheetRows {
+  return buildSemanaExportSheet(data).rows;
+}
+
+/**
+ * Como buildSemanaExportRows pero además devuelve los number formats y anchos
+ * de columna necesarios para que la hoja exportada sea indistinguible de la
+ * original (ver MERCADONA_EXPORT_NUMFMT/COL_WIDTHS más arriba). Usado por
+ * MercadonaExportar.tsx, que aplica formats/colWidths/merges al worksheet
+ * antes de escribir el .xlsx.
+ */
+export function buildSemanaExportSheet(data: MercadonaSemanaExport): MercadonaSemanaExportSheet {
   const rows: SheetRows = [];
+  const formats: MercadonaExportCellFormat[] = [];
+  const fmt = (col: number, numFmt: string) => formats.push({ row: rows.length - 1, col, numFmt });
+
   rows.push(["PLANIFICACION VENTAS RECIBIDA DE MERCADONA"]);
+  // El original deja SIEMPRE 1 fila en blanco entre el título y "NARANJAS
+  // TOTALES" (verificado en las 7 hojas SEMANA 21-27 del archivo real).
+  rows.push([]);
   rows.push(["NARANJAS TOTALES", data.rangoPlanificacion ?? ""]);
-  rows.push(["ANTEQUERA II", null]);
-  rows.push(["ANTEQUERA VERDURA", null]);
+  rows.push(["ANTEQUERA II", data.antequeraIiKg ?? null]);
+  fmt(1, MERCADONA_EXPORT_NUMFMT.miles);
+  rows.push(["ANTEQUERA VERDURA", data.antequeraVerduraKg ?? null]);
+  fmt(1, MERCADONA_EXPORT_NUMFMT.miles);
   rows.push(["Total general", data.planificadoQuincenaKg ?? null]);
+  fmt(1, MERCADONA_EXPORT_NUMFMT.miles);
   rows.push([null, data.planificadoSemanaKg ?? null]);
-  rows.push(["EL TOTAL GENERAL SE DIVIDE ENTRE 2 YA QUE LA PLANIFICACION LLEGA POR QUINCENAS"]);
-  rows.push(["Metodo", "Descripcion", "PORCENTAJE", "KILOS", "PALETS", "CAJAS", "COMPARATIVA SEMANA ANTERIOR"]);
+  fmt(1, MERCADONA_EXPORT_NUMFMT.milesContable);
+  rows.push(["EL TOTAL GENERAL SE DIVIDE ENTRE 2, PUES SON DOS SEMANAS"]);
+  // El original deja SIEMPRE 2 filas en blanco entre esta nota y la cabecera de
+  // la tabla de métodos (verificado en las 7 hojas SEMANA 21-27 del archivo real).
+  rows.push([]);
+  rows.push([]);
+  // La columna "COMPARATIVA SEMANA ANTERIOR" solo existe en el original cuando
+  // hay una semana anterior con la que comparar (S22+); S21, al ser la primera,
+  // no la trae en absoluto (ni la cabecera ni celdas vacías de más).
+  const tieneComparativa = data.metodos.some(
+    (m) => m.comparativaAnteriorPct !== null && m.comparativaAnteriorPct !== undefined,
+  );
+  const headerRow = ["Método", "Descripción", "PORCENTAJE", "KILOS", "PALETS", "CAJAS"];
+  if (tieneComparativa) headerRow.push("COMPARATIVA SEMANA ANTERIOR");
+  rows.push(headerRow);
+  // El original deja la celda de texto "KILOS" con el mismo number format
+  // contable que sus celdas de datos (cosmeticamente irrelevante para un
+  // texto, pero así está en el archivo real: se clona por fidelidad exacta).
+  fmt(3, MERCADONA_EXPORT_NUMFMT.milesContable);
 
   const metodoByCodigo = new Map(data.metodos.map((m) => [m.metodo.toUpperCase(), m]));
   for (const codigo of METODOS_CONOCIDOS) {
     const m = metodoByCodigo.get(codigo);
-    rows.push([
+    const metodoRow: SheetRow = [
       codigo,
       m?.descripcion ?? "",
-      m?.pct ?? null,
+      m?.pct !== null && m?.pct !== undefined ? m.pct / 100 : null,
       m?.kilos ?? null,
       m?.palets ?? null,
       m?.cajas ?? null,
-      m?.comparativaAnteriorPct ?? null,
-    ]);
+    ];
+    if (tieneComparativa) {
+      metodoRow.push(
+        m?.comparativaAnteriorPct !== null && m?.comparativaAnteriorPct !== undefined ? m.comparativaAnteriorPct / 100 : null,
+      );
+    }
+    rows.push(metodoRow);
+    fmt(2, MERCADONA_EXPORT_NUMFMT.pctEntero);
+    fmt(3, MERCADONA_EXPORT_NUMFMT.milesContable);
+    if (tieneComparativa) fmt(6, MERCADONA_EXPORT_NUMFMT.pctEntero);
   }
 
   const totalKilos = data.metodos.reduce((s, m) => s + (m.kilos || 0), 0);
   const totalPalets = data.metodos.reduce((s, m) => s + (m.palets || 0), 0);
   const totalCajas = data.metodos.reduce((s, m) => s + (m.cajas || 0), 0);
-  rows.push([null, "TOTAL", null, totalKilos, totalPalets, totalCajas, null]);
+  // El original deja esta fila SIN etiqueta "TOTAL" (columnas A/B/C en blanco,
+  // solo los numeros de KILOS/PALETS/CAJAS) — así en las 7 hojas verificadas.
+  const totalesRow: SheetRow = [null, null, null, totalKilos, totalPalets, totalCajas];
+  if (tieneComparativa) totalesRow.push(null);
+  rows.push(totalesRow);
+  fmt(3, MERCADONA_EXPORT_NUMFMT.milesContable);
 
-  rows.push([`SEMANA ${data.semana} HEMOS VENDIDO`, data.vendidoKg ?? null]);
-  rows.push([`SEMANA ${data.semana} HABIA PLANIFICADO`, data.planificadoSemanaKg ?? null]);
-  const diferenciaKg = (data.vendidoKg ?? 0) - (data.planificadoSemanaKg ?? 0);
-  const tendencia = (data.diferenciaPct ?? 0) >= 0 ? "AUMENTO DEL" : "DESCENSO DEL";
-  rows.push([tendencia, data.diferenciaPct ?? null, diferenciaKg]);
-
-  for (const nota of data.notas) {
-    rows.push([nota]);
+  // Idem: 2 filas en blanco entre la fila de totales y "SEMANA N HEMOS VENDIDO".
+  rows.push([]);
+  rows.push([]);
+  rows.push([`SEMANA ${data.semana} HEMOS VENDIDO`, null, data.vendidoKg ?? null]);
+  fmt(2, MERCADONA_EXPORT_NUMFMT.milesContable);
+  rows.push([`SEMANA ${data.semana} HABIA PLANIFICADO`, null, data.planificadoSemanaKg ?? null]);
+  fmt(2, MERCADONA_EXPORT_NUMFMT.milesContable);
+  // Sin planificacion (tipico de semanal_real, que no trae planificado) no hay
+  // "aumento/descenso" que calcular: se deja la fila en blanco en vez de
+  // sintetizar un diferencial enganoso contra 0.
+  const tieneVendidoVsPlanificado = data.vendidoKg !== null && data.vendidoKg !== undefined
+    && data.planificadoSemanaKg !== null && data.planificadoSemanaKg !== undefined;
+  if (tieneVendidoVsPlanificado) {
+    const diferenciaKg = data.vendidoKg! - data.planificadoSemanaKg!;
+    const tendencia = (data.diferenciaPct ?? 0) >= 0 ? "AUMENTO DEL" : "DESCENSO DEL";
+    rows.push([tendencia, data.diferenciaPct !== null && data.diferenciaPct !== undefined ? data.diferenciaPct / 100 : null, diferenciaKg]);
+    fmt(1, MERCADONA_EXPORT_NUMFMT.pctDecimal);
+    fmt(2, MERCADONA_EXPORT_NUMFMT.milesContable);
+  } else {
+    rows.push([]);
   }
 
-  return rows;
+  if (data.notas.length > 0) {
+    // 2 filas en blanco antes del bloque de notas (verificado en el original).
+    rows.push([]);
+    rows.push([]);
+    for (const nota of data.notas) {
+      rows.push([nota]);
+      rows.push([]);
+    }
+    rows.pop(); // sin fila en blanco colgando al final
+  }
+
+  // Formato "semanal_real": no hay planificacion/palets/cajas fiable, pero si
+  // hay ajustes/abonos (lineas + base iva) se añade su propia fila bajo la
+  // tabla, sin romper la disposicion de arriba (que ya deja esas celdas en
+  // blanco cuando faltan datos).
+  const tieneAjustes = (data.ajustesBaseIva !== null && data.ajustesBaseIva !== undefined)
+    || (data.ajustesLineas !== null && data.ajustesLineas !== undefined);
+  if (tieneAjustes) {
+    rows.push([]);
+    rows.push(["AJUSTES/ABONOS", null, null, null, "LINEAS", "BASE IVA"]);
+    rows.push([null, null, null, null, data.ajustesLineas ?? null, data.ajustesBaseIva ?? null]);
+    fmt(5, MERCADONA_EXPORT_NUMFMT.milesContable);
+  }
+
+  return {
+    rows,
+    formats,
+    colWidths: [...MERCADONA_EXPORT_COL_WIDTHS],
+    merges: [],
+  };
 }

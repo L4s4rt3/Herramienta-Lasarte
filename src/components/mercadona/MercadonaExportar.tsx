@@ -1,18 +1,22 @@
 // src/components/mercadona/MercadonaExportar.tsx
-// Pestaña "Exportar": genera un Excel IDENTICO en disposicion a la hoja original
-// de Mercadona para la semana seleccionada (misma estructura de filas/columnas),
-// via buildSemanaExportRows + appendAoaSheet. Sin logo Lasarte dentro de la hoja
-// para priorizar la fidelidad al original (regla del encargo).
+// Pestaña "Exportar": genera un Excel INDISTINGUIBLE de la hoja original de
+// Mercadona para la semana seleccionada (mismas filas/columnas, mismos number
+// formats "#,##0"/contable/porcentaje y mismos anchos de columna, sin merges
+// porque el original tampoco los tiene). Construye el workbook con XLSX
+// directamente (no createWorkbook/saveWorkbook de exportWorkbook.ts) para NO
+// heredar el pipeline de restyle + logo Lasarte que esas funciones inyectan a
+// TODAS las hojas del libro: aquí la prioridad es la fidelidad byte a byte al
+// original, no la plantilla visual de Lasarte. Ver buildSemanaExportSheet en
+// mercadonaVentas.ts para el detalle de la disposicion clonada.
 import { useState } from "react";
+import * as XLSX from "xlsx";
 import { Download, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { appendAoaSheet, createWorkbook, saveWorkbook } from "@/lib/exportWorkbook";
-import { buildSemanaExportRows } from "@/lib/mercadonaVentas";
+import { downloadBytes } from "@/lib/exportWorkbook";
+import { buildSemanaExportSheet } from "@/lib/mercadonaVentas";
 import type { MercadonaMetodoRow, MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
-
-const COL_WIDTHS = [30, 26, 14, 14, 10, 10, 16];
 
 interface MercadonaExportarProps {
   semanas: MercadonaSemanaConMetodos[];
@@ -28,7 +32,7 @@ export function MercadonaExportar({ semanas, selectedId, onSelect }: MercadonaEx
     if (!semana) return;
     setExporting(true);
     try {
-      const rows = buildSemanaExportRows({
+      const sheet = buildSemanaExportSheet({
         anio: semana.anio,
         semana: semana.semana,
         rangoPlanificacion: semana.rango_planificacion,
@@ -46,14 +50,31 @@ export function MercadonaExportar({ semanas, selectedId, onSelect }: MercadonaEx
           cajas: m.cajas ?? 0,
           comparativaAnteriorPct: m.comparativa_anterior_pct,
         })),
+        ajustesBaseIva: semana.ajustes_base_iva,
+        ajustesLineas: semana.ajustes_lineas,
+        antequeraIiKg: semana.antequera_ii_kg ?? null,
+        antequeraVerduraKg: semana.antequera_verdura_kg ?? null,
       });
 
-      const wb = createWorkbook(
-        `Ventas Mercadona S${semana.semana} ${semana.anio}`,
-        "Planificacion y ventas semanales Mercadona",
-      );
-      appendAoaSheet(wb, `SEMANA ${semana.semana}`, rows as (string | number | boolean | null)[][], COL_WIDTHS);
-      saveWorkbook(wb, `Lasarte_Mercadona_S${semana.semana}_${semana.anio}.xlsx`);
+      const ws = XLSX.utils.aoa_to_sheet(sheet.rows as (string | number | boolean | null)[][]);
+      for (const { row, col, numFmt } of sheet.formats) {
+        const addr = XLSX.utils.encode_cell({ r: row, c: col });
+        const cell = ws[addr];
+        if (cell) cell.z = numFmt;
+      }
+      ws["!cols"] = sheet.colWidths.map((wch) => ({ wch }));
+      ws["!merges"] = sheet.merges;
+
+      const wb = XLSX.utils.book_new();
+      wb.Props = {
+        Title: `Ventas Mercadona S${semana.semana} ${semana.anio}`,
+        Subject: "Planificacion y ventas semanales Mercadona",
+        Author: "Herramienta Lasarte SAT",
+        Company: "Lasarte SAT",
+      };
+      XLSX.utils.book_append_sheet(wb, ws, `SEMANA ${semana.semana}`);
+      const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array", compression: true }) as ArrayBuffer;
+      downloadBytes(new Uint8Array(bytes), `Lasarte_Mercadona_S${semana.semana}_${semana.anio}.xlsx`);
     } finally {
       setExporting(false);
     }

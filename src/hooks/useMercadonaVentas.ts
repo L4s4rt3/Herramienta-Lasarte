@@ -68,6 +68,10 @@ export interface MercadonaSemanaRow {
   ajustes_base_iva?: number | null;
   /** v2: nº de líneas de la fila de ajustes/abonos. undefined si la columna aun no existe en BD. */
   ajustes_lineas?: number | null;
+  /** v3: kg planificados de ANTEQUERA II (solo formato histórico; para el export fiel). */
+  antequera_ii_kg?: number | null;
+  /** v3: kg planificados de ANTEQUERA VERDURA (solo formato histórico; para el export fiel). */
+  antequera_verdura_kg?: number | null;
 }
 
 export interface MercadonaSemanaConMetodos extends MercadonaSemanaRow {
@@ -168,11 +172,14 @@ export function useMercadonaVentas() {
           diferencia_pct: semana.diferenciaPct,
           notas: semana.notas,
         };
-        // Columnas v2 (migracion_mercadona_v2.sql): solo se rellenan si el Excel
-        // las trae (formato semanal real); en formato historico quedan null.
+        // Columnas v2/v3 (migracion_mercadona_v2.sql / _v3.sql): solo se
+        // rellenan si el Excel las trae; el reintento de abajo las descarta
+        // todas si las migraciones aún no están aplicadas.
         const payloadV2 = {
           ajustes_base_iva: semana.ajustesBaseIva ?? null,
           ajustes_lineas: semana.ajustesLineas ?? null,
+          antequera_ii_kg: semana.antequeraIiKg ?? null,
+          antequera_verdura_kg: semana.antequeraVerduraKg ?? null,
         };
 
         const idPatch = existente ? { id: existente.id } : {};

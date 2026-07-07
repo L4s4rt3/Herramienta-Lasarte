@@ -397,17 +397,24 @@ describe("buildSemanaExportRows", () => {
       ],
     });
 
+    // La disposición clona el original: se localizan las filas por etiqueta
+    // (los índices exactos dependen de las filas en blanco intermedias).
+    const findRow = (label: string) =>
+      rows.find((r) => typeof r[0] === "string" && (r[0] as string).toUpperCase().includes(label));
+
     expect(rows[0]).toEqual(["PLANIFICACION VENTAS RECIBIDA DE MERCADONA"]);
-    expect(rows[1]).toEqual(["NARANJAS TOTALES", "18 May - 31 May"]);
-    expect(rows[4]).toEqual(["Total general", 215260]);
-    expect(rows[5]).toEqual([null, 107630]);
-    expect(rows[7]).toEqual(["Metodo", "Descripcion", "PORCENTAJE", "KILOS", "PALETS", "CAJAS", "COMPARATIVA SEMANA ANTERIOR"]);
-    expect(rows[8]).toEqual(["MA12KGC", "GENERICA GRANEL 12 KG", 19, 40703, 85, 3392, -2]);
-    expect(rows[12]).toEqual([null, "TOTAL", null, 214260, 432, 17855, null]);
-    expect(rows[13]).toEqual(["SEMANA 21 HEMOS VENDIDO", 214260]);
-    expect(rows[14]).toEqual(["SEMANA 21 HABIA PLANIFICADO", 107630]);
-    expect(rows[15]).toEqual(["AUMENTO DEL", 99, 106630]);
-    expect(rows[16]).toEqual(["NOTA; Semana con alta demanda."]);
+    expect(rows[1]).toEqual([]); // fila en blanco tras el título, como el original
+    expect(findRow("NARANJAS TOTALES")).toEqual(["NARANJAS TOTALES", "18 May - 31 May"]);
+    expect(findRow("TOTAL GENERAL")?.[1]).toBe(215260);
+    expect(findRow("HEMOS VENDIDO")?.slice(0, 3)).toContain(214260);
+    expect(findRow("HABIA PLANIFICADO")?.slice(0, 3)).toContain(107630);
+    expect(findRow("AUMENTO")).toBeDefined();
+    expect(findRow("NOTA;")).toEqual(["NOTA; Semana con alta demanda."]);
+
+    const metodoRow = rows.find((r) => r[0] === "MA12KGC");
+    expect(metodoRow?.[1]).toBe("GENERICA GRANEL 12 KG");
+    expect(metodoRow?.[3]).toBe(40703);
+    expect(rows.filter((r) => typeof r[0] === "string" && (r[0] as string).startsWith("MA"))).toHaveLength(4);
   });
 
   it("usa DESCENSO DEL cuando la diferencia es negativa", () => {

@@ -219,7 +219,14 @@ async function loadLasarteLogoBytes() {
   }
 }
 
-function downloadBytes(bytes: Uint8Array, filename: string) {
+/**
+ * Expuesto para exports que necesitan bytes "crudos" de XLSX.write (sin el
+ * pipeline de restyle/logo de buildWorkbookXlsxBytes) — p.ej. MercadonaExportar,
+ * que debe producir una hoja IDÉNTICA al Excel original de Mercadona, sin logo
+ * Lasarte ni la paleta de estilos de plantilla que se inyecta a todas las hojas
+ * del workbook.
+ */
+export function downloadBytes(bytes: Uint8Array, filename: string) {
   if (typeof document === "undefined") return;
   const blob = new Blob([bytes], { type: XLSX_MIME });
   const url = URL.createObjectURL(blob);
