@@ -40,9 +40,17 @@ export default function RoleRoute() {
   }
 
   // Las secciones de RRHH (datos personales sensibles) solo para rrhh y admin.
-  // La RLS de la base ya bloquea los datos; esto evita ademas pantallas de
-  // "acceso restringido" a quien llegue por URL directa.
-  if (location.pathname.startsWith("/rrhh") && role !== "admin" && role !== "rrhh") {
+  // La asistencia diaria (/costes/asistencia y su comparativa) pertenece a RRHH
+  // desde jul 2026: los operarios ya no pasan lista. La RLS de la base ya
+  // bloquea los datos sensibles; esto evita ademas pantallas de "acceso
+  // restringido" a quien llegue por URL directa.
+  const esRutaRrhh = location.pathname.startsWith("/rrhh") || location.pathname.startsWith("/costes/asistencia");
+  if (esRutaRrhh && role !== "admin" && role !== "rrhh") {
+    return <Navigate to="/" replace />;
+  }
+
+  // El modo economico (precios, facturacion, margen) es exclusivo de admins.
+  if (location.pathname.startsWith("/economico") && role !== "admin") {
     return <Navigate to="/" replace />;
   }
 

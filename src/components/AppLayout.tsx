@@ -19,6 +19,10 @@ import {
   AlertTriangle,
   Plane,
   Banknote,
+  Euro,
+  Receipt,
+  Tags,
+  ArrowLeftRight,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
 
@@ -91,18 +95,33 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
     label: "Operaciones",
     items: [
       { to: "/costes/consumos", label: "Consumos", icon: Droplet },
-      { to: "/costes/asistencia", label: "Asistencia", icon: Users },
     ],
   },
   {
     // Grupo completo visible SOLO para rol rrhh y admin (ver filtro de grupos).
+    // La asistencia diaria (pasar lista + importaciones) vive aqui desde jul
+    // 2026: los operarios ya no la ven; el resto de su informacion vive
+    // repartida en Ausencias (faltas), Plantilla (personas) y Vacaciones.
     label: "RRHH",
     items: [
+      { to: "/costes/asistencia", label: "Asistencia diaria", icon: Users },
       { to: "/rrhh/personas", label: "Plantilla", icon: UserRound },
       { to: "/rrhh/ausencias", label: "Ausencias y bajas", icon: CalendarOff },
       { to: "/rrhh/amonestaciones", label: "Amonestaciones", icon: AlertTriangle },
       { to: "/rrhh/vacaciones", label: "Vacaciones y horas", icon: Plane },
       { to: "/rrhh/nominas", label: "Nóminas", icon: Banknote },
+    ],
+  },
+  {
+    // "Otra herramienta" para el jefe: solo admins y solo cuando se esta EN el
+    // modo economico (rutas /economico/*); en modo produccion este grupo no
+    // aparece y se entra por el conmutador de abajo.
+    label: "Económico",
+    items: [
+      { to: "/economico", label: "Panel económico", icon: Euro, match: (path) => path === "/economico" },
+      { to: "/economico/facturacion", label: "Facturación", icon: Receipt },
+      { to: "/economico/costes", label: "Costes", icon: Droplet },
+      { to: "/economico/precios", label: "Precios", icon: Tags },
     ],
   },
 ];
@@ -130,6 +149,8 @@ function AppLayoutContent() {
 
   const navigate = useNavigate();
   const location = useLocation();
+  // Modo económico: se está "en la otra herramienta" cuando la ruta es /economico/*.
+  const esEconomico = location.pathname.startsWith("/economico");
 
   const cmd = useCommandPalette();
 
@@ -142,7 +163,7 @@ function AppLayoutContent() {
   }
 
   const [tourOpen, setTourOpen] = useState(false);
-  const tourSteps = getVisibleTourSteps(ventasCategoriaAccess.hasAccess);
+  const tourSteps = getVisibleTourSteps(ventasCategoriaAccess.hasAccess, role === "admin" || role === "rrhh");
 
   // Arranque automático la primera vez que un usuario autenticado entra a la app.
   // El tour recorre secciones (Dashboard, Calidad, Partes...) que el rol
@@ -195,8 +216,12 @@ function AppLayoutContent() {
           {navGroups
             // El rol "ventas" solo ve el grupo Comercial (sus 5 secciones); el resto de
             // grupos (Dashboard, Operaciones diarias, Producción, Operaciones) no aplican.
-            // El grupo RRHH es exclusivo de rrhh y admin.
+            // El grupo RRHH es exclusivo de rrhh y admin. El modo económico (admins)
+            // funciona como herramienta aparte: dentro de /economico solo se ve su
+            // grupo, y fuera no aparece (se entra por el conmutador del pie).
             .filter((group) => {
+              if (esEconomico) return group.label === "Económico" && role === "admin";
+              if (group.label === "Económico") return false;
               if (group.label === "RRHH") return role === "admin" || role === "rrhh";
               return role !== "ventas" || group.label === "Comercial";
             })
@@ -241,6 +266,27 @@ function AppLayoutContent() {
             </SidebarGroup>
             );
           })}
+
+          {/* Conmutador de herramienta (solo admins): producción <-> económico. */}
+          {role === "admin" ? (
+            <SidebarGroup>
+              <SidebarGroupLabel>Cambiar de herramienta</SidebarGroupLabel>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild tooltip={esEconomico ? "Volver a producción" : "Modo económico"}>
+                    <NavLink
+                      to={esEconomico ? "/" : "/economico"}
+                      onClick={closeMobileSidebar}
+                      onMouseEnter={() => preloadRoute(esEconomico ? "/" : "/economico")}
+                    >
+                      <ArrowLeftRight />
+                      <span>{esEconomico ? "Volver a producción" : "Modo económico"}</span>
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroup>
+          ) : null}
         </SidebarContent>
 
         <SidebarFooter>

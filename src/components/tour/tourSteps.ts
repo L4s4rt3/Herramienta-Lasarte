@@ -27,6 +27,8 @@ export interface TourStep {
    * (p.ej. acceso a Categoría segunda). Si no se define, el paso siempre se incluye.
    */
   requiresVentasCategoriaAccess?: boolean;
+  /** Paso visible solo para roles rrhh/admin (p.ej. Asistencia diaria). */
+  requiresRrhhAccess?: boolean;
 }
 
 export const TOUR_STEPS: TourStep[] = [
@@ -91,9 +93,10 @@ export const TOUR_STEPS: TourStep[] = [
     id: "asistencia",
     to: "/costes/asistencia",
     icon: Users,
-    title: "Asistencia",
+    title: "Asistencia diaria",
     description:
-      "El control del personal: quién ha venido cada día, los kg por persona y el rendimiento por zonas y grupos. Se puede importar la asistencia desde Excel y comparar semanas.",
+      "El control del personal: quién ha venido cada día, los kg por persona y el rendimiento por zonas y grupos. Se puede importar la asistencia desde Excel y comparar semanas. Vive en el grupo RRHH.",
+    requiresRrhhAccess: true,
   },
   {
     id: "trucos",
@@ -106,8 +109,12 @@ export const TOUR_STEPS: TourStep[] = [
 ];
 
 /** Filtra los pasos del tour según los accesos del usuario actual. */
-export function getVisibleTourSteps(hasVentasCategoriaAccess: boolean): TourStep[] {
-  return TOUR_STEPS.filter((step) => !step.requiresVentasCategoriaAccess || hasVentasCategoriaAccess);
+export function getVisibleTourSteps(hasVentasCategoriaAccess: boolean, hasRrhhAccess = false): TourStep[] {
+  return TOUR_STEPS.filter((step) => {
+    if (step.requiresVentasCategoriaAccess && !hasVentasCategoriaAccess) return false;
+    if (step.requiresRrhhAccess && !hasRrhhAccess) return false;
+    return true;
+  });
 }
 
 export const TOUR_STORAGE_KEY = "lasarte-tour-v1-visto";

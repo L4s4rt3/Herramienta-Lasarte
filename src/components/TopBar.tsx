@@ -49,10 +49,10 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parentLabel: "Operaciones",
   },
   "/costes/asistencia": {
-    label: "Asistencia",
-    subtitle: "Seguimiento de turnos, horas y equipos",
+    label: "Asistencia diaria",
+    subtitle: "Pase de lista, importaciones y rendimiento por zonas (RRHH)",
     parent: "/",
-    parentLabel: "Operaciones",
+    parentLabel: "RRHH",
   },
   "/ventas/categoria-segunda": {
     label: "Categoria segunda",
@@ -113,6 +113,30 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     subtitle: "Archivo mensual de nóminas por persona (solo RRHH y administración)",
     parent: "/",
     parentLabel: "RRHH",
+  },
+  "/economico": {
+    label: "Panel económico",
+    subtitle: "Facturación, costes y margen bruto estimado (solo administración)",
+    parent: "/",
+    parentLabel: "Económico",
+  },
+  "/economico/facturacion": {
+    label: "Facturación",
+    subtitle: "Base IVA de Mercadona por semana y método, €/kg y ajustes",
+    parent: "/economico",
+    parentLabel: "Económico",
+  },
+  "/economico/costes": {
+    label: "Costes",
+    subtitle: "Consumos valorados con la tarifa vigente y coste por kg producido",
+    parent: "/economico",
+    parentLabel: "Económico",
+  },
+  "/economico/precios": {
+    label: "Precios",
+    subtitle: "Tarifas por recurso con histórico de vigencias",
+    parent: "/economico",
+    parentLabel: "Económico",
   },
 };
 
