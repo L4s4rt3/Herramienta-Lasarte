@@ -7,7 +7,7 @@ import {
   Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  AlertTriangle, Boxes, ChevronLeft, ChevronRight, Euro, Package, PackageCheck, ShoppingCart, TrendingUp, Trophy, Upload,
+  AlertTriangle, Boxes, ChevronLeft, ChevronRight, Euro, PackageCheck, ShoppingCart, TrendingUp, Upload,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,14 +16,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KPICard } from "@/components/KPICard";
 import { MercadonaImportar } from "@/components/mercadona/MercadonaImportar";
 import { MercadonaExportar } from "@/components/mercadona/MercadonaExportar";
+import { MercadonaAnalisis } from "@/components/mercadona/MercadonaAnalisis";
+import { MercadonaExpediciones } from "@/components/mercadona/MercadonaExpediciones";
+import { MercadonaLotes } from "@/components/mercadona/MercadonaLotes";
+import { MercadonaPrevision } from "@/components/mercadona/MercadonaPrevision";
 import { useMercadona } from "@/hooks/useMercadona";
-import { useMercadonaVentas, useMercadonaTopProductores, type MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
+import { useMercadonaVentas, type MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
 import { formatMercadonaWeekRangeLabel, mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
 import { formatKg, formatNumber, formatPct } from "@/lib/format";
 import { BAR_STYLE, C, CHART_PANEL_CLASS, GlassTooltip, GRID, lineStyle, MARGIN, XAXIS, YAXIS } from "@/lib/chartTheme";
 import { cn } from "@/lib/utils";
 
-type TopTab = "resumen" | "va-bien" | "importar" | "exportar";
+type TopTab = "resumen" | "analisis" | "expediciones" | "lotes" | "prevision" | "importar" | "exportar";
 
 export default function Mercadona() {
   const ventas = useMercadonaVentas();
@@ -53,7 +57,6 @@ export default function Mercadona() {
   const rango = activeSemana ? mercadonaWeekDateRange(activeSemana.anio, activeSemana.semana) : null;
   const rangoLabel = activeSemana ? formatMercadonaWeekRangeLabel(activeSemana.anio, activeSemana.semana) : null;
   const mercadona = useMercadona(rango?.desde ?? "1970-01-01", rango?.hasta ?? "1970-01-01");
-  const topProductores = useMercadonaTopProductores(rango?.desde ?? "1970-01-01", rango?.hasta ?? "1970-01-01");
 
   if (ventas.tablesMissing) {
     return (
@@ -102,9 +105,12 @@ export default function Mercadona() {
           </div>
         </header>
 
-        <TabsList className="w-full sm:w-auto">
+        <TabsList className="w-full flex-wrap sm:w-auto">
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
-          <TabsTrigger value="va-bien">Qué le va bien</TabsTrigger>
+          <TabsTrigger value="analisis">Análisis</TabsTrigger>
+          <TabsTrigger value="expediciones">Expediciones</TabsTrigger>
+          <TabsTrigger value="lotes">Lotes y productores</TabsTrigger>
+          <TabsTrigger value="prevision">Previsión</TabsTrigger>
           <TabsTrigger value="importar">Importar</TabsTrigger>
           <TabsTrigger value="exportar">Exportar</TabsTrigger>
         </TabsList>
@@ -131,8 +137,17 @@ export default function Mercadona() {
           )}
         </TabsContent>
 
-        {/* ─── Qué le va bien a Mercadona ─────────────────────────── */}
-        <TabsContent value="va-bien" className="space-y-4">
+        {/* ─── Análisis histórico ─────────────────────────────────── */}
+        <TabsContent value="analisis" className="space-y-4">
+          {semanas.length === 0 ? (
+            <EmptyState onImport={() => setTab("importar")} />
+          ) : (
+            <MercadonaAnalisis semanas={semanas} />
+          )}
+        </TabsContent>
+
+        {/* ─── Expediciones (palets a Mercadona) ──────────────────── */}
+        <TabsContent value="expediciones" className="space-y-4">
           {semanas.length === 0 || !activeSemana ? (
             <EmptyState onImport={() => setTab("importar")} />
           ) : (
@@ -145,9 +160,33 @@ export default function Mercadona() {
                 canPrev={activeIndex > 0}
                 canNext={activeIndex < semanas.length - 1 && activeIndex !== -1}
               />
-              <QueLeVaBien mercadona={mercadona} topProductores={topProductores.productores} />
+              <MercadonaExpediciones semanas={semanas} activeSemana={activeSemana} />
             </>
           )}
+        </TabsContent>
+
+        {/* ─── Lotes y productores para Mercadona ─────────────────── */}
+        <TabsContent value="lotes" className="space-y-4">
+          {semanas.length === 0 || !activeSemana ? (
+            <EmptyState onImport={() => setTab("importar")} />
+          ) : (
+            <>
+              <WeekNav
+                semana={activeSemana}
+                rangoLabel={rangoLabel}
+                onPrev={() => navigateWeek(-1)}
+                onNext={() => navigateWeek(1)}
+                canPrev={activeIndex > 0}
+                canNext={activeIndex < semanas.length - 1 && activeIndex !== -1}
+              />
+              <MercadonaLotes activeSemana={activeSemana} />
+            </>
+          )}
+        </TabsContent>
+
+        {/* ─── Previsión (kg que pide Mercadona) ──────────────────── */}
+        <TabsContent value="prevision" className="space-y-4">
+          <MercadonaPrevision semanas={semanas} />
         </TabsContent>
 
         {/* ─── Importar ────────────────────────────────────────────── */}
@@ -442,104 +481,5 @@ function EvolucionSemanal({ semanas }: { semanas: MercadonaSemanaConMetodos[] })
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function QueLeVaBien({
-  mercadona, topProductores,
-}: {
-  mercadona: ReturnType<typeof useMercadona>;
-  topProductores: Array<{ productor: string; kg: number; n_lotes: number }>;
-}) {
-  const mejorDia = [...mercadona.por_dia].sort((a, b) => b.pct - a.pct)[0] ?? null;
-  const topFormatos = mercadona.por_formato.slice(0, 5);
-  const topProds = topProductores.slice(0, 8);
-
-  if (mercadona.isLoading) {
-    return <p className="py-10 text-center text-sm text-muted-foreground">Cargando…</p>;
-  }
-
-  return (
-    <div className="grid gap-4 xl:grid-cols-3">
-      <Card className="glass-accented overflow-hidden">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Package className="h-4 w-4 text-primary" /> Top formatos MDNA
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {topFormatos.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">Sin datos de formato esta semana.</p>
-          ) : (
-            <ol className="space-y-2">
-              {topFormatos.map((f, i) => (
-                <li key={f.formato} className="flex items-center justify-between rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 text-xs">
-                  <span className="flex items-center gap-2">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">{i + 1}</span>
-                    {f.formato}
-                  </span>
-                  <span className="tabular-nums font-medium">{formatKg(f.kg)}</span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="glass-accented overflow-hidden">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <TrendingUp className="h-4 w-4 text-success" /> Mejor día de aprovechamiento
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {!mejorDia ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">Sin días con producción esta semana.</p>
-          ) : (
-            <div className="space-y-3">
-              <div className="rounded-lg border border-success/30 bg-success/10 p-3 text-center">
-                <p className="text-xs text-muted-foreground">{mejorDia.date}</p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums text-success">{formatPct(mejorDia.pct)}</p>
-                <p className="text-xs text-muted-foreground">{formatKg(mejorDia.kg_mercadona)} de {formatKg(mejorDia.kg_total)}</p>
-              </div>
-              <ul className="space-y-1.5">
-                {[...mercadona.por_dia].sort((a, b) => b.pct - a.pct).slice(1, 4).map((d) => (
-                  <li key={d.date} className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{d.date}</span>
-                    <span className="tabular-nums">{formatPct(d.pct)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="glass-accented overflow-hidden">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Trophy className="h-4 w-4 text-warning" /> Top productores de la semana
-          </CardTitle>
-          <p className="text-xs text-muted-foreground">Ranking por kg en lotes_dia de los días de esta semana.</p>
-        </CardHeader>
-        <CardContent>
-          {topProds.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">Sin lotes registrados esta semana.</p>
-          ) : (
-            <ol className="space-y-2">
-              {topProds.map((p, i) => (
-                <li key={p.productor} className="flex items-center justify-between rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 text-xs">
-                  <span className="flex items-center gap-2 min-w-0">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-warning/10 text-[10px] font-semibold text-warning">{i + 1}</span>
-                    <span className="truncate">{p.productor}</span>
-                  </span>
-                  <span className="shrink-0 tabular-nums font-medium">{formatKg(p.kg)}</span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </CardContent>
-      </Card>
-    </div>
   );
 }
