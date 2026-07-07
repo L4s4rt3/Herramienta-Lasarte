@@ -97,6 +97,16 @@ describe("calidad MVP domain", () => {
     expect(isCalidadLoteLocked(reopened)).toBe(false);
   });
 
+  it("allows re-validating a reopened report (full cycle validar -> reabrir -> validar)", () => {
+    const validated = validateCalidadLote(lote({ informe_estado: "generado" }), "user-2", "2026-06-29T12:00:00Z");
+    const reopened = reopenCalidadLote(validated, "user-3", "2026-06-29T13:00:00Z");
+    expect(canValidateCalidadLote(reopened, 0).ok).toBe(true);
+    const revalidated = validateCalidadLote(reopened, "user-3", "2026-06-29T14:00:00Z");
+    expect(revalidated.informe_estado).toBe("validado");
+    expect(revalidated.validado_by).toBe("user-3");
+    expect(isCalidadLoteLocked(revalidated)).toBe(true);
+  });
+
   it("creates a useful draft report from structured data", () => {
     const report = createCalidadDraftReport(lote({ calidad: "Regular", defectos: ["Golpe", "Podrido"] }), 3, []);
     expect(report.informe).toContain("Finca A");

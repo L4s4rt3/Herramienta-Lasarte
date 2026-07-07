@@ -1327,7 +1327,9 @@ export default function CalidadJornadaPage() {
                         Generar informe
                       </Button>
                     )}
-                    {selected.informe_estado === "generado" && (
+                    {/* Un informe reabierto debe poder VOLVER a validarse tras la
+                        edición (antes se quedaba sin salida: ni generar ni validar). */}
+                    {(selected.informe_estado === "generado" || selected.informe_estado === "reabierto") && (
                       <Button className="glass glass-hover" onClick={() => {
                         const photoCount = attachmentCounts[selected.id] ?? 0;
                         const validation = canValidateCalidadLote(selected, photoCount);
