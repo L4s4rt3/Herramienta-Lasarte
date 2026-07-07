@@ -3,8 +3,10 @@ import {
   buildAnnualConsumptionRows,
   buildDailyConsumptionRows,
   buildDailyWaterMeterConsumoFromReading,
+  buildJabonWaterMeterConsumoFromReading,
   buildMonthlyConsumptionRows,
   buildTratamientoWaterMeterConsumoFromReading,
+  extractFotoFecha,
   findPreviousWaterMeterReading,
   subtractOneDayLocal,
   waterBreakdownForRange,
@@ -123,6 +125,177 @@ describe("buildDailyWaterMeterConsumoFromReading — REGLA 1 (atribucion al dia 
     expect(consumo.fecha_inicio).toBe("2026-06-16");
     expect(consumo.fecha_fin).toBe("2026-06-16");
     expect(consumo.cantidad).toBe(0);
+  });
+
+  it("sin lectura anterior y foto de LUNES, el rango cubre el finde completo [viernes, domingo]", () => {
+    // 2026-07-06 es lunes: sin lectura anterior no sabemos que paso el finde, pero
+    // el fallback asume que la foto anterior fue el viernes (patron habitual L-V).
+    const consumo = buildDailyWaterMeterConsumoFromReading({
+      fecha: "2026-07-06",
+      lecturaContadorM3: 500,
+      lecturaAnteriorM3: null,
+      fechaLecturaAnterior: null,
+    });
+
+    expect(consumo.fecha_inicio).toBe("2026-07-03");
+    expect(consumo.fecha_fin).toBe("2026-07-05");
+    expect(consumo.cantidad).toBe(0);
+  });
+
+  it("sin lectura anterior y foto de MARTES (no lunes), el rango sigue siendo [fecha-1, fecha-1]", () => {
+    // 2026-07-07 es martes: no hay hueco de finde que cubrir, solo el dia previo (lunes).
+    const consumo = buildDailyWaterMeterConsumoFromReading({
+      fecha: "2026-07-07",
+      lecturaContadorM3: 500,
+      lecturaAnteriorM3: null,
+      fechaLecturaAnterior: null,
+    });
+
+    expect(consumo.fecha_inicio).toBe("2026-07-06");
+    expect(consumo.fecha_fin).toBe("2026-07-06");
+    expect(consumo.cantidad).toBe(0);
+  });
+});
+
+describe("buildTratamientoWaterMeterConsumoFromReading / buildJabonWaterMeterConsumoFromReading — fallback de lunes sin lectura anterior", () => {
+  it("tratamiento: foto de lunes sin lectura anterior cubre [viernes, domingo]", () => {
+    const consumo = buildTratamientoWaterMeterConsumoFromReading({
+      fecha: "2026-07-06",
+      lecturaContadorM3: 50,
+      lecturaAnteriorM3: null,
+      fechaLecturaAnterior: null,
+    });
+
+    expect(consumo.fecha_inicio).toBe("2026-07-03");
+    expect(consumo.fecha_fin).toBe("2026-07-05");
+  });
+
+  it("jabon: foto de lunes sin lectura anterior cubre [viernes, domingo]", () => {
+    const consumo = buildJabonWaterMeterConsumoFromReading({
+      fecha: "2026-07-06",
+      lecturaContadorL: 50,
+      lecturaAnteriorL: null,
+      fechaLecturaAnterior: null,
+    });
+
+    expect(consumo.fecha_inicio).toBe("2026-07-03");
+    expect(consumo.fecha_fin).toBe("2026-07-05");
+  });
+});
+
+describe("extractFotoFecha — fallback sin anotacion de foto", () => {
+  it("sin (foto del ...) en notas, usa fecha_fin + 1 dia (la foto real es el dia siguiente al fin del rango)", () => {
+    const fecha = extractFotoFecha({ notas: "Sin anotacion de foto.", fecha_fin: "2026-07-05" });
+    expect(fecha).toBe("2026-07-06");
+  });
+
+  it("factura_detallada sin anotacion tambien usa fecha_fin + 1 (la siguiente lectura empieza justo despues)", () => {
+    const fecha = extractFotoFecha({ notas: null, fecha_fin: "2026-04-23" });
+    expect(fecha).toBe("2026-04-24");
+  });
+
+  it("con anotacion (foto del ...) usa la fecha real anotada, no fecha_fin + 1", () => {
+    const fecha = extractFotoFecha({ notas: "Lectura contador: 100 m3 (foto del 2026-07-06).", fecha_fin: "2026-07-05" });
+    expect(fecha).toBe("2026-07-06");
+  });
+});
+
+describe("cadena viernes -> lunes -> martes: los rangos encadenados no se solapan y cubren cada dia una vez", () => {
+  it("con las 3 fotos anotadas normalmente, los rangos son contiguos y no se solapan", () => {
+    // Foto viernes 3 jul (sin lectura anterior, dia laboral normal: cubre solo el jueves 2).
+    const friday = buildDailyWaterMeterConsumoFromReading({
+      fecha: "2026-07-03",
+      lecturaContadorM3: 100,
+      lecturaAnteriorM3: null,
+      fechaLecturaAnterior: null,
+    });
+    expect(friday.fecha_inicio).toBe("2026-07-02");
+    expect(friday.fecha_fin).toBe("2026-07-02");
+
+    let historico: ConsumoFisicoInput[] = [{ id: "fri", ...friday }];
+
+    // Foto lunes 6 jul, encadenada con la lectura anterior encontrada (la del viernes).
+    const prevForMonday = findPreviousWaterMeterReading(historico, "2026-07-06", "agua-contador-general");
+    expect(prevForMonday?.fecha).toBe("2026-07-03");
+
+    const monday = buildDailyWaterMeterConsumoFromReading({
+      fecha: "2026-07-06",
+      lecturaContadorM3: 130,
+      lecturaAnteriorM3: prevForMonday?.lecturaM3,
+      fechaLecturaAnterior: prevForMonday?.fecha,
+    });
+    expect(monday.fecha_inicio).toBe("2026-07-03");
+    expect(monday.fecha_fin).toBe("2026-07-05");
+
+    historico = [...historico, { id: "mon", ...monday }];
+
+    // Foto martes 7 jul, encadenada con la lectura anterior encontrada (la del lunes).
+    const prevForTuesday = findPreviousWaterMeterReading(historico, "2026-07-07", "agua-contador-general");
+    expect(prevForTuesday?.fecha).toBe("2026-07-06");
+
+    const tuesday = buildDailyWaterMeterConsumoFromReading({
+      fecha: "2026-07-07",
+      lecturaContadorM3: 140,
+      lecturaAnteriorM3: prevForTuesday?.lecturaM3,
+      fechaLecturaAnterior: prevForTuesday?.fecha,
+    });
+    expect(tuesday.fecha_inicio).toBe("2026-07-06");
+    expect(tuesday.fecha_fin).toBe("2026-07-06");
+
+    // Cobertura exacta, sin huecos ni solapes: 07-02, 07-03..07-05, 07-06.
+    const allDays = [friday, monday, tuesday].flatMap((row) => {
+      const days: string[] = [];
+      let current = row.fecha_inicio;
+      while (current <= row.fecha_fin) {
+        days.push(current);
+        const [y, m, d] = current.split("-").map(Number);
+        const next = new Date(y, m - 1, d, 12, 0, 0);
+        next.setDate(next.getDate() + 1);
+        current = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+      }
+      return days;
+    });
+
+    expect(allDays).toEqual(["2026-07-02", "2026-07-03", "2026-07-04", "2026-07-05", "2026-07-06"]);
+    expect(new Set(allDays).size).toBe(allDays.length);
+  });
+
+  it("con una fila intermedia SIN anotacion (foto del...) en notas, la siguiente lectura ancla en fecha_fin+1 y no duplica dias", () => {
+    // Fila antigua/manual que simula un registro sin la anotacion de foto: guardada
+    // como si REGLA 1 ya se hubiese aplicado (fecha_fin = dia anterior a la foto real),
+    // pero sin la nota "(foto del ...)". La foto real fue el viernes 3 jul, por lo que
+    // fecha_fin debe ser el jueves 2 jul (dia previo a la foto), igual que el caso con anotacion.
+    const legacyFriday: ConsumoFisicoInput = {
+      id: "legacy-fri",
+      recurso: "agua",
+      fecha_inicio: "2026-07-02",
+      fecha_fin: "2026-07-02",
+      cantidad: 100000,
+      unidad: "l",
+      fuente: "contador",
+      referencia: "agua-contador-general",
+      notas: "Lectura contador: 100 m3. Consumo calculado: 100000 L.",
+    };
+
+    // extractFotoFecha debe anclar en fecha_fin + 1 = 2026-07-03 (la foto real), no en
+    // fecha_fin (2026-07-02), que duplicaria ese dia en el reparto de la lectura siguiente.
+    expect(extractFotoFecha(legacyFriday)).toBe("2026-07-03");
+
+    const historico: ConsumoFisicoInput[] = [legacyFriday];
+    const prevForMonday = findPreviousWaterMeterReading(historico, "2026-07-06", "agua-contador-general");
+    expect(prevForMonday?.fecha).toBe("2026-07-03");
+
+    const monday = buildDailyWaterMeterConsumoFromReading({
+      fecha: "2026-07-06",
+      lecturaContadorM3: 130,
+      lecturaAnteriorM3: prevForMonday?.lecturaM3,
+      fechaLecturaAnterior: prevForMonday?.fecha,
+    });
+
+    // El lunes debe empezar en fecha_fin+1 de la fila legacy (07-03), no en 07-02
+    // (que ya esta cubierto por la fila legacy y se duplicaria si se contara dos veces).
+    expect(monday.fecha_inicio).toBe("2026-07-03");
+    expect(monday.fecha_fin).toBe("2026-07-05");
   });
 });
 

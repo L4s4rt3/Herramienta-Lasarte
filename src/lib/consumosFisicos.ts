@@ -201,6 +201,43 @@ export function subtractOneDayLocal(date: string): string {
 }
 
 /**
+ * Suma un día a una fecha "YYYY-MM-DD" en horario local, sin desplazamiento UTC.
+ * Simétrico a subtractOneDayLocal: usa mediodía local como ancla para evitar que el
+ * cambio de horario de verano/invierno mueva el día resultante.
+ */
+export function addOneDayLocal(date: string): string {
+  const { year, month, day } = parseDateParts(date);
+  const d = new Date(year, month - 1, day, 12, 0, 0);
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/**
+ * Día de la semana (0=domingo..6=sabado) de una fecha "YYYY-MM-DD" anclada a
+ * mediodía local, mismo criterio que subtractOneDayLocal/addOneDayLocal.
+ */
+function localWeekday(date: string): number {
+  const { year, month, day } = parseDateParts(date);
+  return new Date(year, month - 1, day, 12, 0, 0).getDay();
+}
+
+/**
+ * Fallback de fecha_inicio cuando no hay fechaLecturaAnterior (no hay lectura previa
+ * de contador registrada, p.ej. primera lectura, o dato manual sin fila anterior).
+ * Las fotos se hacen de lunes a viernes: si la foto es de LUNES, la foto anterior más
+ * probable fue el viernes, por lo que el rango debe cubrir el fin de semana completo
+ * [viernes, domingo] = [foto-3, foto-1]. Cualquier otro día de la semana no tiene ese
+ * hueco de findes y el rango colapsa a un único día: [foto-1, foto-1].
+ */
+function fallbackFechaInicioSinLecturaAnterior(fecha: string): string {
+  const MONDAY = 1;
+  if (localWeekday(fecha) === MONDAY) {
+    return subtractOneDayLocal(subtractOneDayLocal(subtractOneDayLocal(fecha)));
+  }
+  return subtractOneDayLocal(fecha);
+}
+
+/**
  * REGLA 1 (atribución de lecturas de contador): la foto de hoy registra el consumo
  * de AYER (y de todos los días transcurridos desde la foto anterior, si hubo un hueco
  * -p.ej. fin de semana-). Por eso el consumo calculado se fecha [fechaLecturaAnterior,
@@ -215,7 +252,7 @@ export function buildDailyWaterMeterConsumoFromReading(input: DailyWaterMeterRea
   const lineaTratamientoL = finiteOrZero(input.lineaTratamientoL);
   const drencherL = finiteOrZero(input.drencherL);
   const diaAnterior = subtractOneDayLocal(input.fecha);
-  const fechaInicio = input.fechaLecturaAnterior ?? diaAnterior;
+  const fechaInicio = input.fechaLecturaAnterior ?? fallbackFechaInicioSinLecturaAnterior(input.fecha);
   const previousNote = lecturaAnteriorM3 == null
     ? "Lectura anterior: sin referencia."
     : `Lectura anterior: ${lecturaAnteriorM3} m3${input.fechaLecturaAnterior ? ` (${input.fechaLecturaAnterior})` : ""}.`;
@@ -238,7 +275,7 @@ export function buildTratamientoWaterMeterConsumoFromReading(input: WaterMeterTr
   const consumoM3 = lecturaAnteriorM3 == null ? 0 : Math.max(0, lecturaContadorM3 - lecturaAnteriorM3);
   const consumoL = consumoM3 * 1000;
   const diaAnterior = subtractOneDayLocal(input.fecha);
-  const fechaInicio = input.fechaLecturaAnterior ?? diaAnterior;
+  const fechaInicio = input.fechaLecturaAnterior ?? fallbackFechaInicioSinLecturaAnterior(input.fecha);
   const previousNote = lecturaAnteriorM3 == null
     ? "Lectura anterior: sin referencia."
     : `Lectura anterior: ${lecturaAnteriorM3} m3${input.fechaLecturaAnterior ? ` (${input.fechaLecturaAnterior})` : ""}.`;
@@ -260,7 +297,7 @@ export function buildJabonWaterMeterConsumoFromReading(input: WaterMeterJabonRea
   const lecturaAnteriorL = input.lecturaAnteriorL == null ? null : finiteOrZero(input.lecturaAnteriorL);
   const consumoL = lecturaAnteriorL == null ? 0 : Math.max(0, lecturaContadorL - lecturaAnteriorL);
   const diaAnterior = subtractOneDayLocal(input.fecha);
-  const fechaInicio = input.fechaLecturaAnterior ?? diaAnterior;
+  const fechaInicio = input.fechaLecturaAnterior ?? fallbackFechaInicioSinLecturaAnterior(input.fecha);
   const previousNote = lecturaAnteriorL == null
     ? "Lectura anterior: sin referencia."
     : `Lectura anterior: ${lecturaAnteriorL} L${input.fechaLecturaAnterior ? ` (${input.fechaLecturaAnterior})` : ""}.`;
@@ -311,13 +348,17 @@ export function parseWaterMeterReadingM3(input: Pick<ConsumoFisicoInput, "notas"
  * Extrae la fecha REAL de la foto/lectura desde las notas (formato "(foto del
  * YYYY-MM-DD)", escrito por los builders de lectura). Necesario porque desde la
  * REGLA 1 la fila guarda el consumo en [fecha_inicio, fecha_fin] = día(s) anterior(es)
- * a la foto, así que fecha_fin ya NO es la fecha de la lectura en sí. Para filas sin
- * esa anotación (facturas, datos antiguos) se usa fecha_fin como aproximación.
+ * a la foto, así que fecha_fin ya NO es la fecha de la lectura en sí: la foto real es
+ * fecha_fin + 1. Para filas sin esa anotación (facturas "factura_detallada", datos
+ * antiguos sin la nota) se usa ese mismo fallback fecha_fin + 1 día como aproximación:
+ * una factura cubre consumo HASTA fecha_fin, así que la siguiente lectura/lectura debe
+ * anclarse en fecha_fin + 1, nunca en fecha_fin (eso duplicaría ese último día al
+ * solaparse con el rango de la lectura siguiente).
  */
 export function extractFotoFecha(consumo: Pick<ConsumoFisicoInput, "notas" | "fecha_fin">): string {
   const notes = consumo.notas ?? "";
   const match = notes.match(/foto del (\d{4}-\d{2}-\d{2})/i);
-  return match ? match[1] : consumo.fecha_fin;
+  return match ? match[1] : addOneDayLocal(consumo.fecha_fin);
 }
 
 export function findPreviousWaterMeterReading(

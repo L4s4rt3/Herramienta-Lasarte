@@ -133,8 +133,11 @@ describe("consumos fisicos helpers", () => {
       },
     ], "2026-06-25");
 
+    // La factura cubre consumo HASTA el 2026-04-23 (fecha_fin), asi que la fecha real
+    // de "lectura" para encadenar el siguiente registro es fecha_fin + 1 = 2026-04-24
+    // (evita que el 23 se cuente dos veces: una en la factura, otra en la lectura siguiente).
     expect(previous).toMatchObject({
-      fecha: "2026-04-23",
+      fecha: "2026-04-24",
       lecturaM3: 38659,
       consumoL: 420000,
     });
