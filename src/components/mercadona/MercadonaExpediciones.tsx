@@ -1,13 +1,13 @@
 // src/components/mercadona/MercadonaExpediciones.tsx
-// Pestaña "Expediciones": los palets a Mercadona registrados en los partes
-// (tabla palets_dia) y el cruce de las tres patas contra el VENDIDO del Excel
-// de Mercadona, que es la cifra de referencia real. Hallazgos verificados
-// contra datos (jul 2026): (1) el numero inflado era el CONFECCIONADO, porque
-// producto_dia suma el kg del calibrador sin descontar mujeres/reciclado — se
-// corrige en useMercadonaConfeccionadoSemanal con el factor de cascada diario;
-// (2) los palets de los partes cubrian ~100% del vendido en mayo pero solo
-// ~50% desde junio: es un hueco de registro en el ORIGEN (la seccion de palets
-// del parte), no un dato inflado.
+// Pestaña "Expediciones": los palets a Mercadona de los partes (con reparacion
+// de cliente perdido, ver repararPaletsMercadona en el hook) y el cruce de las
+// tres patas contra el VENDIDO del Excel de Mercadona, la cifra de referencia
+// real. Hallazgos verificados contra datos (jul 2026): (1) el numero inflado
+// era el CONFECCIONADO, porque producto_dia suma el kg del calibrador sin
+// descontar mujeres/reciclado — corregido con el factor de cascada diario;
+// (2) el extractor de los partes deja filas de palets Mercadona sin cliente
+// desde junio — se reparan por producto identico en el mismo parte y la
+// cobertura queda en 90-105% del vendido.
 import {
   Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -24,7 +24,7 @@ import { BAR_STYLE, C, CHART_PANEL_CLASS, GlassTooltip, GRID, MARGIN, XAXIS, YAX
 import { cn } from "@/lib/utils";
 
 const AVISO_KG_BRUTOS =
-  "Registro parcial: estos palets son los que aparecen en los partes diarios. En mayo cubrían prácticamente todo lo vendido, pero desde junio solo recogen alrededor de la mitad — el resto de envíos no se está apuntando en la sección de palets del parte. La cifra fiable de lo vendido es la del Excel de Mercadona.";
+  "Palets de los partes diarios. Algunas filas llegan sin el nombre del cliente y se recuperan automáticamente cuando el mismo parte tiene el mismo producto etiquetado como Mercadona; con esa reparación la cobertura típica es del 90-105% de lo vendido. La cifra oficial de ventas sigue siendo la del Excel de Mercadona.";
 
 const DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
@@ -250,9 +250,10 @@ function CruceTresPatas({
               producción real — se descuentan proporcionalmente las mujeres del calibrador y el reciclado del día (el informe
               bruto los incluía y por eso salía inflado) y se excluyen los precalibrados. Queda algo por encima del vendido de
               forma natural (stock que se vende la semana siguiente y confección del sábado sin parte).{" "}
-              <strong className="text-foreground">Palets registrados</strong>: kg de los palets Mercadona que aparecen en los
-              partes. Ojo con la columna de cobertura: en mayo los partes recogían prácticamente el 100% de lo vendido, pero
-              desde junio solo recogen la mitad — el hueco está en el origen (la sección de palets del parte), no en la venta.
+              <strong className="text-foreground">Palets registrados</strong>: kg de los palets Mercadona de los partes,
+              incluyendo la reparación automática de filas sin cliente (mismo producto en el mismo parte). La columna de
+              cobertura muestra qué % del vendido recogen; lo normal es 90-105%, y desviaciones mayores apuntan a partes con
+              palets sin apuntar.
             </p>
           </>
         )}
