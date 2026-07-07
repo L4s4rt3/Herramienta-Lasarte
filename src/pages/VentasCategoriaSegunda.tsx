@@ -56,8 +56,24 @@ type FilterState = { campana: string; mes: string; cliente: string; metodo: stri
 const TOP_TABS = ["resumen", "clientes", "productos", "articulos", "base", "importar"] as const;
 type TopTab = typeof TOP_TABS[number];
 
+export interface VentasCategoriaPageProps {
+  categoriaNombre: string;
+  titulo: string;
+  subtitulo: string;
+}
+
 export default function VentasCategoriaSegunda() {
-  const ventas = useVentasCategoria();
+  return (
+    <VentasCategoriaPage
+      categoriaNombre="Categoria segunda"
+      titulo="Categoria segunda"
+      subtitulo="Sin categoria"
+    />
+  );
+}
+
+export function VentasCategoriaPage({ categoriaNombre, titulo, subtitulo }: VentasCategoriaPageProps) {
+  const ventas = useVentasCategoria(categoriaNombre);
   const [tab, setTab] = useState<TopTab>("resumen");
   const [filters, setFilters] = useState<FilterState>({ campana: "", mes: "", cliente: "", metodo: "", articulo: "" });
   const [parsedImport, setParsedImport] = useState<ParseVentasCategoriaWorkbookResult | null>(null);
@@ -238,7 +254,7 @@ export default function VentasCategoriaSegunda() {
             <div>
               <h1 className="text-2xl font-bold">Acceso restringido</h1>
               <p className="mt-2 text-sm text-muted-foreground">
-                Tu correo no esta autorizado para ver Categoria segunda.
+                Tu correo no esta autorizado para ver {titulo}.
               </p>
             </div>
           </CardContent>
@@ -271,7 +287,7 @@ export default function VentasCategoriaSegunda() {
     if (!parsedImport) return;
     try {
       await ventas.importWorkbook.mutateAsync(parsedImport);
-      toast({ title: "Categoria segunda actualizada", description: "Datos diarios, catalogo y clientes preparados." });
+      toast({ title: `${titulo} actualizada`, description: "Datos diarios, catalogo y clientes preparados." });
       setParsedImport(null);
       setTab("resumen");
     } catch (error) {
@@ -290,9 +306,9 @@ export default function VentasCategoriaSegunda() {
                 {hasImportedData ? "Base cargada" : "Sin datos"}
               </Badge>
             </div>
-            <h1 className="page-title">Categoria segunda</h1>
+            <h1 className="page-title">{titulo}</h1>
             <p className="page-subtitle">
-              {ventas.categoria?.nombre ?? "Sin categoria"}
+              {ventas.categoria?.nombre ?? subtitulo}
               {hasImportedData && !isLoading ? ` · ${formatKg(dashboardKpis.totalKilos)} · ${formatNumber(dashboardKpis.clientes)} clientes` : ""}
             </p>
           </div>

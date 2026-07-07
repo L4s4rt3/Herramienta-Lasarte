@@ -66,10 +66,11 @@ export function useVentasCategoriaAccess() {
   };
 }
 
-export function useVentasCategoria() {
+export function useVentasCategoria(categoriaNombre: string = "Categoria segunda") {
   const { user, role } = useAuth();
   const queryClient = useQueryClient();
-  const baseKey = ["ventas-categoria"] as const;
+  const categoriaSlug = normalizeName(categoriaNombre);
+  const baseKey = ["ventas-categoria", categoriaSlug] as const;
   const access = useVentasCategoriaAccess();
   const hasAccess = access.hasAccess;
 
@@ -87,8 +88,8 @@ export function useVentasCategoria() {
   });
 
   const categoria = useMemo(
-    () => categoriasQuery.data?.find((row) => normalizeName(row.nombre) === "categoria-segunda") ?? categoriasQuery.data?.[0] ?? null,
-    [categoriasQuery.data],
+    () => categoriasQuery.data?.find((row) => normalizeName(row.nombre) === categoriaSlug) ?? null,
+    [categoriasQuery.data, categoriaSlug],
   );
   const categoriaId = categoria?.id ?? null;
 
