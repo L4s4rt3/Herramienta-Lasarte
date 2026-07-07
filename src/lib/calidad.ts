@@ -183,10 +183,10 @@ export interface CalidadValidationResult {
   reason?: string;
 }
 
-export function canValidateCalidadLote(lote: CalidadLote, photoCount: number): CalidadValidationResult {
-  if (photoCount < 1) {
-    return { ok: false, reason: "Se requiere al menos 1 foto para validar el informe." };
-  }
+// Las fotos son OPCIONALES para validar (peticion del dueño, jul 2026): se
+// puede validar un informe sin adjuntos. El parametro _photoCount se conserva
+// por compatibilidad de firma con los llamadores.
+export function canValidateCalidadLote(lote: CalidadLote, _photoCount: number): CalidadValidationResult {
   if ((lote.defectos ?? []).includes("Otro") && !(lote.defecto_otro ?? "").trim()) {
     return { ok: false, reason: "Seleccionaste Otro como defecto. Describe manualmente el defecto antes de validar." };
   }

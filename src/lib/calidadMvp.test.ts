@@ -74,6 +74,11 @@ describe("calidad MVP domain", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("allows validation without photos (attachments are optional)", () => {
+    const result = canValidateCalidadLote(lote({}), 0);
+    expect(result.ok).toBe(true);
+  });
+
   it("validates and locks a report", () => {
     const validated = validateCalidadLote(lote({ informe_estado: "generado" }), "user-2", "2026-06-29T12:00:00Z");
     expect(validated.informe_estado).toBe("validado");
