@@ -12,6 +12,8 @@ import {
   BarChart3,
   Sprout,
   ShoppingCart,
+  Store,
+  Truck,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
 
@@ -75,6 +77,9 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { to: "/mercadona", label: "Mercadona", icon: ShoppingCart },
       { to: "/ventas/categoria-segunda", label: "Categoria segunda", icon: FileSpreadsheet },
+      { to: "/ventas/categoria-primera", label: "Categoria primera", icon: FileSpreadsheet },
+      { to: "/edeka", label: "Edeka", icon: Store },
+      { to: "/cmr", label: "CMR y Hojas de ruta", icon: Truck },
     ],
   },
   {
@@ -94,8 +99,15 @@ export default function AppLayout() {
   );
 }
 
+// Rutas nuevas (rol ventas + admin); operario nunca las ve.
+const VENTAS_Y_ADMIN_ONLY = new Set([
+  "/ventas/categoria-primera",
+  "/edeka",
+  "/cmr",
+]);
+
 function AppLayoutContent() {
-  const { signOut, user } = useAuth();
+  const { signOut, user, role } = useAuth();
   const ventasCategoriaAccess = useVentasCategoriaAccess();
   const { isMobile, setOpenMobile } = useSidebar();
   useDataWarmup();
@@ -117,24 +129,30 @@ function AppLayoutContent() {
   const tourSteps = getVisibleTourSteps(ventasCategoriaAccess.hasAccess);
 
   // Arranque automático la primera vez que un usuario autenticado entra a la app.
+  // El tour recorre secciones (Dashboard, Calidad, Partes...) que el rol
+  // "ventas" no puede ver, así que ni se auto-arranca ni se ofrece para ese rol.
   useEffect(() => {
-    if (!user) return;
+    if (!user || role === "ventas") return;
     try {
       const seen = localStorage.getItem(TOUR_STORAGE_KEY);
       if (!seen) setTourOpen(true);
     } catch {
       // Si localStorage no está disponible simplemente no auto-arrancamos el tour.
     }
-  }, [user]);
+  }, [user, role]);
 
-  // Relanzable desde el botón "Guía" del TopBar.
+  // Relanzable desde el botón "Guía" del TopBar. Ignorado para "ventas" por el
+  // mismo motivo que el arranque automático (ver arriba); el botón de guía
+  // tampoco debería mostrarse a ese rol, pero esto evita que quede huérfano
+  // si algo dispara el evento igualmente.
   useEffect(() => {
     function handleStartTour() {
+      if (role === "ventas") return;
       setTourOpen(true);
     }
     window.addEventListener("lasarte:start-tour", handleStartTour);
     return () => window.removeEventListener("lasarte:start-tour", handleStartTour);
-  }, []);
+  }, [role]);
 
   return (
     <>
@@ -158,10 +176,17 @@ function AppLayoutContent() {
         </SidebarHeader>
 
         <SidebarContent>
-          {navGroups.map((group) => {
-            const visibleItems = group.items.filter((item) => (
-              item.to !== "/ventas/categoria-segunda" || ventasCategoriaAccess.hasAccess
-            ));
+          {navGroups
+            // El rol "ventas" solo ve el grupo Comercial (sus 5 secciones); el resto de
+            // grupos (Dashboard, Operaciones diarias, Producción, Operaciones) no aplican.
+            .filter((group) => role !== "ventas" || group.label === "Comercial")
+            .map((group) => {
+            const visibleItems = group.items.filter((item) => {
+              if (item.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
+              // Categoria primera, Edeka y CMR son solo para admin y ventas.
+              if (VENTAS_Y_ADMIN_ONLY.has(item.to)) return role === "admin" || role === "ventas";
+              return true;
+            });
             // Un grupo sin items visibles (p.ej. "Comercial" sin acceso) no pinta ni su etiqueta.
             if (visibleItems.length === 0) return null;
             return (

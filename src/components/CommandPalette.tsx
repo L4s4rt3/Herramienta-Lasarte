@@ -20,9 +20,26 @@ import {
   Users,
   Plus,
   Loader2,
+  ShoppingCart,
+  Store,
+  Truck,
 } from "lucide-react";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
+import { useAuth } from "@/contexts/AuthProvider";
 import { useVentasCategoriaAccess } from "@/hooks/useVentasCategoria";
+
+// Rutas nuevas del rol "ventas": solo visibles para "ventas" y "admin".
+const VENTAS_Y_ADMIN_ONLY = new Set(["/ventas/categoria-primera", "/edeka", "/cmr"]);
+
+// Las 5 secciones que puede ver el rol "ventas" (ver RoleRoute.tsx). Para ese
+// rol la paleta solo debe ofrecer estas, ni el resto de la operativa interna.
+const VENTAS_ALLOWED = new Set([
+  "/ventas/categoria-segunda",
+  "/ventas/categoria-primera",
+  "/mercadona",
+  "/edeka",
+  "/cmr",
+]);
 
 const PAGES = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, keywords: "panel inicio dashboard" },
@@ -30,7 +47,11 @@ const PAGES = [
   { to: "/partes", label: "Partes diarios", icon: FileText, keywords: "partes produccion diario" },
   { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3, keywords: "analisis diario lotes calibres" },
   { to: "/productores", label: "Productores", icon: Sprout, keywords: "productores proveedores origen eficiencia" },
+  { to: "/mercadona", label: "Mercadona", icon: ShoppingCart, keywords: "mercadona ventas comercial cliente principal" },
   { to: "/ventas/categoria-segunda", label: "Categoria segunda", icon: FileSpreadsheet, keywords: "ventas comercial categoria segunda clientes productos precios" },
+  { to: "/ventas/categoria-primera", label: "Categoria primera", icon: FileSpreadsheet, keywords: "ventas comercial categoria primera clientes productos precios" },
+  { to: "/edeka", label: "Edeka", icon: Store, keywords: "edeka ventas comercial cliente" },
+  { to: "/cmr", label: "CMR y Hojas de ruta", icon: Truck, keywords: "cmr hojas de ruta transporte logistica" },
   { to: "/costes/consumos", label: "Consumos", icon: Droplet, keywords: "consumos costes agua energia gasoil" },
   { to: "/costes/asistencia", label: "Asistencia", icon: Users, keywords: "asistencia trabajadores turnos" },
 ];
@@ -49,10 +70,24 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const { data: searchResults, isLoading } = useGlobalSearch(searchQuery);
+  const { role } = useAuth();
   const ventasCategoriaAccess = useVentasCategoriaAccess();
-  const visiblePages = PAGES.filter((page) => (
-    page.to !== "/ventas/categoria-segunda" || ventasCategoriaAccess.hasAccess
-  ));
+  const isVentas = role === "ventas";
+  const visiblePages = PAGES.filter((page) => {
+    // El rol "ventas" solo debe ver sus 5 secciones comerciales en la paleta.
+    if (isVentas) return VENTAS_ALLOWED.has(page.to);
+    if (page.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
+    // Categoria primera, Edeka y CMR son solo para admin y ventas.
+    if (VENTAS_Y_ADMIN_ONLY.has(page.to)) return role === "admin";
+    return true;
+  });
+  // "Crear notas de calidad" / "Crear nuevo parte" llevan a secciones fuera
+  // del alcance de "ventas" (/calidad, /partes): no se ofrecen para ese rol.
+  const visibleActions = isVentas ? [] : ACTIONS;
+  // Los resultados de búsqueda global (partes, productores) también quedan
+  // fuera del alcance de "ventas"; se ocultan en vez de filtrar useGlobalSearch
+  // (hook fuera del alcance de este cambio) para no tocar su firma/consultas.
+  const visibleSearchResults = isVentas ? [] : searchResults;
 
   const handleSelect = useCallback(
     (to: string) => {
@@ -73,10 +108,10 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             Buscando...
           </div>
         ) : null}
-        {searchResults && searchResults.length > 0 && (
+        {visibleSearchResults && visibleSearchResults.length > 0 && (
           <>
             <CommandGroup heading="Resultados">
-              {searchResults.map((result) => {
+              {visibleSearchResults.map((result) => {
                 const Icon = result.type === "parte" ? FileText : Sprout;
                 return (
                   <CommandItem
@@ -96,12 +131,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             <CommandSeparator />
           </>
         )}
-        {searchQuery && searchQuery.length >= 2 && (!searchResults || searchResults.length === 0) ? (
+        {searchQuery && searchQuery.length >= 2 && (!visibleSearchResults || visibleSearchResults.length === 0) ? (
           <CommandEmpty>Sin resultados para "{searchQuery}".</CommandEmpty>
         ) : null}
         {(!searchQuery || searchQuery.length < 2) && (
+          <>{visibleActions.length > 0 && (
           <><CommandGroup heading="Acciones rápidas">
-          {ACTIONS.map((action) => (
+          {visibleActions.map((action) => (
             <CommandItem
               key={action.id}
               onSelect={() => handleSelect(action.to)}
@@ -111,7 +147,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             </CommandItem>
           ))}
         </CommandGroup>
-        <CommandSeparator />
+        <CommandSeparator /></>
+        )}
         <CommandGroup heading="Navegación">
           {visiblePages.map((page) => (
             <CommandItem

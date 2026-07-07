@@ -60,9 +60,27 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/",
     parentLabel: "Comercial",
   },
+  "/ventas/categoria-primera": {
+    label: "Categoria primera",
+    subtitle: "Ventas del resto de productos y clientes (primera categoria).",
+    parent: "/",
+    parentLabel: "Comercial",
+  },
   "/mercadona": {
     label: "Mercadona",
     subtitle: "Aprovechamiento, ventas semanales y planificación del cliente principal",
+    parent: "/",
+    parentLabel: "Comercial",
+  },
+  "/edeka": {
+    label: "Edeka",
+    subtitle: "Resumen de lo enviado al cliente Edeka a partir de los palets de los partes diarios",
+    parent: "/",
+    parentLabel: "Comercial",
+  },
+  "/cmr": {
+    label: "CMR y Hojas de ruta",
+    subtitle: "Archivo e histórico de CMR y hojas de ruta, y generación de nuevos documentos",
     parent: "/",
     parentLabel: "Comercial",
   },

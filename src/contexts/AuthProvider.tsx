@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useReducer, ReactNode } from "rea
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
-type Role = "admin" | "operario" | null;
+type Role = "admin" | "operario" | "ventas" | null;
 
 interface AuthContextValue {
   user: User | null;
@@ -42,6 +42,20 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
 
 const initialState: AuthState = { session: null, user: null, role: null, loading: true };
 
+// Un usuario puede tener varias filas en user_roles (p.ej. mientras se le
+// reasigna de "operario" a "ventas"). Ante varias filas, prioriza el rol de
+// mayor privilegio/alcance: admin > ventas > operario. Sin filas, se asume
+// "operario" (comportamiento histórico para altas nuevas sin rol explícito).
+const ROLE_PRIORITY: Array<Exclude<Role, null>> = ["admin", "ventas", "operario"];
+
+function resolveRole(rows: Array<{ role: string }> | null | undefined): Role {
+  const roles = new Set((rows ?? []).map((r) => r.role));
+  for (const candidate of ROLE_PRIORITY) {
+    if (roles.has(candidate)) return candidate;
+  }
+  return "operario";
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
@@ -52,10 +66,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data } = await supabase
         .from("user_roles")
         .select("role")
-        .eq("user_id", userId)
-        .maybeSingle();
+        .eq("user_id", userId);
       // Evita escribir un rol obsoleto si el componente se desmontó o cambió el usuario.
-      if (active) dispatch({ type: "SET_ROLE", role: (data?.role as Role) ?? "operario" });
+      if (active) dispatch({ type: "SET_ROLE", role: resolveRole(data) });
     };
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
