@@ -5,11 +5,16 @@
  *    ("SEMANA 21".."SEMANA N"), con planificacion quincenal/semanal. Ver
  *    parseSemanaSheet mas abajo para el detalle fila a fila.
  *
- * 2) SEMANAL REAL: el que se sube cada semana en adelante (ej. "mercadona s27.xlsx"),
- *    UNA sola hoja ("Sheet 1" u otro nombre) con solo esta tabla, sin planificacion:
- *      Fila 0 (cabecera): Método | Descripción | Líneas | KILOS | UNID | LITROS | Base Iva
+ * 2) SEMANAL REAL: el que se sube cada semana en adelante (ej. "mercadona s27.xlsx",
+ *    "mdona27.xlsx"), UNA sola hoja ("Sheet 1" u otro nombre) con solo esta tabla,
+ *    sin planificacion. Dos variantes de cabecera segun la fecha del fichero:
+ *      Vieja:  Método | Descripción | Líneas | KILOS | UNID   | LITROS | Base Iva
+ *      Nueva:  Método | Descripción | Líneas | KILOS | CAJAS  | PALETS | Base Iva
+ *    En la variante vieja, UNID/LITROS no se usaban (venian a 0 o vacios) y
+ *    cajas/palets quedaban a null. En la nueva, esas mismas columnas traen
+ *    cajas/palets reales y se vuelcan a metodo.cajas/metodo.palets.
  *      Fila 1: metodo vacio, 4 lineas, 0 kg, Base Iva NEGATIVA -> fila de AJUSTES/ABONOS
- *      Filas 2-5: MA12KGC/MA3KGC/MA4KGC/MA5KGC con lineas, kilos y base_iva
+ *      Filas 2-5: MA12KGC/MA3KGC/MA4KGC/MA5KGC con lineas, kilos, cajas/palets (si vienen) y base_iva
  *    El numero de semana NO figura en la hoja: se infiere del nombre de archivo
  *    (regex /s(\d{1,2})/i, p.ej. "mercadona s27.xlsx" -> 27) y se confirma/edita en
  *    el preview de importacion. vendidoKg = suma de kilos de los metodos (sin la
@@ -32,8 +37,8 @@ export interface MetodoVenta {
   descripcion: string;
   pct: number | null;
   kilos: number;
-  palets: number;
-  cajas: number;
+  palets: number | null;
+  cajas: number | null;
   comparativaAnteriorPct: number | null;
   /** Solo formato semanal real: nº de líneas de pedido del método. */
   lineas?: number | null;
@@ -258,7 +263,10 @@ export function parseSemanaSheet(rows: SheetRows, semana: number, anio: number):
  * Detecta si una hoja es del formato "semanal real": cabecera con Método +
  * Descripción + Líneas + KILOS (en cualquiera de las primeras filas, por si
  * hay alguna fila en blanco antes). Devuelve el índice de la fila de cabecera
- * o null si no matchea.
+ * o null si no matchea. Acepta ambas variantes de las columnas 5ª/6ª: la
+ * vieja (UNID/LITROS, sin usar) y la nueva (CAJAS/PALETS, con datos reales) —
+ * ninguna de las dos es obligatoria para el match, solo Método/Descripción/
+ * Líneas/KILOS lo son.
  */
 export function detectarCabeceraSemanalReal(rows: SheetRows): number | null {
   for (let i = 0; i < Math.min(rows.length, 5); i++) {
@@ -279,9 +287,16 @@ function cellTextValue(value: string | number | null | undefined): string {
   return String(value).trim();
 }
 
-/** Extrae el nº de semana de un nombre de archivo tipo "mercadona s27.xlsx" (case-insensitive). */
+/**
+ * Extrae el nº de semana de un nombre de archivo de Excel semanal real
+ * (case-insensitive). Reconoce dos patrones de nombre del dueño:
+ *  - "s<NN>" con separador opcional: "mercadona s27.xlsx" -> 27, "S 5" -> 5, "S09" -> 9.
+ *  - "mdona<NN>" con separador opcional (nombre nuevo desde julio 2026):
+ *    "mdona27.xlsx" -> 27, "mdona 28.xlsx" -> 28, "MDONA_29.xlsx" -> 29.
+ * Solo acepta semanas 1-53; cualquier otro numero (o ausencia de patron) da null.
+ */
 export function parseNombreArchivoSemana(fileName: string): number | null {
-  const match = /s[\s_-]?(\d{1,2})(?!\d)/i.exec(fileName);
+  const match = /(?:mdona|s)[\s_-]?(\d{1,2})(?!\d)/i.exec(fileName);
   if (!match) return null;
   const n = Number(match[1]);
   return Number.isFinite(n) && n >= 1 && n <= 53 ? n : null;
@@ -309,6 +324,11 @@ export function parseSemanaSheetSemanalReal(rows: SheetRows, semana: number, ani
   const colLineas = colIndex((c) => c.startsWith("LÍNEA") || c.startsWith("LINEA"), 2);
   const colKilos = colIndex((c) => c.startsWith("KILOS") || c === "KG", 3);
   const colBaseIva = colIndex((c) => c.startsWith("BASE"), 6);
+  // Variante nueva de cabecera: la 5ª/6ª columna son CAJAS/PALETS con datos
+  // reales (antes eran UNID/LITROS, sin usar y siempre a 0/vacío). -1 si la
+  // hoja no trae esas columnas (formato viejo): cajas/palets quedan null.
+  const colCajas = header.findIndex((c) => cellTextValue(c).toUpperCase().startsWith("CAJAS"));
+  const colPalets = header.findIndex((c) => cellTextValue(c).toUpperCase().startsWith("PALETS"));
 
   const metodos: MetodoVenta[] = [];
   let ajustesBaseIva: number | null = null;
@@ -339,8 +359,8 @@ export function parseSemanaSheetSemanalReal(rows: SheetRows, semana: number, ani
       descripcion: cellText(row, colDescripcion),
       pct: null,
       kilos,
-      palets: 0,
-      cajas: 0,
+      palets: colPalets === -1 ? null : parseNumeroVentas(row[colPalets]),
+      cajas: colCajas === -1 ? null : parseNumeroVentas(row[colCajas]),
       comparativaAnteriorPct: null,
       lineas,
       baseIva,
@@ -348,7 +368,13 @@ export function parseSemanaSheetSemanalReal(rows: SheetRows, semana: number, ani
   }
 
   const vendidoKg = metodos.reduce((s, m) => s + (m.kilos || 0), 0);
-  const totales = metodos.length > 0 ? { kilos: vendidoKg, palets: 0, cajas: 0 } : null;
+  const totales = metodos.length > 0
+    ? {
+      kilos: vendidoKg,
+      palets: metodos.reduce((s, m) => s + (m.palets ?? 0), 0),
+      cajas: metodos.reduce((s, m) => s + (m.cajas ?? 0), 0),
+    }
+    : null;
 
   return {
     anio,
@@ -489,6 +515,42 @@ export const MERCADONA_EXPORT_NUMFMT = {
 
 /** Ancho de columna (unidades "wch", como !cols de xlsx) clonado del original. */
 export const MERCADONA_EXPORT_COL_WIDTHS = [22, 34, 16, 12, 10, 10, 30];
+
+/**
+ * Completa pct y comparativaAnteriorPct de los métodos cuando faltan (típico
+ * de semanas del formato "semanal real", que no trae ni columna PORCENTAJE ni
+ * COMPARATIVA SEMANA ANTERIOR). No pisa valores ya presentes en el Excel
+ * original (formato histórico), solo rellena null/undefined:
+ *  - pct = kilos del método / total de kilos vendidos de la semana (redondeo
+ *    entero, igual que el original, que ya viene como "19%" sin decimales).
+ *  - comparativaAnteriorPct = variación % de kilos contra el MISMO método de
+ *    metodosSemanaAnterior (redondeo entero, puede ser negativa). Si no se
+ *    pasa semana anterior (o el método no existe en ella / tenía 0 kg), se
+ *    deja null en vez de inventar un porcentaje contra 0.
+ */
+export function completarPctYComparativa(
+  metodos: MetodoVenta[],
+  metodosSemanaAnterior: MetodoVenta[] | null | undefined,
+): MetodoVenta[] {
+  const totalKilos = metodos.reduce((s, m) => s + (m.kilos || 0), 0);
+  const anteriorByCodigo = new Map((metodosSemanaAnterior ?? []).map((m) => [m.metodo.toUpperCase(), m]));
+
+  return metodos.map((m) => {
+    const pct = m.pct !== null && m.pct !== undefined
+      ? m.pct
+      : (totalKilos > 0 ? Math.round((m.kilos / totalKilos) * 100) : null);
+
+    let comparativaAnteriorPct = m.comparativaAnteriorPct;
+    if (comparativaAnteriorPct === null || comparativaAnteriorPct === undefined) {
+      const anterior = anteriorByCodigo.get(m.metodo.toUpperCase());
+      comparativaAnteriorPct = anterior && anterior.kilos > 0
+        ? Math.round(((m.kilos - anterior.kilos) / anterior.kilos) * 100)
+        : null;
+    }
+
+    return { ...m, pct, comparativaAnteriorPct };
+  });
+}
 
 /** Celda con su number format opcional, para poder aplicar !cols/z tras aoa_to_sheet. */
 export interface MercadonaExportCellFormat {

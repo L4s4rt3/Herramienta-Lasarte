@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSemanaExportRows,
+  completarPctYComparativa,
   detectarCabeceraSemanalReal,
   formatMercadonaWeekRangeLabel,
   isMetodoConocido,
@@ -13,6 +14,7 @@ import {
   parseNumeroVentasOrZero,
   parseSemanaSheet,
   parseSemanaSheetSemanalReal,
+  type MetodoVenta,
   type SheetRows,
 } from "./mercadonaVentas";
 
@@ -291,8 +293,22 @@ describe("parseNombreArchivoSemana", () => {
     expect(parseNombreArchivoSemana("Mercadona_S09_2026.xlsx")).toBe(9);
   });
 
-  it("devuelve null si no hay patron 's<numero>' reconocible", () => {
+  it("devuelve null si no hay patron 's<numero>' ni 'mdona<numero>' reconocible", () => {
     expect(parseNombreArchivoSemana("ventas.xlsx")).toBeNull();
+  });
+
+  it("infiere el numero de semana del patron nuevo 'mdona<NN>' (nombre real del dueño desde julio 2026)", () => {
+    expect(parseNombreArchivoSemana("mdona27.xlsx")).toBe(27);
+  });
+
+  it("el patron 'mdona' es case-insensitive y tolera espacio o guion bajo antes del numero", () => {
+    expect(parseNombreArchivoSemana("mdona 28.xlsx")).toBe(28);
+    expect(parseNombreArchivoSemana("MDONA_29.xlsx")).toBe(29);
+  });
+
+  it("'mdona' con numero fuera de rango de semana (1-53) devuelve null", () => {
+    expect(parseNombreArchivoSemana("mdona99.xlsx")).toBeNull();
+    expect(parseNombreArchivoSemana("mdona0.xlsx")).toBeNull();
   });
 });
 
@@ -331,10 +347,11 @@ describe("parseSemanaSheetSemanalReal", () => {
     expect(ma12.lineas).toBe(120);
     expect(ma12.kilos).toBe(19690);
     expect(ma12.baseIva).toBeCloseTo(4789.92, 2);
-    // Campos que no aplican a este formato quedan neutros.
+    // Campos que no aplican a este formato (cabecera vieja UNID/LITROS, sin
+    // datos de cajas/palets) quedan a null, no a 0.
     expect(ma12.pct).toBeNull();
-    expect(ma12.palets).toBe(0);
-    expect(ma12.cajas).toBe(0);
+    expect(ma12.palets).toBeNull();
+    expect(ma12.cajas).toBeNull();
   });
 
   it("vendidoKg es la suma de kilos de los metodos (sin contar la fila de ajustes)", () => {
@@ -345,6 +362,74 @@ describe("parseSemanaSheetSemanalReal", () => {
   it("anio y semana vienen del parametro (inferido del nombre de archivo fuera de esta funcion)", () => {
     expect(parsed.anio).toBe(2026);
     expect(parsed.semana).toBe(27);
+  });
+});
+
+// ─── Formato SEMANAL REAL, cabecera NUEVA con CAJAS/PALETS reales ────────────
+// (fixture basada en el fichero real del dueño "mdona27.xlsx": cambia UNID/
+// LITROS (siempre a 0/vacío) por CAJAS/PALETS con datos reales).
+
+function buildSemanalRealSheetConCajasPalets(): SheetRows {
+  return [
+    ["Método", "Descripción", "Líneas", "KILOS", "CAJAS", "PALETS", "Base Iva"],
+    [null, null, 4, 0, null, null, -6327.47],
+    ["MA12KGC", "GENERICA GRANEL 12 KG", 120, 19690, 1607, 71, 4789.92],
+    ["MA3KGC", "HACENDADO D-PACK 4X3KG", 95, 35100, 2925, 126, 3820.15],
+    ["MA4KGC", "GENERICA GIRSAC 3X4KG", 80, 54131, 4385, 188, 3105.6],
+    ["MA5KGC", "HACENDADO D-PACK 2X5KG", 60, 48240, 4824, 207, 2450.3],
+  ];
+}
+
+describe("detectarCabeceraSemanalReal — cabecera nueva con CAJAS/PALETS", () => {
+  it("detecta la cabecera igualmente (CAJAS/PALETS en vez de UNID/LITROS)", () => {
+    expect(detectarCabeceraSemanalReal(buildSemanalRealSheetConCajasPalets())).toBe(0);
+  });
+});
+
+describe("parseSemanaSheetSemanalReal — cabecera nueva con CAJAS/PALETS reales", () => {
+  const rows = buildSemanalRealSheetConCajasPalets();
+  const parsed = parseSemanaSheetSemanalReal(rows, 27, 2026);
+
+  it("vuelca CAJAS/PALETS reales a metodo.cajas/metodo.palets", () => {
+    expect(parsed.metodos).toHaveLength(4);
+    const [ma12, ma3, ma4, ma5] = parsed.metodos;
+
+    expect(ma12.metodo).toBe("MA12KGC");
+    expect(ma12.kilos).toBe(19690);
+    expect(ma12.cajas).toBe(1607);
+    expect(ma12.palets).toBe(71);
+
+    expect(ma3.metodo).toBe("MA3KGC");
+    expect(ma3.kilos).toBe(35100);
+    expect(ma3.cajas).toBe(2925);
+    expect(ma3.palets).toBe(126);
+
+    expect(ma4.metodo).toBe("MA4KGC");
+    expect(ma4.kilos).toBe(54131);
+    expect(ma4.cajas).toBe(4385);
+    expect(ma4.palets).toBe(188);
+
+    expect(ma5.metodo).toBe("MA5KGC");
+    expect(ma5.kilos).toBe(48240);
+    expect(ma5.cajas).toBe(4824);
+    expect(ma5.palets).toBe(207);
+  });
+
+  it("sigue extrayendo la fila de ajustes/abonos igual que con la cabecera vieja", () => {
+    expect(parsed.ajustesBaseIva).toBeCloseTo(-6327.47, 2);
+    expect(parsed.ajustesLineas).toBe(4);
+  });
+
+  it("totales suma cajas y palets reales de los metodos", () => {
+    expect(parsed.totales).toEqual({
+      kilos: 19690 + 35100 + 54131 + 48240,
+      palets: 71 + 126 + 188 + 207,
+      cajas: 1607 + 2925 + 4385 + 4824,
+    });
+  });
+
+  it("vendidoKg sigue siendo la suma de kilos de los metodos", () => {
+    expect(parsed.vendidoKg).toBe(19690 + 35100 + 54131 + 48240);
   });
 });
 
@@ -375,6 +460,76 @@ describe("parseMercadonaWorkbook — autodeteccion de formato", () => {
     const sheets: Record<string, SheetRows> = { "Sheet 1": buildSemanalRealSheet() };
     const result = parseMercadonaWorkbook(sheets, 2026);
     expect(result.semanas[0].semana).toBe(0);
+  });
+});
+
+describe("completarPctYComparativa", () => {
+  const metodo = (over: Partial<MetodoVenta>): MetodoVenta => ({
+    metodo: "MA12KGC",
+    descripcion: "",
+    pct: null,
+    kilos: 0,
+    palets: null,
+    cajas: null,
+    comparativaAnteriorPct: null,
+    ...over,
+  });
+
+  it("calcula pct = kilos/total redondeado a entero cuando falta", () => {
+    const metodos = [
+      metodo({ metodo: "MA12KGC", kilos: 19690 }),
+      metodo({ metodo: "MA3KGC", kilos: 35100 }),
+      metodo({ metodo: "MA4KGC", kilos: 54131 }),
+      metodo({ metodo: "MA5KGC", kilos: 48240 }),
+    ];
+    const result = completarPctYComparativa(metodos, null);
+    const total = 19690 + 35100 + 54131 + 48240;
+    expect(result.map((m) => m.pct)).toEqual([
+      Math.round((19690 / total) * 100),
+      Math.round((35100 / total) * 100),
+      Math.round((54131 / total) * 100),
+      Math.round((48240 / total) * 100),
+    ]);
+  });
+
+  it("no pisa un pct ya presente (formato historico)", () => {
+    const metodos = [metodo({ kilos: 100, pct: 42 })];
+    const result = completarPctYComparativa(metodos, null);
+    expect(result[0].pct).toBe(42);
+  });
+
+  it("calcula comparativaAnteriorPct contra el mismo metodo de la semana anterior", () => {
+    const actual = [metodo({ metodo: "MA12KGC", kilos: 120 })];
+    const anterior = [metodo({ metodo: "MA12KGC", kilos: 100 })];
+    const result = completarPctYComparativa(actual, anterior);
+    expect(result[0].comparativaAnteriorPct).toBe(20); // +20%
+  });
+
+  it("comparativaAnteriorPct puede ser negativa", () => {
+    const actual = [metodo({ metodo: "MA12KGC", kilos: 80 })];
+    const anterior = [metodo({ metodo: "MA12KGC", kilos: 100 })];
+    const result = completarPctYComparativa(actual, anterior);
+    expect(result[0].comparativaAnteriorPct).toBe(-20);
+  });
+
+  it("deja comparativaAnteriorPct en null si no hay semana anterior", () => {
+    const actual = [metodo({ metodo: "MA12KGC", kilos: 80 })];
+    const result = completarPctYComparativa(actual, null);
+    expect(result[0].comparativaAnteriorPct).toBeNull();
+  });
+
+  it("deja comparativaAnteriorPct en null si el metodo no existe en la semana anterior", () => {
+    const actual = [metodo({ metodo: "MA5KGC", kilos: 80 })];
+    const anterior = [metodo({ metodo: "MA12KGC", kilos: 100 })];
+    const result = completarPctYComparativa(actual, anterior);
+    expect(result[0].comparativaAnteriorPct).toBeNull();
+  });
+
+  it("no pisa una comparativa ya presente (formato historico)", () => {
+    const actual = [metodo({ metodo: "MA12KGC", kilos: 120, comparativaAnteriorPct: 5 })];
+    const anterior = [metodo({ metodo: "MA12KGC", kilos: 100 })];
+    const result = completarPctYComparativa(actual, anterior);
+    expect(result[0].comparativaAnteriorPct).toBe(5);
   });
 });
 

@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { downloadBytes } from "@/lib/exportWorkbook";
-import { buildSemanaExportSheet } from "@/lib/mercadonaVentas";
+import { buildSemanaExportSheet, completarPctYComparativa, type MetodoVenta } from "@/lib/mercadonaVentas";
 import type { MercadonaMetodoRow, MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
 
 interface MercadonaExportarProps {
@@ -32,6 +32,33 @@ export function MercadonaExportar({ semanas, selectedId, onSelect }: MercadonaEx
     if (!semana) return;
     setExporting(true);
     try {
+      const metodos: MetodoVenta[] = sortMetodos(semana.metodos).map((m) => ({
+        metodo: m.metodo,
+        descripcion: m.descripcion ?? "",
+        pct: m.pct,
+        kilos: m.kilos ?? 0,
+        palets: m.palets ?? null,
+        cajas: m.cajas ?? null,
+        comparativaAnteriorPct: m.comparativa_anterior_pct,
+      }));
+
+      // Semana inmediatamente anterior en la lista (ordenada por anio,semana
+      // ascendente): fuente de la comparativa cuando la semana actual no la
+      // trae (típico del formato semanal real, que no tiene esa columna).
+      const idxActual = semanas.findIndex((s) => s.id === semana.id);
+      const semanaAnterior = idxActual > 0 ? semanas[idxActual - 1] : null;
+      const metodosAnterior: MetodoVenta[] | null = semanaAnterior
+        ? sortMetodos(semanaAnterior.metodos).map((m) => ({
+          metodo: m.metodo,
+          descripcion: m.descripcion ?? "",
+          pct: m.pct,
+          kilos: m.kilos ?? 0,
+          palets: m.palets ?? null,
+          cajas: m.cajas ?? null,
+          comparativaAnteriorPct: m.comparativa_anterior_pct,
+        }))
+        : null;
+
       const sheet = buildSemanaExportSheet({
         anio: semana.anio,
         semana: semana.semana,
@@ -41,15 +68,7 @@ export function MercadonaExportar({ semanas, selectedId, onSelect }: MercadonaEx
         vendidoKg: semana.vendido_kg,
         diferenciaPct: semana.diferencia_pct,
         notas: semana.notas,
-        metodos: sortMetodos(semana.metodos).map((m) => ({
-          metodo: m.metodo,
-          descripcion: m.descripcion ?? "",
-          pct: m.pct,
-          kilos: m.kilos ?? 0,
-          palets: m.palets ?? 0,
-          cajas: m.cajas ?? 0,
-          comparativaAnteriorPct: m.comparativa_anterior_pct,
-        })),
+        metodos: completarPctYComparativa(metodos, metodosAnterior),
         ajustesBaseIva: semana.ajustes_base_iva,
         ajustesLineas: semana.ajustes_lineas,
         antequeraIiKg: semana.antequera_ii_kg ?? null,

@@ -266,6 +266,44 @@ export function useMercadonaVentas() {
     },
   });
 
+  /**
+   * Planificacion manual ampliada (v3): el dueño teclea antequera_ii_kg/
+   * antequera_verdura_kg/rango_planificacion cuando le llega el email de la
+   * quincena, ademas del planificado_semana_kg ya existente. Cualquier campo
+   * es opcional (solo se actualiza lo que venga en el patch). Si las columnas
+   * v3 aun no estan en BD (migracion_mercadona_v3.sql pendiente), reintenta
+   * solo con las columnas "clasicas" que ya existian desde v1.
+   */
+  const updatePlanificacionManual = useMutation({
+    mutationFn: async (input: {
+      id: string;
+      planificado_semana_kg?: number | null;
+      antequera_ii_kg?: number | null;
+      antequera_verdura_kg?: number | null;
+      rango_planificacion?: string | null;
+    }) => {
+      const { id, ...patch } = input;
+      try {
+        const { error } = await SUPA.from("mercadona_semanas").update(patch).eq("id", id);
+        if (error) throw error;
+      } catch (error) {
+        if (!isColumnMissingError(error)) throw toError(error);
+        // Migracion v3 aun no aplicada: reintenta solo con las columnas
+        // "clasicas" (planificado_semana_kg), descartando antequera_*/rango.
+        const { planificado_semana_kg } = patch;
+        if (planificado_semana_kg === undefined) throw toError(error);
+        const { error: retryError } = await SUPA
+          .from("mercadona_semanas")
+          .update({ planificado_semana_kg })
+          .eq("id", id);
+        if (retryError) throw toError(retryError);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: baseKey });
+    },
+  });
+
   return {
     semanas,
     semanasQuery,
@@ -273,6 +311,7 @@ export function useMercadonaVentas() {
     tablesMissing,
     importSemanas,
     updatePlanificadoSemana,
+    updatePlanificacionManual,
   };
 }
 
