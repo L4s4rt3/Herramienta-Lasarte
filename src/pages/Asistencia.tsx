@@ -68,8 +68,11 @@ import {
 import {
   aplicarZonasOperativasTrabajadores,
   darBajaTrabajadorPreservandoHistorial,
+  resolveTrabajadoresPorLista,
   resolveTrabajadoresPorNombre,
+  type TrabajadorNoResuelto,
 } from "@/lib/asistenciaTrabajadores";
+import { useTrabajadoresAlias } from "@/hooks/useTrabajadoresAlias";
 import {
   calcularRendimientoZonasAlmacen,
 } from "@/lib/asistenciaPlantilla";
@@ -236,10 +239,24 @@ function loadStoredGrupos() {
   }
 }
 
+interface ImportacionPendiente {
+  mode: "daily" | "weekly";
+  /** Fechas afectadas por esta importacion (una para diario, N para semanal). */
+  dates: string[];
+  noResueltos: TrabajadorNoResuelto<TrabajadorRow>[];
+  resueltosCount: number;
+  /** Nombre -> fechas en las que ese nombre concreto figuraba como presente en el Excel. */
+  fechasPorNombre: Map<string, string[]>;
+}
+
 export default function Asistencia() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { aliasPorNombre, guardarAlias } = useTrabajadoresAlias();
   const [trabajadores, setTrabajadores] = useState<TrabajadorRow[]>([]);
+  const [importacionPendiente, setImportacionPendiente] = useState<ImportacionPendiente | null>(null);
+  const [nuevoTrabajadorZonaPorNombre, setNuevoTrabajadorZonaPorNombre] = useState<Record<string, string>>({});
+  const [vinculandoNombre, setVinculandoNombre] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(today());
   const [asistencia, setAsistencia] = useState<Record<string, boolean>>({});
   const [asistenciaMotivos, setAsistenciaMotivos] = useState<Record<string, string | null>>({});
@@ -305,12 +322,10 @@ export default function Asistencia() {
     const { data, error } = await supabase
       .from("asistencia_detalle")
       .select("trabajador_id, presente, motivo_ausencia")
-      .eq("date", date)
-      .eq("user_id", user.id);
+      .eq("date", date);
     const { data: bajasData, error: bajasError } = await supabase
       .from("asistencia_bajas_laborales")
       .select("*")
-      .eq("user_id", user.id)
       .lte("fecha_inicio", date)
       .or(`fecha_fin.is.null,fecha_fin.gte.${date}`);
 
@@ -529,8 +544,8 @@ export default function Asistencia() {
 
     try {
       const [asistenciaRes, bajasRes, trabajadoresRes, partesRes] = await Promise.all([
-        supabase.from("asistencia_detalle").select("trabajador_id, date, presente, motivo_ausencia").in("date", dates).eq("user_id", user.id),
-        supabase.from("asistencia_bajas_laborales").select("*").eq("user_id", user.id).lte("fecha_inicio", weekEnd).or(`fecha_fin.is.null,fecha_fin.gte.${dates[0]}`),
+        supabase.from("asistencia_detalle").select("trabajador_id, date, presente, motivo_ausencia").in("date", dates),
+        supabase.from("asistencia_bajas_laborales").select("*").lte("fecha_inicio", weekEnd).or(`fecha_fin.is.null,fecha_fin.gte.${dates[0]}`),
         supabase.from("trabajadores").select("*").order("nombre", { ascending: true }),
         supabase.from("partes_diarios").select("id, date, resumen_ia, kg_produccion_calibrador, kg_industria_manual, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2").in("date", dates),
       ]);
@@ -746,7 +761,7 @@ export default function Asistencia() {
     })));
     const { error } = await supabase
       .from("asistencia_detalle")
-      .upsert(records, { onConflict: "user_id,date,trabajador_id" });
+      .upsert(records, { onConflict: "date,trabajador_id" });
     setApplyingBajaLaboral(false);
 
     if (error) {
@@ -761,6 +776,72 @@ export default function Asistencia() {
         ? `No encontrados: ${preview.missing.slice(0, 3).join(", ")}${preview.missing.length > 3 ? "..." : ""}`
         : fechaFin ? `${fechaInicio} a ${fechaFin}.` : `Desde ${fechaInicio}, sin fecha fin.`,
     });
+  }
+
+  // ─── Nombres sin asignar (importaciones Excel) ─────────────────────────
+  // Principio: ningun nombre se pierde en silencio. Vincular guarda el alias
+  // para siempre (proximas importaciones ya lo resuelven solas) y aplica la
+  // asistencia de ese nombre retroactivamente en las fechas de ESTA
+  // importacion, sin tocar el upsert ya realizado para los nombres resueltos.
+  function quitarNombrePendiente(nombre: string) {
+    setImportacionPendiente((prev) => {
+      if (!prev) return prev;
+      const noResueltos = prev.noResueltos.filter((item) => item.nombre !== nombre);
+      if (noResueltos.length === 0) return null;
+      return { ...prev, noResueltos };
+    });
+  }
+
+  async function vincularNombrePendiente(nombre: string, trabajadorId: string) {
+    if (!user || !importacionPendiente) return;
+    setVinculandoNombre(nombre);
+    try {
+      await guardarAlias.mutateAsync({ trabajadorId, alias: nombre });
+
+      const fechas = importacionPendiente.fechasPorNombre.get(nombre) ?? [];
+      if (fechas.length > 0) {
+        const records = fechas.map((date) => ({
+          user_id: user.id,
+          date,
+          trabajador_id: trabajadorId,
+          presente: true,
+          motivo_ausencia: null,
+        }));
+        const { error } = await supabase
+          .from("asistencia_detalle")
+          .upsert(records, { onConflict: "date,trabajador_id" });
+        if (error) throw error;
+        if (fechas.includes(selectedDate)) await loadAsistencia(selectedDate);
+      }
+
+      quitarNombrePendiente(nombre);
+      toast({ title: `"${nombre}" vinculado`, description: "El alias se recordará en futuras importaciones." });
+    } catch (err: unknown) {
+      toast({ title: "Error al vincular", description: errorMessage(err), variant: "destructive" });
+    } finally {
+      setVinculandoNombre(null);
+    }
+  }
+
+  async function crearTrabajadorYVincular(nombre: string) {
+    if (!user) return;
+    setVinculandoNombre(nombre);
+    try {
+      const zona = nuevoTrabajadorZonaPorNombre[nombre] || null;
+      const { data, error } = await supabase
+        .from("trabajadores")
+        .insert({ user_id: user.id, nombre, zona })
+        .select("id")
+        .single();
+      if (error) throw error;
+
+      await loadTrabajadores();
+      await vincularNombrePendiente(nombre, data.id as string);
+    } catch (err: unknown) {
+      toast({ title: "Error al crear trabajador", description: errorMessage(err), variant: "destructive" });
+    } finally {
+      setVinculandoNombre(null);
+    }
   }
 
   function startEditingTrabajador(trabajador: TrabajadorRow) {
@@ -833,10 +914,11 @@ export default function Asistencia() {
       return;
     }
 
+    // Dataset compartido: se actualizan todos los trabajadores del grupo,
+    // sin filtrar por user_id (RLS permite el update a owner/admin/rrhh).
     const { error } = await supabase
       .from("trabajadores")
       .update({ zona: sanitizedGroup })
-      .eq("user_id", user.id)
       .eq("zona", grupo);
 
     if (error) {
@@ -866,10 +948,11 @@ export default function Asistencia() {
     if (!shouldDelete) return;
 
     if (trabajadoresEnGrupo.length > 0) {
+      // Dataset compartido: se actualizan todos los trabajadores del grupo,
+      // sin filtrar por user_id (RLS permite el update a owner/admin/rrhh).
       const { error } = await supabase
         .from("trabajadores")
         .update({ zona: null })
-        .eq("user_id", user.id)
         .eq("zona", grupo);
 
       if (error) {
@@ -922,7 +1005,7 @@ export default function Asistencia() {
           presente,
           motivo_ausencia: presente ? null : motivoAusencia,
         },
-        { onConflict: "user_id,date,trabajador_id" }
+        { onConflict: "date,trabajador_id" }
       );
 
     if (error) {
@@ -977,10 +1060,11 @@ export default function Asistencia() {
     setAsistencia({});
     setAsistenciaMotivos({});
 
+    // Dataset compartido: se limpia el día completo (todas las cuentas),
+    // no solo los registros creados por el usuario actual.
     const { error } = await supabase
       .from("asistencia_detalle")
       .delete()
-      .eq("user_id", user.id)
       .eq("date", selectedDate);
 
     if (error) {
@@ -1006,7 +1090,7 @@ export default function Asistencia() {
     }));
     const { error } = await supabase
       .from("asistencia_detalle")
-      .upsert(records, { onConflict: "user_id,date,trabajador_id" });
+      .upsert(records, { onConflict: "date,trabajador_id" });
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
       return;
@@ -1060,15 +1144,37 @@ export default function Asistencia() {
 
       const { error } = await supabase
         .from("asistencia_detalle")
-        .upsert(records, { onConflict: "user_id,date,trabajador_id" });
+        .upsert(records, { onConflict: "date,trabajador_id" });
 
       if (error) throw error;
 
       await loadAsistencia(selectedDate);
 
+      // Nunca se pierde un nombre en silencio: cualquier nombre del Excel que
+      // no case con ningun trabajador activo (ni por nombre ni por alias) se
+      // muestra en el panel "Nombres sin asignar" con sugerencias.
+      const resolucion = resolveTrabajadoresPorLista(activos, nombresImport, aliasPorNombre);
+      const fechasPorNombre = new Map<string, string[]>(
+        resolucion.noResueltos.map((item) => [item.nombre, [selectedDate]]),
+      );
+
       const presentes = records.filter((r) => r.presente).length;
+      if (resolucion.noResueltos.length > 0) {
+        setImportacionPendiente({
+          mode: "daily",
+          dates: [selectedDate],
+          noResueltos: resolucion.noResueltos,
+          resueltosCount: resolucion.matches.length + resolucion.inactive.length,
+          fechasPorNombre,
+        });
+      }
+
       toast({
         title: `Diario importado — ${presentes} presentes de ${records.length} trabajadores`,
+        description: resolucion.noResueltos.length > 0
+          ? `${resolucion.noResueltos.length} nombre(s) del Excel sin asignar — revisa el panel.`
+          : "Todos los nombres del Excel se resolvieron correctamente.",
+        variant: resolucion.noResueltos.length > 0 ? "destructive" : undefined,
       });
     } catch (err: unknown) {
       toast({ title: "Error al importar", description: errorMessage(err), variant: "destructive" });
@@ -1076,7 +1182,7 @@ export default function Asistencia() {
 
     setImportingMode(null);
     e.target.value = "";
-  }, [trabajadores, selectedDate, user]);
+  }, [trabajadores, selectedDate, user, aliasPorNombre]);
 
   const handleWeeklyImportXLSX = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1118,15 +1224,45 @@ export default function Asistencia() {
 
       const { error } = await supabase
         .from("asistencia_detalle")
-        .upsert(records, { onConflict: "user_id,date,trabajador_id" });
+        .upsert(records, { onConflict: "date,trabajador_id" });
       if (error) throw error;
 
       if (days.some((day) => day.date === selectedDate)) await loadAsistencia(selectedDate);
 
+      // Igual que en la importacion diaria: ningun nombre del Excel se
+      // descarta en silencio. Se agrega por nombre normalizado a traves de
+      // todos los dias de la semana para poder aplicar la asistencia
+      // retroactivamente en cuanto el dueño vincule el nombre.
+      const noResueltosPorNombre = new Map<string, TrabajadorNoResuelto<TrabajadorRow>>();
+      const fechasPorNombre = new Map<string, string[]>();
+      let totalResueltos = 0;
+      for (const day of days) {
+        const resolucionDia = resolveTrabajadoresPorLista(activos, day.names, aliasPorNombre);
+        totalResueltos += resolucionDia.matches.length + resolucionDia.inactive.length;
+        for (const item of resolucionDia.noResueltos) {
+          if (!noResueltosPorNombre.has(item.nombre)) noResueltosPorNombre.set(item.nombre, item);
+          fechasPorNombre.set(item.nombre, [...(fechasPorNombre.get(item.nombre) ?? []), day.date]);
+        }
+      }
+      const noResueltos = Array.from(noResueltosPorNombre.values());
+
       const presentes = records.filter((record) => record.presente).length;
+      if (noResueltos.length > 0) {
+        setImportacionPendiente({
+          mode: "weekly",
+          dates: days.map((day) => day.date),
+          noResueltos,
+          resueltosCount: totalResueltos,
+          fechasPorNombre,
+        });
+      }
+
       toast({
         title: `Semanal importado — ${days.length} día(s) detectado(s)`,
-        description: `${presentes} presentes guardados sobre ${records.length} registros.`,
+        description: noResueltos.length > 0
+          ? `${presentes} presentes guardados. ${noResueltos.length} nombre(s) sin asignar — revisa el panel.`
+          : `${presentes} presentes guardados sobre ${records.length} registros.`,
+        variant: noResueltos.length > 0 ? "destructive" : undefined,
       });
     } catch (err: unknown) {
       toast({ title: "Error al importar semanal", description: errorMessage(err), variant: "destructive" });
@@ -1134,7 +1270,7 @@ export default function Asistencia() {
 
     setImportingMode(null);
     e.target.value = "";
-  }, [trabajadores, selectedDate, user]);
+  }, [trabajadores, selectedDate, user, aliasPorNombre]);
 
   // ─── Date navigation ──────────────────────────────────────────────────
 
@@ -1478,6 +1614,105 @@ export default function Asistencia() {
           </Button>
         </div>
       </header>
+
+      <Dialog
+        open={importacionPendiente !== null}
+        onOpenChange={(open) => { if (!open) setImportacionPendiente(null); }}
+      >
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Nombres sin asignar</DialogTitle>
+          </DialogHeader>
+          {importacionPendiente ? (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {importacionPendiente.resueltosCount} nombre(s) se importaron correctamente.{" "}
+                {importacionPendiente.noResueltos.length} no se pudieron emparejar con ningún trabajador.
+                Vincula cada uno a un trabajador (se recordará para siempre) o crea uno nuevo.
+              </p>
+              <div className="space-y-3">
+                {importacionPendiente.noResueltos.map((item) => (
+                  <div key={item.nombre} className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-sm">{item.nombre}</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs text-muted-foreground"
+                        disabled={vinculandoNombre === item.nombre}
+                        onClick={() => quitarNombrePendiente(item.nombre)}
+                      >
+                        <X className="h-3.5 w-3.5 mr-1" /> Omitir
+                      </Button>
+                    </div>
+
+                    {item.sugerencias.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {item.sugerencias.map((sugerencia) => (
+                          <Button
+                            key={sugerencia.trabajadorId}
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs glass glass-hover"
+                            disabled={vinculandoNombre === item.nombre}
+                            onClick={() => void vincularNombrePendiente(item.nombre, sugerencia.trabajadorId)}
+                          >
+                            Vincular a {sugerencia.nombre}
+                            <Badge variant="secondary" className="ml-1.5 rounded-full text-[10px]">
+                              {Math.round(sugerencia.score * 100)}%
+                            </Badge>
+                          </Button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Sin sugerencias razonables.</p>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <Select
+                        disabled={vinculandoNombre === item.nombre}
+                        onValueChange={(value) => void vincularNombrePendiente(item.nombre, value)}
+                      >
+                        <SelectTrigger className="h-8 min-w-[200px] flex-1 text-xs">
+                          <SelectValue placeholder="Vincular a otro trabajador..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {trabajadores.map((t) => (
+                            <SelectItem key={t.id} value={t.id}>{t.nombre}{!t.activo ? " (inactivo)" : ""}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={nuevoTrabajadorZonaPorNombre[item.nombre] || "__none__"}
+                        onValueChange={(value) => setNuevoTrabajadorZonaPorNombre((prev) => ({ ...prev, [item.nombre]: value === "__none__" ? "" : value }))}
+                      >
+                        <SelectTrigger className="h-8 w-[140px] text-xs">
+                          <SelectValue placeholder="Zona (nuevo)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Sin grupo</SelectItem>
+                          {gruposDisponibles.map((z) => (
+                            <SelectItem key={z} value={z}>{z}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs glass glass-hover"
+                        disabled={vinculandoNombre === item.nombre}
+                        onClick={() => void crearTrabajadorYVincular(item.nombre)}
+                      >
+                        <Plus className="h-3.5 w-3.5 mr-1" /> Crear trabajador nuevo
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       {/* ── Toolbar única: navegación + acciones ────────────────── */}
       <div className="section-toolbar glass-overlay sticky top-14 z-10 flex flex-wrap items-center gap-2 sm:top-16">
