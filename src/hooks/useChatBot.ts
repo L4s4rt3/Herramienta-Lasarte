@@ -19,6 +19,14 @@ import { normalizeConsumoCantidad, type ConsumoFisicoInput } from "@/lib/consumo
 import { detectarTipoClasificacion } from "@/lib/destinoClasificacion";
 import { getRAGContext, formatRAGContext, saveConversation } from "@/lib/rag";
 import { useAuth } from "@/contexts/AuthProvider";
+import {
+  cargarMemorias,
+  extraerRecuerdos,
+  formatearMemoriasParaPrompt,
+  guardarRecuerdos,
+  olvidarMemoria,
+  type MemoriaRow,
+} from "@/lib/chatMemoria";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -28,6 +36,8 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   error?: boolean;
+  /** true si esta respuesta generó al menos un recuerdo nuevo (chip "recordaré esto"). */
+  recordado?: boolean;
 }
 
 // ─── Helpers de formato y fechas ───────────────────────────────────────────────
@@ -417,6 +427,24 @@ async function getCachedContext(): Promise<string> {
   return value;
 }
 
+// ─── Cache de memorias (evita recargar en cada apertura del panel) ────────────
+
+const MEMORIAS_CACHE_MS = 4 * 60 * 1000;
+let cachedMemorias: { value: MemoriaRow[]; expiresAt: number } | null = null;
+
+async function getCachedMemorias(): Promise<MemoriaRow[]> {
+  if (cachedMemorias && cachedMemorias.expiresAt > Date.now()) {
+    return cachedMemorias.value;
+  }
+  const value = await cargarMemorias().catch(() => []);
+  cachedMemorias = { value, expiresAt: Date.now() + MEMORIAS_CACHE_MS };
+  return value;
+}
+
+function invalidateMemoriasCache() {
+  cachedMemorias = null;
+}
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useChatBot() {
@@ -425,17 +453,40 @@ export function useChatBot() {
   const [messages, setMessages]     = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading]   = useState(false);
   const [streaming, setStreaming]   = useState("");
+  const [memorias, setMemorias]     = useState<MemoriaRow[]>([]);
 
   const historyRef      = useRef<ChatContent[]>([]);
   const systemRef       = useRef<string>(currentSessionPrompt());
   const initializedRef  = useRef(false);
 
+  const refreshMemorias = useCallback(async () => {
+    invalidateMemoriasCache();
+    const lista = await cargarMemorias().catch(() => []);
+    cachedMemorias = { value: lista, expiresAt: Date.now() + MEMORIAS_CACHE_MS };
+    setMemorias(lista);
+    return lista;
+  }, []);
+
+  const olvidar = useCallback(async (id: string) => {
+    await olvidarMemoria(id);
+    await refreshMemorias();
+  }, [refreshMemorias]);
+
   const initSession = useCallback(async () => {
     if (initializedRef.current) return;
     initializedRef.current = true;
     try {
-      const context = await getCachedContext();
-      systemRef.current = `${currentSessionPrompt()}\n\n${"═".repeat(50)}\nDATOS ACTUALES DEL SISTEMA:\n${context}`;
+      const [context, memoriasActivas] = await Promise.all([
+        getCachedContext(),
+        getCachedMemorias(),
+      ]);
+      setMemorias(memoriasActivas);
+      const bloqueMemoria = formatearMemoriasParaPrompt(memoriasActivas);
+      systemRef.current = [
+        currentSessionPrompt(),
+        `${"═".repeat(50)}\nDATOS ACTUALES DEL SISTEMA:\n${context}`,
+        bloqueMemoria,
+      ].filter(Boolean).join("\n\n");
       historyRef.current = [];
       setMessages([{
         id: "welcome",
@@ -492,7 +543,9 @@ export function useChatBot() {
         message: text.trim(),
         history: historyRef.current,
         systemInstruction: enhancedSystemPrompt,
-        onChunk: (partial) => setStreaming(partial),
+        // Limpia las etiquetas [[recordar ...]] también en el streaming parcial,
+        // para que nunca se vean crudas mientras llega la respuesta.
+        onChunk: (partial) => setStreaming(extraerRecuerdos(partial).textoLimpio),
       });
 
       // Guardar conversación en base de datos (para memoria persistente)
@@ -507,14 +560,27 @@ export function useChatBot() {
         }
       }
 
+      // Memoria persistente propia de Vadim (chat_memoria): extrae etiquetas
+      // [[recordar clave: contenido]] del texto ya generado (sin llamada extra
+      // al LLM), muestra el texto limpio, y guarda los recuerdos en segundo
+      // plano sin bloquear la conversación.
+      const { textoLimpio, recuerdos } = extraerRecuerdos(fullText);
+
+      if (recuerdos.length > 0 && user?.id) {
+        guardarRecuerdos(recuerdos, text.trim(), user.id)
+          .then(() => refreshMemorias())
+          .catch((error) => console.warn("Error guardando recuerdo de Vadim:", error));
+      }
+
       historyRef.current = [
         ...historyRef.current,
         { role: "user",      content: text.trim() },
-        { role: "assistant", content: fullText },
+        { role: "assistant", content: textoLimpio },
       ];
       setMessages((prev) => [...prev, {
         id: `a-${Date.now()}`, role: "assistant",
-        content: fullText, timestamp: new Date(),
+        content: textoLimpio, timestamp: new Date(),
+        recordado: recuerdos.length > 0,
       }]);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -527,7 +593,7 @@ export function useChatBot() {
       setIsLoading(false);
       setStreaming("");
     }
-  }, [isLoading, user?.id]);
+  }, [isLoading, user?.id, refreshMemorias]);
 
   const clearHistory = useCallback(() => {
     initializedRef.current = false;
@@ -536,5 +602,8 @@ export function useChatBot() {
     initSession();
   }, [initSession]);
 
-  return { isOpen, open, close, messages, isLoading, streaming, sendMessage, clearHistory };
+  return {
+    isOpen, open, close, messages, isLoading, streaming, sendMessage, clearHistory,
+    memorias, refreshMemorias, olvidar,
+  };
 }

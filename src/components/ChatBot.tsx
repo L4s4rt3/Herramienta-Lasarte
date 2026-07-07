@@ -4,9 +4,15 @@
  * Diseño glassmorphism integrado con el design system.
  */
 import { useState, useRef, useEffect, useCallback } from "react";
-import { X, Send, RotateCcw, Sparkles, Bot } from "lucide-react";
+import { X, Send, RotateCcw, Sparkles, Bot, Brain, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatBot } from "@/hooks/useChatBot";
+import type { MemoriaRow } from "@/lib/chatMemoria";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 // ─── Render con saltos de línea y negrita básica ──────────────────────────────
 
@@ -56,6 +62,59 @@ const SUGGESTIONS = [
   "¿Qué secciones tiene la herramienta?",
 ];
 
+// ─── Panel de memoria (transparencia, "el toque Midas") ───────────────────────
+
+function fmtFecha(iso: string) {
+  try {
+    return new Date(iso).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" });
+  } catch {
+    return iso;
+  }
+}
+
+function MemoriaPanel({
+  memorias,
+  onOlvidar,
+}: {
+  memorias: MemoriaRow[];
+  onOlvidar: (id: string) => void;
+}) {
+  if (memorias.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-2 py-6 text-center">
+        <Brain className="h-6 w-6 text-muted-foreground/50" />
+        <p className="text-xs text-muted-foreground">Aún no he aprendido nada de vosotros.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="panel-kicker px-0.5">Recuerdos activos ({memorias.length})</p>
+      <div className="max-h-80 space-y-1.5 overflow-y-auto pr-0.5">
+        {memorias.map((m) => (
+          <div
+            key={m.id}
+            className="group flex items-start justify-between gap-2 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-2"
+          >
+            <div className="min-w-0">
+              <p className="text-xs leading-snug text-foreground">{m.contenido}</p>
+              <p className="mt-1 text-[10px] text-muted-foreground">aprendido el {fmtFecha(m.updated_at)}</p>
+            </div>
+            <button
+              onClick={() => onOlvidar(m.id)}
+              title="Olvidar este recuerdo"
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── ChatBot ──────────────────────────────────────────────────────────────────
 
 export function ChatBot() {
@@ -63,9 +122,11 @@ export function ChatBot() {
     isOpen, open, close,
     messages, isLoading, streaming,
     sendMessage, clearHistory,
+    memorias, olvidar,
   } = useChatBot();
 
   const [input, setInput] = useState("");
+  const [memoriaOpen, setMemoriaOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
 
@@ -145,6 +206,25 @@ export function ChatBot() {
             </div>
 
             <div className="flex items-center gap-1">
+              <Popover open={memoriaOpen} onOpenChange={setMemoriaOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    title="Memoria de Vadim"
+                    className={cn(
+                      "relative flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--glass-bg)] hover:text-foreground",
+                      memoriaOpen && "bg-[var(--glass-bg)] text-foreground"
+                    )}
+                  >
+                    <Brain className="h-3.5 w-3.5" />
+                    {memorias.length > 0 && (
+                      <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary ring-2 ring-[var(--glass-bg-solid)]" />
+                    )}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-80">
+                  <MemoriaPanel memorias={memorias} onOlvidar={olvidar} />
+                </PopoverContent>
+              </Popover>
               <button
                 onClick={clearHistory}
                 title="Nueva conversación"
@@ -196,17 +276,25 @@ export function ChatBot() {
                 </div>
               )}
 
-              <div
-                className={cn(
-                  "max-w-[86%] break-words rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed sm:max-w-[82%]",
-                  msg.role === "user"
-                    ? "rounded-tr-sm bg-primary/12 border border-primary/20 text-foreground"
-                    : msg.error
-                    ? "rounded-tl-sm bg-destructive/8 border border-destructive/20 text-destructive"
-                    : "rounded-tl-sm bg-[var(--glass-bg)] border border-[var(--glass-border)] text-foreground"
+              <div className="flex max-w-[86%] flex-col gap-1 sm:max-w-[82%]">
+                <div
+                  className={cn(
+                    "break-words rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
+                    msg.role === "user"
+                      ? "rounded-tr-sm bg-primary/12 border border-primary/20 text-foreground"
+                      : msg.error
+                      ? "rounded-tl-sm bg-destructive/8 border border-destructive/20 text-destructive"
+                      : "rounded-tl-sm bg-[var(--glass-bg)] border border-[var(--glass-border)] text-foreground"
+                  )}
+                >
+                  <MessageContent text={msg.content} />
+                </div>
+                {msg.recordado && (
+                  <span className="inline-flex w-fit items-center gap-1 self-start rounded-full border border-primary/20 bg-primary/8 px-2 py-0.5 text-[10px] text-primary/80">
+                    <Sparkles className="h-2.5 w-2.5" />
+                    Recordaré esto
+                  </span>
                 )}
-              >
-                <MessageContent text={msg.content} />
               </div>
             </div>
           ))}
