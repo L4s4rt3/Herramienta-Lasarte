@@ -14,6 +14,11 @@ import {
   ShoppingCart,
   Store,
   Truck,
+  UserRound,
+  CalendarOff,
+  AlertTriangle,
+  Plane,
+  Banknote,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
 
@@ -87,6 +92,17 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { to: "/costes/consumos", label: "Consumos", icon: Droplet },
       { to: "/costes/asistencia", label: "Asistencia", icon: Users },
+    ],
+  },
+  {
+    // Grupo completo visible SOLO para rol rrhh y admin (ver filtro de grupos).
+    label: "RRHH",
+    items: [
+      { to: "/rrhh/personas", label: "Plantilla", icon: UserRound },
+      { to: "/rrhh/ausencias", label: "Ausencias y bajas", icon: CalendarOff },
+      { to: "/rrhh/amonestaciones", label: "Amonestaciones", icon: AlertTriangle },
+      { to: "/rrhh/vacaciones", label: "Vacaciones y horas", icon: Plane },
+      { to: "/rrhh/nominas", label: "Nóminas", icon: Banknote },
     ],
   },
 ];
@@ -179,7 +195,11 @@ function AppLayoutContent() {
           {navGroups
             // El rol "ventas" solo ve el grupo Comercial (sus 5 secciones); el resto de
             // grupos (Dashboard, Operaciones diarias, Producción, Operaciones) no aplican.
-            .filter((group) => role !== "ventas" || group.label === "Comercial")
+            // El grupo RRHH es exclusivo de rrhh y admin.
+            .filter((group) => {
+              if (group.label === "RRHH") return role === "admin" || role === "rrhh";
+              return role !== "ventas" || group.label === "Comercial";
+            })
             .map((group) => {
             const visibleItems = group.items.filter((item) => {
               if (item.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;

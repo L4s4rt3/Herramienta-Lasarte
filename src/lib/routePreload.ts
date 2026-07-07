@@ -15,6 +15,11 @@ export const pageLoaders = {
   mercadona: () => import("@/pages/Mercadona"),
   edeka: () => import("@/pages/Edeka"),
   cmr: () => import("@/pages/CmrHojasRuta"),
+  rrhhPersonas: () => import("@/pages/RrhhPersonas"),
+  rrhhAusencias: () => import("@/pages/RrhhAusencias"),
+  rrhhAmonestaciones: () => import("@/pages/RrhhAmonestaciones"),
+  rrhhVacaciones: () => import("@/pages/RrhhVacaciones"),
+  rrhhNominas: () => import("@/pages/RrhhNominas"),
 };
 
 const preloadByPath: Record<string, () => Promise<unknown>> = {
@@ -31,6 +36,11 @@ const preloadByPath: Record<string, () => Promise<unknown>> = {
   "/mercadona": pageLoaders.mercadona,
   "/edeka": pageLoaders.edeka,
   "/cmr": pageLoaders.cmr,
+  "/rrhh/personas": pageLoaders.rrhhPersonas,
+  "/rrhh/ausencias": pageLoaders.rrhhAusencias,
+  "/rrhh/amonestaciones": pageLoaders.rrhhAmonestaciones,
+  "/rrhh/vacaciones": pageLoaders.rrhhVacaciones,
+  "/rrhh/nominas": pageLoaders.rrhhNominas,
 };
 
 export function preloadRoute(path: string) {

@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useReducer, ReactNode } from "rea
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
-type Role = "admin" | "operario" | "ventas" | null;
+type Role = "admin" | "operario" | "ventas" | "rrhh" | null;
 
 interface AuthContextValue {
   user: User | null;
@@ -46,7 +46,7 @@ const initialState: AuthState = { session: null, user: null, role: null, loading
 // reasigna de "operario" a "ventas"). Ante varias filas, prioriza el rol de
 // mayor privilegio/alcance: admin > ventas > operario. Sin filas, se asume
 // "operario" (comportamiento histórico para altas nuevas sin rol explícito).
-const ROLE_PRIORITY: Array<Exclude<Role, null>> = ["admin", "ventas", "operario"];
+const ROLE_PRIORITY: Array<Exclude<Role, null>> = ["admin", "rrhh", "ventas", "operario"];
 
 function resolveRole(rows: Array<{ role: string }> | null | undefined): Role {
   const roles = new Set((rows ?? []).map((r) => r.role));

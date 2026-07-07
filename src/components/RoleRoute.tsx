@@ -39,5 +39,12 @@ export default function RoleRoute() {
     return <Navigate to={VENTAS_HOME} replace />;
   }
 
+  // Las secciones de RRHH (datos personales sensibles) solo para rrhh y admin.
+  // La RLS de la base ya bloquea los datos; esto evita ademas pantallas de
+  // "acceso restringido" a quien llegue por URL directa.
+  if (location.pathname.startsWith("/rrhh") && role !== "admin" && role !== "rrhh") {
+    return <Navigate to="/" replace />;
+  }
+
   return <Outlet />;
 }

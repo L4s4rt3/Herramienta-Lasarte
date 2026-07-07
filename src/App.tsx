@@ -30,6 +30,11 @@ const VentasCategoriaPrimera = lazy(pageLoaders.ventasCategoriaPrimera);
 const Mercadona = lazy(pageLoaders.mercadona);
 const Edeka = lazy(pageLoaders.edeka);
 const Cmr = lazy(pageLoaders.cmr);
+const RrhhPersonas = lazy(pageLoaders.rrhhPersonas);
+const RrhhAusencias = lazy(pageLoaders.rrhhAusencias);
+const RrhhAmonestaciones = lazy(pageLoaders.rrhhAmonestaciones);
+const RrhhVacaciones = lazy(pageLoaders.rrhhVacaciones);
+const RrhhNominas = lazy(pageLoaders.rrhhNominas);
 const ExcelViewerPage = lazy(() => import("@/pages/ExcelViewerPage"));
 
 const LoadingFallback = () => (
@@ -76,6 +81,11 @@ const App = () => (
                       <Route path="/mercadona" element={<Mercadona />} />
                       <Route path="/edeka" element={<Edeka />} />
                       <Route path="/cmr" element={<Cmr />} />
+                      <Route path="/rrhh/personas" element={<RrhhPersonas />} />
+                      <Route path="/rrhh/ausencias" element={<RrhhAusencias />} />
+                      <Route path="/rrhh/amonestaciones" element={<RrhhAmonestaciones />} />
+                      <Route path="/rrhh/vacaciones" element={<RrhhVacaciones />} />
+                      <Route path="/rrhh/nominas" element={<RrhhNominas />} />
                     </Route>
                   </Route>
                   <Route

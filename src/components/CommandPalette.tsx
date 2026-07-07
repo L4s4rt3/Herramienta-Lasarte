@@ -23,6 +23,11 @@ import {
   ShoppingCart,
   Store,
   Truck,
+  UserRound,
+  CalendarOff,
+  AlertTriangle,
+  Plane,
+  Banknote,
 } from "lucide-react";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useAuth } from "@/contexts/AuthProvider";
@@ -54,7 +59,21 @@ const PAGES = [
   { to: "/cmr", label: "CMR y Hojas de ruta", icon: Truck, keywords: "cmr hojas de ruta transporte logistica" },
   { to: "/costes/consumos", label: "Consumos", icon: Droplet, keywords: "consumos costes agua energia gasoil" },
   { to: "/costes/asistencia", label: "Asistencia", icon: Users, keywords: "asistencia trabajadores turnos" },
+  { to: "/rrhh/personas", label: "Plantilla (RRHH)", icon: UserRound, keywords: "rrhh plantilla trabajadores fichas categoria antiguedad" },
+  { to: "/rrhh/ausencias", label: "Ausencias y bajas (RRHH)", icon: CalendarOff, keywords: "rrhh ausencias faltas bajas justificantes" },
+  { to: "/rrhh/amonestaciones", label: "Amonestaciones (RRHH)", icon: AlertTriangle, keywords: "rrhh amonestaciones sanciones documento firmado" },
+  { to: "/rrhh/vacaciones", label: "Vacaciones y horas (RRHH)", icon: Plane, keywords: "rrhh vacaciones dias horas bolsa saldo" },
+  { to: "/rrhh/nominas", label: "Nóminas (RRHH)", icon: Banknote, keywords: "rrhh nominas salario mensual" },
 ];
+
+// Secciones de RRHH (datos personales): solo roles rrhh y admin.
+const RRHH_Y_ADMIN_ONLY = new Set([
+  "/rrhh/personas",
+  "/rrhh/ausencias",
+  "/rrhh/amonestaciones",
+  "/rrhh/vacaciones",
+  "/rrhh/nominas",
+]);
 
 const ACTIONS = [
   { id: "nueva-calidad", label: "Crear notas de calidad", icon: ClipboardCheck, to: "/calidad" },
@@ -79,6 +98,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     if (page.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
     // Categoria primera, Edeka y CMR son solo para admin y ventas.
     if (VENTAS_Y_ADMIN_ONLY.has(page.to)) return role === "admin";
+    if (RRHH_Y_ADMIN_ONLY.has(page.to)) return role === "admin" || role === "rrhh";
     return true;
   });
   // "Crear notas de calidad" / "Crear nuevo parte" llevan a secciones fuera

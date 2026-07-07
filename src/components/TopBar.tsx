@@ -84,6 +84,36 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/",
     parentLabel: "Comercial",
   },
+  "/rrhh/personas": {
+    label: "Plantilla",
+    subtitle: "Fichas de trabajadores: categoría, antigüedad e historial individual completo",
+    parent: "/",
+    parentLabel: "RRHH",
+  },
+  "/rrhh/ausencias": {
+    label: "Ausencias y bajas",
+    subtitle: "Seguimiento de faltas con justificantes y bajas laborales",
+    parent: "/",
+    parentLabel: "RRHH",
+  },
+  "/rrhh/amonestaciones": {
+    label: "Amonestaciones",
+    subtitle: "Registro de amonestaciones con el documento firmado",
+    parent: "/",
+    parentLabel: "RRHH",
+  },
+  "/rrhh/vacaciones": {
+    label: "Vacaciones y horas",
+    subtitle: "Devengo y saldo de vacaciones y bolsa de horas por trabajador",
+    parent: "/",
+    parentLabel: "RRHH",
+  },
+  "/rrhh/nominas": {
+    label: "Nóminas",
+    subtitle: "Archivo mensual de nóminas por persona (solo RRHH y administración)",
+    parent: "/",
+    parentLabel: "RRHH",
+  },
 };
 
 function TopBar() {
