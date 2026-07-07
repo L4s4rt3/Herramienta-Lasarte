@@ -249,7 +249,44 @@ interface ProductoDiaRow {
 export interface MercadonaConfeccionadoSemana {
   anio: number;
   semana: number;
+  /** Kg MDNA ajustados a produccion real (descontadas mujeres y reciclado, ver factor). */
   kg: number;
+  /** Kg MDNA tal cual salen del informe de producto (brutos de calibrador). */
+  kg_bruto: number;
+}
+
+interface ParteCascada {
+  date: string;
+  /**
+   * Factor de ajuste del dia = produccion real / kg calibrador. El informe de
+   * producto (producto_dia) suma practicamente el kg del CALIBRADOR (verificado
+   * contra datos reales: coinciden al kilo), es decir, NO descuenta el trabajo
+   * de mujeres ni el reciclado Z1/Z2 que la cascada DJPMN si descuenta. Por eso
+   * el "confeccionado MDNA" bruto sale inflado (~7-12% segun el dia) frente al
+   * vendido real. Multiplicar el MDNA del dia por este factor reparte el
+   * descuento proporcionalmente entre todos los productos del dia.
+   */
+  factor: number;
+}
+
+async function fetchPartesConCascada(desde: string, hasta: string): Promise<Map<string, ParteCascada>> {
+  const { data, error } = await supabase
+    .from("partes_diarios")
+    .select("id, date, kg_produccion_calibrador, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
+    .gte("date", desde)
+    .lte("date", hasta);
+  if (error) throw error;
+  return new Map(
+    (data ?? []).map((p) => {
+      const calibrador = Number(p.kg_produccion_calibrador) || 0;
+      const real = calibrador
+        - (Number(p.kg_mujeres_calibrador) || 0)
+        - (Number(p.kg_reciclado_malla_z1) || 0)
+        - (Number(p.kg_reciclado_malla_z2) || 0);
+      const factor = calibrador > 0 ? Math.min(1, Math.max(0, real / calibrador)) : 1;
+      return [p.id as string, { date: p.date as string, factor }];
+    }),
+  );
 }
 
 async function fetchProductoDiaMdnaEnChunks(partIds: string[]): Promise<ProductoDiaRow[]> {
@@ -273,6 +310,14 @@ async function fetchProductoDiaMdnaEnChunks(partIds: string[]): Promise<Producto
  * fila TOTAL con producto null) pero en UNA sola query al rango completo
  * min-max de todas las semanas, agrupando despues en cliente — evita N queries
  * (una por semana, que es lo que haria llamar a useMercadona por cada semana).
+ *
+ * Dos correcciones sobre el bruto del informe (peticion del dueño, jul 2026,
+ * "el numero inflado es el confeccionado"):
+ * - Se excluyen los PRECALIBRADOS ("PREC ..."): son producto a medio confeccionar
+ *   que volveria a contarse otro dia como MDNA terminado (doble conteo).
+ * - Cada dia se multiplica por el factor de la cascada (produccion real /
+ *   calibrador), porque el informe de producto no descuenta mujeres ni
+ *   reciclado. Ver ParteCascada.factor.
  */
 export function useMercadonaConfeccionadoSemanal(semanas: MercadonaSemanaConMetodos[]) {
   const rangos = useMemo(
@@ -291,9 +336,9 @@ export function useMercadonaConfeccionadoSemanal(semanas: MercadonaSemanaConMeto
 
   const query = useQuery({
     queryKey: ["mercadona-confeccionado-semanal", desdeGlobal, hastaGlobal],
-    queryFn: async (): Promise<{ productos: ProductoDiaRow[]; partesById: Map<string, string> }> => {
+    queryFn: async (): Promise<{ productos: ProductoDiaRow[]; partesById: Map<string, ParteCascada> }> => {
       if (!desdeGlobal || !hastaGlobal) return { productos: [], partesById: new Map() };
-      const partesById = await fetchPartesEnRango(desdeGlobal, hastaGlobal);
+      const partesById = await fetchPartesConCascada(desdeGlobal, hastaGlobal);
       if (partesById.size === 0) return { productos: [], partesById };
       const productos = await fetchProductoDiaMdnaEnChunks(Array.from(partesById.keys()));
       return { productos, partesById };
@@ -302,20 +347,27 @@ export function useMercadonaConfeccionadoSemanal(semanas: MercadonaSemanaConMeto
   });
 
   const porSemana = useMemo<MercadonaConfeccionadoSemana[]>(() => {
-    const { productos: productosRaw, partesById } = query.data ?? { productos: [] as ProductoDiaRow[], partesById: new Map<string, string>() };
+    const { productos: productosRaw, partesById } = query.data ?? { productos: [] as ProductoDiaRow[], partesById: new Map<string, ParteCascada>() };
     // Igual que useMercadona.ts: excluye la fila TOTAL (producto vacio/null).
-    const productos = productosRaw.filter((p) => (p.producto ?? "").trim() !== "" && (p.producto ?? "").toUpperCase().includes("MDNA"));
+    // Ademas excluye precalibrados "PREC ..." (a medio confeccionar, doble conteo).
+    const productos = productosRaw.filter((p) => {
+      const nombre = (p.producto ?? "").trim().toUpperCase();
+      return nombre !== "" && nombre.includes("MDNA") && !nombre.includes("PREC");
+    });
 
     if (rangos.length === 0) return [];
 
     return rangos.map((r) => {
       let kg = 0;
+      let kg_bruto = 0;
       for (const p of productos) {
-        const date = partesById.get(p.part_id);
-        if (!date || date < r.desde || date > r.hasta) continue;
-        kg += Number(p.kg) || 0;
+        const parte = partesById.get(p.part_id);
+        if (!parte || parte.date < r.desde || parte.date > r.hasta) continue;
+        const bruto = Number(p.kg) || 0;
+        kg_bruto += bruto;
+        kg += bruto * parte.factor;
       }
-      return { anio: r.anio, semana: r.semana, kg };
+      return { anio: r.anio, semana: r.semana, kg, kg_bruto };
     });
   }, [query.data, rangos]);
 

@@ -1,8 +1,13 @@
 // src/components/mercadona/MercadonaExpediciones.tsx
-// Pestaña "Expediciones": lo que realmente SALIO del almacen hacia Mercadona,
-// palet a palet (tabla palets_dia). Incluye el cruce de las tres patas:
-// confeccionado MDNA (produccion) vs expedido (palets, bruto) vs vendido
-// (Excel de Mercadona).
+// Pestaña "Expediciones": los palets a Mercadona registrados en los partes
+// (tabla palets_dia) y el cruce de las tres patas contra el VENDIDO del Excel
+// de Mercadona, que es la cifra de referencia real. Hallazgos verificados
+// contra datos (jul 2026): (1) el numero inflado era el CONFECCIONADO, porque
+// producto_dia suma el kg del calibrador sin descontar mujeres/reciclado — se
+// corrige en useMercadonaConfeccionadoSemanal con el factor de cascada diario;
+// (2) los palets de los partes cubrian ~100% del vendido en mayo pero solo
+// ~50% desde junio: es un hueco de registro en el ORIGEN (la seccion de palets
+// del parte), no un dato inflado.
 import {
   Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -19,7 +24,7 @@ import { BAR_STYLE, C, CHART_PANEL_CLASS, GlassTooltip, GRID, MARGIN, XAXIS, YAX
 import { cn } from "@/lib/utils";
 
 const AVISO_KG_BRUTOS =
-  "Kg brutos de palets: no descuentan las mujeres del calibrador, por lo que van algo inflados respecto a la producción real. Úsalo como orientación, no como dato exacto.";
+  "Registro parcial: estos palets son los que aparecen en los partes diarios. En mayo cubrían prácticamente todo lo vendido, pero desde junio solo recogen alrededor de la mitad — el resto de envíos no se está apuntando en la sección de palets del parte. La cifra fiable de lo vendido es la del Excel de Mercadona.";
 
 const DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
@@ -88,9 +93,9 @@ function KpisSemana({ expediciones }: { expediciones: ReturnType<typeof useMerca
     <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
       <KPICard
         className="glass-accented"
-        label="Kg expedidos"
+        label="Kg en palets registrados"
         value={expediciones.isLoading ? "…" : formatKg(expediciones.kg_total)}
-        hint="Bruto de palets, no producción neta"
+        hint="Solo lo apuntado en los partes"
         accent="warning"
         icon={Truck}
         labelInfo={AVISO_KG_BRUTOS}
@@ -132,9 +137,9 @@ function ExpedicionesPorDia({
   return (
     <Card className="glass-accented overflow-hidden">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">Expedido por día</CardTitle>
+        <CardTitle className="text-base">Palets registrados por día</CardTitle>
         <p className="text-xs text-muted-foreground">
-          Kg brutos de palets a Mercadona, lunes a sábado{rango ? ` (${rango.desde} – ${rango.hasta})` : ""}.
+          Kg de palets a Mercadona apuntados en los partes, lunes a sábado{rango ? ` (${rango.desde} – ${rango.hasta})` : ""}.
         </p>
       </CardHeader>
       <CardContent>
@@ -180,8 +185,10 @@ function CruceTresPatas({
       confeccionado,
       expedido,
       vendido,
-      difExpedidoConfeccionado: expedido - confeccionado,
-      difVendidoExpedido: vendido - expedido,
+      // El vendido (Excel de Mercadona) es LA referencia real: las otras dos
+      // patas se comparan contra el.
+      difConfeccionadoVendido: confeccionado - vendido,
+      coberturaPalets: vendido > 0 ? (expedido / vendido) * 100 : null,
     };
   });
 
@@ -190,7 +197,8 @@ function CruceTresPatas({
       <CardHeader className="pb-2">
         <CardTitle className="text-base">El cruce de las tres patas</CardTitle>
         <p className="text-xs text-muted-foreground">
-          Confeccionado (producción MDNA) vs expedido (palets, bruto) vs vendido (Excel de Mercadona), semana a semana.
+          Confeccionado MDNA (ajustado a producción real) y palets registrados, comparados contra el vendido del Excel de
+          Mercadona — la cifra de referencia.
         </p>
       </CardHeader>
       <CardContent className="space-y-3 p-0">
@@ -205,11 +213,11 @@ function CruceTresPatas({
                 <thead className="border-b border-[var(--glass-border)] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>th]:px-3 [&>th]:py-1.5">
                   <tr>
                     <th className="text-left">Semana</th>
-                    <th className="text-right">Confeccionado MDNA</th>
-                    <th className="text-right">Expedido (bruto)</th>
-                    <th className="text-right">Vendido (Excel)</th>
-                    <th className="text-right">Exp. − Conf.</th>
-                    <th className="text-right">Vend. − Exp.</th>
+                    <th className="text-right">Confeccionado MDNA (ajustado)</th>
+                    <th className="text-right">Palets registrados</th>
+                    <th className="text-right">Vendido (real)</th>
+                    <th className="text-right">Conf. − Vend.</th>
+                    <th className="text-right">Cobertura palets</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -218,18 +226,18 @@ function CruceTresPatas({
                       <td className="px-3 py-1.5 font-semibold">S{f.semana} · {f.anio}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums">{formatKg(f.confeccionado)}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums">{formatKg(f.expedido)}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">{f.vendido > 0 ? formatKg(f.vendido) : "—"}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums font-medium">{f.vendido > 0 ? formatKg(f.vendido) : "—"}</td>
                       <td className={cn(
                         "px-3 py-1.5 text-right tabular-nums",
-                        f.difExpedidoConfeccionado >= 0 ? "text-success" : "text-destructive",
+                        f.vendido === 0 ? "text-muted-foreground" : Math.abs(f.difConfeccionadoVendido) <= f.vendido * 0.08 ? "text-success" : "text-warning",
                       )}>
-                        {f.difExpedidoConfeccionado >= 0 ? "+" : ""}{formatKg(f.difExpedidoConfeccionado)}
+                        {f.vendido > 0 ? `${f.difConfeccionadoVendido >= 0 ? "+" : ""}${formatKg(f.difConfeccionadoVendido)}` : "—"}
                       </td>
                       <td className={cn(
                         "px-3 py-1.5 text-right tabular-nums",
-                        f.vendido === 0 ? "text-muted-foreground" : f.difVendidoExpedido >= 0 ? "text-success" : "text-destructive",
+                        f.coberturaPalets == null ? "text-muted-foreground" : f.coberturaPalets >= 90 ? "text-success" : "text-warning",
                       )}>
-                        {f.vendido > 0 ? `${f.difVendidoExpedido >= 0 ? "+" : ""}${formatKg(f.difVendidoExpedido)}` : "—"}
+                        {f.coberturaPalets != null ? `${formatNumber(f.coberturaPalets, 0)}%` : "—"}
                       </td>
                     </tr>
                   ))}
@@ -237,12 +245,14 @@ function CruceTresPatas({
               </table>
             </div>
             <p className="px-3 pb-3 text-xs leading-relaxed text-muted-foreground">
-              <strong className="text-foreground">Confeccionado</strong>: kg de producto MDNA que salió de la línea de confección
-              (producto_dia), la producción real. <strong className="text-foreground">Expedido</strong>: kg brutos de los palets
-              que salieron físicamente hacia Mercadona (palets_dia) — inflados porque no descuentan el calibrador, por eso suele
-              ser algo mayor que lo confeccionado. <strong className="text-foreground">Vendido</strong>: kg que Mercadona reporta
-              en su propio Excel de ventas, con su propia logística/mermas de por medio, así que tampoco tiene por qué coincidir
-              exactamente con lo expedido. Las tres patas miden cosas distintas: no cuadrar exactamente es esperable.
+              <strong className="text-foreground">Vendido</strong> es la cifra de referencia (el Excel de Mercadona).{" "}
+              <strong className="text-foreground">Confeccionado (ajustado)</strong>: kg MDNA del informe de producto corregidos a
+              producción real — se descuentan proporcionalmente las mujeres del calibrador y el reciclado del día (el informe
+              bruto los incluía y por eso salía inflado) y se excluyen los precalibrados. Queda algo por encima del vendido de
+              forma natural (stock que se vende la semana siguiente y confección del sábado sin parte).{" "}
+              <strong className="text-foreground">Palets registrados</strong>: kg de los palets Mercadona que aparecen en los
+              partes. Ojo con la columna de cobertura: en mayo los partes recogían prácticamente el 100% de lo vendido, pero
+              desde junio solo recogen la mitad — el hueco está en el origen (la sección de palets del parte), no en la venta.
             </p>
           </>
         )}
