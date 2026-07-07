@@ -22,7 +22,6 @@ import {
   Euro,
   Receipt,
   Tags,
-  ArrowLeftRight,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
 
@@ -51,7 +50,7 @@ import { useDataWarmup } from "@/hooks/useDataWarmup";
 import { useVentasCategoriaAccess } from "@/hooks/useVentasCategoria";
 import { preloadRoute } from "@/lib/routePreload";
 import { TourGuiado } from "@/components/tour/TourGuiado";
-import { TOUR_STORAGE_KEY, getVisibleTourSteps } from "@/components/tour/tourSteps";
+import { getVisibleTourSteps, tourStorageKey } from "@/components/tour/tourSteps";
 
 type NavItem = {
   to: string;
@@ -60,15 +59,70 @@ type NavItem = {
   match?: (path: string) => boolean;
 };
 
-const navGroups: Array<{ label: string; items: NavItem[] }> = [
+// ─── Espacios de trabajo ─────────────────────────────────────────────────────
+// La herramienta se organiza en 4 grandes secciones; cada rol ve las suyas y
+// los admins navegan entre todas con el conmutador "Secciones" de la sidebar.
+// El espacio activo se deduce de la ruta; la sidebar solo pinta sus grupos.
+export type WorkspaceId = "produccion" | "comercial" | "rrhh" | "economico";
+
+export const WORKSPACES: Array<{
+  id: WorkspaceId;
+  label: string;
+  icon: typeof LayoutDashboard;
+  home: string;
+  matches: (path: string) => boolean;
+  allowedFor: (role: string | null) => boolean;
+}> = [
+  {
+    id: "comercial",
+    label: "Comercial",
+    icon: ShoppingCart,
+    home: "/comercial/mercadona",
+    matches: (p) => p.startsWith("/comercial") || p.startsWith("/ventas") || p.startsWith("/edeka") || p.startsWith("/cmr"),
+    allowedFor: (role) => role === "admin" || role === "ventas",
+  },
+  {
+    id: "rrhh",
+    label: "RRHH",
+    icon: UserRound,
+    home: "/costes/asistencia",
+    matches: (p) => p.startsWith("/rrhh") || p.startsWith("/costes/asistencia"),
+    allowedFor: (role) => role === "admin" || role === "rrhh",
+  },
+  {
+    id: "economico",
+    label: "Económico",
+    icon: Euro,
+    home: "/economico",
+    matches: (p) => p.startsWith("/economico"),
+    allowedFor: (role) => role === "admin",
+  },
+  {
+    // Produccion va la ultima: es el espacio por defecto (matches comodin).
+    id: "produccion",
+    label: "Producción",
+    icon: Citrus,
+    home: "/",
+    matches: () => true,
+    allowedFor: (role) => role === "admin" || role === "operario" || role === "rrhh",
+  },
+];
+
+export function workspaceDeRuta(path: string): WorkspaceId {
+  return (WORKSPACES.find((w) => w.matches(path)) ?? WORKSPACES[WORKSPACES.length - 1]).id;
+}
+
+const navGroups: Array<{ label: string; workspace: WorkspaceId; items: NavItem[] }> = [
   {
     label: "Dashboard",
+    workspace: "produccion",
     items: [
       { to: "/", label: "Panel de producción", icon: LayoutDashboard, match: (path) => path === "/" },
     ],
   },
   {
     label: "Operaciones diarias",
+    workspace: "produccion",
     items: [
       { to: "/calidad", label: "Calidad", icon: ClipboardCheck },
       { to: "/partes", label: "Partes", icon: FileText, match: (path) => path.startsWith("/partes") },
@@ -76,15 +130,26 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
   },
   {
     label: "Producción",
+    workspace: "produccion",
     items: [
       { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3 },
       { to: "/productores", label: "Productores", icon: Sprout },
+      // Variante de produccion: sin facturacion (la completa vive en Comercial).
+      { to: "/mercadona", label: "Mercadona", icon: ShoppingCart },
+    ],
+  },
+  {
+    label: "Operaciones",
+    workspace: "produccion",
+    items: [
+      { to: "/costes/consumos", label: "Consumos", icon: Droplet },
     ],
   },
   {
     label: "Comercial",
+    workspace: "comercial",
     items: [
-      { to: "/mercadona", label: "Mercadona", icon: ShoppingCart },
+      { to: "/comercial/mercadona", label: "Mercadona", icon: ShoppingCart },
       { to: "/ventas/categoria-segunda", label: "Categoria segunda", icon: FileSpreadsheet },
       { to: "/ventas/categoria-primera", label: "Categoria primera", icon: FileSpreadsheet },
       { to: "/edeka", label: "Edeka", icon: Store },
@@ -92,17 +157,11 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
     ],
   },
   {
-    label: "Operaciones",
-    items: [
-      { to: "/costes/consumos", label: "Consumos", icon: Droplet },
-    ],
-  },
-  {
-    // Grupo completo visible SOLO para rol rrhh y admin (ver filtro de grupos).
     // La asistencia diaria (pasar lista + importaciones) vive aqui desde jul
     // 2026: los operarios ya no la ven; el resto de su informacion vive
     // repartida en Ausencias (faltas), Plantilla (personas) y Vacaciones.
     label: "RRHH",
+    workspace: "rrhh",
     items: [
       { to: "/costes/asistencia", label: "Asistencia diaria", icon: Users },
       { to: "/rrhh/personas", label: "Plantilla", icon: UserRound },
@@ -113,10 +172,8 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
     ],
   },
   {
-    // "Otra herramienta" para el jefe: solo admins y solo cuando se esta EN el
-    // modo economico (rutas /economico/*); en modo produccion este grupo no
-    // aparece y se entra por el conmutador de abajo.
     label: "Económico",
+    workspace: "economico",
     items: [
       { to: "/economico", label: "Panel económico", icon: Euro, match: (path) => path === "/economico" },
       { to: "/economico/facturacion", label: "Facturación", icon: Receipt },
@@ -134,13 +191,6 @@ export default function AppLayout() {
   );
 }
 
-// Rutas nuevas (rol ventas + admin); operario nunca las ve.
-const VENTAS_Y_ADMIN_ONLY = new Set([
-  "/ventas/categoria-primera",
-  "/edeka",
-  "/cmr",
-]);
-
 function AppLayoutContent() {
   const { signOut, user, role } = useAuth();
   const ventasCategoriaAccess = useVentasCategoriaAccess();
@@ -149,8 +199,9 @@ function AppLayoutContent() {
 
   const navigate = useNavigate();
   const location = useLocation();
-  // Modo económico: se está "en la otra herramienta" cuando la ruta es /economico/*.
-  const esEconomico = location.pathname.startsWith("/economico");
+  // Espacio de trabajo activo (deducido de la ruta) y espacios permitidos al rol.
+  const workspaceActual = workspaceDeRuta(location.pathname);
+  const workspacesPermitidos = WORKSPACES.filter((w) => w.allowedFor(role));
 
   const cmd = useCommandPalette();
 
@@ -163,33 +214,30 @@ function AppLayoutContent() {
   }
 
   const [tourOpen, setTourOpen] = useState(false);
-  const tourSteps = getVisibleTourSteps(ventasCategoriaAccess.hasAccess, role === "admin" || role === "rrhh");
+  const tourSteps = getVisibleTourSteps(workspaceActual, { hasVentasCategoriaAccess: ventasCategoriaAccess.hasAccess });
 
-  // Arranque automático la primera vez que un usuario autenticado entra a la app.
-  // El tour recorre secciones (Dashboard, Calidad, Partes...) que el rol
-  // "ventas" no puede ver, así que ni se auto-arranca ni se ofrece para ese rol.
+  // Arranque automático la primera vez que un usuario autenticado entra a un
+  // espacio de trabajo. Cada espacio tiene su propio tour y su propia clave de
+  // localStorage, así que esto se dispara una vez por espacio (y por usuario).
   useEffect(() => {
-    if (!user || role === "ventas") return;
+    if (!user || tourSteps.length === 0) return;
     try {
-      const seen = localStorage.getItem(TOUR_STORAGE_KEY);
+      const seen = localStorage.getItem(tourStorageKey(workspaceActual));
       if (!seen) setTourOpen(true);
     } catch {
       // Si localStorage no está disponible simplemente no auto-arrancamos el tour.
     }
-  }, [user, role]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, workspaceActual]);
 
-  // Relanzable desde el botón "Guía" del TopBar. Ignorado para "ventas" por el
-  // mismo motivo que el arranque automático (ver arriba); el botón de guía
-  // tampoco debería mostrarse a ese rol, pero esto evita que quede huérfano
-  // si algo dispara el evento igualmente.
+  // Relanzable desde el botón "Guía" del TopBar: arranca el tour del espacio actual.
   useEffect(() => {
     function handleStartTour() {
-      if (role === "ventas") return;
       setTourOpen(true);
     }
     window.addEventListener("lasarte:start-tour", handleStartTour);
     return () => window.removeEventListener("lasarte:start-tour", handleStartTour);
-  }, [role]);
+  }, []);
 
   return (
     <>
@@ -213,23 +261,47 @@ function AppLayoutContent() {
         </SidebarHeader>
 
         <SidebarContent>
+          {/* Conmutador de grandes secciones (si el rol tiene más de una). */}
+          {workspacesPermitidos.length > 1 ? (
+            <SidebarGroup>
+              <SidebarGroupLabel>Secciones</SidebarGroupLabel>
+              <SidebarMenu>
+                {workspacesPermitidos.map((ws) => {
+                  const WsIcon = ws.icon;
+                  const activo = ws.id === workspaceActual;
+                  return (
+                    <SidebarMenuItem key={ws.id}>
+                      <SidebarMenuButton asChild isActive={activo} tooltip={ws.label}>
+                        <NavLink
+                          to={ws.home}
+                          onClick={closeMobileSidebar}
+                          onMouseEnter={() => preloadRoute(ws.home)}
+                          className={activo ? "font-semibold" : undefined}
+                        >
+                          <WsIcon />
+                          <span>{ws.label}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroup>
+          ) : null}
+
           {navGroups
-            // El rol "ventas" solo ve el grupo Comercial (sus 5 secciones); el resto de
-            // grupos (Dashboard, Operaciones diarias, Producción, Operaciones) no aplican.
-            // El grupo RRHH es exclusivo de rrhh y admin. El modo económico (admins)
-            // funciona como herramienta aparte: dentro de /economico solo se ve su
-            // grupo, y fuera no aparece (se entra por el conmutador del pie).
+            // Solo se pintan los grupos del espacio activo, y solo si el rol
+            // puede estar en ese espacio (la URL ya la vigila RoleRoute).
             .filter((group) => {
-              if (esEconomico) return group.label === "Económico" && role === "admin";
-              if (group.label === "Económico") return false;
-              if (group.label === "RRHH") return role === "admin" || role === "rrhh";
-              return role !== "ventas" || group.label === "Comercial";
+              if (group.workspace !== workspaceActual) return false;
+              const ws = WORKSPACES.find((w) => w.id === group.workspace);
+              return ws ? ws.allowedFor(role) : false;
             })
             .map((group) => {
+            // El acceso por espacio ya se resolvió arriba; a nivel de item solo
+            // queda el mecanismo histórico de Categoría segunda (allowlist/rol).
             const visibleItems = group.items.filter((item) => {
               if (item.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
-              // Categoria primera, Edeka y CMR son solo para admin y ventas.
-              if (VENTAS_Y_ADMIN_ONLY.has(item.to)) return role === "admin" || role === "ventas";
               return true;
             });
             // Un grupo sin items visibles (p.ej. "Comercial" sin acceso) no pinta ni su etiqueta.
@@ -267,26 +339,6 @@ function AppLayoutContent() {
             );
           })}
 
-          {/* Conmutador de herramienta (solo admins): producción <-> económico. */}
-          {role === "admin" ? (
-            <SidebarGroup>
-              <SidebarGroupLabel>Cambiar de herramienta</SidebarGroupLabel>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild tooltip={esEconomico ? "Volver a producción" : "Modo económico"}>
-                    <NavLink
-                      to={esEconomico ? "/" : "/economico"}
-                      onClick={closeMobileSidebar}
-                      onMouseEnter={() => preloadRoute(esEconomico ? "/" : "/economico")}
-                    >
-                      <ArrowLeftRight />
-                      <span>{esEconomico ? "Volver a producción" : "Modo económico"}</span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroup>
-          ) : null}
         </SidebarContent>
 
         <SidebarFooter>
@@ -334,7 +386,13 @@ function AppLayoutContent() {
       </SidebarInset>
       <CommandPalette open={cmd.open} onOpenChange={cmd.setOpen} />
       <ChatBot />
-      {tourOpen && <TourGuiado steps={tourSteps} onFinish={() => setTourOpen(false)} />}
+      {tourOpen && (
+        <TourGuiado
+          steps={tourSteps}
+          storageKey={tourStorageKey(workspaceActual)}
+          onFinish={() => setTourOpen(false)}
+        />
+      )}
     </>
   );
 }

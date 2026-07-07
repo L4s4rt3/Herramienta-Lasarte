@@ -2,7 +2,7 @@
 // Seccion "Mercadona": concentra la informacion relevante del cliente principal —
 // ventas semanales planificadas vs vendidas (Excel del dueño) + aprovechamiento
 // MDNA sobre produccion (useMercadona) + cruce con productores/formatos top.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -26,13 +26,24 @@ import { formatMercadonaWeekRangeLabel, mercadonaWeekDateRange } from "@/lib/mer
 import { formatKg, formatNumber, formatPct } from "@/lib/format";
 import { BAR_STYLE, C, CHART_PANEL_CLASS, GlassTooltip, GRID, lineStyle, MARGIN, XAXIS, YAXIS } from "@/lib/chartTheme";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthProvider";
 
 type TopTab = "resumen" | "analisis" | "expediciones" | "lotes" | "prevision" | "importar" | "exportar";
 
-export default function Mercadona() {
+export default function Mercadona({ conFacturacion = true }: { conFacturacion?: boolean }) {
+  const { role } = useAuth();
+  const isAdmin = role === "admin";
   const ventas = useMercadonaVentas();
   const [tab, setTab] = useState<TopTab>("resumen");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Si un no-admin cae en la pestaña "importar" (estado por defecto o heredado
+  // de una sesión anterior), lo devolvemos a "resumen": esa pestaña no es suya.
+  useEffect(() => {
+    if (!isAdmin && tab === "importar") {
+      setTab("resumen");
+    }
+  }, [isAdmin, tab]);
 
   const semanas = ventas.semanas;
   const activeIndex = useMemo(() => {
@@ -99,9 +110,11 @@ export default function Mercadona() {
             <p className="page-subtitle">Aprovechamiento, ventas semanales y planificación del cliente principal.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" className="h-9 gap-1.5 rounded-md px-3 text-xs" onClick={() => setTab("importar")}>
-              <Upload className="h-3.5 w-3.5" /> Importar Excel
-            </Button>
+            {isAdmin ? (
+              <Button variant="outline" size="sm" className="h-9 gap-1.5 rounded-md px-3 text-xs" onClick={() => setTab("importar")}>
+                <Upload className="h-3.5 w-3.5" /> Importar Excel
+              </Button>
+            ) : null}
           </div>
         </header>
 
@@ -111,14 +124,14 @@ export default function Mercadona() {
           <TabsTrigger value="expediciones">Expediciones</TabsTrigger>
           <TabsTrigger value="lotes">Lotes y productores</TabsTrigger>
           <TabsTrigger value="prevision">Previsión</TabsTrigger>
-          <TabsTrigger value="importar">Importar</TabsTrigger>
+          {isAdmin ? <TabsTrigger value="importar">Importar</TabsTrigger> : null}
           <TabsTrigger value="exportar">Exportar</TabsTrigger>
         </TabsList>
 
         {/* ─── Resumen ─────────────────────────────────────────────── */}
         <TabsContent value="resumen" className="space-y-4">
           {semanas.length === 0 ? (
-            <EmptyState onImport={() => setTab("importar")} />
+            <EmptyState isAdmin={isAdmin} onImport={() => setTab("importar")} />
           ) : (
             <>
               <WeekNav
@@ -130,7 +143,7 @@ export default function Mercadona() {
                 canNext={activeIndex < semanas.length - 1 && activeIndex !== -1}
               />
 
-              {activeSemana ? <ResumenSemana semana={activeSemana} mercadona={mercadona} /> : null}
+              {activeSemana ? <ResumenSemana semana={activeSemana} mercadona={mercadona} conFacturacion={conFacturacion} /> : null}
 
               <EvolucionSemanal semanas={semanas} />
             </>
@@ -140,7 +153,7 @@ export default function Mercadona() {
         {/* ─── Análisis histórico ─────────────────────────────────── */}
         <TabsContent value="analisis" className="space-y-4">
           {semanas.length === 0 ? (
-            <EmptyState onImport={() => setTab("importar")} />
+            <EmptyState isAdmin={isAdmin} onImport={() => setTab("importar")} />
           ) : (
             <MercadonaAnalisis semanas={semanas} />
           )}
@@ -149,7 +162,7 @@ export default function Mercadona() {
         {/* ─── Expediciones (palets a Mercadona) ──────────────────── */}
         <TabsContent value="expediciones" className="space-y-4">
           {semanas.length === 0 || !activeSemana ? (
-            <EmptyState onImport={() => setTab("importar")} />
+            <EmptyState isAdmin={isAdmin} onImport={() => setTab("importar")} />
           ) : (
             <>
               <WeekNav
@@ -168,7 +181,7 @@ export default function Mercadona() {
         {/* ─── Lotes y productores para Mercadona ─────────────────── */}
         <TabsContent value="lotes" className="space-y-4">
           {semanas.length === 0 || !activeSemana ? (
-            <EmptyState onImport={() => setTab("importar")} />
+            <EmptyState isAdmin={isAdmin} onImport={() => setTab("importar")} />
           ) : (
             <>
               <WeekNav
@@ -189,10 +202,12 @@ export default function Mercadona() {
           <MercadonaPrevision semanas={semanas} />
         </TabsContent>
 
-        {/* ─── Importar ────────────────────────────────────────────── */}
-        <TabsContent value="importar" className="space-y-4">
-          <MercadonaImportar ventas={ventas} onImported={() => setTab("resumen")} />
-        </TabsContent>
+        {/* ─── Importar (solo admin) ───────────────────────────────── */}
+        {isAdmin ? (
+          <TabsContent value="importar" className="space-y-4">
+            <MercadonaImportar ventas={ventas} onImported={() => setTab("resumen")} />
+          </TabsContent>
+        ) : null}
 
         {/* ─── Exportar ────────────────────────────────────────────── */}
         <TabsContent value="exportar" className="space-y-4">
@@ -205,7 +220,7 @@ export default function Mercadona() {
 
 // ─── Sub-secciones ───────────────────────────────────────────────────────────
 
-function EmptyState({ onImport }: { onImport: () => void }) {
+function EmptyState({ isAdmin, onImport }: { isAdmin: boolean; onImport: () => void }) {
   return (
     <Card className="glass-accented">
       <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
@@ -213,12 +228,16 @@ function EmptyState({ onImport }: { onImport: () => void }) {
         <div>
           <h2 className="text-lg font-semibold">Todavía no hay semanas importadas</h2>
           <p className="mt-1 max-w-md text-sm text-muted-foreground">
-            Importa el Excel de Mercadona (histórico o semanal, p. ej. "mercadona s27.xlsx") para ver el resumen.
+            {isAdmin
+              ? 'Importa el Excel de Mercadona (histórico o semanal, p. ej. "mercadona s27.xlsx") para ver el resumen.'
+              : "Un administrador debe importar las semanas de Mercadona."}
           </p>
         </div>
-        <Button size="sm" className="gap-2" onClick={onImport}>
-          <Upload className="h-4 w-4" /> Importar Excel
-        </Button>
+        {isAdmin ? (
+          <Button size="sm" className="gap-2" onClick={onImport}>
+            <Upload className="h-4 w-4" /> Importar Excel
+          </Button>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -261,10 +280,11 @@ function cumplimientoAccent(pct: number): "success" | "warning" | "destructive" 
 }
 
 function ResumenSemana({
-  semana, mercadona,
+  semana, mercadona, conFacturacion,
 }: {
   semana: MercadonaSemanaConMetodos;
   mercadona: ReturnType<typeof useMercadona>;
+  conFacturacion: boolean;
 }) {
   const vendido = semana.vendido_kg ?? 0;
   const planificado = semana.planificado_semana_kg ?? 0;
@@ -273,9 +293,11 @@ function ResumenSemana({
   const totalPalets = semana.metodos.reduce((s, m) => s + (m.palets ?? 0), 0);
   const totalCajas = semana.metodos.reduce((s, m) => s + (m.cajas ?? 0), 0);
 
-  // KPI "Facturación (base IVA)": solo si el formato semanal real trajo base_iva.
-  // Métodos + ajustes/abonos (estos últimos casi siempre negativos).
-  const tieneBaseIva = semana.metodos.some((m) => m.base_iva != null) || semana.ajustes_base_iva != null;
+  // KPI "Facturación (base IVA)": solo si el formato semanal real trajo base_iva
+  // y estamos en el espacio Comercial (conFacturacion). En Producción no debe
+  // verse ningún dato de dinero. Métodos + ajustes/abonos (estos últimos casi
+  // siempre negativos).
+  const tieneBaseIva = conFacturacion && (semana.metodos.some((m) => m.base_iva != null) || semana.ajustes_base_iva != null);
   const facturacionMetodos = semana.metodos.reduce((s, m) => s + (m.base_iva ?? 0), 0);
   const facturacionTotal = facturacionMetodos + (semana.ajustes_base_iva ?? 0);
   const eurosPorKg = vendido > 0 ? facturacionTotal / vendido : 0;

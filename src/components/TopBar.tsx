@@ -68,7 +68,13 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
   },
   "/mercadona": {
     label: "Mercadona",
-    subtitle: "Aprovechamiento, ventas semanales y planificación del cliente principal",
+    subtitle: "Aprovechamiento y planificación del cliente principal (sin facturación)",
+    parent: "/",
+    parentLabel: "Producción",
+  },
+  "/comercial/mercadona": {
+    label: "Mercadona",
+    subtitle: "Aprovechamiento, ventas semanales, facturación y planificación del cliente principal",
     parent: "/",
     parentLabel: "Comercial",
   },

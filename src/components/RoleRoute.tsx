@@ -12,7 +12,7 @@ export const VENTAS_HOME = "/ventas/categoria-segunda";
 export const VENTAS_ALLOWED_PATHS = [
   VENTAS_HOME,
   "/ventas/categoria-primera",
-  "/mercadona",
+  "/comercial/mercadona",
   "/edeka",
   "/cmr",
 ] as const;
@@ -51,6 +51,18 @@ export default function RoleRoute() {
 
   // El modo economico (precios, facturacion, margen) es exclusivo de admins.
   if (location.pathname.startsWith("/economico") && role !== "admin") {
+    return <Navigate to="/" replace />;
+  }
+
+  // El espacio Comercial (Mercadona completa con facturacion, categorias,
+  // Edeka, CMR) es de admin y ventas; operario/rrhh usan la Mercadona de
+  // produccion (/mercadona, sin facturacion).
+  const esRutaComercial =
+    location.pathname.startsWith("/comercial") ||
+    location.pathname.startsWith("/ventas") ||
+    location.pathname.startsWith("/edeka") ||
+    location.pathname.startsWith("/cmr");
+  if (esRutaComercial && role !== "admin" && role !== "ventas") {
     return <Navigate to="/" replace />;
   }
 

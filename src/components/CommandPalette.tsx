@@ -33,15 +33,15 @@ import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useAuth } from "@/contexts/AuthProvider";
 import { useVentasCategoriaAccess } from "@/hooks/useVentasCategoria";
 
-// Rutas nuevas del rol "ventas": solo visibles para "ventas" y "admin".
-const VENTAS_Y_ADMIN_ONLY = new Set(["/ventas/categoria-primera", "/edeka", "/cmr"]);
+// Rutas del espacio Comercial: solo visibles para "ventas" y "admin".
+const VENTAS_Y_ADMIN_ONLY = new Set(["/ventas/categoria-primera", "/comercial/mercadona", "/edeka", "/cmr"]);
 
 // Las 5 secciones que puede ver el rol "ventas" (ver RoleRoute.tsx). Para ese
 // rol la paleta solo debe ofrecer estas, ni el resto de la operativa interna.
 const VENTAS_ALLOWED = new Set([
   "/ventas/categoria-segunda",
   "/ventas/categoria-primera",
-  "/mercadona",
+  "/comercial/mercadona",
   "/edeka",
   "/cmr",
 ]);
@@ -52,7 +52,8 @@ const PAGES = [
   { to: "/partes", label: "Partes diarios", icon: FileText, keywords: "partes produccion diario" },
   { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3, keywords: "analisis diario lotes calibres" },
   { to: "/productores", label: "Productores", icon: Sprout, keywords: "productores proveedores origen eficiencia" },
-  { to: "/mercadona", label: "Mercadona", icon: ShoppingCart, keywords: "mercadona ventas comercial cliente principal" },
+  { to: "/mercadona", label: "Mercadona (Producción)", icon: ShoppingCart, keywords: "mercadona produccion aprovechamiento cliente principal" },
+  { to: "/comercial/mercadona", label: "Mercadona (Comercial)", icon: ShoppingCart, keywords: "mercadona ventas comercial facturacion cliente principal" },
   { to: "/ventas/categoria-segunda", label: "Categoria segunda", icon: FileSpreadsheet, keywords: "ventas comercial categoria segunda clientes productos precios" },
   { to: "/ventas/categoria-primera", label: "Categoria primera", icon: FileSpreadsheet, keywords: "ventas comercial categoria primera clientes productos precios" },
   { to: "/edeka", label: "Edeka", icon: Store, keywords: "edeka ventas comercial cliente" },

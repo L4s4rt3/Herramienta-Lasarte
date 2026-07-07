@@ -38,6 +38,7 @@ const preloadByPath: Record<string, () => Promise<unknown>> = {
   "/ventas/categoria-segunda": pageLoaders.ventasCategoriaSegunda,
   "/ventas/categoria-primera": pageLoaders.ventasCategoriaPrimera,
   "/mercadona": pageLoaders.mercadona,
+  "/comercial/mercadona": pageLoaders.mercadona,
   "/edeka": pageLoaders.edeka,
   "/cmr": pageLoaders.cmr,
   "/rrhh/personas": pageLoaders.rrhhPersonas,

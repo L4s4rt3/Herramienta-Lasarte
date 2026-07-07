@@ -82,7 +82,9 @@ const App = () => (
                       <Route path="/analisis/diario" element={<AnalisisDiario />} />
                       <Route path="/ventas/categoria-segunda" element={<VentasCategoriaSegunda />} />
                       <Route path="/ventas/categoria-primera" element={<VentasCategoriaPrimera />} />
-                      <Route path="/mercadona" element={<Mercadona />} />
+                      {/* Dos sabores de Mercadona: producción (sin facturación) y comercial (completa). */}
+                      <Route path="/mercadona" element={<Mercadona conFacturacion={false} />} />
+                      <Route path="/comercial/mercadona" element={<Mercadona />} />
                       <Route path="/edeka" element={<Edeka />} />
                       <Route path="/cmr" element={<Cmr />} />
                       <Route path="/rrhh/personas" element={<RrhhPersonas />} />

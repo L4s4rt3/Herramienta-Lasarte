@@ -3,10 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { TOUR_STORAGE_KEY, type TourStep } from "@/components/tour/tourSteps";
+import type { TourStep } from "@/components/tour/tourSteps";
 
 interface TourGuiadoProps {
   steps: TourStep[];
+  /** Clave de localStorage donde marcar el tour de este espacio como visto. */
+  storageKey: string;
   onFinish: () => void;
 }
 
@@ -17,7 +19,7 @@ const TOUR_HIGHLIGHT_CLASSES = ["ring-2", "ring-primary", "ring-offset-2", "ring
  * Tarjeta flotante de onboarding que navega por las secciones principales de la
  * app y resalta el ítem correspondiente en el sidebar (cuando está visible).
  */
-export function TourGuiado({ steps, onFinish }: TourGuiadoProps) {
+export function TourGuiado({ steps, storageKey, onFinish }: TourGuiadoProps) {
   const [stepIndex, setStepIndex] = useState(0);
   const navigate = useNavigate();
 
@@ -28,12 +30,12 @@ export function TourGuiado({ steps, onFinish }: TourGuiadoProps) {
 
   const finish = useCallback(() => {
     try {
-      localStorage.setItem(TOUR_STORAGE_KEY, "true");
+      localStorage.setItem(storageKey, "true");
     } catch {
       // localStorage puede fallar en modo privado; no bloqueamos el cierre del tour.
     }
     onFinish();
-  }, [onFinish]);
+  }, [onFinish, storageKey]);
 
   // Navega a la ruta del paso actual cada vez que cambia.
   useEffect(() => {
