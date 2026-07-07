@@ -1,0 +1,150 @@
+import { describe, expect, it } from "vitest";
+import {
+  agregarCostesPorRecurso,
+  agregarCostesPorSemana,
+  convertirUnidad,
+  costeConsumo,
+  precioVigente,
+  solapeCantidadEnRango,
+  tarifaVigente,
+  type CosteEntrada,
+  type EconomicoPrecioInput,
+} from "./economico";
+
+const PRECIOS_AGUA: EconomicoPrecioInput[] = [
+  { recurso: "agua", unidad: "m3", precio_por_unidad: 0.5, vigente_desde: "2026-01-01" },
+  { recurso: "agua", unidad: "m3", precio_por_unidad: 0.8, vigente_desde: "2026-03-01" },
+];
+
+describe("tarifaVigente / precioVigente", () => {
+  it("usa la tarifa mas reciente cuya vigente_desde es <= fecha (fecha entre dos tarifas)", () => {
+    expect(precioVigente(PRECIOS_AGUA, "agua", "2026-02-15")).toBe(0.5);
+    expect(tarifaVigente(PRECIOS_AGUA, "agua", "2026-02-15")?.vigente_desde).toBe("2026-01-01");
+  });
+
+  it("cambia a la tarifa nueva justo en su fecha de vigencia", () => {
+    expect(precioVigente(PRECIOS_AGUA, "agua", "2026-03-01")).toBe(0.8);
+    expect(precioVigente(PRECIOS_AGUA, "agua", "2026-03-02")).toBe(0.8);
+  });
+
+  it("devuelve null si la fecha es anterior a cualquier tarifa", () => {
+    expect(precioVigente(PRECIOS_AGUA, "agua", "2025-12-31")).toBeNull();
+  });
+
+  it("devuelve null para un recurso sin tarifas", () => {
+    expect(precioVigente(PRECIOS_AGUA, "electricidad", "2026-06-01")).toBeNull();
+  });
+});
+
+describe("convertirUnidad", () => {
+  it("convierte litros a m3 dividiendo entre 1000", () => {
+    expect(convertirUnidad(2500, "l", "m3")).toBeCloseTo(2.5);
+  });
+
+  it("convierte m3 a litros multiplicando por 1000", () => {
+    expect(convertirUnidad(2.5, "m3", "l")).toBeCloseTo(2500);
+  });
+
+  it("es identidad cuando origen y destino coinciden (l->l, kwh->kwh)", () => {
+    expect(convertirUnidad(120, "l", "l")).toBe(120);
+    expect(convertirUnidad(45, "kwh", "kwh")).toBe(45);
+  });
+
+  it("lanza si la combinacion no esta soportada", () => {
+    expect(() => convertirUnidad(10, "l", "kwh")).toThrow();
+  });
+});
+
+describe("costeConsumo", () => {
+  it("convierte litros a m3 antes de aplicar el precio (agua)", () => {
+    // 2500 L = 2.5 m3, a 2 EUR/m3 -> 5 EUR
+    expect(costeConsumo(2500, "l", { unidad: "m3", precio_por_unidad: 2 })).toBeCloseTo(5);
+  });
+
+  it("no convierte cuando la unidad de consumo ya coincide con la de tarifa", () => {
+    expect(costeConsumo(100, "kwh", { unidad: "kwh", precio_por_unidad: 0.15 })).toBeCloseTo(15);
+  });
+
+  it("da coste 0 cuando el precio vigente es 0 (tarifas semilla sin tarifa real)", () => {
+    expect(costeConsumo(5000, "l", { unidad: "m3", precio_por_unidad: 0 })).toBe(0);
+  });
+
+  it("da coste 0 con cantidad 0 o negativa", () => {
+    expect(costeConsumo(0, "l", { unidad: "m3", precio_por_unidad: 2 })).toBe(0);
+    expect(costeConsumo(-10, "l", { unidad: "m3", precio_por_unidad: 2 })).toBe(0);
+  });
+});
+
+describe("agregarCostesPorRecurso", () => {
+  it("suma cantidad y coste de varias entradas del mismo recurso", () => {
+    const entradas: CosteEntrada[] = [
+      { recurso: "agua", fecha: "2026-02-01", cantidad: 3000, unidadConsumo: "l" },
+      { recurso: "agua", fecha: "2026-02-05", cantidad: 2000, unidadConsumo: "l" },
+    ];
+    const resultado = agregarCostesPorRecurso(entradas, PRECIOS_AGUA);
+    expect(resultado).toHaveLength(1);
+    expect(resultado[0].recurso).toBe("agua");
+    expect(resultado[0].cantidad).toBe(5000);
+    expect(resultado[0].unidad).toBe("l");
+    // 5000 L = 5 m3 a 0.5 EUR/m3 = 2.5 EUR
+    expect(resultado[0].coste).toBeCloseTo(2.5);
+    expect(resultado[0].unidadPrecio).toBe("m3");
+    expect(resultado[0].precioMedio).toBeCloseTo(0.5);
+  });
+
+  it("aplica la tarifa vigente en la fecha de cada entrada, no una unica tarifa para todo el grupo", () => {
+    const entradas: CosteEntrada[] = [
+      { recurso: "agua", fecha: "2026-02-15", cantidad: 1000, unidadConsumo: "l" }, // tarifa 0.5
+      { recurso: "agua", fecha: "2026-03-15", cantidad: 1000, unidadConsumo: "l" }, // tarifa 0.8
+    ];
+    const resultado = agregarCostesPorRecurso(entradas, PRECIOS_AGUA);
+    // 1 m3 * 0.5 + 1 m3 * 0.8 = 1.3
+    expect(resultado[0].coste).toBeCloseTo(1.3);
+  });
+
+  it("da coste 0 para un recurso sin ninguna tarifa vigente en esa fecha", () => {
+    const entradas: CosteEntrada[] = [
+      { recurso: "agua", fecha: "2025-01-01", cantidad: 1000, unidadConsumo: "l" },
+    ];
+    const resultado = agregarCostesPorRecurso(entradas, PRECIOS_AGUA);
+    expect(resultado[0].coste).toBe(0);
+    expect(resultado[0].unidadPrecio).toBeNull();
+    expect(resultado[0].precioMedio).toBeNull();
+  });
+
+  it("ignora entradas con cantidad 0", () => {
+    const entradas: CosteEntrada[] = [
+      { recurso: "agua", fecha: "2026-02-01", cantidad: 0, unidadConsumo: "l" },
+    ];
+    expect(agregarCostesPorRecurso(entradas, PRECIOS_AGUA)).toHaveLength(0);
+  });
+});
+
+describe("agregarCostesPorSemana", () => {
+  it("agrupa por semana ISO (lunes) y ordena ascendente", () => {
+    const entradas: CosteEntrada[] = [
+      { recurso: "agua", fecha: "2026-02-04", cantidad: 1000, unidadConsumo: "l" }, // miercoles, semana del 2026-02-02
+      { recurso: "agua", fecha: "2026-02-11", cantidad: 1000, unidadConsumo: "l" }, // semana siguiente
+    ];
+    const semanas = agregarCostesPorSemana(entradas, PRECIOS_AGUA);
+    expect(semanas).toHaveLength(2);
+    expect(semanas[0].semanaInicio).toBe("2026-02-02");
+    expect(semanas[1].semanaInicio).toBe("2026-02-09");
+    expect(semanas[0].coste).toBeCloseTo(0.5);
+  });
+});
+
+describe("solapeCantidadEnRango", () => {
+  it("reparte proporcionalmente al numero de dias solapados", () => {
+    // sesion de 4 dias (1-4 ene), rango pide solo 2 y 3 -> mitad de la cantidad
+    expect(solapeCantidadEnRango("2026-01-01", "2026-01-04", 400, "2026-01-02", "2026-01-03")).toBeCloseTo(200);
+  });
+
+  it("devuelve la cantidad completa si el solape cubre todo el rango de la sesion", () => {
+    expect(solapeCantidadEnRango("2026-01-01", "2026-01-02", 100, "2026-01-01", "2026-01-31")).toBeCloseTo(100);
+  });
+
+  it("devuelve 0 si no hay solape", () => {
+    expect(solapeCantidadEnRango("2026-01-01", "2026-01-02", 100, "2026-02-01", "2026-02-28")).toBe(0);
+  });
+});
