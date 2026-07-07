@@ -221,6 +221,37 @@ const TOOLS_SCHEMA = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "produccion_por_zonas",
+      description:
+        "Producción diaria desglosada por ZONA DE CONFECCIÓN (tabla producto_dia, el informe de producto/línea de cada parte), entre dos fechas. Las zonas son: Graneleras (granel/granelera/Rapid Pack/bulk), Mallas (mallas/malladora/MDNA/Girsac/D-Pack), Envasadoras (mesas/envasado/encajado, el resto de confección) e Industria. Usa esta herramienta para CUALQUIER pregunta sobre kg producidos en una zona, línea o máquina concreta: 'granelera/graneleras/granel', 'mallas/malladora', 'mesas/envasado/envasadoras', 'industria'. Devuelve por día el total de kg por zona y, dentro de cada zona, la lista de productos con sus kg.",
+      parameters: {
+        type: "object",
+        properties: {
+          fecha_inicio: { type: "string", description: "Fecha inicio, formato YYYY-MM-DD" },
+          fecha_fin: { type: "string", description: "Fecha fin, formato YYYY-MM-DD" },
+        },
+        required: ["fecha_inicio", "fecha_fin"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "detalle_producto_dia",
+      description:
+        "Detalle crudo de todos los productos confeccionados en un día concreto (tabla producto_dia): producto, formato de caja, línea, grupo de destino, kg y nº de cajas, ordenados por kg descendente. Útil para preguntas sobre un formato o producto concreto de un día (p.ej. '¿cuántos kg de MDNA 3 kg se hicieron el 3 de julio?').",
+      parameters: {
+        type: "object",
+        properties: {
+          fecha: { type: "string", description: "Fecha, formato YYYY-MM-DD" },
+        },
+        required: ["fecha"],
+      },
+    },
+  },
 ];
 
 const MAX_RANGE_DAYS = 92;
@@ -476,6 +507,226 @@ async function toolCalidadRecientes(admin: SupabaseClient, args: Record<string, 
   });
 }
 
+// ─── Clasificación por zona de confección (copia sincronizada) ─────────────
+// ESTA LÓGICA ES UNA COPIA de src/lib/asistenciaProductoClasificacion.ts
+// (clasificarProductoInforme + zonaRendimientoDesdeClasificacion) y de
+// grupoProductoDia/esFilaTotal en src/lib/asistenciaRendimiento.ts. La edge
+// function no puede importar código de src/ (runtime Deno separado), así que
+// las regex se mantienen aquí a mano. CUALQUIER cambio en la clasificación de
+// zonas en esos dos archivos del frontend debe replicarse aquí también.
+
+type ZonaConfeccion = "Envasadoras" | "Industria" | "Mallas" | "Graneleras";
+
+interface ProductoDiaRow {
+  producto?: unknown;
+  formato_caja?: unknown;
+  linea?: unknown;
+  grupo_destino?: unknown;
+}
+
+function normalizarTextoZona(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function esLineaTotalZona(value: unknown): boolean {
+  const text = normalizarTextoZona(value);
+  return /\b(total|totales|subtotal|suma|gran total)\b/.test(text);
+}
+
+/** Copia de esFilaTotal (asistenciaRendimiento.ts): filas TOTAL a excluir siempre. */
+function esFilaTotalZona(item: ProductoDiaRow): boolean {
+  return [item.producto, item.linea, item.grupo_destino, item.formato_caja].some(esLineaTotalZona);
+}
+
+/** Copia de normalizarGrupoConfeccion (asistenciaRendimiento.ts): grupo explícito por texto libre. */
+function normalizarGrupoConfeccionZona(value: unknown): ZonaConfeccion | null {
+  const text = normalizarTextoZona(value);
+  if (!text) return null;
+  if (/\b(industria|industr)\b/.test(text)) return "Industria";
+  if (/\b(granel|granelera|graneleras|bulk|rpack)\b/.test(text)) return "Graneleras";
+  if (/\b(malla|mallas|malladora|malladoras)\b/.test(text)) return "Mallas";
+  if (/\b(envasado|envasados|envasadora|envasadoras|encajado|caja|empacado|empaque|empaquetadora|empaquetadoras)\b/.test(text)) {
+    return "Envasadoras";
+  }
+  return null;
+}
+
+/**
+ * Copia de clasificarProductoInforme + zonaRendimientoDesdeClasificacion
+ * (asistenciaProductoClasificacion.ts), reducida al resultado de zona final
+ * ("Mesas" del original se mapea aquí directamente a "Envasadoras", igual que
+ * hace zonaRendimientoDesdeClasificacion). Campos disponibles: producto,
+ * formato_caja (equivale a "empaque"), linea, grupo_destino.
+ */
+function clasificarProductoInformeZona(item: ProductoDiaRow): ZonaConfeccion | "Excluir" {
+  const producto = normalizarTextoZona(item.producto);
+  const text = [item.producto, item.formato_caja, item.grupo_destino, item.linea]
+    .map(normalizarTextoZona)
+    .filter(Boolean)
+    .join(" ");
+  const empaque = normalizarTextoZona(item.formato_caja);
+
+  if (!producto) return "Excluir";
+  if (/\b(total|totales|subtotal|suma|gran total)\b/.test(text)) return "Excluir";
+  if (
+    /\b(muestra|prueba|podrido|podrida|punta|reciclado|egipto)\b/.test(text) ||
+    /\bnada\b/.test(empaque) ||
+    /\b(citrica|citricas|citrico|citricos|citrus|cit)\b/.test(text) ||
+    /\b(pre|precal|precalibrado|prec|precalibrada)\b/.test(text)
+  ) {
+    return "Excluir";
+  }
+  if (/\b(industria|industr)\b/.test(text)) return "Industria";
+  if (/\b(granel|granelera|graneleras|bulk|rpack)\b/.test(producto)) return "Graneleras";
+  if (
+    /\b(malla|malladora|mdna|mercadona|girs|girsac)\b/.test(producto) ||
+    /\bd[-\s]?pack\b/.test(producto)
+  ) {
+    return "Mallas";
+  }
+  return "Envasadoras";
+}
+
+/** Copia de grupoProductoDia (asistenciaRendimiento.ts): grupo explícito primero, luego clasificación por regex. */
+function zonaProductoDia(item: ProductoDiaRow): ZonaConfeccion | null {
+  if (esFilaTotalZona(item)) return null;
+
+  const explicit = normalizarGrupoConfeccionZona(item.grupo_destino) ?? normalizarGrupoConfeccionZona(item.linea);
+  if (explicit) return explicit;
+
+  const zona = clasificarProductoInformeZona(item);
+  return zona === "Excluir" ? null : zona;
+}
+
+const ZONAS_CONFECCION: ZonaConfeccion[] = ["Graneleras", "Mallas", "Envasadoras", "Industria"];
+const MAX_RANGE_DAYS_ZONAS = 35;
+
+async function toolProduccionPorZonas(admin: SupabaseClient, args: Record<string, unknown>): Promise<string> {
+  const rango = validarRango(args.fecha_inicio, args.fecha_fin, MAX_RANGE_DAYS_ZONAS);
+  if ("error" in rango) return toolError(rango.error);
+
+  const { data: partes, error: partesError } = await admin
+    .from("partes_diarios")
+    .select("id, date")
+    .gte("date", rango.desde)
+    .lte("date", rango.hasta)
+    .order("date", { ascending: true });
+
+  if (partesError) return toolError(partesError.message);
+  if (!partes || partes.length === 0) return JSON.stringify({ fecha_inicio: rango.desde, fecha_fin: rango.hasta, dias: [] });
+
+  const partIds = partes.map((p) => p.id);
+  const { data: filas, error: filasError } = await admin
+    .from("producto_dia")
+    .select("part_id, producto, formato_caja, linea, grupo_destino, kg")
+    .in("part_id", partIds);
+
+  if (filasError) return toolError(filasError.message);
+
+  const fechaPorPartId = new Map(partes.map((p) => [p.id, p.date]));
+
+  type ProductoAgg = { producto: string; formato_caja: string | null; kg: number };
+  type DiaAgg = {
+    fecha: string;
+    zonas: Record<ZonaConfeccion, { kg: number; productos: Map<string, ProductoAgg> }>;
+    total_kg: number;
+  };
+
+  const porDia = new Map<string, DiaAgg>();
+  const nuevoDia = (fecha: string): DiaAgg => ({
+    fecha,
+    zonas: Object.fromEntries(
+      ZONAS_CONFECCION.map((z) => [z, { kg: 0, productos: new Map<string, ProductoAgg>() }]),
+    ) as DiaAgg["zonas"],
+    total_kg: 0,
+  });
+
+  for (const fila of (filas ?? []) as Array<ProductoDiaRow & { part_id: string; kg: number | null }>) {
+    const fecha = fechaPorPartId.get(fila.part_id);
+    if (!fecha) continue;
+    const zona = zonaProductoDia(fila);
+    if (!zona) continue;
+    const kg = Number(fila.kg) || 0;
+    if (kg <= 0) continue;
+
+    const dia = porDia.get(fecha) ?? nuevoDia(fecha);
+    dia.zonas[zona].kg += kg;
+    dia.total_kg += kg;
+
+    const nombreProducto = String(fila.producto ?? "Sin nombre").trim() || "Sin nombre";
+    const formatoCaja = fila.formato_caja != null ? String(fila.formato_caja) : null;
+    const key = `${nombreProducto}|${formatoCaja ?? ""}`;
+    const productos = dia.zonas[zona].productos;
+    const acc = productos.get(key) ?? { producto: nombreProducto, formato_caja: formatoCaja, kg: 0 };
+    acc.kg += kg;
+    productos.set(key, acc);
+
+    porDia.set(fecha, dia);
+  }
+
+  const dias = Array.from(porDia.values())
+    .sort((a, b) => a.fecha.localeCompare(b.fecha))
+    .map((dia) => ({
+      fecha: dia.fecha,
+      total_kg: round(dia.total_kg, 0),
+      zonas: Object.fromEntries(
+        ZONAS_CONFECCION.map((z) => [
+          z,
+          {
+            kg: round(dia.zonas[z].kg, 0),
+            productos: Array.from(dia.zonas[z].productos.values())
+              .sort((a, b) => b.kg - a.kg)
+              .map((p) => ({ producto: p.producto, formato_caja: p.formato_caja, kg: round(p.kg, 0) })),
+          },
+        ]),
+      ),
+    }));
+
+  return JSON.stringify({ fecha_inicio: rango.desde, fecha_fin: rango.hasta, dias });
+}
+
+async function toolDetalleProductoDia(admin: SupabaseClient, args: Record<string, unknown>): Promise<string> {
+  const fecha = args.fecha;
+  if (typeof fecha !== "string" || !DATE_RE.test(fecha)) return toolError("Parámetro 'fecha' inválido, debe ser YYYY-MM-DD");
+
+  const { data: parte, error: parteError } = await admin
+    .from("partes_diarios")
+    .select("id, date")
+    .eq("date", fecha)
+    .maybeSingle();
+
+  if (parteError) return toolError(parteError.message);
+  if (!parte) return JSON.stringify({ fecha, productos: [] });
+
+  const { data: filas, error: filasError } = await admin
+    .from("producto_dia")
+    .select("producto, formato_caja, linea, grupo_destino, kg, n_cajas")
+    .eq("part_id", parte.id);
+
+  if (filasError) return toolError(filasError.message);
+
+  // La fila TOTAL diaria suele venir con producto null (no con el texto "TOTAL"),
+  // asi que ademas del filtro textual hay que exigir producto no vacio.
+  const productos = (filas ?? [])
+    .filter((r) => String(r.producto ?? "").trim() !== "" && !esFilaTotalZona(r))
+    .map((r) => ({
+      producto: r.producto,
+      formato_caja: r.formato_caja,
+      linea: r.linea,
+      grupo_destino: r.grupo_destino,
+      kg: round(Number(r.kg) || 0, 0),
+      n_cajas: r.n_cajas != null ? Number(r.n_cajas) : null,
+    }))
+    .sort((a, b) => b.kg - a.kg);
+
+  return JSON.stringify({ fecha, productos });
+}
+
 async function ejecutarHerramienta(admin: SupabaseClient, name: string, argsRaw: string): Promise<string> {
   let args: Record<string, unknown> = {};
   try {
@@ -494,6 +745,8 @@ async function ejecutarHerramienta(admin: SupabaseClient, name: string, argsRaw:
       case "mercadona_semanas": return await toolMercadonaSemanas(admin, args);
       case "consumos_por_dias": return await toolConsumosPorDias(admin, args);
       case "calidad_recientes": return await toolCalidadRecientes(admin, args);
+      case "produccion_por_zonas": return await toolProduccionPorZonas(admin, args);
+      case "detalle_producto_dia": return await toolDetalleProductoDia(admin, args);
       default:
         return toolError(`Herramienta desconocida: ${name}`);
     }
