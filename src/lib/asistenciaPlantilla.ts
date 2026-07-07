@@ -45,9 +45,15 @@ export interface RendimientoLineaComun {
   presentes: number;
 }
 
+export interface RendimientoSinZona {
+  presentes: number;
+  personas: string[];
+}
+
 export interface RendimientoZonasAlmacen {
   lineaComun: RendimientoLineaComun;
   zonas: RendimientoZonaAlmacen[];
+  sinZona: RendimientoSinZona;
 }
 
 const ARRANQUE_PUESTOS: PlantillaPuesto[] = [
@@ -270,8 +276,11 @@ export function calcularRendimientoZonasAlmacen({
       estaPresente(trabajador)
     ).length;
 
-  const buildZona = (bloque: (typeof ASISTENCIA_ZONAS_PRODUCTIVAS)[number], kg: number) => {
-    const counts = countForPuestos(bloque.puestos, linea.usadosPresentes);
+  const buildZona = (
+    bloque: (typeof ASISTENCIA_ZONAS_PRODUCTIVAS)[number],
+    kg: number,
+    counts: ReturnType<typeof countForPuestos>,
+  ) => {
     const deficitZona = Math.max(0, bloque.total - counts.presentes);
     const sustituciones = Math.min(deficitZona, envasadoDisponibleParaSustituir(counts.usadosPresentes));
     const presentesZona = counts.presentes + sustituciones;
@@ -291,9 +300,15 @@ export function calcularRendimientoZonasAlmacen({
     };
   };
 
+  // Acumula, a través de todos los bloques (arranque + cada zona productiva),
+  // qué presentes ya quedaron asignados a un puesto — para poder detectar al
+  // final quién se queda fuera y no perderlo en silencio.
+  const usadosGlobal = new Set(linea.usadosPresentes);
   const zonas = ASISTENCIA_ZONAS_PRODUCTIVAS.map((bloque) => {
-    const id = bloque.id as ZonaProductivaAlmacenId;
-    return buildZona(bloque, kgPorZona[id] ?? 0);
+    const zonaId = bloque.id as ZonaProductivaAlmacenId;
+    const counts = countForPuestos(bloque.puestos, usadosGlobal);
+    for (const trabajadorId of counts.usadosPresentes) usadosGlobal.add(trabajadorId);
+    return buildZona(bloque, kgPorZona[zonaId] ?? 0, counts);
   });
   const kgIndustria = kgPorZona.industria ?? 0;
   zonas.push({
@@ -310,6 +325,23 @@ export function calcularRendimientoZonasAlmacen({
     diferenciaDotacion: linea.presentes - ASISTENCIA_PLANTILLA_OPERATIVA.arranque.total,
   });
 
+  // Carga y descarga tiene su propio bloque (no forma parte del reparto por
+  // zonas productivas ni de la línea) — sus presentes cuentan como
+  // "asignados" para no acabar en "Sin zona", aunque no tengan kg/persona.
+  const cargaDescarga = countForPuestos(ASISTENCIA_PLANTILLA_OPERATIVA.cargaDescarga.puestos, usadosGlobal);
+  for (const trabajadorId of cargaDescarga.usadosPresentes) usadosGlobal.add(trabajadorId);
+
+  // Cualquier persona presente ese día que no haya quedado asignada a ningún
+  // puesto conocido (ni por nombre, ni por zona-fallback, ni carga y
+  // descarga) se agrupa en "Sin zona" en vez de desaparecer del recuento.
+  const presentesSinZona = trabajadoresActivos.filter(
+    (trabajador) => estaPresente(trabajador) && !usadosGlobal.has(trabajador.id),
+  );
+  const sinZona: RendimientoSinZona = {
+    presentes: presentesSinZona.length,
+    personas: presentesSinZona.map((trabajador) => trabajador.nombre ?? trabajador.id),
+  };
+
   return {
     lineaComun: {
       objetivo: ASISTENCIA_PLANTILLA_OPERATIVA.arranque.total,
@@ -317,6 +349,7 @@ export function calcularRendimientoZonasAlmacen({
       presentes: linea.presentes,
     },
     zonas,
+    sinZona,
   };
 }
 

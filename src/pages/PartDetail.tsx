@@ -385,7 +385,12 @@ export default function PartDetail() {
         kgPersona: zona?.kgPersonaPresentes ?? (grupos[g].personas > 0 ? kg / grupos[g].personas : 0),
       };
     });
-    return { zonas, kgPersonaGeneral: resumen.kgPersona, presentesComputables: resumen.presentesComputables };
+    return {
+      zonas,
+      kgPersonaGeneral: resumen.kgPersona,
+      presentesComputables: resumen.presentesComputables,
+      sinZona: zonasAlmacen.sinZona,
+    };
   }, [parte, cascade, trabajadoresList, asistenciaDelDia, productoDelDia]);
 
   // Resumen de calidad del día (detalle completo en la pestaña Calidad).
@@ -737,6 +742,7 @@ export default function PartDetail() {
           zonas={rendimientoZonas?.zonas ?? null}
           kgPersonaGeneral={rendimientoZonas?.kgPersonaGeneral ?? 0}
           presentesComputables={rendimientoZonas?.presentesComputables ?? 0}
+          sinZona={rendimientoZonas?.sinZona ?? null}
         />
       </div>
 

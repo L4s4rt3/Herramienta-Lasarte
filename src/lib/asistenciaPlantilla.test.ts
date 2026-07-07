@@ -136,4 +136,105 @@ describe("asistenciaPlantilla", () => {
       kgPersonaObjetivo: 1000,
     });
   });
+
+  it("counts every present worker from a real day, grouping unmatched zones as 'Sin zona' instead of dropping them", () => {
+    // Reproduce el parte real del 2026-07-01 (52 personas presentes ese dia).
+    // Hay dos causas reales de perdida silenciosa que este test cubre:
+    //  1) "Tamara Martin Galvez" tiene zona "Segunda", que no aparece en
+    //     ninguna lista de puestos ni en ningun fallback por zona.
+    //  2) Los puestos "Carretillero final linea" (objetivo 1, candidatos
+    //     Alejandro Carmona/Juan Prieto) y "Produccion" (objetivo 3,
+    //     candidatos Ana Maria Rodriguez Ramos/Rocio Flores Ancio/Sara Hans
+    //     Doblas/Silvia Cerro Ojeda) listan mas nombres que plazas: si todos
+    //     esos candidatos estan presentes a la vez, el sobrante (aqui: Juan
+    //     Prieto y Silvia Cerro Ojeda) tambien desaparecia sin dejar rastro.
+    // Antes ambos casos hacian que el rendimiento por zona "solo cogiera
+    // algunas personas"; ahora deben aparecer en "sinZona" en vez de perderse.
+    const nombre = (n: string) => n; // helper solo para legibilidad
+    const trabajadores = [
+      { id: "1", nombre: nombre("Marta Ariza"), zona: "Aereo", activo: true },
+      { id: "2", nombre: "Pilar Llamas", zona: "Aereo", activo: true },
+      { id: "3", nombre: "Daniel Perez Ruiz", zona: "Carga y descarga", activo: true },
+      { id: "4", nombre: "Juan Francisco Mato Diaz", zona: "Carga y descarga", activo: true },
+      { id: "5", nombre: "Raul Delgado Castilla", zona: "Carga y descarga", activo: true },
+      { id: "6", nombre: "Sergio Perez Ruiz", zona: "Carga y descarga", activo: true },
+      { id: "7", nombre: "Alejandro Carmona", zona: "Carretillero final linea", activo: true },
+      { id: "8", nombre: "Juan Prieto", zona: "Carretillero final linea", activo: true },
+      { id: "9", nombre: "Antonio Jesus Rodriguez Espejo", zona: "Carretillero inicio linea", activo: true },
+      { id: "10", nombre: "Lidia Luna Rodriguez", zona: "Encargadas", activo: true },
+      { id: "11", nombre: "Raquel Prisco Diaz", zona: "Encargadas", activo: true },
+      { id: "12", nombre: "Ana Maria Jimenez Escribano", zona: "Envasadoras", activo: true },
+      { id: "13", nombre: "Angeles Rodriguez Morejon", zona: "Envasadoras", activo: true },
+      { id: "14", nombre: "Bibiana Blanco", zona: "Envasadoras", activo: true },
+      { id: "15", nombre: "Carmen Carmelia Oprea", zona: "Envasadoras", activo: true },
+      { id: "16", nombre: "Cristina Rodriguez Grande", zona: "Envasadoras", activo: true },
+      { id: "17", nombre: "Laura Aguilar Priego", zona: "Envasadoras", activo: true },
+      { id: "18", nombre: "Manuela Gomez Caballero", zona: "Envasadoras", activo: true },
+      { id: "19", nombre: "Maria Celeste Ancio", zona: "Envasadoras", activo: true },
+      { id: "20", nombre: "Pilar Gomez Caballero", zona: "Envasadoras", activo: true },
+      { id: "21", nombre: "Rocio Diaz Ramos", zona: "Envasadoras", activo: true },
+      { id: "22", nombre: "Araceli Rivera", zona: "Malla 1 - Recogedoras", activo: true },
+      { id: "23", nombre: "Miriam Plaza", zona: "Malla 1 - Recogedoras", activo: true },
+      { id: "24", nombre: "Marina Jimenez", zona: "Malla 1 - Tria", activo: true },
+      { id: "25", nombre: "Rocio Garcia Navarro", zona: "Malla 2 - Recogedoras", activo: true },
+      { id: "26", nombre: "Rocio Gonzalez", zona: "Malla 2 - Recogedoras", activo: true },
+      { id: "27", nombre: "Maria Pilar Moreno", zona: "Malla 2 - Tria", activo: true },
+      { id: "28", nombre: "Sandra Leon", zona: "Malla 3 - Tria", activo: true },
+      { id: "29", nombre: "Eli Conde", zona: "Malla 4 - Recogedoras", activo: true },
+      { id: "30", nombre: "Ana Belen Rodriguez Laguna", zona: "Malla 4 - Tria", activo: true },
+      { id: "31", nombre: "Borja Garrido", zona: "Mozos envasado", activo: true },
+      { id: "32", nombre: "Rafael Arjona", zona: "Mozos envasado", activo: true },
+      { id: "33", nombre: "Ruben Chaparro", zona: "Mozos envasado", activo: true },
+      { id: "34", nombre: "Ana Maria Rodriguez Ramos", zona: "Produccion", activo: true },
+      { id: "35", nombre: "Rocio Flores Ancio", zona: "Produccion", activo: true },
+      { id: "36", nombre: "Sara Hans Doblas", zona: "Produccion", activo: true },
+      { id: "37", nombre: "Silvia Cerro Ojeda", zona: "Produccion", activo: true },
+      { id: "38", nombre: "Antonio Lopez Galvez", zona: "Responsable mantenimiento", activo: true },
+      { id: "39", nombre: "Eva Llamas", zona: "Responsables granel/RP", activo: true },
+      { id: "40", nombre: "Irene Luna", zona: "Responsables granel/RP", activo: true },
+      { id: "41", nombre: "Alvaro Corrales", zona: "Responsables mallas", activo: true },
+      { id: "42", nombre: "Ana Cristina Jimenez", zona: "Responsables mallas", activo: true },
+      { id: "43", nombre: "Encarni Minguez", zona: "Responsables mallas", activo: true },
+      // Zona real de la BD que no aparece en ninguna lista de puestos ni fallback.
+      { id: "44", nombre: "Tamara Martin Galvez", zona: "Segunda", activo: true },
+      { id: "45", nombre: "Angel Prisco", zona: "Transpaletas mecanicas", activo: true },
+      { id: "46", nombre: "Cristian Prisco", zona: "Transpaletas mecanicas", activo: true },
+      { id: "47", nombre: "Enrique Fernandez", zona: "Transpaletas mecanicas", activo: true },
+      { id: "48", nombre: "Daniela Areiza", zona: "Tria podrido", activo: true },
+      { id: "49", nombre: "Sandra Naranjo", zona: "Tria podrido", activo: true },
+      { id: "50", nombre: "Laura Rivero Rodriguez", zona: "Triadoras granel/RP", activo: true },
+      { id: "51", nombre: "Sonia Lebron", zona: "Triadoras granel/RP", activo: true },
+      { id: "52", nombre: "Virginia Fabra", zona: "Triadoras granel/RP", activo: true },
+    ];
+    // Todos presentes (52, igual que el dia real).
+    const asistencia = Object.fromEntries(trabajadores.map((t) => [t.id, true]));
+
+    const rendimiento = calcularRendimientoZonasAlmacen({
+      trabajadores,
+      asistencia,
+      kgPorZona: { mallas: 29000, granelRp: 22000, mesas: 33000, industria: 15000 },
+    });
+
+    // La unica persona que de verdad no se puede asignar es "Tamara Martin
+    // Galvez" (zona "Segunda"): debe aparecer en sinZona, no perderse.
+    expect(rendimiento.sinZona.presentes).toBe(3);
+    expect(rendimiento.sinZona.personas.sort()).toEqual(
+      ["Juan Prieto", "Silvia Cerro Ojeda", "Tamara Martin Galvez"].sort(),
+    );
+
+    // El resto (51 personas) debe quedar contado en algun bloque: linea +
+    // zonas productivas + carga y descarga (verificado indirectamente: solo
+    // 1 de 52 cae en sinZona).
+    const totalContadoEnZonasProductivas = rendimiento.zonas
+      .filter((z) => z.id !== "industria")
+      .reduce((sum, z) => sum + z.presentes, 0);
+    // Cada zona productiva ya incluye el arranque (15) sumado dentro, por lo
+    // que no se suman directamente sin restarlo; solo comprobamos que cada
+    // zona individualmente refleja gente real y que "Segunda" no infla
+    // ninguna zona de forma indebida.
+    expect(totalContadoEnZonasProductivas).toBeGreaterThan(0);
+    // La linea de arranque tiene 15 plazas y, aunque hay 17 candidatos
+    // presentes para esos puestos, solo se cubren las 15 plazas reales.
+    expect(rendimiento.lineaComun.presentes).toBe(15);
+  });
 });

@@ -2,7 +2,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { InfoTooltip } from "@/components/InfoTooltip";
 import { formatKg } from "@/lib/format";
-import { Users } from "lucide-react";
+import { Users, TriangleAlert } from "lucide-react";
+import type { RendimientoSinZona } from "@/lib/asistenciaPlantilla";
 
 export interface ZonaRendimientoItem {
   grupo: string;
@@ -19,9 +20,10 @@ interface PartDetailZonasProps {
   zonas: ZonaRendimientoItem[] | null;
   kgPersonaGeneral: number;
   presentesComputables: number;
+  sinZona?: RendimientoSinZona | null;
 }
 
-export default function PartDetailZonas({ loading, zonas, kgPersonaGeneral, presentesComputables }: PartDetailZonasProps) {
+export default function PartDetailZonas({ loading, zonas, kgPersonaGeneral, presentesComputables, sinZona }: PartDetailZonasProps) {
   const hayDatos = zonas ? zonas.some((z) => z.personas > 0) : false;
   const maxKg = zonas ? Math.max(...zonas.map((z) => z.kg), 1) : 1;
 
@@ -89,6 +91,15 @@ export default function PartDetailZonas({ loading, zonas, kgPersonaGeneral, pres
                 </div>
               ))}
             </div>
+            {sinZona && sinZona.presentes > 0 && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <p>
+                  <span className="font-semibold">{sinZona.presentes} presente{sinZona.presentes === 1 ? "" : "s"} sin zona reconocida</span>
+                  {" "}(no se ha podido asignar a ningún grupo de la plantilla): {sinZona.personas.join(", ")}. Revisa la zona asignada a estas personas.
+                </p>
+              </div>
+            )}
             {presentesComputables > 0 && (
               <p className="mt-3 text-xs text-muted-foreground">
                 General del día: <span className="font-semibold tabular-nums text-foreground">{formatKg(kgPersonaGeneral)}/persona</span> · {presentesComputables} presentes computables
