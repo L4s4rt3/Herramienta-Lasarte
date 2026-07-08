@@ -21,7 +21,6 @@ import {
   Plus,
   Loader2,
   ShoppingCart,
-  Store,
   Truck,
   UserRound,
   CalendarOff,
@@ -34,7 +33,7 @@ import { useAuth } from "@/contexts/AuthProvider";
 import { useVentasCategoriaAccess } from "@/hooks/useVentasCategoria";
 
 // Rutas del espacio Comercial: solo visibles para "ventas" y "admin".
-const VENTAS_Y_ADMIN_ONLY = new Set(["/ventas/categoria-primera", "/comercial/mercadona", "/edeka", "/cmr"]);
+const VENTAS_Y_ADMIN_ONLY = new Set(["/ventas/categoria-primera", "/comercial/mercadona", "/cmr"]);
 
 // Las 5 secciones que puede ver el rol "ventas" (ver RoleRoute.tsx). Para ese
 // rol la paleta solo debe ofrecer estas, ni el resto de la operativa interna.
@@ -42,7 +41,6 @@ const VENTAS_ALLOWED = new Set([
   "/ventas/categoria-segunda",
   "/ventas/categoria-primera",
   "/comercial/mercadona",
-  "/edeka",
   "/cmr",
 ]);
 
@@ -56,7 +54,6 @@ const PAGES = [
   { to: "/comercial/mercadona", label: "Mercadona (Comercial)", icon: ShoppingCart, keywords: "mercadona ventas comercial facturacion cliente principal" },
   { to: "/ventas/categoria-segunda", label: "Categoria segunda", icon: FileSpreadsheet, keywords: "ventas comercial categoria segunda clientes productos precios" },
   { to: "/ventas/categoria-primera", label: "Categoria primera", icon: FileSpreadsheet, keywords: "ventas comercial categoria primera clientes productos precios" },
-  { to: "/edeka", label: "Edeka", icon: Store, keywords: "edeka ventas comercial cliente" },
   { to: "/cmr", label: "CMR y Hojas de ruta", icon: Truck, keywords: "cmr hojas de ruta transporte logistica" },
   { to: "/costes/consumos", label: "Consumos", icon: Droplet, keywords: "consumos costes agua energia gasoil" },
   { to: "/costes/asistencia", label: "Asistencia diaria (RRHH)", icon: Users, keywords: "rrhh asistencia pasar lista trabajadores turnos" },
@@ -107,23 +104,27 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const { role } = useAuth();
   const ventasCategoriaAccess = useVentasCategoriaAccess();
   const isVentas = role === "ventas";
+  // El rol rrhh vive solo en su espacio (igual que ventas en el suyo).
+  const isRrhh = role === "rrhh";
   const visiblePages = PAGES.filter((page) => {
     // El rol "ventas" solo debe ver sus 5 secciones comerciales en la paleta.
     if (isVentas) return VENTAS_ALLOWED.has(page.to);
+    if (isRrhh) return RRHH_Y_ADMIN_ONLY.has(page.to);
     if (page.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
     // Categoria primera, Edeka y CMR son solo para admin y ventas.
     if (VENTAS_Y_ADMIN_ONLY.has(page.to)) return role === "admin";
-    if (RRHH_Y_ADMIN_ONLY.has(page.to)) return role === "admin" || role === "rrhh";
+    // El caso rrhh ya retorno arriba; aqui solo puede quedar admin/operario.
+    if (RRHH_Y_ADMIN_ONLY.has(page.to)) return role === "admin";
     if (ECONOMICO_ADMIN_ONLY.has(page.to)) return role === "admin";
     return true;
   });
   // "Crear notas de calidad" / "Crear nuevo parte" llevan a secciones fuera
-  // del alcance de "ventas" (/calidad, /partes): no se ofrecen para ese rol.
-  const visibleActions = isVentas ? [] : ACTIONS;
+  // del alcance de "ventas" y "rrhh" (/calidad, /partes): no se ofrecen ahí.
+  const visibleActions = isVentas || isRrhh ? [] : ACTIONS;
   // Los resultados de búsqueda global (partes, productores) también quedan
-  // fuera del alcance de "ventas"; se ocultan en vez de filtrar useGlobalSearch
-  // (hook fuera del alcance de este cambio) para no tocar su firma/consultas.
-  const visibleSearchResults = isVentas ? [] : searchResults;
+  // fuera del alcance de esos roles; se ocultan en vez de filtrar
+  // useGlobalSearch (hook fuera de alcance) para no tocar su firma/consultas.
+  const visibleSearchResults = isVentas || isRrhh ? [] : searchResults;
 
   const handleSelect = useCallback(
     (to: string) => {

@@ -8,12 +8,12 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthProvider";
 
 export const VENTAS_HOME = "/ventas/categoria-segunda";
+export const RRHH_HOME = "/costes/asistencia";
 
 export const VENTAS_ALLOWED_PATHS = [
   VENTAS_HOME,
   "/ventas/categoria-primera",
   "/comercial/mercadona",
-  "/edeka",
   "/cmr",
 ] as const;
 
@@ -49,6 +49,12 @@ export default function RoleRoute() {
     return <Navigate to="/" replace />;
   }
 
+  // El rol rrhh vive SOLO en su espacio (Produccion es del rol basico): fuera
+  // de sus rutas se le devuelve a su home, igual que al rol ventas.
+  if (role === "rrhh" && !esRutaRrhh) {
+    return <Navigate to={RRHH_HOME} replace />;
+  }
+
   // El modo economico (precios, facturacion, margen) es exclusivo de admins.
   if (location.pathname.startsWith("/economico") && role !== "admin") {
     return <Navigate to="/" replace />;
@@ -60,7 +66,6 @@ export default function RoleRoute() {
   const esRutaComercial =
     location.pathname.startsWith("/comercial") ||
     location.pathname.startsWith("/ventas") ||
-    location.pathname.startsWith("/edeka") ||
     location.pathname.startsWith("/cmr");
   if (esRutaComercial && role !== "admin" && role !== "ventas") {
     return <Navigate to="/" replace />;

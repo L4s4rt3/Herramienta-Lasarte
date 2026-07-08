@@ -12,7 +12,6 @@ import {
   BarChart3,
   Sprout,
   ShoppingCart,
-  Store,
   Truck,
   UserRound,
   CalendarOff,
@@ -78,7 +77,7 @@ export const WORKSPACES: Array<{
     label: "Comercial",
     icon: ShoppingCart,
     home: "/comercial/mercadona",
-    matches: (p) => p.startsWith("/comercial") || p.startsWith("/ventas") || p.startsWith("/edeka") || p.startsWith("/cmr"),
+    matches: (p) => p.startsWith("/comercial") || p.startsWith("/ventas") || p.startsWith("/cmr"),
     allowedFor: (role) => role === "admin" || role === "ventas",
   },
   {
@@ -99,12 +98,13 @@ export const WORKSPACES: Array<{
   },
   {
     // Produccion va la ultima: es el espacio por defecto (matches comodin).
+    // Es el espacio del rol basico (operario); rrhh vive solo en su espacio.
     id: "produccion",
     label: "Producción",
     icon: Citrus,
     home: "/",
     matches: () => true,
-    allowedFor: (role) => role === "admin" || role === "operario" || role === "rrhh",
+    allowedFor: (role) => role === "admin" || role === "operario",
   },
 ];
 
@@ -152,7 +152,6 @@ const navGroups: Array<{ label: string; workspace: WorkspaceId; items: NavItem[]
       { to: "/comercial/mercadona", label: "Mercadona", icon: ShoppingCart },
       { to: "/ventas/categoria-segunda", label: "Categoria segunda", icon: FileSpreadsheet },
       { to: "/ventas/categoria-primera", label: "Categoria primera", icon: FileSpreadsheet },
-      { to: "/edeka", label: "Edeka", icon: Store },
       { to: "/cmr", label: "CMR y Hojas de ruta", icon: Truck },
     ],
   },
