@@ -34,11 +34,12 @@ import { useAuth } from "@/contexts/AuthProvider";
 import { useVentasCategoriaAccess } from "@/hooks/useVentasCategoria";
 
 // Rutas del espacio Comercial: solo visibles para "ventas" y "admin".
-const VENTAS_Y_ADMIN_ONLY = new Set(["/ventas/categoria-primera", "/comercial/mercadona", "/cmr"]);
+const VENTAS_Y_ADMIN_ONLY = new Set(["/comercial", "/ventas/categoria-primera", "/comercial/mercadona", "/cmr"]);
 
 // Las 5 secciones que puede ver el rol "ventas" (ver RoleRoute.tsx). Para ese
 // rol la paleta solo debe ofrecer estas, ni el resto de la operativa interna.
 const VENTAS_ALLOWED = new Set([
+  "/comercial",
   "/ventas/categoria-segunda",
   "/ventas/categoria-primera",
   "/comercial/mercadona",
@@ -51,6 +52,7 @@ const PAGES = [
   { to: "/partes", label: "Partes diarios", icon: FileText, keywords: "partes produccion diario" },
   { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3, keywords: "analisis diario lotes calibres" },
   { to: "/productores", label: "Productores", icon: Sprout, keywords: "productores proveedores origen eficiencia" },
+  { to: "/comercial", label: "Panel comercial", icon: ShoppingCart, keywords: "comercial panel dashboard ventas resumen" },
   { to: "/mercadona", label: "Mercadona (Producción)", icon: ShoppingCart, keywords: "mercadona produccion aprovechamiento cliente principal" },
   { to: "/comercial/mercadona", label: "Mercadona (Comercial)", icon: ShoppingCart, keywords: "mercadona ventas comercial facturacion cliente principal" },
   { to: "/ventas/categoria-segunda", label: "Categoria segunda", icon: FileSpreadsheet, keywords: "ventas comercial categoria segunda clientes productos precios" },

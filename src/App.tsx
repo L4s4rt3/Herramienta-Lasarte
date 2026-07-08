@@ -36,6 +36,7 @@ const RrhhAmonestaciones = lazy(pageLoaders.rrhhAmonestaciones);
 const RrhhVacaciones = lazy(pageLoaders.rrhhVacaciones);
 const RrhhNominas = lazy(pageLoaders.rrhhNominas);
 const RrhhComunicaciones = lazy(pageLoaders.rrhhComunicaciones);
+const ComercialDashboard = lazy(pageLoaders.comercialDashboard);
 const EconomicoPanel = lazy(pageLoaders.economicoPanel);
 const EconomicoFacturacion = lazy(pageLoaders.economicoFacturacion);
 const EconomicoCostes = lazy(pageLoaders.economicoCostes);
@@ -83,6 +84,7 @@ const App = () => (
                       <Route path="/analisis/diario" element={<AnalisisDiario />} />
                       <Route path="/ventas/categoria-segunda" element={<VentasCategoriaSegunda />} />
                       <Route path="/ventas/categoria-primera" element={<VentasCategoriaPrimera />} />
+                      <Route path="/comercial" element={<ComercialDashboard />} />
                       {/* Dos sabores de Mercadona: producción (sin facturación) y comercial (completa). */}
                       <Route path="/mercadona" element={<Mercadona conFacturacion={false} />} />
                       <Route path="/comercial/mercadona" element={<Mercadona />} />

@@ -77,7 +77,7 @@ export const WORKSPACES: Array<{
     id: "comercial",
     label: "Comercial",
     icon: ShoppingCart,
-    home: "/comercial/mercadona",
+    home: "/comercial",
     matches: (p) => p.startsWith("/comercial") || p.startsWith("/ventas") || p.startsWith("/cmr"),
     allowedFor: (role) => role === "admin" || role === "ventas",
   },
@@ -150,6 +150,7 @@ const navGroups: Array<{ label: string; workspace: WorkspaceId; items: NavItem[]
     label: "Comercial",
     workspace: "comercial",
     items: [
+      { to: "/comercial", label: "Panel comercial", icon: LayoutDashboard, match: (path) => path === "/comercial" },
       { to: "/comercial/mercadona", label: "Mercadona", icon: ShoppingCart },
       { to: "/ventas/categoria-segunda", label: "Categoria segunda", icon: FileSpreadsheet },
       { to: "/ventas/categoria-primera", label: "Categoria primera", icon: FileSpreadsheet },
