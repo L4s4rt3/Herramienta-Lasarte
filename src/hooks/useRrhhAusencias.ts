@@ -18,10 +18,12 @@
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { endOfWeek, parseISO, startOfWeek } from "date-fns";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
 import { idCortoStorage, sanearNombreArchivo } from "@/lib/cmrArchivo";
+import { toISODateLocal } from "@/lib/format";
 import type { AsistenciaBajaLaboralRow, TrabajadorRow } from "@/lib/types";
 
 // Cast local: la tabla rrhh_justificantes aun no esta en el Database generado.
@@ -67,6 +69,52 @@ export interface FaltaConEstado {
 export interface RrhhAusenciasFiltros {
   desde: string;
   hasta: string;
+}
+
+/** Faltas agrupadas por semana ISO (lunes-domingo), ya con recuentos de justificadas/sin justificar. */
+export interface SemanaAusencias {
+  /** Clave estable de la semana: fecha (YYYY-MM-DD) del lunes de inicio. */
+  claveSemana: string;
+  inicio: Date;
+  fin: Date;
+  faltas: FaltaConEstado[];
+  total: number;
+  justificadas: number;
+  sinJustificar: number;
+}
+
+/**
+ * Agrupa una lista de faltas (ya filtrada por la página: persona, sin-justificar, etc.)
+ * en semanas ISO lunes-domingo, ordenadas de más reciente a más antigua. Es un helper
+ * puro (sin estado ni queries) para que la página lo use tanto sobre `faltas` como sobre
+ * cualquier subconjunto filtrado en cliente.
+ */
+export function agruparFaltasPorSemana(faltas: FaltaConEstado[]): SemanaAusencias[] {
+  const grupos = new Map<string, FaltaConEstado[]>();
+  for (const falta of faltas) {
+    const inicioSemana = startOfWeek(parseISO(falta.fecha), { weekStartsOn: 1 });
+    const clave = toISODateLocal(inicioSemana);
+    const grupo = grupos.get(clave);
+    if (grupo) grupo.push(falta);
+    else grupos.set(clave, [falta]);
+  }
+
+  return Array.from(grupos.entries())
+    .map(([clave, faltasSemana]) => {
+      const inicio = parseISO(clave);
+      const fin = endOfWeek(inicio, { weekStartsOn: 1 });
+      const justificadas = faltasSemana.filter((f) => f.justificante).length;
+      return {
+        claveSemana: clave,
+        inicio,
+        fin,
+        faltas: faltasSemana,
+        total: faltasSemana.length,
+        justificadas,
+        sinJustificar: faltasSemana.length - justificadas,
+      };
+    })
+    .sort((a, b) => b.claveSemana.localeCompare(a.claveSemana));
 }
 
 const BAJA_LABORAL_MOTIVO = "baja_laboral";

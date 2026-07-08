@@ -4,11 +4,16 @@
 // acción "Justificar" (nota + foto/PDF opcional) y bloque de bajas laborales
 // activas/recientes. rrhh_justificantes tiene RLS solo rrhh/admin: si el
 // select falla por permiso, se degrada con un aviso en vez de un error crudo.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { format, startOfWeek } from "date-fns";
+import { es } from "date-fns/locale";
 import {
   AlertTriangle, Calendar as CalendarIcon, CheckCircle2, Clock, FileText,
   Filter, Paperclip, ShieldAlert, Upload, Users,
 } from "lucide-react";
+import {
+  Accordion, AccordionContent, AccordionItem, AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,7 +30,8 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import {
-  BAJA_LABORAL_MOTIVO, useRrhhAusencias, type FaltaConEstado,
+  agruparFaltasPorSemana, BAJA_LABORAL_MOTIVO, useRrhhAusencias,
+  type FaltaConEstado, type SemanaAusencias,
 } from "@/hooks/useRrhhAusencias";
 import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, today, toISODateLocal } from "@/lib/format";
@@ -41,6 +47,14 @@ function motivoLabel(motivo: string | null): string {
   if (!motivo) return "Sin motivo especificado";
   if (motivo === BAJA_LABORAL_MOTIVO) return "Baja laboral";
   return motivo;
+}
+
+/** "7–13 jul 2026" (mismo mes) o "28 jun–4 jul 2026" (a caballo entre meses). */
+function formatRangoSemana(inicio: Date, fin: Date): string {
+  const mismoMes = inicio.getMonth() === fin.getMonth();
+  const inicioLabel = format(inicio, mismoMes ? "d" : "d MMM", { locale: es });
+  const finLabel = format(fin, "d MMM yyyy", { locale: es });
+  return `${inicioLabel}–${finLabel}`;
 }
 
 export default function RrhhAusencias() {
@@ -62,6 +76,22 @@ export default function RrhhAusencias() {
       return true;
     });
   }, [faltas, personaFiltro, soloSinJustificar]);
+
+  const semanas = useMemo(() => agruparFaltasPorSemana(faltasFiltradas), [faltasFiltradas]);
+
+  // Semana abierta por defecto: la que contiene hoy si está en el listado, si no la más
+  // reciente. Se recalcula solo cuando cambia ese objetivo (p.ej. al cambiar el rango o
+  // los filtros), sin pisar semanas que el usuario haya abierto/cerrado a mano.
+  const claveSemanaPorDefecto = useMemo(() => {
+    if (semanas.length === 0) return null;
+    const claveHoy = toISODateLocal(startOfWeek(new Date(), { weekStartsOn: 1 }));
+    return semanas.some((s) => s.claveSemana === claveHoy) ? claveHoy : semanas[0].claveSemana;
+  }, [semanas]);
+
+  const [semanasAbiertas, setSemanasAbiertas] = useState<string[]>([]);
+  useEffect(() => {
+    setSemanasAbiertas(claveSemanaPorDefecto ? [claveSemanaPorDefecto] : []);
+  }, [claveSemanaPorDefecto]);
 
   const totalFaltas = faltas.length;
   const totalJustificadas = faltas.filter((f) => f.justificante).length;
@@ -198,53 +228,21 @@ export default function RrhhAusencias() {
               <p className="text-xs">Ajusta el rango de fechas o los filtros para ver otros resultados.</p>
             </div>
           ) : (
-            <ul className="divide-y divide-[var(--glass-border)]">
-              {faltasFiltradas.map((falta) => (
-                <li
-                  key={`${falta.trabajadorId}-${falta.fecha}`}
-                  className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--glass-bg-strong)] sm:px-5"
-                >
-                  <div className="flex min-w-[110px] items-center gap-1.5 text-sm font-semibold tabular-nums">
-                    <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                    {formatDate(falta.fecha)}
-                  </div>
-                  <div className="min-w-[160px] flex-1 truncate text-sm font-medium">{falta.nombre}</div>
-                  <div className="min-w-[140px] flex-1 truncate text-xs text-muted-foreground">
-                    {motivoLabel(falta.motivo)}
-                  </div>
-                  {falta.justificante ? (
-                    <Badge className="border-success/40 bg-success/10 text-success" variant="outline">
-                      <CheckCircle2 className="mr-1 h-3 w-3" /> Justificada
-                    </Badge>
-                  ) : (
-                    <Badge className="border-warning/40 bg-warning/10 text-warning" variant="outline">
-                      <AlertTriangle className="mr-1 h-3 w-3" /> Sin justificar
-                    </Badge>
-                  )}
-                  <div className="ml-auto flex items-center gap-2">
-                    {falta.justificante?.archivo_path ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="glass glass-hover h-8"
-                        onClick={() => handleVerJustificante(falta.justificante!.archivo_path!)}
-                      >
-                        <Paperclip className="mr-1.5 h-3.5 w-3.5" /> Ver
-                      </Button>
-                    ) : null}
-                    {!falta.justificante ? (
-                      <Button
-                        size="sm"
-                        className="h-8"
-                        onClick={() => setJustificando(falta)}
-                      >
-                        <FileText className="mr-1.5 h-3.5 w-3.5" /> Justificar
-                      </Button>
-                    ) : null}
-                  </div>
-                </li>
+            <Accordion
+              type="multiple"
+              value={semanasAbiertas}
+              onValueChange={setSemanasAbiertas}
+              className="divide-y divide-[var(--glass-border)]"
+            >
+              {semanas.map((semana) => (
+                <SemanaAusenciasItem
+                  key={semana.claveSemana}
+                  semana={semana}
+                  onVerJustificante={handleVerJustificante}
+                  onJustificar={setJustificando}
+                />
               ))}
-            </ul>
+            </Accordion>
           )}
         </CardContent>
       </Card>
@@ -318,6 +316,89 @@ export default function RrhhAusencias() {
         saving={justificarFalta.isPending}
       />
     </div>
+  );
+}
+
+// ─── Semana de faltas (acordeón) ─────────────────────────────────────────
+
+function SemanaAusenciasItem({
+  semana, onVerJustificante, onJustificar,
+}: {
+  semana: SemanaAusencias;
+  onVerJustificante: (path: string) => void;
+  onJustificar: (falta: FaltaConEstado) => void;
+}) {
+  return (
+    <AccordionItem value={semana.claveSemana} className="border-b-0 px-4 sm:px-5">
+      <AccordionTrigger className="gap-3 py-3 hover:no-underline">
+        <div className="flex flex-1 flex-wrap items-center gap-2 pr-2 text-left">
+          <div className="flex items-center gap-1.5 text-sm font-semibold tabular-nums">
+            <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
+            {formatRangoSemana(semana.inicio, semana.fin)}
+          </div>
+          <Badge variant="outline" className="rounded-full font-normal">
+            {semana.total} {semana.total === 1 ? "falta" : "faltas"}
+          </Badge>
+          <Badge className="rounded-full border-success/40 bg-success/10 font-normal text-success" variant="outline">
+            <CheckCircle2 className="mr-1 h-3 w-3" /> {semana.justificadas} justificada{semana.justificadas === 1 ? "" : "s"}
+          </Badge>
+          {semana.sinJustificar > 0 ? (
+            <Badge className="rounded-full border-warning/40 bg-warning/10 font-normal text-warning" variant="outline">
+              <AlertTriangle className="mr-1 h-3 w-3" /> {semana.sinJustificar} sin justificar
+            </Badge>
+          ) : null}
+        </div>
+      </AccordionTrigger>
+      <AccordionContent className="pb-1 pt-0">
+        <ul className="-mx-4 divide-y divide-[var(--glass-border)] sm:-mx-5">
+          {semana.faltas.map((falta) => (
+            <li
+              key={`${falta.trabajadorId}-${falta.fecha}`}
+              className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--glass-bg-strong)] sm:px-5"
+            >
+              <div className="flex min-w-[110px] items-center gap-1.5 text-sm font-semibold tabular-nums">
+                <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                {formatDate(falta.fecha)}
+              </div>
+              <div className="min-w-[160px] flex-1 truncate text-sm font-medium">{falta.nombre}</div>
+              <div className="min-w-[140px] flex-1 truncate text-xs text-muted-foreground">
+                {motivoLabel(falta.motivo)}
+              </div>
+              {falta.justificante ? (
+                <Badge className="border-success/40 bg-success/10 text-success" variant="outline">
+                  <CheckCircle2 className="mr-1 h-3 w-3" /> Justificada
+                </Badge>
+              ) : (
+                <Badge className="border-warning/40 bg-warning/10 text-warning" variant="outline">
+                  <AlertTriangle className="mr-1 h-3 w-3" /> Sin justificar
+                </Badge>
+              )}
+              <div className="ml-auto flex items-center gap-2">
+                {falta.justificante?.archivo_path ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="glass glass-hover h-8"
+                    onClick={() => onVerJustificante(falta.justificante!.archivo_path!)}
+                  >
+                    <Paperclip className="mr-1.5 h-3.5 w-3.5" /> Ver
+                  </Button>
+                ) : null}
+                {!falta.justificante ? (
+                  <Button
+                    size="sm"
+                    className="h-8"
+                    onClick={() => onJustificar(falta)}
+                  >
+                    <FileText className="mr-1.5 h-3.5 w-3.5" /> Justificar
+                  </Button>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </AccordionContent>
+    </AccordionItem>
   );
 }
 
