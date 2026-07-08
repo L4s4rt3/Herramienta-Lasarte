@@ -17,10 +17,19 @@
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { PDFDocument } from "pdf-lib";
+import * as pdfjsLib from "pdfjs-dist";
+// Worker de pdfjs empaquetado por Vite como asset propio (?url) en vez de
+// dejar que pdfjs intente cargarlo desde un CDN: así funciona en dev y en el
+// build de producción sin configuración adicional de Vite.
+import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.mjs?url";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
-import { toError } from "@/lib/errorMessage";
+import { errorMessage, toError } from "@/lib/errorMessage";
 import { idCortoStorage, sanearNombreArchivo } from "@/lib/cmrArchivo";
+import { casarPaginaConTrabajador, type PaginaNomina, type TrabajadorNominaCandidato } from "@/lib/nominasPdf";
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
 // Cast local: las tablas rrhh_* aun no estan en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
@@ -193,6 +202,65 @@ export interface SubirNominaInput {
   file: File;
 }
 
+const TEXTO_PREVIEW_MAX = 220;
+
+/**
+ * Lee el PDF en el navegador (pdfjs-dist) y devuelve una fila por página con
+ * el mejor trabajador casado (ver casarPaginaConTrabajador en nominasPdf.ts).
+ * Se ejecuta al elegir el archivo, ANTES de subir nada, para poder mostrar y
+ * revisar la cola de asignación en RrhhNominas.tsx.
+ */
+export async function analizarPdfNominas(
+  file: File,
+  trabajadores: readonly TrabajadorNominaCandidato[],
+): Promise<PaginaNomina[]> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const documento = await pdfjsLib.getDocument({ data: bytes }).promise;
+
+  const paginas: PaginaNomina[] = [];
+  for (let numeroPagina = 1; numeroPagina <= documento.numPages; numeroPagina++) {
+    const pagina = await documento.getPage(numeroPagina);
+    const contenido = await pagina.getTextContent();
+    const texto = contenido.items
+      .map((item) => ("str" in item ? item.str : ""))
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const resultado = casarPaginaConTrabajador(texto, trabajadores);
+    paginas.push({
+      indice: numeroPagina - 1,
+      trabajadorId: resultado.trabajadorId,
+      confianza: resultado.confianza,
+      textoPreview: texto.slice(0, TEXTO_PREVIEW_MAX),
+    });
+  }
+
+  return paginas;
+}
+
+export interface AsignacionPaginaNomina {
+  paginaIndice: number;
+  trabajadorId: string;
+}
+
+export interface ImportarNominasPdfInput {
+  file: File;
+  anio: number;
+  mes: number;
+  asignaciones: AsignacionPaginaNomina[];
+}
+
+export interface ImportarNominasPdfError {
+  paginaIndice: number;
+  mensaje: string;
+}
+
+export interface ImportarNominasPdfResumen {
+  asignadas: number;
+  errores: ImportarNominasPdfError[];
+}
+
 export function useRrhhNominas(anio: number) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -266,6 +334,74 @@ export function useRrhhNominas(anio: number) {
     },
   });
 
+  /**
+   * Importación masiva: recorta del PDF fuente (pdf-lib) cada página ya
+   * asignada a un trabajador, la sube como PDF de 1 página y hace upsert por
+   * (trabajador_id, anio, mes) — igual que `subir`, pero en lote. Ninguna
+   * página falla en silencio: los errores por página se acumulan en el
+   * resumen en vez de abortar el resto del lote.
+   */
+  const importarNominasPdf = useMutation({
+    mutationFn: async (input: ImportarNominasPdfInput): Promise<ImportarNominasPdfResumen> => {
+      if (!user) throw new Error("Debes iniciar sesion para importar nominas.");
+      if (input.asignaciones.length === 0) {
+        throw new Error("No hay ninguna pagina asignada para importar.");
+      }
+
+      const bytes = new Uint8Array(await input.file.arrayBuffer());
+      const documentoOrigen = await PDFDocument.load(bytes);
+
+      let asignadas = 0;
+      const errores: ImportarNominasPdfError[] = [];
+
+      for (const asignacion of input.asignaciones) {
+        try {
+          const documentoNuevo = await PDFDocument.create();
+          const [paginaCopiada] = await documentoNuevo.copyPages(documentoOrigen, [asignacion.paginaIndice]);
+          documentoNuevo.addPage(paginaCopiada);
+          const pdfBytes = await documentoNuevo.save();
+          const blob = new Blob([pdfBytes], { type: "application/pdf" });
+
+          const nombreArchivo = `nomina-${input.anio}-${String(input.mes).padStart(2, "0")}.pdf`;
+          const path = `nominas/${idCortoStorage()}-${sanearNombreArchivo(nombreArchivo)}`;
+
+          const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, blob);
+          if (uploadError) throw toError(uploadError);
+
+          // Best-effort: si ya habia una nomina para ese trabajador/mes, borramos
+          // el archivo antiguo del storage para no dejar huerfanos tras el upsert.
+          const existente = porTrabajadorYMes.get(`${asignacion.trabajadorId}-${input.mes}`);
+          if (existente?.archivo_path) {
+            await supabase.storage.from(BUCKET).remove([existente.archivo_path]).catch(() => undefined);
+          }
+
+          const { error } = await SUPA.from("rrhh_nominas").upsert(
+            {
+              user_id: user.id,
+              trabajador_id: asignacion.trabajadorId,
+              anio: input.anio,
+              mes: input.mes,
+              archivo_path: path,
+              archivo_nombre: nombreArchivo,
+              notas: null,
+            },
+            { onConflict: "trabajador_id,anio,mes" },
+          );
+          if (error) throw toError(error);
+
+          asignadas++;
+        } catch (err) {
+          errores.push({ paginaIndice: asignacion.paginaIndice, mensaje: errorMessage(err) });
+        }
+      }
+
+      return { asignadas, errores };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rrhh-nominas"] });
+    },
+  });
+
   return {
     nominas: query.data ?? [],
     porTrabajadorYMes,
@@ -273,6 +409,7 @@ export function useRrhhNominas(anio: number) {
     sinPermiso,
     subir,
     eliminar,
+    importarNominasPdf,
   };
 }
 
