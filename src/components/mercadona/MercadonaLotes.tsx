@@ -3,18 +3,26 @@
 // rinden de verdad para el cliente — ranking histórico de aprovechamiento
 // MDNA, lotes de la semana activa y calidad orientativa de esos días.
 import { useMemo, useState } from "react";
-import { AlertTriangle, ClipboardList, Package, ScrollText, TrendingUp, Trophy } from "lucide-react";
+import { AlertTriangle, ClipboardList, FileSearch, Package, ScrollText, TrendingUp, Trophy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { InfoTooltip } from "@/components/InfoTooltip";
+import { CalidadInformeDialog, type CalidadInformeLote } from "@/components/CalidadInformeDialog";
 import { useMercadona } from "@/hooks/useMercadona";
-import { useMercadonaLotes, type MercadonaLoteSemana } from "@/hooks/useMercadonaLotes";
+import {
+  buildCalidadIndex,
+  matchCalidadParaLote,
+  useMercadonaLotes,
+  type MercadonaCalidadSemana,
+  type MercadonaLoteSemana,
+} from "@/hooks/useMercadonaLotes";
 import type { MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
 import { mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
 import { formatDate, formatKg, formatNumber, formatPct } from "@/lib/format";
 import { tphColor } from "@/lib/chartTheme";
 import { cn } from "@/lib/utils";
+import { toast } from "@/hooks/use-toast";
 
 type SortKey = "kg" | "tph" | "pctMdnaDia" | "pesoFrutaG";
 
@@ -33,6 +41,14 @@ export function MercadonaLotes({ activeSemana }: { activeSemana: MercadonaSemana
     productoresHistorico, isLoadingProductoresHistorico,
     calidadSemana, isLoadingCalidadSemana,
   } = useMercadonaLotes(activeSemana);
+
+  const [informeSeleccionado, setInformeSeleccionado] = useState<CalidadInformeLote | null>(null);
+  const [informeAbierto, setInformeAbierto] = useState(false);
+
+  const abrirInforme = (informe: CalidadInformeLote) => {
+    setInformeSeleccionado(informe);
+    setInformeAbierto(true);
+  };
 
   if (!activeSemana) {
     return (
@@ -54,8 +70,14 @@ export function MercadonaLotes({ activeSemana }: { activeSemana: MercadonaSemana
     <div className="space-y-4">
       <ResumenCompacto mercadona={mercadona} />
       <RankingHistoricoProductores productores={productoresHistorico} isLoading={isLoadingProductoresHistorico} />
-      <LotesSemanaTabla lotes={lotesSemana} isLoading={isLoadingLotesSemana} />
-      <CalidadSemana controles={calidadSemana} isLoading={isLoadingCalidadSemana} />
+      <LotesSemanaTabla
+        lotes={lotesSemana}
+        isLoading={isLoadingLotesSemana}
+        calidadSemana={calidadSemana}
+        onAbrirInforme={abrirInforme}
+      />
+      <CalidadSemana controles={calidadSemana} isLoading={isLoadingCalidadSemana} onAbrirInforme={abrirInforme} />
+      <CalidadInformeDialog lote={informeSeleccionado} open={informeAbierto} onOpenChange={setInformeAbierto} />
     </div>
   );
 }
@@ -192,14 +214,35 @@ function RankingHistoricoProductores({
 
 // ─── 2. Lotes de la semana activa ────────────────────────────────────────────
 
-function LotesSemanaTabla({ lotes, isLoading }: { lotes: MercadonaLoteSemana[]; isLoading: boolean }) {
+function LotesSemanaTabla({
+  lotes, isLoading, calidadSemana, onAbrirInforme,
+}: {
+  lotes: MercadonaLoteSemana[];
+  isLoading: boolean;
+  calidadSemana: MercadonaCalidadSemana[];
+  onAbrirInforme: (informe: CalidadInformeLote) => void;
+}) {
   const [sortKey, setSortKey] = useState<SortKey>("kg");
+
+  const calidadIndex = useMemo(() => buildCalidadIndex(calidadSemana), [calidadSemana]);
 
   const ordenados = useMemo(() => {
     const copia = [...lotes];
     copia.sort((a, b) => (b[sortKey] ?? -Infinity) - (a[sortKey] ?? -Infinity));
     return copia;
   }, [lotes, sortKey]);
+
+  const handleLoteClick = (lote: MercadonaLoteSemana) => {
+    const match = matchCalidadParaLote(lote, calidadIndex);
+    if (!match) {
+      toast({
+        title: "Sin informe de calidad",
+        description: `No hay ningún control de calidad asociado al lote ${lote.loteCodigo} (${lote.productor}).`,
+      });
+      return;
+    }
+    onAbrirInforme(match.informe);
+  };
 
   return (
     <Card className="glass-accented overflow-hidden">
@@ -258,13 +301,35 @@ function LotesSemanaTabla({ lotes, isLoading }: { lotes: MercadonaLoteSemana[]; 
                       </InfoTooltip>
                     </span>
                   </TableHead>
+                  <TableHead className="text-right">
+                    <span className="inline-flex items-center gap-1">
+                      Calidad
+                      <InfoTooltip>
+                        Pulsa la fila para ver el informe de calidad de este lote (cruzado por número de lote o, si no
+                        hay, por productor y fecha).
+                      </InfoTooltip>
+                    </span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {ordenados.map((l) => {
                   const color = l.tph != null ? tphColor(l.tph) : undefined;
+                  const match = matchCalidadParaLote(l, calidadIndex);
                   return (
-                    <TableRow key={l.key}>
+                    <TableRow
+                      key={l.key}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handleLoteClick(l)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          handleLoteClick(l);
+                        }
+                      }}
+                      className="cursor-pointer transition-colors hover:bg-[var(--glass-bg-strong)]"
+                    >
                       <TableCell className="text-xs font-medium">{l.loteCodigo}</TableCell>
                       <TableCell className="max-w-[180px] truncate text-xs">{l.productor}</TableCell>
                       <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground">{l.producto}</TableCell>
@@ -277,6 +342,19 @@ function LotesSemanaTabla({ lotes, isLoading }: { lotes: MercadonaLoteSemana[]; 
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-xs">
                         {l.pctMdnaDia != null ? formatPct(l.pctMdnaDia) : "—"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium",
+                            match
+                              ? "border-primary/30 bg-primary/10 text-primary"
+                              : "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground",
+                          )}
+                        >
+                          <FileSearch className="h-3 w-3" />
+                          {match ? "Ver" : "—"}
+                        </span>
                       </TableCell>
                     </TableRow>
                   );
@@ -301,10 +379,11 @@ const CALIDAD_BADGE_CLASS: Record<string, string> = {
 };
 
 function CalidadSemana({
-  controles, isLoading,
+  controles, isLoading, onAbrirInforme,
 }: {
-  controles: Array<{ id: string; fecha: string; numeroLote: string; productor: string; producto: string; variedad: string; calidad: string; defectos: string[]; observacion: string }>;
+  controles: MercadonaCalidadSemana[];
   isLoading: boolean;
+  onAbrirInforme: (informe: CalidadInformeLote) => void;
 }) {
   return (
     <Card className="glass-accented overflow-hidden">
@@ -328,7 +407,19 @@ function CalidadSemana({
         ) : (
           <ul className="space-y-2">
             {controles.map((c) => (
-              <li key={c.id} className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2.5 text-xs">
+              <li
+                key={c.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => onAbrirInforme(c.informe)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onAbrirInforme(c.informe);
+                  }
+                }}
+                className="cursor-pointer rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2.5 text-xs transition-colors hover:border-primary/40 hover:bg-[var(--glass-bg-strong)]"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="flex min-w-0 items-center gap-2">
                     <span className="font-medium">{c.productor}</span>
@@ -339,6 +430,7 @@ function CalidadSemana({
                     <Badge variant="outline" className={cn("text-[11px]", CALIDAD_BADGE_CLASS[c.calidad] ?? "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground")}>
                       {c.calidad}
                     </Badge>
+                    <FileSearch className="h-3.5 w-3.5 text-primary" />
                   </span>
                 </div>
                 {(c.defectos.length > 0 || c.observacion) && (

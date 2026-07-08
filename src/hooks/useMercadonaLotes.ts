@@ -26,7 +26,10 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import type { MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
+import { normalizeNombre } from "@/hooks/useProductores";
 import { mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
+import type { CalidadEstado, CalidadInformeEstado } from "@/lib/calidad";
+import type { CalidadInformeLote } from "@/components/CalidadInformeDialog";
 
 const IN_CHUNK_SIZE = 200;
 const MIN_LOTES_RANKING = 3;
@@ -65,6 +68,8 @@ export interface MercadonaCalidadSemana {
   calidad: string;
   defectos: string[];
   observacion: string;
+  /** Shape completo listo para <CalidadInformeDialog>, con todos los campos del informe. */
+  informe: CalidadInformeLote;
 }
 
 export interface MercadonaProductorHistorico {
@@ -133,6 +138,50 @@ export function pctMdnaPorDia(productos: ProductoDiaRow[], partesById: Map<strin
     pctPorDia.set(date, v.total > 0 ? (v.mdna / v.total) * 100 : 0);
   }
   return pctPorDia;
+}
+
+export interface CalidadIndex {
+  porLote: Map<string, MercadonaCalidadSemana>;
+  porProductorFecha: Map<string, MercadonaCalidadSemana>;
+}
+
+/**
+ * Índice de controles de calidad de la semana para poder cruzarlos con los
+ * lotes de producción: por número de lote (match exacto, prioritario) y por
+ * productor + fecha (fallback "orientativo", igual que el resto de cruces
+ * de esta pestaña). Si hay varios controles para la misma clave se queda con
+ * el primero (la query ya viene ordenada por fecha desc).
+ */
+export function buildCalidadIndex(controles: MercadonaCalidadSemana[]): CalidadIndex {
+  const porLote = new Map<string, MercadonaCalidadSemana>();
+  const porProductorFecha = new Map<string, MercadonaCalidadSemana>();
+  for (const c of controles) {
+    const codigo = c.numeroLote.trim();
+    if (codigo && !porLote.has(codigo)) porLote.set(codigo, c);
+    const key = `${normalizeNombre(c.productor)}__${c.fecha}`;
+    if (!porProductorFecha.has(key)) porProductorFecha.set(key, c);
+  }
+  return { porLote, porProductorFecha };
+}
+
+/**
+ * Empareja un lote de producción (lotes_dia) con su control de calidad
+ * (calidad_lotes): primero por número de lote (lote_codigo === numero_lote),
+ * y si no hay match, por productor + fecha. Devuelve null si no hay ningún
+ * control de calidad asociado a ese lote.
+ */
+export function matchCalidadParaLote(
+  lote: Pick<MercadonaLoteSemana, "loteCodigo" | "productor" | "date">,
+  index: CalidadIndex,
+): MercadonaCalidadSemana | null {
+  const codigo = lote.loteCodigo.trim();
+  if (codigo && codigo !== "Sin código") {
+    const match = index.porLote.get(codigo);
+    if (match) return match;
+  }
+  if (lote.productor === "Sin productor") return null;
+  const key = `${normalizeNombre(lote.productor)}__${lote.date}`;
+  return index.porProductorFecha.get(key) ?? null;
 }
 
 /**
@@ -254,25 +303,50 @@ function useMercadonaCalidadSemana(desde: string | null, hasta: string | null) {
       if (!desde || !hasta) return [];
       const { data, error } = await supabase
         .from("calidad_lotes")
-        .select("id, fecha, numero_lote, productor_finca_nombre, producto, variedad, calidad, defectos, observacion")
+        .select(
+          "id, fecha, numero_lote, productor_finca_nombre, producto, variedad, cantidad, hora, calidad, defectos, defecto_otro, observacion, accion_recomendada, informe_generado, informe_estado, aerobotics_realizado, validado_at, validado_by",
+        )
         .gte("fecha", desde)
         .lte("fecha", hasta)
         .order("fecha", { ascending: false });
       if (error) throw error;
 
-      return (data ?? []).map((row): MercadonaCalidadSemana => ({
-        id: row.id,
-        fecha: row.fecha,
-        numeroLote: row.numero_lote,
-        productor: row.productor_finca_nombre || "Sin productor",
-        producto: row.producto || "Sin producto",
-        variedad: row.variedad || "",
-        calidad: row.calidad,
-        // `defectos` en calidad_lotes es un array de texto (text[] en Postgres),
-        // no jsonb: llega ya tipado como string[] desde el cliente de Supabase.
-        defectos: row.defectos ?? [],
-        observacion: row.observacion || "",
-      }));
+      return (data ?? []).map((row): MercadonaCalidadSemana => {
+        const defectos = row.defectos ?? [];
+        return {
+          id: row.id,
+          fecha: row.fecha,
+          numeroLote: row.numero_lote,
+          productor: row.productor_finca_nombre || "Sin productor",
+          producto: row.producto || "Sin producto",
+          variedad: row.variedad || "",
+          calidad: row.calidad,
+          // `defectos` en calidad_lotes es un array de texto (text[] en Postgres),
+          // no jsonb: llega ya tipado como string[] desde el cliente de Supabase.
+          defectos,
+          observacion: row.observacion || "",
+          informe: {
+            id: row.id,
+            fecha: row.fecha,
+            numero_lote: row.numero_lote ?? "",
+            productor_finca_nombre: row.productor_finca_nombre ?? "",
+            producto: row.producto,
+            variedad: row.variedad,
+            cantidad: row.cantidad,
+            hora: row.hora,
+            calidad: row.calidad as CalidadEstado,
+            defectos,
+            defecto_otro: row.defecto_otro,
+            observacion: row.observacion,
+            accion_recomendada: row.accion_recomendada,
+            informe_estado: (row.informe_estado as CalidadInformeEstado) ?? "borrador",
+            informe_generado: row.informe_generado,
+            aerobotics_realizado: row.aerobotics_realizado,
+            validado_at: row.validado_at,
+            validado_by: row.validado_by,
+          },
+        };
+      });
     },
     enabled: Boolean(desde && hasta),
   });
