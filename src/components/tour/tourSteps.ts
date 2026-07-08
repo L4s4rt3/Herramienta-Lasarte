@@ -9,7 +9,6 @@ import {
   Users,
   Sparkles,
   ShoppingCart,
-  Store,
   Truck,
   UserRound,
   CalendarOff,
@@ -152,15 +151,6 @@ export const TOUR_STEPS: TourStep[] = [
     title: "Categoría primera",
     description:
       "Lo mismo que Categoría segunda pero para el resto de productos: ventas por cliente y producto a partir de su propio Excel, con los mismos totales de kg, importe y precio medio.",
-  },
-  {
-    id: "edeka",
-    workspace: "comercial",
-    to: "/edeka",
-    icon: Store,
-    title: "Edeka",
-    description:
-      "Los envíos a Edeka calculados a partir de los palets: qué ha salido, cuánto pesa y cómo se reparte por producto. Te ahorra reconstruirlo a mano cada vez que preguntan por un envío.",
   },
   {
     id: "cmr",

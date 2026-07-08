@@ -13,7 +13,8 @@ export const pageLoaders = {
   ventasCategoriaSegunda: () => import("@/pages/VentasCategoriaSegunda"),
   ventasCategoriaPrimera: () => import("@/pages/VentasCategoriaPrimera"),
   mercadona: () => import("@/pages/Mercadona"),
-  edeka: () => import("@/pages/Edeka"),
+  // Edeka desconectada temporalmente (jul 2026): la pagina y el hook siguen en
+  // el repo (src/pages/Edeka.tsx, src/hooks/useEdeka.ts) para reengancharla.
   cmr: () => import("@/pages/CmrHojasRuta"),
   rrhhPersonas: () => import("@/pages/RrhhPersonas"),
   rrhhAusencias: () => import("@/pages/RrhhAusencias"),
@@ -39,7 +40,6 @@ const preloadByPath: Record<string, () => Promise<unknown>> = {
   "/ventas/categoria-primera": pageLoaders.ventasCategoriaPrimera,
   "/mercadona": pageLoaders.mercadona,
   "/comercial/mercadona": pageLoaders.mercadona,
-  "/edeka": pageLoaders.edeka,
   "/cmr": pageLoaders.cmr,
   "/rrhh/personas": pageLoaders.rrhhPersonas,
   "/rrhh/ausencias": pageLoaders.rrhhAusencias,

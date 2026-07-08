@@ -28,7 +28,6 @@ const AnalisisDiario = lazy(pageLoaders.analisisDiario);
 const VentasCategoriaSegunda = lazy(pageLoaders.ventasCategoriaSegunda);
 const VentasCategoriaPrimera = lazy(pageLoaders.ventasCategoriaPrimera);
 const Mercadona = lazy(pageLoaders.mercadona);
-const Edeka = lazy(pageLoaders.edeka);
 const Cmr = lazy(pageLoaders.cmr);
 const RrhhPersonas = lazy(pageLoaders.rrhhPersonas);
 const RrhhAusencias = lazy(pageLoaders.rrhhAusencias);
@@ -85,7 +84,6 @@ const App = () => (
                       {/* Dos sabores de Mercadona: producción (sin facturación) y comercial (completa). */}
                       <Route path="/mercadona" element={<Mercadona conFacturacion={false} />} />
                       <Route path="/comercial/mercadona" element={<Mercadona />} />
-                      <Route path="/edeka" element={<Edeka />} />
                       <Route path="/cmr" element={<Cmr />} />
                       <Route path="/rrhh/personas" element={<RrhhPersonas />} />
                       <Route path="/rrhh/ausencias" element={<RrhhAusencias />} />

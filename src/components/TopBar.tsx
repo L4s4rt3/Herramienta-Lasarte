@@ -78,7 +78,8 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/",
     parentLabel: "Comercial",
   },
-  "/edeka": {
+  // Edeka desconectada temporalmente (jul 2026); se reenganchara mas adelante.
+  "/edeka-desactivado": {
     label: "Edeka",
     subtitle: "Resumen de lo enviado al cliente Edeka a partir de los palets de los partes diarios",
     parent: "/",
