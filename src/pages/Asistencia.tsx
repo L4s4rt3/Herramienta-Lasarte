@@ -26,6 +26,7 @@ import {
   Plus, Trash2, Upload, ChevronLeft, ChevronRight, UserCheck, UserX,
   Users, Calendar as CalendarIcon, CalendarDays, Search, Eraser,
   CheckCircle2, PackageCheck, FileText, Download, ChevronDown, Pencil, X,
+  ShieldOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -82,7 +83,6 @@ import {
   buildTrabajadorDiaExportRow,
   normalizeAsistenciaExportZona,
 } from "@/lib/asistenciaExport";
-import AsistenciaSemanalPanel from "@/components/AsistenciaSemanalPanel";
 import {
   type SemanaDataRaw,
   getWeekDates,
@@ -211,6 +211,189 @@ function AsistenciaDatePicker({ value, onChange }: { value: string; onChange: (v
         />
       </PopoverContent>
     </Popover>
+  );
+}
+
+// ─── Vista semanal: solo asistencia/ausencias ──────────────────────────────
+// El dueño pidió que la vista en formato semanal se centre exclusivamente en
+// asistencia (presentes/ausentes/bajas/sin marcar): sin kg/persona, rendimiento
+// por zona, kg por sección ni productos clasificados (eso queda solo en el
+// informe semanal Excel, que sigue igual). buildFaltasSemanalesFnc no toca
+// producción: solo asistencia_detalle + bajas laborales.
+const WEEKLY_DAY_ABBR = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "dom"];
+
+function weeklyEstadoClass(status: string) {
+  if (status === "presente") return "bg-success text-success-foreground";
+  if (status === "ausente") return "bg-destructive text-destructive-foreground";
+  if (status === "baja") return "bg-info text-info-foreground";
+  return "bg-warning text-warning-foreground";
+}
+
+function AsistenciaSemanalAttendanceView({
+  semana,
+  loading,
+  weekStart,
+  incluirSabado,
+  onToggleSabado,
+}: {
+  semana: SemanaDataRaw | null;
+  loading: boolean;
+  weekStart: string;
+  incluirSabado: boolean;
+  onToggleSabado: () => void;
+}) {
+  const dates = useMemo(() => getWeekDates(weekStart), [weekStart]);
+
+  const faltas = useMemo(() => {
+    if (!semana) return [];
+    return buildFaltasSemanalesFnc(semana, incluirSabado);
+  }, [semana, incluirSabado]);
+
+  const totalFaltasSemana = faltas.reduce((s, r) => s + r.totalFaltas, 0);
+  const totalBajasSemana = faltas.filter((r) => r.totalBajas > 0).length;
+  const totalPresentesSemana = faltas.reduce((s, r) => s + r.totalPresentes, 0);
+  const totalSinRegistrarSemana = faltas.reduce((s, r) => s + r.totalSinRegistrar, 0);
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-24" />
+        <Skeleton className="h-64" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <p className="panel-kicker mb-2">KPIs de la semana</p>
+        <div className="grid grid-cols-2 gap-2 rounded-xl border border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] p-2 shadow-[var(--glass-shadow)] sm:grid-cols-4">
+          <div className="flex items-center gap-2.5 rounded-lg px-3 py-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-success/25 bg-success/10 text-success">
+              <UserCheck className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-lg font-semibold leading-none tabular-nums text-success">{formatoEntero(totalPresentesSemana)}</p>
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">presentes-día</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5 rounded-lg px-3 py-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-destructive/25 bg-destructive/10 text-destructive">
+              <UserX className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-lg font-semibold leading-none tabular-nums">{formatoEntero(totalFaltasSemana)}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">ausencias</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5 rounded-lg px-3 py-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-info/25 bg-info/10 text-info">
+              <ShieldOff className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-lg font-semibold leading-none tabular-nums">{formatoEntero(totalBajasSemana)}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">con baja laboral</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5 rounded-lg px-3 py-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-warning/25 bg-warning/10 text-warning">
+              <Users className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-lg font-semibold leading-none tabular-nums">{formatoEntero(totalSinRegistrarSemana)}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">sin marcar</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <Card className="glass-accented overflow-hidden">
+        <CardHeader className="border-b border-[var(--glass-border)] pb-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <CardTitle className="text-lg">Faltas semanales</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">{incluirSabado ? "Lun a Sab" : "Lun a Vie"} &middot; Domingo no laborable</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/50">
+                <input
+                  type="checkbox"
+                  checked={incluirSabado}
+                  onChange={onToggleSabado}
+                  className="h-3.5 w-3.5 rounded border-[var(--glass-border)]"
+                />
+                Incluir sábado
+              </label>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-success" /> Presente</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-destructive" /> Ausente</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-info" /> Baja</span>
+                <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-warning" /> Sin reg.</span>
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm whitespace-nowrap">
+              <thead>
+                <tr className="border-b border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
+                  <th className="sticky left-0 z-20 bg-[var(--glass-bg-solid)] px-3 py-3 text-left text-xs font-bold uppercase text-muted-foreground">Trabajador</th>
+                  <th className="px-3 py-3 text-left text-xs font-bold uppercase text-muted-foreground">Zona</th>
+                  {dates.map((date, i) => {
+                    const esDomingo = new Date(date + "T12:00:00").getDay() === 0;
+                    const esSabado = new Date(date + "T12:00:00").getDay() === 6;
+                    const noLaborable = esDomingo || (esSabado && !incluirSabado);
+                    return (
+                      <th key={date} className={cn("text-center px-2 py-3 text-xs font-bold uppercase", noLaborable ? "text-muted-foreground/40" : "text-muted-foreground")}>
+                        <div>{WEEKLY_DAY_ABBR[i]}</div>
+                        <div className="text-[10px] font-normal">{new Date(date + "T12:00:00").getDate()}</div>
+                        {noLaborable && <div className="text-[8px] font-normal mt-0.5">festivo</div>}
+                      </th>
+                    );
+                  })}
+                  <th className="text-center px-2 py-3 text-xs font-bold uppercase text-muted-foreground">Faltas</th>
+                  <th className="text-center px-2 py-3 text-xs font-bold uppercase text-muted-foreground">Bajas</th>
+                  <th className="text-center px-2 py-3 text-xs font-bold uppercase text-muted-foreground">Pres.</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--glass-border)]">
+                {faltas.length === 0 ? (
+                  <tr>
+                    <td colSpan={12} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      Sin datos de asistencia para esta semana.
+                    </td>
+                  </tr>
+                ) : (
+                  faltas.map((row, index) => {
+                    const zebraClass = index % 2 === 1 ? "bg-[var(--glass-bg)]" : "bg-[var(--glass-bg-strong)]";
+                    return (
+                      <tr key={row.trabajadorId} className={cn("hover:bg-[var(--color-surface-hover)]", zebraClass)}>
+                        <td className="sticky left-0 z-10 bg-[var(--glass-bg-solid)] px-3 py-2 text-sm font-semibold">{row.nombre}</td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">{row.zona ?? "—"}</td>
+                        {dates.map((date) => {
+                          const status = row.days[date] ?? "sinRegistrar";
+                          return (
+                            <td key={date} className="px-2 py-2 text-center">
+                              <span className={cn("inline-flex h-6 w-6 items-center justify-center rounded-md text-[10px] font-bold", weeklyEstadoClass(status))}>
+                                {status === "presente" ? "P" : status === "ausente" ? "A" : status === "baja" ? "B" : "?"}
+                              </span>
+                            </td>
+                          );
+                        })}
+                        <td className="px-2 py-2 text-center text-sm font-semibold text-destructive">{row.totalFaltas || "—"}</td>
+                        <td className="px-2 py-2 text-center text-sm font-semibold text-info">{row.totalBajas || "—"}</td>
+                        <td className="px-2 py-2 text-center text-sm font-semibold text-success">{row.totalPresentes || "—"}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -2210,13 +2393,10 @@ export default function Asistencia() {
       </div>
 
       {viewMode === "weekly" ? (
-        <AsistenciaSemanalPanel
+        <AsistenciaSemanalAttendanceView
           semana={semanaData}
           loading={loadingSemana}
           weekStart={weekStart}
-          onWeekChange={setWeekStart}
-          onExport={exportarSemanaExcel}
-          exporting={exportingAsistencia !== null}
           incluirSabado={incluirSabado}
           onToggleSabado={toggleIncluirSabado}
         />

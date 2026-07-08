@@ -79,7 +79,13 @@ function EstadoVacio({ texto }: { texto: string }) {
 
 export default function RrhhDashboard() {
   const rrhh = useRrhhDashboard();
-  const [fechaRendimiento, setFechaRendimiento] = useState(today());
+  // Las asistencias se registran al día siguiente: "hoy" normalmente aún no
+  // tiene datos, así que el selector arranca en el último día con asistencia
+  // registrada (o ayer si todavía no hay ninguno) en vez de en hoy. Se guarda
+  // solo la elección manual del usuario; mientras no elija, sigue el valor
+  // por defecto que expone el hook (que llega async tras la primera carga).
+  const [fechaRendimientoManual, setFechaRendimientoManual] = useState<string | null>(null);
+  const fechaRendimiento = fechaRendimientoManual ?? rrhh.ultimoDiaConAsistencia;
   const rendimiento = useRendimientoDia(fechaRendimiento);
 
   const semanas = rrhh.semanas;
@@ -120,10 +126,18 @@ export default function RrhhDashboard() {
         />
         <KPICard
           className="glass-accented"
-          label="Presentes hoy"
-          value={rrhh.isLoading ? "…" : formatNumber(rrhh.presentesHoy)}
-          hint={`${formatNumber(rrhh.pctAsistenciaHoy, 0)}% asistencia`}
-          accent={rrhh.pctAsistenciaHoy >= 90 ? "success" : rrhh.pctAsistenciaHoy >= 75 ? "warning" : "destructive"}
+          label={`Asistencia (último día: ${formatDate(rrhh.ultimoDiaConAsistencia)})`}
+          value={!rrhh.hayAsistenciaRegistrada ? "—" : rrhh.isLoading ? "…" : formatNumber(rrhh.presentesUltimoDia)}
+          hint={rrhh.hayAsistenciaRegistrada ? `${formatNumber(rrhh.pctAsistenciaUltimoDia ?? 0, 0)}% asistencia` : "Sin días con asistencia registrada"}
+          accent={
+            !rrhh.hayAsistenciaRegistrada
+              ? "primary"
+              : (rrhh.pctAsistenciaUltimoDia ?? 0) >= 90
+                ? "success"
+                : (rrhh.pctAsistenciaUltimoDia ?? 0) >= 75
+                  ? "warning"
+                  : "destructive"
+          }
           icon={CalendarCheck}
           to="/costes/asistencia"
         />
@@ -250,7 +264,7 @@ export default function RrhhDashboard() {
                 <p className="text-xs text-muted-foreground mt-0.5">Kg y kg/persona por grupo en un día concreto.</p>
               </div>
             </div>
-            <GlassDatePicker value={fechaRendimiento} onChange={setFechaRendimiento} label="Elegir día" displayFormat="dd MMM yyyy" />
+            <GlassDatePicker value={fechaRendimiento} onChange={setFechaRendimientoManual} label="Elegir día" displayFormat="dd MMM yyyy" />
           </div>
         </CardHeader>
         <CardContent className="px-5 pb-5">

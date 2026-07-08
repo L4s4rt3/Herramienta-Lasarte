@@ -237,14 +237,41 @@ export function useRrhhDashboard() {
     [activos],
   );
 
-  // ─── Asistencia derivada (hoy / semana / justificantes) ──────────────────
+  // ─── Asistencia derivada (último día con datos / semana / justificantes) ─
+  // Las asistencias se registran al día siguiente (la lista de un día se pasa
+  // a la mañana siguiente), así que "hoy" normalmente todavía no tiene
+  // registros. Los KPIs de asistencia puntual se calculan sobre el último día
+  // con datos reales en asistencia_detalle, no sobre "hoy", para no mostrar un
+  // 0%/0 engañoso. El panel es de solo consulta: no se ofrece marcar
+  // asistencia de hoy desde aquí.
   const asistencia = useMemo(() => asistenciaQuery.data ?? [], [asistenciaQuery.data]);
-  const asistenciaHoy = useMemo(() => asistencia.filter((r) => r.date === hoy), [asistencia, hoy]);
-  const presentesHoy = useMemo(
-    () => new Set(asistenciaHoy.filter((r) => r.presente).map((r) => r.trabajador_id)).size,
-    [asistenciaHoy],
+
+  const ultimoDiaConDatos = useMemo(() => {
+    let max: string | null = null;
+    for (const r of asistencia) {
+      if (max === null || r.date > max) max = r.date;
+    }
+    return max;
+  }, [asistencia]);
+
+  const ayer = useMemo(() => toISODateLocal(new Date(Date.now() - 24 * 60 * 60 * 1000)), []);
+  // Fecha por defecto para el selector de día del bloque de rendimiento: el
+  // último día con asistencia registrada, o ayer si todavía no hay ninguno.
+  const ultimoDiaConAsistencia = ultimoDiaConDatos ?? ayer;
+  const hayAsistenciaRegistrada = ultimoDiaConDatos !== null;
+
+  const asistenciaUltimoDia = useMemo(
+    () => (ultimoDiaConDatos ? asistencia.filter((r) => r.date === ultimoDiaConDatos) : []),
+    [asistencia, ultimoDiaConDatos],
   );
-  const pctAsistenciaHoy = activos.length > 0 ? Math.round((presentesHoy / activos.length) * 100) : 0;
+  const presentesUltimoDia = useMemo(
+    () => new Set(asistenciaUltimoDia.filter((r) => r.presente).map((r) => r.trabajador_id)).size,
+    [asistenciaUltimoDia],
+  );
+  const pctAsistenciaUltimoDia =
+    hayAsistenciaRegistrada && activos.length > 0
+      ? Math.round((presentesUltimoDia / activos.length) * 100)
+      : null;
 
   const ausenciasSemana = useMemo(
     () => asistencia.filter((r) => r.date >= weekStart && r.date <= hoy && r.presente === false).length,
@@ -343,8 +370,10 @@ export function useRrhhDashboard() {
     activosPorZona,
     computablesKgPersona,
 
-    presentesHoy,
-    pctAsistenciaHoy,
+    ultimoDiaConAsistencia,
+    hayAsistenciaRegistrada,
+    presentesUltimoDia,
+    pctAsistenciaUltimoDia,
     ausenciasSemana,
     justificantesPendientes,
 
