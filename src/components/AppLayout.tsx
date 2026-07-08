@@ -21,6 +21,7 @@ import {
   Euro,
   Receipt,
   Tags,
+  Mail,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
 
@@ -169,6 +170,7 @@ const navGroups: Array<{ label: string; workspace: WorkspaceId; items: NavItem[]
       { to: "/rrhh/amonestaciones", label: "Amonestaciones", icon: AlertTriangle },
       { to: "/rrhh/vacaciones", label: "Vacaciones y horas", icon: Plane },
       { to: "/rrhh/nominas", label: "Nóminas", icon: Banknote },
+      { to: "/rrhh/comunicaciones", label: "Comunicaciones", icon: Mail },
       { to: "/rrhh/mercadona", label: "Mercadona", icon: ShoppingCart },
     ],
   },

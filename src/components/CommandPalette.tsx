@@ -27,6 +27,7 @@ import {
   AlertTriangle,
   Plane,
   Banknote,
+  Mail,
 } from "lucide-react";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useAuth } from "@/contexts/AuthProvider";
@@ -63,6 +64,7 @@ const PAGES = [
   { to: "/rrhh/amonestaciones", label: "Amonestaciones (RRHH)", icon: AlertTriangle, keywords: "rrhh amonestaciones sanciones documento firmado" },
   { to: "/rrhh/vacaciones", label: "Vacaciones y horas (RRHH)", icon: Plane, keywords: "rrhh vacaciones dias horas bolsa saldo" },
   { to: "/rrhh/nominas", label: "Nóminas (RRHH)", icon: Banknote, keywords: "rrhh nominas salario mensual" },
+  { to: "/rrhh/comunicaciones", label: "Comunicaciones (RRHH)", icon: Mail, keywords: "rrhh comunicaciones correos emails avisos horas vacaciones" },
   { to: "/rrhh/mercadona", label: "Mercadona (RRHH)", icon: ShoppingCart, keywords: "rrhh mercadona facturas precios kg" },
   { to: "/economico", label: "Panel económico", icon: Banknote, keywords: "economico euros facturacion costes margen admin" },
   { to: "/economico/facturacion", label: "Facturación (Económico)", icon: Banknote, keywords: "economico facturacion base iva mercadona euros" },
@@ -88,6 +90,7 @@ const RRHH_Y_ADMIN_ONLY = new Set([
   "/rrhh/amonestaciones",
   "/rrhh/vacaciones",
   "/rrhh/nominas",
+  "/rrhh/comunicaciones",
   "/rrhh/mercadona",
 ]);
 

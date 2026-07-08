@@ -103,6 +103,12 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/",
     parentLabel: "RRHH",
   },
+  "/rrhh/comunicaciones": {
+    label: "Comunicaciones",
+    subtitle: "Avisos automáticos y correos personalizados a la plantilla",
+    parent: "/rrhh",
+    parentLabel: "RRHH",
+  },
   "/rrhh/mercadona": {
     label: "Mercadona",
     subtitle: "Kg, facturación y precios del cliente principal (vista RRHH)",
