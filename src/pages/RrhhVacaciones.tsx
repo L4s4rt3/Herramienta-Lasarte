@@ -1,12 +1,17 @@
 // src/pages/RrhhVacaciones.tsx
 // Seccion "Vacaciones y horas" de RRHH: devengo/disfrute de vacaciones por
 // trabajador (rrhh_vacaciones_periodos) y bolsa de horas +/- (rrhh_horas).
+// Vista tipo "panel de control": tarjetas por trabajador con saldo grande
+// coloreado + barra de progreso, para ver de un vistazo quien tiene
+// vacaciones/horas pendientes y quien esta en negativo.
 import { useMemo, useState } from "react";
 import {
-  AlertTriangle, CalendarDays, CalendarPlus, Clock, Plus, ShieldAlert, Trash2,
+  AlertTriangle, CalendarDays, CalendarPlus, CheckCircle2, ChevronRight, Clock,
+  Minus, Plus, ShieldAlert, Trash2, TrendingDown, TrendingUp, XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -20,9 +25,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { KPICard } from "@/components/KPICard";
 import { toast } from "@/hooks/use-toast";
 import {
-  useRrhhVacaciones, type RrhhHoraRow, type RrhhVacacionesPeriodoRow,
+  useRrhhVacaciones, type RrhhHoraRow, type RrhhTrabajadorRow, type RrhhVacacionesPeriodoRow,
 } from "@/hooks/useRrhhVacaciones";
 import {
   diasDisfrutadosEnAnio, diasNaturalesPeriodo, diasDevengados,
@@ -122,6 +128,16 @@ function Header() {
 
 // ─── Vacaciones ────────────────────────────────────────────────────────────
 
+interface FilaVacaciones {
+  trabajador: RrhhTrabajadorRow;
+  devengados: number;
+  disfrutados: number;
+  saldo: number;
+  diasAnuales: number;
+  estado: "ok" | "bajo" | "negativo";
+  periodosAnio: RrhhVacacionesPeriodoRow[];
+}
+
 function VacacionesTab({
   rrhh, anio, setAnio, anios, anioActual,
 }: {
@@ -132,34 +148,46 @@ function VacacionesTab({
   anioActual: number;
 }) {
   const hasta = anio === anioActual ? hoyISO() : `${anio}-12-31`;
+  const [expandido, setExpandido] = useState<string | null>(null);
 
-  const filas = useMemo(() => {
-    return rrhh.trabajadores.map((t) => {
-      const periodosTrabajador = rrhh.periodos.filter((p) => p.trabajador_id === t.id);
-      const devengados = diasDevengados({
-        fechaAlta: t.fecha_alta,
-        hasta,
-        diasAnuales: t.vacaciones_dias_anuales ?? 30,
-      });
-      const disfrutados = diasDisfrutadosEnAnio(periodosTrabajador, anio);
-      return {
-        trabajador: t,
-        devengados,
-        disfrutados,
-        saldo: devengados - disfrutados,
-        diasAnuales: t.vacaciones_dias_anuales ?? 30,
-      };
-    });
+  const filas = useMemo<FilaVacaciones[]>(() => {
+    return rrhh.trabajadores
+      .map((t) => {
+        const periodosTrabajador = rrhh.periodos.filter((p) => p.trabajador_id === t.id);
+        const devengados = diasDevengados({
+          fechaAlta: t.fecha_alta,
+          hasta,
+          diasAnuales: t.vacaciones_dias_anuales ?? 30,
+        });
+        const disfrutados = diasDisfrutadosEnAnio(periodosTrabajador, anio);
+        const saldo = devengados - disfrutados;
+        const estado: FilaVacaciones["estado"] = saldo < 0 ? "negativo" : saldo <= 2 ? "bajo" : "ok";
+        const periodosAnio = periodosTrabajador
+          .filter((p) => p.fecha_inicio.slice(0, 4) === String(anio) || p.fecha_fin.slice(0, 4) === String(anio))
+          .sort((a, b) => b.fecha_inicio.localeCompare(a.fecha_inicio));
+        return {
+          trabajador: t,
+          devengados,
+          disfrutados,
+          saldo,
+          diasAnuales: t.vacaciones_dias_anuales ?? 30,
+          estado,
+          periodosAnio,
+        };
+      })
+      // los más ajustados o excedidos primero: lo que más necesita atención se ve antes.
+      .sort((a, b) => a.saldo - b.saldo);
   }, [rrhh.trabajadores, rrhh.periodos, hasta, anio]);
 
-  const periodosAnio = useMemo(
-    () => rrhh.periodos
-      .filter((p) => p.fecha_inicio.slice(0, 4) === String(anio) || p.fecha_fin.slice(0, 4) === String(anio))
-      .sort((a, b) => b.fecha_inicio.localeCompare(a.fecha_inicio)),
-    [rrhh.periodos, anio],
-  );
-
-  const trabajadorNombre = (id: string) => rrhh.trabajadores.find((t) => t.id === id)?.nombre ?? "—";
+  const resumen = useMemo(() => {
+    let ok = 0, bajo = 0, negativo = 0;
+    for (const f of filas) {
+      if (f.estado === "negativo") negativo++;
+      else if (f.estado === "bajo") bajo++;
+      else ok++;
+    }
+    return { ok, bajo, negativo };
+  }, [filas]);
 
   return (
     <div className="space-y-4">
@@ -176,86 +204,172 @@ function VacacionesTab({
               ))}
             </SelectContent>
           </Select>
+          <span className="text-xs text-muted-foreground">
+            {anio === anioActual ? `Devengado a hoy (${formatDate(hoyISO())})` : `Devengado a 31/12/${anio}`}
+          </span>
         </div>
         <RegistrarPeriodoDialog rrhh={rrhh} />
       </div>
 
-      <Card className="glass-accented overflow-hidden">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Saldo de vacaciones por trabajador</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            {anio === anioActual ? `Devengados a hoy (${formatDate(hoyISO())})` : `Devengados a 31/12/${anio}`}.
-          </p>
-        </CardHeader>
-        <CardContent className="p-0">
-          {rrhh.isLoading ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">Cargando…</p>
-          ) : filas.length === 0 ? (
-            <EmptyState icon={CalendarDays} text="No hay trabajadores activos registrados." />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-[13px]">
-                <thead className="border-b border-[var(--glass-border)] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>th]:px-3 [&>th]:py-1.5">
-                  <tr>
-                    <th className="text-left">Trabajador</th>
-                    <th className="text-right">Devengados</th>
-                    <th className="text-right">Disfrutados ({anio})</th>
-                    <th className="text-right">Saldo</th>
-                    <th className="text-right">Días/año convenio</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filas.map((f, i) => (
-                    <tr key={f.trabajador.id} className={i % 2 === 1 ? "bg-[var(--glass-bg)]/40" : undefined}>
-                      <td className="px-3 py-1.5 font-medium">{f.trabajador.nombre}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(f.devengados, 1)}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(f.disfrutados, 0)}</td>
-                      <td className={cn(
-                        "px-3 py-1.5 text-right tabular-nums font-semibold",
-                        f.saldo < 0 ? "text-destructive" : "text-success",
-                      )}>
-                        {formatNumber(f.saldo, 1)}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{f.diasAnuales}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {!rrhh.isLoading && filas.length > 0 && (
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <KPICard
+            className="glass-accented"
+            label="Con saldo disponible"
+            value={formatNumber(resumen.ok)}
+            hint="más de 2 días de margen"
+            icon={CheckCircle2}
+            accent="success"
+          />
+          <KPICard
+            className="glass-accented"
+            label="Cerca de agotar"
+            value={formatNumber(resumen.bajo)}
+            hint="entre 0 y 2 días restantes"
+            icon={AlertTriangle}
+            accent={resumen.bajo > 0 ? "warning" : "primary"}
+          />
+          <KPICard
+            className="glass-accented"
+            label="Saldo excedido"
+            value={formatNumber(resumen.negativo)}
+            hint="han disfrutado de más días de los devengados"
+            icon={XCircle}
+            accent={resumen.negativo > 0 ? "destructive" : "primary"}
+          />
+        </section>
+      )}
 
-      <Card className="glass-accented overflow-hidden">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Periodos de vacaciones · {anio}</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {periodosAnio.length === 0 ? (
-            <EmptyState icon={CalendarDays} text="No hay periodos registrados para este año." />
+      {rrhh.isLoading ? (
+        <Card className="glass-accented">
+          <CardContent className="p-10 text-center text-sm text-muted-foreground">Cargando…</CardContent>
+        </Card>
+      ) : filas.length === 0 ? (
+        <Card className="glass-accented overflow-hidden">
+          <CardContent className="p-0">
+            <EmptyState icon={CalendarDays} text="No hay trabajadores activos registrados." />
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {filas.map((f) => (
+            <TrabajadorVacacionesCard
+              key={f.trabajador.id}
+              fila={f}
+              rrhh={rrhh}
+              expandido={expandido === f.trabajador.id}
+              onToggleExpand={() => setExpandido((prev) => (prev === f.trabajador.id ? null : f.trabajador.id))}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const ESTADO_TEXT_CLASS: Record<FilaVacaciones["estado"], string> = {
+  ok: "text-success",
+  bajo: "text-warning",
+  negativo: "text-destructive",
+};
+
+const ESTADO_BAR_CLASS: Record<FilaVacaciones["estado"], string> = {
+  ok: "bg-success",
+  bajo: "bg-warning",
+  negativo: "bg-destructive",
+};
+
+function TrabajadorVacacionesCard({
+  fila, rrhh, expandido, onToggleExpand,
+}: {
+  fila: FilaVacaciones;
+  rrhh: ReturnType<typeof useRrhhVacaciones>;
+  expandido: boolean;
+  onToggleExpand: () => void;
+}) {
+  const { trabajador, devengados, disfrutados, saldo, diasAnuales, estado, periodosAnio } = fila;
+  const base = devengados > 0 ? devengados : diasAnuales;
+  const ratio = base > 0 ? disfrutados / base : 0;
+  const pct = Math.min(100, Math.max(0, ratio * 100));
+  const barWidth = disfrutados > 0 ? Math.max(pct, 3) : 0;
+
+  return (
+    <Card className="glass-accented overflow-hidden">
+      <CardContent className="space-y-3 p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="truncate font-semibold">{trabajador.nombre}</p>
+            <p className="text-[11px] text-muted-foreground">{diasAnuales} días naturales/año</p>
+          </div>
+          {estado === "negativo" && (
+            <Badge variant="outline" className="shrink-0 border-destructive/40 bg-destructive/10 text-[10px] text-destructive">
+              Excedido
+            </Badge>
+          )}
+          {estado === "bajo" && (
+            <Badge variant="outline" className="shrink-0 border-warning/40 bg-warning/10 text-[10px] text-warning">
+              Casi agotado
+            </Badge>
+          )}
+        </div>
+
+        <div>
+          <p className="panel-kicker">Saldo restante</p>
+          <p className={cn("text-3xl font-semibold tabular-nums leading-tight", ESTADO_TEXT_CLASS[estado])}>
+            {formatNumber(saldo, 1)}
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+            <div
+              className={cn("h-full rounded-full transition-all", ESTADO_BAR_CLASS[estado])}
+              style={{ width: `${barWidth}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>{formatNumber(disfrutados, 0)} disfrutados</span>
+            <span>{formatNumber(devengados, 1)} devengados</span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onToggleExpand}
+          className="flex w-full items-center gap-1.5 rounded-md py-1 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 transition-transform", expandido && "rotate-90")} />
+          {periodosAnio.length} periodo{periodosAnio.length !== 1 ? "s" : ""} este año
+        </button>
+
+        {expandido && (
+          periodosAnio.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-[var(--glass-border)] px-3 py-2 text-xs text-muted-foreground">
+              Sin periodos registrados este año.
+            </p>
           ) : (
-            <ul className="divide-y divide-[var(--glass-border)]">
+            <ul className="divide-y divide-[var(--glass-border)] rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)]">
               {periodosAnio.map((p) => (
-                <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                <li key={p.id} className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
                   <div className="min-w-0">
-                    <p className="font-medium">{trabajadorNombre(p.trabajador_id)}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatDate(p.fecha_inicio)} → {formatDate(p.fecha_fin)} · {p.dias_naturales} día(s)
-                      {p.notas ? ` · ${p.notas}` : ""}
+                    <p className="tabular-nums">
+                      {formatDate(p.fecha_inicio)} → {formatDate(p.fecha_fin)} · {p.dias_naturales} d.
                     </p>
+                    {p.notas && <p className="truncate text-muted-foreground">{p.notas}</p>}
                   </div>
                   <BorrarPeriodoDialog rrhh={rrhh} periodo={p} />
                 </li>
               ))}
             </ul>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+          )
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
 function RegistrarPeriodoDialog({ rrhh }: { rrhh: ReturnType<typeof useRrhhVacaciones> }) {
+  const anioActual = new Date().getFullYear();
   const [open, setOpen] = useState(false);
   const [trabajadorId, setTrabajadorId] = useState<string>("");
   const [fechaInicio, setFechaInicio] = useState(hoyISO());
@@ -266,6 +380,26 @@ function RegistrarPeriodoDialog({ rrhh }: { rrhh: ReturnType<typeof useRrhhVacac
     if (!fechaInicio || !fechaFin || fechaFin < fechaInicio) return 0;
     return diasNaturalesPeriodo(fechaInicio, fechaFin);
   }, [fechaInicio, fechaFin]);
+
+  const trabajadorSeleccionado = useMemo(
+    () => rrhh.trabajadores.find((t) => t.id === trabajadorId) ?? null,
+    [rrhh.trabajadores, trabajadorId],
+  );
+
+  const resumenConsumo = useMemo(() => {
+    if (!trabajadorSeleccionado || diasNaturales <= 0 || !fechaInicio) return null;
+    const anioPeriodo = Number(fechaInicio.slice(0, 4));
+    const hastaDevengo = anioPeriodo === anioActual ? hoyISO() : `${anioPeriodo}-12-31`;
+    const devengados = diasDevengados({
+      fechaAlta: trabajadorSeleccionado.fecha_alta,
+      hasta: hastaDevengo,
+      diasAnuales: trabajadorSeleccionado.vacaciones_dias_anuales ?? 30,
+    });
+    const periodosPrevios = rrhh.periodos.filter((p) => p.trabajador_id === trabajadorId);
+    const disfrutadosPrevios = diasDisfrutadosEnAnio(periodosPrevios, anioPeriodo);
+    const restante = devengados - disfrutadosPrevios - diasNaturales;
+    return { restante, devengados };
+  }, [trabajadorSeleccionado, trabajadorId, fechaInicio, diasNaturales, rrhh.periodos, anioActual]);
 
   function resetForm() {
     setTrabajadorId("");
@@ -347,6 +481,13 @@ function RegistrarPeriodoDialog({ rrhh }: { rrhh: ReturnType<typeof useRrhhVacac
           <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 text-sm">
             <span className="text-muted-foreground">Días naturales: </span>
             <span className="font-semibold tabular-nums">{diasNaturales}</span>
+            {resumenConsumo && (
+              <p className={cn("mt-1 text-xs", resumenConsumo.restante < 0 ? "text-destructive" : "text-muted-foreground")}>
+                {resumenConsumo.restante < 0
+                  ? `Se pasará ${formatNumber(Math.abs(resumenConsumo.restante), 1)} día(s) del devengo (${formatNumber(resumenConsumo.devengados, 1)}).`
+                  : `Le quedarán ${formatNumber(resumenConsumo.restante, 1)} de ${formatNumber(resumenConsumo.devengados, 1)} devengados.`}
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -401,15 +542,36 @@ function BorrarPeriodoDialog({ rrhh, periodo }: { rrhh: ReturnType<typeof useRrh
 
 // ─── Bolsa de horas ──────────────────────────────────────────────────────────
 
+interface SaldoHoras {
+  trabajador: RrhhTrabajadorRow;
+  total: number;
+  totalPositivo: number;
+  totalNegativo: number;
+}
+
 function HorasTab({ rrhh }: { rrhh: ReturnType<typeof useRrhhVacaciones> }) {
-  const saldos = useMemo(() => {
-    return rrhh.trabajadores.map((t) => {
-      const total = rrhh.horas
-        .filter((h) => h.trabajador_id === t.id)
-        .reduce((sum, h) => sum + Number(h.horas || 0), 0);
-      return { trabajador: t, total };
-    });
+  const saldos = useMemo<SaldoHoras[]>(() => {
+    return rrhh.trabajadores
+      .map((t) => {
+        const horasTrabajador = rrhh.horas.filter((h) => h.trabajador_id === t.id);
+        const totalPositivo = horasTrabajador
+          .filter((h) => Number(h.horas) > 0)
+          .reduce((sum, h) => sum + Number(h.horas), 0);
+        const totalNegativo = horasTrabajador
+          .filter((h) => Number(h.horas) < 0)
+          .reduce((sum, h) => sum + Number(h.horas), 0);
+        return { trabajador: t, total: totalPositivo + totalNegativo, totalPositivo, totalNegativo };
+      })
+      // quien más debe (saldo más negativo) primero, para que llame la atención.
+      .sort((a, b) => a.total - b.total);
   }, [rrhh.trabajadores, rrhh.horas]);
+
+  const resumen = useMemo(() => {
+    const totalGeneral = saldos.reduce((sum, s) => sum + s.total, 0);
+    const enNegativo = saldos.filter((s) => s.total < 0).length;
+    const enPositivo = saldos.filter((s) => s.total > 0).length;
+    return { totalGeneral, enNegativo, enPositivo };
+  }, [saldos]);
 
   const trabajadorNombre = (id: string) => rrhh.trabajadores.find((t) => t.id === id)?.nombre ?? "—";
   const historialReciente = useMemo(
@@ -423,42 +585,51 @@ function HorasTab({ rrhh }: { rrhh: ReturnType<typeof useRrhhVacaciones> }) {
         <ApuntarHorasDialog rrhh={rrhh} />
       </div>
 
-      <Card className="glass-accented overflow-hidden">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Saldo acumulado por trabajador</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {rrhh.isLoading ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">Cargando…</p>
-          ) : saldos.length === 0 ? (
+      {!rrhh.isLoading && saldos.length > 0 && (
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <KPICard
+            className="glass-accented"
+            label="Saldo global de la bolsa"
+            value={`${resumen.totalGeneral > 0 ? "+" : ""}${formatNumber(resumen.totalGeneral, 1)} h`}
+            icon={Clock}
+            accent={resumen.totalGeneral < 0 ? "destructive" : resumen.totalGeneral > 0 ? "success" : "primary"}
+          />
+          <KPICard
+            className="glass-accented"
+            label="Deben horas"
+            value={formatNumber(resumen.enNegativo)}
+            hint="saldo negativo"
+            icon={TrendingDown}
+            accent={resumen.enNegativo > 0 ? "destructive" : "primary"}
+          />
+          <KPICard
+            className="glass-accented"
+            label="Acumulan horas"
+            value={formatNumber(resumen.enPositivo)}
+            hint="saldo a favor"
+            icon={TrendingUp}
+            accent="success"
+          />
+        </section>
+      )}
+
+      {rrhh.isLoading ? (
+        <Card className="glass-accented">
+          <CardContent className="p-10 text-center text-sm text-muted-foreground">Cargando…</CardContent>
+        </Card>
+      ) : saldos.length === 0 ? (
+        <Card className="glass-accented overflow-hidden">
+          <CardContent className="p-0">
             <EmptyState icon={Clock} text="No hay trabajadores activos registrados." />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-[13px]">
-                <thead className="border-b border-[var(--glass-border)] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>th]:px-3 [&>th]:py-1.5">
-                  <tr>
-                    <th className="text-left">Trabajador</th>
-                    <th className="text-right">Saldo (h)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {saldos.map((s, i) => (
-                    <tr key={s.trabajador.id} className={i % 2 === 1 ? "bg-[var(--glass-bg)]/40" : undefined}>
-                      <td className="px-3 py-1.5 font-medium">{s.trabajador.nombre}</td>
-                      <td className={cn(
-                        "px-3 py-1.5 text-right tabular-nums font-semibold",
-                        s.total < 0 ? "text-destructive" : s.total > 0 ? "text-success" : "text-muted-foreground",
-                      )}>
-                        {s.total > 0 ? "+" : ""}{formatNumber(s.total, 1)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {saldos.map((s) => (
+            <TrabajadorHorasCard key={s.trabajador.id} saldo={s} />
+          ))}
+        </div>
+      )}
 
       <Card className="glass-accented overflow-hidden">
         <CardHeader className="pb-3">
@@ -496,17 +667,60 @@ function HorasTab({ rrhh }: { rrhh: ReturnType<typeof useRrhhVacaciones> }) {
   );
 }
 
+function TrabajadorHorasCard({ saldo }: { saldo: SaldoHoras }) {
+  const { trabajador, total, totalPositivo, totalNegativo } = saldo;
+  const colorClass = total < 0 ? "text-destructive" : total > 0 ? "text-success" : "text-muted-foreground";
+
+  return (
+    <Card className="glass-accented overflow-hidden">
+      <CardContent className="space-y-2.5 p-4">
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 truncate font-semibold">{trabajador.nombre}</p>
+          {total < 0 && (
+            <Badge variant="outline" className="shrink-0 border-destructive/40 bg-destructive/10 text-[10px] text-destructive">
+              Debe horas
+            </Badge>
+          )}
+        </div>
+
+        <div>
+          <p className="panel-kicker">Saldo acumulado</p>
+          <p className={cn("text-3xl font-semibold tabular-nums leading-tight", colorClass)}>
+            {total > 0 ? "+" : ""}{formatNumber(total, 1)} h
+          </p>
+        </div>
+
+        {(totalPositivo !== 0 || totalNegativo !== 0) && (
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1 text-success">
+              <TrendingUp className="h-3 w-3" /> {formatNumber(totalPositivo, 1)}
+            </span>
+            <span className="flex items-center gap-1 text-destructive">
+              <TrendingDown className="h-3 w-3" /> {formatNumber(Math.abs(totalNegativo), 1)}
+            </span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ApuntarHorasDialog({ rrhh }: { rrhh: ReturnType<typeof useRrhhVacaciones> }) {
   const [open, setOpen] = useState(false);
   const [trabajadorId, setTrabajadorId] = useState<string>("");
   const [fecha, setFecha] = useState(hoyISO());
-  const [horas, setHoras] = useState<string>("");
+  const [signo, setSigno] = useState<"+" | "-">("+");
+  const [horasAbs, setHorasAbs] = useState<string>("");
   const [motivo, setMotivo] = useState("");
+
+  const horasAbsNum = Number(horasAbs.replace(",", "."));
+  const previewValido = horasAbs !== "" && Number.isFinite(horasAbsNum) && horasAbsNum > 0;
 
   function resetForm() {
     setTrabajadorId("");
     setFecha(hoyISO());
-    setHoras("");
+    setSigno("+");
+    setHorasAbs("");
     setMotivo("");
   }
 
@@ -520,11 +734,11 @@ function ApuntarHorasDialog({ rrhh }: { rrhh: ReturnType<typeof useRrhhVacacione
       toast({ title: "Selecciona un trabajador", variant: "destructive" });
       return;
     }
-    const horasNum = Number(horas.replace(",", "."));
-    if (!fecha || !Number.isFinite(horasNum) || horasNum === 0) {
-      toast({ title: "Horas no válidas", description: "Indica un número de horas distinto de cero (positivo o negativo).", variant: "destructive" });
+    if (!fecha || !previewValido) {
+      toast({ title: "Horas no válidas", description: "Indica un número de horas mayor que cero.", variant: "destructive" });
       return;
     }
+    const horasNum = signo === "-" ? -horasAbsNum : horasAbsNum;
     try {
       await rrhh.registrarHoras.mutateAsync({
         trabajador_id: trabajadorId,
@@ -532,7 +746,7 @@ function ApuntarHorasDialog({ rrhh }: { rrhh: ReturnType<typeof useRrhhVacacione
         horas: horasNum,
         motivo: motivo.trim() || null,
       });
-      toast({ title: "Horas registradas" });
+      toast({ title: "Horas registradas", description: `${signo}${formatNumber(horasAbsNum, 1)} h` });
       setOpen(false);
     } catch (error) {
       toast({ title: "Error al guardar", description: errorMessage(error), variant: "destructive" });
@@ -551,7 +765,7 @@ function ApuntarHorasDialog({ rrhh }: { rrhh: ReturnType<typeof useRrhhVacacione
           <DialogTitle className="flex items-center gap-2">
             <Clock className="h-5 w-5 text-primary" /> Apuntar horas
           </DialogTitle>
-          <DialogDescription>Usa un valor positivo para horas a favor y negativo para horas de más disfrutadas.</DialogDescription>
+          <DialogDescription>Suma horas a favor del trabajador o resta horas que debe recuperar.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -569,15 +783,50 @@ function ApuntarHorasDialog({ rrhh }: { rrhh: ReturnType<typeof useRrhhVacacione
             </Select>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Fecha</Label>
-              <GlassDatePicker value={fecha} onChange={setFecha} className="w-full" />
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Fecha</Label>
+            <GlassDatePicker value={fecha} onChange={setFecha} className="w-full" />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Horas</Label>
+            <div className="flex items-center gap-2">
+              <div className="flex shrink-0 rounded-lg border border-[var(--glass-border)] p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setSigno("+")}
+                  className={cn(
+                    "flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors",
+                    signo === "+" ? "bg-success/15 text-success" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <Plus className="h-3.5 w-3.5" /> Sumar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSigno("-")}
+                  className={cn(
+                    "flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors",
+                    signo === "-" ? "bg-destructive/15 text-destructive" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <Minus className="h-3.5 w-3.5" /> Restar
+                </button>
+              </div>
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={horasAbs}
+                onChange={(e) => setHorasAbs(e.target.value)}
+                placeholder="p. ej. 2,5"
+                className="flex-1"
+              />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Horas (+/-)</Label>
-              <Input type="text" inputMode="decimal" value={horas} onChange={(e) => setHoras(e.target.value)} placeholder="p. ej. 2.5 o -3" />
-            </div>
+            {previewValido && (
+              <p className={cn("text-xs font-semibold tabular-nums", signo === "-" ? "text-destructive" : "text-success")}>
+                {signo === "-" ? "-" : "+"}{formatNumber(horasAbsNum, 1)} h
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
