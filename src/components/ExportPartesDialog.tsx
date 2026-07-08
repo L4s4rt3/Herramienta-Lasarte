@@ -1,11 +1,11 @@
 import { useState } from "react";
+import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -107,13 +107,13 @@ export function ExportPartesDialog({ defaultFrom, defaultTo }: Props) {
                 <Label className="flex items-center gap-1.5 text-xs font-medium">
                   <Calendar className="h-3.5 w-3.5" /> Desde
                 </Label>
-                <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+                <GlassDatePicker value={from} onChange={setFrom} className="w-full" />
               </div>
               <div className="space-y-1.5">
                 <Label className="flex items-center gap-1.5 text-xs font-medium">
                   <Calendar className="h-3.5 w-3.5" /> Hasta
                 </Label>
-                <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+                <GlassDatePicker value={to} onChange={setTo} className="w-full" />
               </div>
             </div>
 

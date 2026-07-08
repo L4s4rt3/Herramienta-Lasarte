@@ -16,6 +16,7 @@ export const pageLoaders = {
   // Edeka desconectada temporalmente (jul 2026): la pagina y el hook siguen en
   // el repo (src/pages/Edeka.tsx, src/hooks/useEdeka.ts) para reengancharla.
   cmr: () => import("@/pages/CmrHojasRuta"),
+  rrhhDashboard: () => import("@/pages/RrhhDashboard"),
   rrhhPersonas: () => import("@/pages/RrhhPersonas"),
   rrhhAusencias: () => import("@/pages/RrhhAusencias"),
   rrhhAmonestaciones: () => import("@/pages/RrhhAmonestaciones"),
@@ -40,7 +41,9 @@ const preloadByPath: Record<string, () => Promise<unknown>> = {
   "/ventas/categoria-primera": pageLoaders.ventasCategoriaPrimera,
   "/mercadona": pageLoaders.mercadona,
   "/comercial/mercadona": pageLoaders.mercadona,
+  "/rrhh/mercadona": pageLoaders.mercadona,
   "/cmr": pageLoaders.cmr,
+  "/rrhh": pageLoaders.rrhhDashboard,
   "/rrhh/personas": pageLoaders.rrhhPersonas,
   "/rrhh/ausencias": pageLoaders.rrhhAusencias,
   "/rrhh/amonestaciones": pageLoaders.rrhhAmonestaciones,

@@ -57,11 +57,13 @@ const PAGES = [
   { to: "/cmr", label: "CMR y Hojas de ruta", icon: Truck, keywords: "cmr hojas de ruta transporte logistica" },
   { to: "/costes/consumos", label: "Consumos", icon: Droplet, keywords: "consumos costes agua energia gasoil" },
   { to: "/costes/asistencia", label: "Asistencia diaria (RRHH)", icon: Users, keywords: "rrhh asistencia pasar lista trabajadores turnos" },
+  { to: "/rrhh", label: "Panel de RRHH", icon: UserRound, keywords: "rrhh panel dashboard resumen asistencia rendimiento comparativa" },
   { to: "/rrhh/personas", label: "Plantilla (RRHH)", icon: UserRound, keywords: "rrhh plantilla trabajadores fichas categoria antiguedad" },
   { to: "/rrhh/ausencias", label: "Ausencias y bajas (RRHH)", icon: CalendarOff, keywords: "rrhh ausencias faltas bajas justificantes" },
   { to: "/rrhh/amonestaciones", label: "Amonestaciones (RRHH)", icon: AlertTriangle, keywords: "rrhh amonestaciones sanciones documento firmado" },
   { to: "/rrhh/vacaciones", label: "Vacaciones y horas (RRHH)", icon: Plane, keywords: "rrhh vacaciones dias horas bolsa saldo" },
   { to: "/rrhh/nominas", label: "Nóminas (RRHH)", icon: Banknote, keywords: "rrhh nominas salario mensual" },
+  { to: "/rrhh/mercadona", label: "Mercadona (RRHH)", icon: ShoppingCart, keywords: "rrhh mercadona facturas precios kg" },
   { to: "/economico", label: "Panel económico", icon: Banknote, keywords: "economico euros facturacion costes margen admin" },
   { to: "/economico/facturacion", label: "Facturación (Económico)", icon: Banknote, keywords: "economico facturacion base iva mercadona euros" },
   { to: "/economico/costes", label: "Costes (Económico)", icon: Banknote, keywords: "economico costes consumos coste por kg euros" },
@@ -79,12 +81,14 @@ const ECONOMICO_ADMIN_ONLY = new Set([
 // Secciones de RRHH (datos personales): solo roles rrhh y admin. La
 // asistencia diaria pertenece a RRHH desde jul 2026.
 const RRHH_Y_ADMIN_ONLY = new Set([
+  "/rrhh",
   "/costes/asistencia",
   "/rrhh/personas",
   "/rrhh/ausencias",
   "/rrhh/amonestaciones",
   "/rrhh/vacaciones",
   "/rrhh/nominas",
+  "/rrhh/mercadona",
 ]);
 
 const ACTIONS = [

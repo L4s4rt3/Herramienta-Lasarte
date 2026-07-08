@@ -15,7 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -139,24 +139,11 @@ export default function RrhhAusencias() {
 
       {/* ── Filtros ──────────────────────────────────────────────── */}
       <div className="section-toolbar glass-overlay flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <CalendarIcon className="h-4 w-4 text-primary/75" />
-          <Input
-            type="date"
-            value={desde}
-            max={hasta}
-            onChange={(e) => setDesde(e.target.value)}
-            className="h-9 w-[150px] tabular-nums"
-          />
+        <div className="glass-accented flex items-center gap-2 rounded-xl px-3 py-1.5">
+          <CalendarIcon className="h-4 w-4 shrink-0 text-primary/75" />
+          <GlassDatePicker value={desde} onChange={setDesde} label="Desde" displayFormat="dd MMM yyyy" />
           <span className="text-xs text-muted-foreground">a</span>
-          <Input
-            type="date"
-            value={hasta}
-            min={desde}
-            max={today()}
-            onChange={(e) => setHasta(e.target.value)}
-            className="h-9 w-[150px] tabular-nums"
-          />
+          <GlassDatePicker value={hasta} onChange={setHasta} label="Hasta" displayFormat="dd MMM yyyy" />
         </div>
 
         <div className="mx-1 hidden h-6 w-px bg-[var(--glass-border)] sm:block" />

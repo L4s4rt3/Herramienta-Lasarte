@@ -1,10 +1,7 @@
 import { Button } from "@/components/ui/button";
-import { Calendar as DatePickerCalendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { GlassDatePicker } from "@/components/GlassDatePicker";
 import type { Periodo } from "@/lib/analisisDiarioView";
 
 interface WeekSelectorProps {
@@ -30,38 +27,6 @@ const PERIODOS: { value: Periodo; label: string }[] = [
 ];
 
 const PERIODO_TODO: { value: Periodo; label: string } = { value: "todo", label: "Todo" };
-
-function GlassDatePicker({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
-  const selected = value ? new Date(`${value}T12:00:00`) : undefined;
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          className="glass glass-hover h-9 min-w-[130px] justify-start gap-2 rounded-xl border-[var(--glass-border)] px-2.5 text-xs font-medium"
-        >
-          <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="tabular-nums">
-            {selected ? format(selected, "dd MMM", { locale: es }) : label}
-          </span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-auto p-0 glass-accented" align="start">
-        <DatePickerCalendar
-          mode="single"
-          selected={selected}
-          onSelect={(date) => {
-            if (date) onChange(format(date, "yyyy-MM-dd"));
-          }}
-          locale={es}
-          initialFocus
-        />
-      </PopoverContent>
-    </Popover>
-  );
-}
 
 export function WeekSelector({
   periodo, onPeriodoChange,

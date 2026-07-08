@@ -24,10 +24,9 @@ import { Calendar as DatePickerCalendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Plus, Trash2, Upload, ChevronLeft, ChevronRight, UserCheck, UserX,
-  Users, Calendar as CalendarIcon, CalendarDays, Search, BarChart3, Eraser,
+  Users, Calendar as CalendarIcon, CalendarDays, Search, Eraser,
   CheckCircle2, PackageCheck, FileText, Download, ChevronDown, Pencil, X,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -124,14 +123,6 @@ function formatoPorcentaje(value: number) {
 
 function kgProductoInforme(item: ProductoConfeccionDia) {
   return Number(item.kg ?? item.kg_neto) || 0;
-}
-
-function zonaProductoBadgeClass(zona: string) {
-  if (zona === "Mallas") return "border-success/40 bg-success/10 text-success";
-  if (zona === "Graneleras") return "border-info/40 bg-info/10 text-info";
-  if (zona === "Mesas") return "border-warning/40 bg-warning/10 text-warning";
-  if (zona === "Industria") return "border-primary/40 bg-primary/10 text-primary";
-  return "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground";
 }
 
 function errorMessage(err: unknown) {
@@ -251,7 +242,6 @@ interface ImportacionPendiente {
 
 export default function Asistencia() {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const { aliasPorNombre, guardarAlias } = useTrabajadoresAlias();
   const [trabajadores, setTrabajadores] = useState<TrabajadorRow[]>([]);
   const [importacionPendiente, setImportacionPendiente] = useState<ImportacionPendiente | null>(null);
@@ -1325,7 +1315,6 @@ export default function Asistencia() {
 
   // ─── Kg/persona de lista y coste operativo ───────────────────────────────
 
-  const presentes = activos.filter((t) => asistencia[t.id] === true);
   const kgProduccionDia = parteDelDia
     ? produccionRealParte(parteDelDia) || Number(parteDelDia.kg_produccion_calibrador) || 0
     : 0;
@@ -1364,10 +1353,6 @@ export default function Asistencia() {
         return b.kg - a.kg || a.producto.localeCompare(b.producto, "es");
       })
   ), [parteDelDia]);
-  const productosInformeKgComputable = useMemo(
-    () => productosInformeClasificados.reduce((total, item) => total + (item.computa ? item.kg : 0), 0),
-    [productosInformeClasificados]
-  );
   const resumenCosteOperativo = kgPersonaResumen.costes;
   const listaKgPersona = kgPersonaResumen.rows;
   const listaKgPersonaById = useMemo(() => new Map(listaKgPersona.map((row) => [row.trabajador.id, row])), [listaKgPersona]);
@@ -1458,44 +1443,6 @@ export default function Asistencia() {
     });
   }, [activos, asistencia, asistenciaMotivos, gruposDisponibles, listaKgPersonaById, searchQuery, selectedGroup, workerFilter]);
   const gruposVisibles = useMemo(() => groupByZona(trabajadoresVisibles), [groupByZona, trabajadoresVisibles]);
-  const fueraKgTrabajadores = useMemo(
-    () => presentes.filter((trabajador) => listaKgPersonaById.get(trabajador.id)?.coste === "No computa kg/p"),
-    [listaKgPersonaById, presentes]
-  );
-  const revisionItems = [
-    {
-      label: "Sin marcar",
-      value: sinRegistro,
-      detail: "Todo marcado",
-      names: sinRegistroTrabajadores.map((t) => t.nombre),
-      filter: "sinRegistro" as WorkerFilter,
-      tone: "border-warning/40 bg-warning/10 text-warning",
-    },
-    {
-      label: "Ausentes",
-      value: ausentesSinBajaTrabajadores.length,
-      detail: "Sin ausencias",
-      names: ausentesSinBajaTrabajadores.map((t) => t.nombre),
-      filter: "ausentes" as WorkerFilter,
-      tone: "border-destructive/40 bg-destructive/10 text-destructive",
-    },
-    {
-      label: "Baja laboral",
-      value: bajaLaboralTrabajadores.length,
-      detail: "Sin bajas laborales",
-      names: bajaLaboralTrabajadores.map((t) => t.nombre),
-      filter: "bajaLaboral" as WorkerFilter,
-      tone: "border-info/40 bg-info/10 text-info",
-    },
-    {
-      label: "Fuera kg/p",
-      value: fueraKgTrabajadores.length,
-      detail: "Nadie fuera",
-      names: fueraKgTrabajadores.map((t) => t.nombre),
-      filter: "fueraKg" as WorkerFilter,
-      tone: "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground",
-    },
-  ];
 
   // ─── Eficiencia histórica ──────────────────────────────────────────────
 
@@ -1768,9 +1715,6 @@ export default function Asistencia() {
               </label>
             </>
           )}
-          <Button variant="outline" size="sm" onClick={() => navigate("/costes/asistencia/comparativa")} className="glass glass-hover">
-            <BarChart3 className="h-4 w-4 mr-1" /> Comparativa
-          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" disabled={exportingAsistencia !== null} className="glass glass-hover">
@@ -2318,183 +2262,6 @@ export default function Asistencia() {
             </div>
           </div>
         </div>
-      </div>
-      <div>
-        <p className="panel-kicker mb-2">Resumen del día</p>
-      <Card className="glass-accented glass-accent-top overflow-hidden">
-        <CardContent className="p-0">
-          <div className="grid xl:grid-cols-[0.92fr_1.58fr]">
-            <div className="border-b border-[var(--glass-border)] p-5 xl:border-b-0 xl:border-r">
-              <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold">Revisar primero</p>
-                  <p className="text-xs text-muted-foreground">atajos</p>
-                </div>
-                <div className="grid gap-2">
-                  {revisionItems.map((item) => (
-                    <button
-                      key={item.label}
-                      type="button"
-                      onClick={() => {
-                        setWorkerFilter(item.filter);
-                        setSelectedGroup("todos");
-                      }}
-                      className={cn(
-                        "rounded-lg border px-3 py-2 text-left transition hover:-translate-y-0.5 hover:shadow-[var(--glass-shadow)]",
-                        item.tone
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <span className="text-xs font-semibold uppercase tracking-wide">{item.label}</span>
-                        <span className="text-xl font-semibold tabular-nums">{item.value}</span>
-                      </div>
-                      {item.names.length > 0 ? (
-                        <div className="mt-2 max-h-28 space-y-1 overflow-y-auto rounded-md border border-current/10 bg-[var(--glass-bg)] p-2 text-xs leading-snug opacity-85">
-                          {item.names.map((name) => (
-                            <p key={name} className="whitespace-normal break-words">
-                              {name}
-                            </p>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="mt-1 text-xs opacity-75">{item.detail}</p>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="space-y-5 p-5">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="panel-kicker">Rendimiento del dia</p>
-                  <p className="mt-1 text-sm text-muted-foreground">Produccion real, media general y lectura por zona.</p>
-                </div>
-                <Badge variant="secondary" className="w-fit rounded-full tabular-nums">
-                  {productosInformeClasificados.length} productos clasificados
-                </Badge>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-xl border border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] p-4 shadow-[var(--glass-shadow)]">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="panel-kicker">Kg/persona general</p>
-                      <p className="text-xs text-muted-foreground">media de trabajadores computables</p>
-                    </div>
-                    <CheckCircle2 className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="mt-4 flex items-end justify-between gap-3">
-                    <p className="text-4xl font-semibold leading-none tabular-nums">{formatoEntero(kgPersonaLista)}</p>
-                    <p className="pb-1 text-xs text-muted-foreground">{presentesComputables} personas kg/p</p>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="panel-kicker">Kg produccion</p>
-                      <p className="text-xs text-muted-foreground">kg reales del parte</p>
-                    </div>
-                    <PackageCheck className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="mt-4 flex items-end justify-between gap-3">
-                    <p className="text-4xl font-semibold leading-none tabular-nums">{formatoEntero(kgProduccionDia)}</p>
-                    <p className="pb-1 text-xs text-muted-foreground">total dia</p>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold">Kg/persona por zona</p>
-                  <p className="text-xs text-muted-foreground">segun informe producto</p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-                {kgPorConfeccion.map((item) => (
-                    <div key={item.label} className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold">{item.label}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {item.objetivo ? `${item.personas}/${item.objetivo} presentes` : "kg del informe"}
-                          </p>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <p className="text-sm font-semibold tabular-nums text-primary">{formatoEntero(item.kg)} kg</p>
-                          <p className="text-[11px] font-semibold tabular-nums text-muted-foreground">
-                            {formatoPorcentaje(item.porcentajeKg)}
-                          </p>
-                        </div>
-                      </div>
-                      {item.objetivo ? (
-                        <div className="mt-3">
-                          <p className="text-2xl font-semibold leading-none tabular-nums">{formatoEntero(item.kgPersona)}</p>
-                          <p className="mt-1 text-[11px] text-muted-foreground">kg/persona zona</p>
-                        </div>
-                      ) : (
-                        <p className="mt-3 rounded-lg border border-[var(--glass-border)] bg-background/45 px-2 py-1.5 text-xs text-muted-foreground">
-                          Sin dotacion propia de zona
-                        </p>
-                      )}
-                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
-                        <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(5, item.pct * 100)}%` }} />
-                      </div>
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        {formatoPorcentaje(item.porcentajeKg)} de los kg clasificados
-                      </p>
-                    </div>
-                ))}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)]">
-                <div className="flex flex-col gap-2 border-b border-[var(--glass-border)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold">Productos clasificados</p>
-                    <p className="text-xs text-muted-foreground">lineas del informe producto agrupadas por zona</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge variant="secondary" className="rounded-full tabular-nums">
-                      {productosInformeClasificados.length} lineas
-                    </Badge>
-                    <Badge variant="outline" className="rounded-full tabular-nums">
-                      {formatoEntero(productosInformeKgComputable)} kg computables
-                    </Badge>
-                  </div>
-                </div>
-                {productosInformeClasificados.length === 0 ? (
-                  <p className="px-3 py-4 text-sm text-muted-foreground">Sin lineas de producto cargadas.</p>
-                ) : (
-                  <div className="max-h-[280px] overflow-y-auto">
-                    {productosInformeClasificados.map((item, index) => (
-                      <div
-                        key={`${item.producto}-${item.empaque}-${index}`}
-                        className="grid gap-2 border-b border-[var(--glass-border)] px-3 py-2.5 last:border-b-0 md:grid-cols-[minmax(0,1fr)_160px_110px]"
-                      >
-                        <div className="min-w-0">
-                          <p className="line-clamp-1 text-sm font-semibold">{item.producto}</p>
-                          <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{item.empaque}</p>
-                        </div>
-                        <div className="flex items-center gap-2 md:justify-start">
-                          <Badge variant="outline" className={cn("rounded-full", zonaProductoBadgeClass(item.zona))}>
-                            {item.zona}
-                          </Badge>
-                          {!item.computa ? (
-                            <span className="text-xs text-muted-foreground">fuera kg/zona</span>
-                          ) : null}
-                        </div>
-                        <p className="text-sm font-semibold tabular-nums text-primary md:text-right">
-                          {formatoEntero(item.kg)} kg
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
       </div>
 
       {/* ── Detalle: control diario ─────────────────────────────── */}

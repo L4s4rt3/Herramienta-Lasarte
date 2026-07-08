@@ -15,6 +15,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -335,11 +336,11 @@ function RegistrarPeriodoDialog({ rrhh }: { rrhh: ReturnType<typeof useRrhhVacac
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">Fecha inicio</Label>
-              <Input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} />
+              <GlassDatePicker value={fechaInicio} onChange={setFechaInicio} className="w-full" />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">Fecha fin</Label>
-              <Input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} />
+              <GlassDatePicker value={fechaFin} onChange={setFechaFin} className="w-full" />
             </div>
           </div>
 
@@ -571,7 +572,7 @@ function ApuntarHorasDialog({ rrhh }: { rrhh: ReturnType<typeof useRrhhVacacione
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">Fecha</Label>
-              <Input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+              <GlassDatePicker value={fecha} onChange={setFecha} className="w-full" />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">Horas (+/-)</Label>

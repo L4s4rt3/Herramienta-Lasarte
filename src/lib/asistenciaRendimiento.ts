@@ -38,6 +38,11 @@ interface TrabajadorRendimiento {
   id: string;
   nombre?: string | null;
   zona?: string | null;
+  /**
+   * Override manual de si el trabajador computa para el kg/persona diario.
+   * null/undefined = decidir por zona (lógica automática); true/false = forzar.
+   */
+  computa_kg_persona?: boolean | null;
 }
 
 export interface KgPersonaOperacionRow<TTrabajador extends TrabajadorRendimiento = TrabajadorRendimiento> {
@@ -155,6 +160,10 @@ export function grupoRendimientoTrabajador(trabajador: TrabajadorRendimiento): R
 }
 
 export function tipoCosteTrabajador(trabajador: TrabajadorRendimiento): TipoCostePersona {
+  // Override manual: si está fijado a false, no computa pase lo que pase por
+  // zona. Si está a true, dejamos que la zona decida su etiqueta de coste real
+  // (grupo/tratamiento/general) pero garantizando que sí computa (más abajo).
+  if (trabajador.computa_kg_persona === false) return "no_computa";
   if (grupoRendimientoTrabajador(trabajador)) return "grupo";
   const zona = normalizarTexto(trabajador.zona);
   if (!zona) return "sin_grupo";
@@ -188,6 +197,9 @@ function ordenCosteOperativo(coste: EtiquetaCosteOperativo): number {
 }
 
 export function cuentaTrabajadorKgPersona(trabajador: TrabajadorRendimiento): boolean {
+  // El override manual manda sobre la lógica por zona en ambos sentidos.
+  if (trabajador.computa_kg_persona === true) return true;
+  if (trabajador.computa_kg_persona === false) return false;
   return tipoCosteTrabajador(trabajador) !== "no_computa";
 }
 

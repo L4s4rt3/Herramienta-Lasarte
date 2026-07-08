@@ -91,10 +91,22 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/",
     parentLabel: "Comercial",
   },
+  "/rrhh": {
+    label: "Panel de RRHH",
+    subtitle: "Resumen de plantilla, asistencia, rendimiento por grupo y comparativa semanal",
+    parent: "/",
+    parentLabel: "RRHH",
+  },
   "/rrhh/personas": {
     label: "Plantilla",
     subtitle: "Fichas de trabajadores: categoría, antigüedad e historial individual completo",
     parent: "/",
+    parentLabel: "RRHH",
+  },
+  "/rrhh/mercadona": {
+    label: "Mercadona",
+    subtitle: "Kg, facturación y precios del cliente principal (vista RRHH)",
+    parent: "/rrhh",
     parentLabel: "RRHH",
   },
   "/rrhh/ausencias": {

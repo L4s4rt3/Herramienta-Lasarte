@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -318,7 +319,7 @@ function UploadDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Fecha</Label>
-              <Input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+              <GlassDatePicker value={fecha} onChange={setFecha} className="w-full" />
             </div>
             <div className="space-y-1.5">
               <Label>Cliente</Label>
@@ -445,7 +446,7 @@ function GenerarCmrForm() {
       <CardContent className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Nº de CMR"><Input value={datos.numero ?? ""} onChange={(e) => set("numero", e.target.value)} /></Field>
-          <Field label="Fecha"><Input type="date" value={datos.fecha ?? ""} onChange={(e) => set("fecha", e.target.value)} /></Field>
+          <Field label="Fecha"><GlassDatePicker value={datos.fecha ?? ""} onChange={(v) => set("fecha", v)} className="w-full" /></Field>
           <Field label="Matrícula del vehículo"><Input value={datos.matricula ?? ""} onChange={(e) => set("matricula", e.target.value)} /></Field>
         </div>
 
@@ -479,7 +480,7 @@ function GenerarCmrForm() {
 
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="21. Formalizado en (lugar)"><Input value={datos.formalizadoLugar ?? ""} onChange={(e) => set("formalizadoLugar", e.target.value)} /></Field>
-          <Field label="21. Formalizado el (fecha)"><Input type="date" value={datos.formalizadoFecha ?? ""} onChange={(e) => set("formalizadoFecha", e.target.value)} /></Field>
+          <Field label="21. Formalizado el (fecha)"><GlassDatePicker value={datos.formalizadoFecha ?? ""} onChange={(v) => set("formalizadoFecha", v)} className="w-full" /></Field>
         </div>
 
         <Field label="Notas"><Textarea className="min-h-16" value={datos.notas ?? ""} onChange={(e) => set("notas", e.target.value)} /></Field>
@@ -585,7 +586,7 @@ function GenerarHojaRutaForm() {
       <CardContent className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-4">
           <Field label="Nº"><Input value={numero} onChange={(e) => setNumero(e.target.value)} /></Field>
-          <Field label="Fecha"><Input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></Field>
+          <Field label="Fecha"><GlassDatePicker value={fecha} onChange={setFecha} className="w-full" /></Field>
           <Field label="Transportista"><Input value={transportista} onChange={(e) => setTransportista(e.target.value)} /></Field>
           <Field label="Matrícula"><Input value={matricula} onChange={(e) => setMatricula(e.target.value)} /></Field>
         </div>

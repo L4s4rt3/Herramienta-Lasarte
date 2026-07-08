@@ -8,7 +8,7 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthProvider";
 
 export const VENTAS_HOME = "/ventas/categoria-segunda";
-export const RRHH_HOME = "/costes/asistencia";
+export const RRHH_HOME = "/rrhh";
 
 export const VENTAS_ALLOWED_PATHS = [
   VENTAS_HOME,

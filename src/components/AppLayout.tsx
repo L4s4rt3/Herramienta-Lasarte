@@ -84,7 +84,7 @@ export const WORKSPACES: Array<{
     id: "rrhh",
     label: "RRHH",
     icon: UserRound,
-    home: "/costes/asistencia",
+    home: "/rrhh",
     matches: (p) => p.startsWith("/rrhh") || p.startsWith("/costes/asistencia"),
     allowedFor: (role) => role === "admin" || role === "rrhh",
   },
@@ -162,12 +162,14 @@ const navGroups: Array<{ label: string; workspace: WorkspaceId; items: NavItem[]
     label: "RRHH",
     workspace: "rrhh",
     items: [
+      { to: "/rrhh", label: "Panel de RRHH", icon: LayoutDashboard, match: (path) => path === "/rrhh" },
       { to: "/costes/asistencia", label: "Asistencia diaria", icon: Users },
       { to: "/rrhh/personas", label: "Plantilla", icon: UserRound },
       { to: "/rrhh/ausencias", label: "Ausencias y bajas", icon: CalendarOff },
       { to: "/rrhh/amonestaciones", label: "Amonestaciones", icon: AlertTriangle },
       { to: "/rrhh/vacaciones", label: "Vacaciones y horas", icon: Plane },
       { to: "/rrhh/nominas", label: "Nóminas", icon: Banknote },
+      { to: "/rrhh/mercadona", label: "Mercadona", icon: ShoppingCart },
     ],
   },
   {

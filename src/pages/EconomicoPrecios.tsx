@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -464,7 +465,7 @@ function TarifaDialog({
 
           <div className="space-y-1.5">
             <Label>Vigente desde</Label>
-            <Input type="date" value={vigenteDesde} onChange={(e) => setVigenteDesde(e.target.value)} />
+            <GlassDatePicker value={vigenteDesde} onChange={setVigenteDesde} className="w-full" />
             <p className="text-xs text-muted-foreground">
               Un cambio de precio real es siempre una tarifa nueva desde esta fecha, no una edición de la anterior.
             </p>

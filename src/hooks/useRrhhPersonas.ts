@@ -49,6 +49,12 @@ export interface TrabajadorPlantillaRow {
   categoria_profesional: string | null;
   fecha_alta: string | null;
   vacaciones_dias_anuales: number;
+  /**
+   * Override manual de si el trabajador computa para el kg/persona diario.
+   * null = automático según la zona (ver cuentaTrabajadorKgPersona en
+   * src/lib/asistenciaRendimiento.ts); true/false fuerzan el valor.
+   */
+  computa_kg_persona: boolean | null;
   created_at: string;
 }
 
@@ -169,13 +175,28 @@ export function useRrhhPlantilla() {
   const updateFicha = useMutation({
     mutationFn: async (input: {
       id: string;
+      nombre?: string;
       categoria_profesional?: string | null;
       fecha_alta?: string | null;
       vacaciones_dias_anuales?: number;
+      computa_kg_persona?: boolean | null;
     }) => {
       const { id, ...patch } = input;
+      if (patch.nombre !== undefined) {
+        const nombre = patch.nombre.trim();
+        if (!nombre) throw new Error("El nombre no puede quedar vacío.");
+        patch.nombre = nombre;
+      }
       const { error } = await SUPA.from("trabajadores").update(patch).eq("id", id);
-      if (error) throw toError(error);
+      if (error) {
+        // UNIQUE(nombre): el dataset de trabajadores es compartido entre secciones.
+        if ((error as { code?: string }).code === "23505") {
+          const dupError = new Error("Ya existe un trabajador con ese nombre.") as Error & { code: string };
+          dupError.code = "23505";
+          throw dupError;
+        }
+        throw toError(error);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });

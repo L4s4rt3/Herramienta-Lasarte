@@ -478,6 +478,63 @@ export type Database = {
         }
         Relationships: []
       }
+      cmr_documentos: {
+        Row: {
+          archivo_nombre: string | null
+          archivo_path: string | null
+          cliente: string | null
+          created_at: string
+          datos: Json | null
+          destino: string | null
+          fecha: string | null
+          id: string
+          matricula: string | null
+          notas: string | null
+          numero: string | null
+          origen: string
+          tipo: string
+          transportista: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          archivo_nombre?: string | null
+          archivo_path?: string | null
+          cliente?: string | null
+          created_at?: string
+          datos?: Json | null
+          destino?: string | null
+          fecha?: string | null
+          id?: string
+          matricula?: string | null
+          notas?: string | null
+          numero?: string | null
+          origen?: string
+          tipo: string
+          transportista?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          archivo_nombre?: string | null
+          archivo_path?: string | null
+          cliente?: string | null
+          created_at?: string
+          datos?: Json | null
+          destino?: string | null
+          fecha?: string | null
+          id?: string
+          matricula?: string | null
+          notas?: string | null
+          numero?: string | null
+          origen?: string
+          tipo?: string
+          transportista?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       code_embeddings: {
         Row: {
           content: string
@@ -658,6 +715,39 @@ export type Database = {
           unidad?: string | null
           user_id?: string
           zona_id?: string | null
+        }
+        Relationships: []
+      }
+      economico_precios: {
+        Row: {
+          created_at: string
+          id: string
+          notas: string | null
+          precio_por_unidad: number
+          recurso: string
+          unidad: string
+          user_id: string
+          vigente_desde: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          notas?: string | null
+          precio_por_unidad: number
+          recurso: string
+          unidad: string
+          user_id?: string
+          vigente_desde?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          notas?: string | null
+          precio_por_unidad?: number
+          recurso?: string
+          unidad?: string
+          user_id?: string
+          vigente_desde?: string
         }
         Relationships: []
       }
@@ -891,6 +981,42 @@ export type Database = {
           nombre?: string
           user_id?: string
           zona?: string
+        }
+        Relationships: []
+      }
+      mercadona_previsiones: {
+        Row: {
+          anio: number
+          created_at: string
+          id: string
+          kg_previstos: number | null
+          kg_previstos_quincena: number | null
+          notas: string | null
+          semana: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          anio: number
+          created_at?: string
+          id?: string
+          kg_previstos?: number | null
+          kg_previstos_quincena?: number | null
+          notas?: string | null
+          semana: number
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          anio?: number
+          created_at?: string
+          id?: string
+          kg_previstos?: number | null
+          kg_previstos_quincena?: number | null
+          notas?: string | null
+          semana?: number
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -1303,6 +1429,217 @@ export type Database = {
         }
         Relationships: []
       }
+      rrhh_amonestaciones: {
+        Row: {
+          archivo_nombre: string | null
+          archivo_path: string | null
+          created_at: string
+          fecha: string
+          gravedad: string
+          id: string
+          motivo: string
+          notas: string | null
+          trabajador_id: string
+          user_id: string
+        }
+        Insert: {
+          archivo_nombre?: string | null
+          archivo_path?: string | null
+          created_at?: string
+          fecha: string
+          gravedad?: string
+          id?: string
+          motivo: string
+          notas?: string | null
+          trabajador_id: string
+          user_id?: string
+        }
+        Update: {
+          archivo_nombre?: string | null
+          archivo_path?: string | null
+          created_at?: string
+          fecha?: string
+          gravedad?: string
+          id?: string
+          motivo?: string
+          notas?: string | null
+          trabajador_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rrhh_amonestaciones_trabajador_id_fkey"
+            columns: ["trabajador_id"]
+            isOneToOne: false
+            referencedRelation: "trabajadores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rrhh_horas: {
+        Row: {
+          created_at: string
+          fecha: string
+          horas: number
+          id: string
+          motivo: string | null
+          trabajador_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          fecha: string
+          horas: number
+          id?: string
+          motivo?: string | null
+          trabajador_id: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          fecha?: string
+          horas?: number
+          id?: string
+          motivo?: string | null
+          trabajador_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rrhh_horas_trabajador_id_fkey"
+            columns: ["trabajador_id"]
+            isOneToOne: false
+            referencedRelation: "trabajadores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rrhh_justificantes: {
+        Row: {
+          archivo_nombre: string | null
+          archivo_path: string | null
+          created_at: string
+          fecha: string
+          id: string
+          notas: string | null
+          trabajador_id: string
+          user_id: string
+        }
+        Insert: {
+          archivo_nombre?: string | null
+          archivo_path?: string | null
+          created_at?: string
+          fecha: string
+          id?: string
+          notas?: string | null
+          trabajador_id: string
+          user_id?: string
+        }
+        Update: {
+          archivo_nombre?: string | null
+          archivo_path?: string | null
+          created_at?: string
+          fecha?: string
+          id?: string
+          notas?: string | null
+          trabajador_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rrhh_justificantes_trabajador_id_fkey"
+            columns: ["trabajador_id"]
+            isOneToOne: false
+            referencedRelation: "trabajadores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rrhh_nominas: {
+        Row: {
+          anio: number
+          archivo_nombre: string | null
+          archivo_path: string | null
+          created_at: string
+          id: string
+          mes: number
+          notas: string | null
+          trabajador_id: string
+          user_id: string
+        }
+        Insert: {
+          anio: number
+          archivo_nombre?: string | null
+          archivo_path?: string | null
+          created_at?: string
+          id?: string
+          mes: number
+          notas?: string | null
+          trabajador_id: string
+          user_id?: string
+        }
+        Update: {
+          anio?: number
+          archivo_nombre?: string | null
+          archivo_path?: string | null
+          created_at?: string
+          id?: string
+          mes?: number
+          notas?: string | null
+          trabajador_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rrhh_nominas_trabajador_id_fkey"
+            columns: ["trabajador_id"]
+            isOneToOne: false
+            referencedRelation: "trabajadores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rrhh_vacaciones_periodos: {
+        Row: {
+          created_at: string
+          dias_naturales: number
+          fecha_fin: string
+          fecha_inicio: string
+          id: string
+          notas: string | null
+          trabajador_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          dias_naturales: number
+          fecha_fin: string
+          fecha_inicio: string
+          id?: string
+          notas?: string | null
+          trabajador_id: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          dias_naturales?: number
+          fecha_fin?: string
+          fecha_inicio?: string
+          id?: string
+          notas?: string | null
+          trabajador_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rrhh_vacaciones_periodos_trabajador_id_fkey"
+            columns: ["trabajador_id"]
+            isOneToOne: false
+            referencedRelation: "trabajadores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sesiones_consumo: {
         Row: {
           agua_drencher_l: number
@@ -1351,29 +1688,73 @@ export type Database = {
       trabajadores: {
         Row: {
           activo: boolean
+          categoria_profesional: string | null
+          computa_kg_persona: boolean | null
           created_at: string
+          fecha_alta: string | null
           id: string
           nombre: string
           user_id: string
+          vacaciones_dias_anuales: number
           zona: string | null
         }
         Insert: {
           activo?: boolean
+          categoria_profesional?: string | null
+          computa_kg_persona?: boolean | null
           created_at?: string
+          fecha_alta?: string | null
           id?: string
           nombre: string
           user_id: string
+          vacaciones_dias_anuales?: number
           zona?: string | null
         }
         Update: {
           activo?: boolean
+          categoria_profesional?: string | null
+          computa_kg_persona?: boolean | null
           created_at?: string
+          fecha_alta?: string | null
           id?: string
           nombre?: string
           user_id?: string
+          vacaciones_dias_anuales?: number
           zona?: string | null
         }
         Relationships: []
+      }
+      trabajadores_alias: {
+        Row: {
+          alias: string
+          created_at: string
+          id: string
+          trabajador_id: string
+          user_id: string
+        }
+        Insert: {
+          alias: string
+          created_at?: string
+          id?: string
+          trabajador_id: string
+          user_id?: string
+        }
+        Update: {
+          alias?: string
+          created_at?: string
+          id?: string
+          trabajador_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trabajadores_alias_trabajador_id_fkey"
+            columns: ["trabajador_id"]
+            isOneToOne: false
+            referencedRelation: "trabajadores"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
@@ -1967,7 +2348,7 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "admin" | "operario"
+      app_role: "admin" | "operario" | "ventas" | "rrhh"
       data_source: "manual" | "ia"
       parte_archivo_tipo:
         | "GSTOCK"
@@ -2103,7 +2484,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "operario"],
+      app_role: ["admin", "operario", "ventas", "rrhh"],
       data_source: ["manual", "ia"],
       parte_archivo_tipo: [
         "GSTOCK",

@@ -31,6 +31,9 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -43,6 +46,7 @@ import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatNumber, today } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { diasNaturalesPeriodo, saldoVacaciones } from "@/lib/rrhhVacaciones";
+import { cuentaTrabajadorKgPersona } from "@/lib/asistenciaRendimiento";
 import {
   urlDescargaRrhhDoc,
   useRrhhFichaPersona,
@@ -209,6 +213,7 @@ export default function RrhhPersonas() {
                     <TableHead>Categoría profesional</TableHead>
                     <TableHead>Fecha de alta</TableHead>
                     <TableHead>Antigüedad</TableHead>
+                    <TableHead>Kg/persona</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
@@ -233,6 +238,17 @@ export default function RrhhPersonas() {
                         {t.fecha_alta ? formatDate(t.fecha_alta) : <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className="text-muted-foreground">{antiguedadTexto(t.fecha_alta)}</TableCell>
+                      <TableCell>
+                        {t.computa_kg_persona === true ? (
+                          <Badge variant="outline" className="border-success/40 bg-success/10 text-success">Sí</Badge>
+                        ) : t.computa_kg_persona === false ? (
+                          <Badge variant="outline" className="border-destructive/40 bg-destructive/10 text-destructive">No</Badge>
+                        ) : (
+                          <Badge variant="outline" className="border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground">
+                            Auto · {cuentaTrabajadorKgPersona(t) ? "Sí" : "No"}
+                          </Badge>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Badge
                           variant="outline"
@@ -270,10 +286,15 @@ export default function RrhhPersonas() {
           if (!editing) return;
           try {
             await updateFicha.mutateAsync({ id: editing.id, ...patch });
-            toast({ title: "Datos actualizados", description: editing.nombre });
+            toast({ title: "Datos actualizados", description: patch.nombre || editing.nombre });
             setEditing(null);
           } catch (err) {
-            toast({ title: "Error al guardar", description: errorMessage(err), variant: "destructive" });
+            const codigo = (err as { code?: string } | null)?.code;
+            if (codigo === "23505") {
+              toast({ title: "Nombre duplicado", description: "Ya existe un trabajador con ese nombre.", variant: "destructive" });
+            } else {
+              toast({ title: "Error al guardar", description: errorMessage(err), variant: "destructive" });
+            }
           }
         }}
         saving={updateFicha.isPending}
@@ -290,6 +311,8 @@ export default function RrhhPersonas() {
 
 // ─── Dialog de edición (categoría / fecha alta / vacaciones) ───────────────
 
+type ComputaKgPersonaOpcion = "auto" | "si" | "no";
+
 function EditarTrabajadorDialog({
   trabajador,
   onClose,
@@ -298,22 +321,36 @@ function EditarTrabajadorDialog({
 }: {
   trabajador: TrabajadorPlantillaRow | null;
   onClose: () => void;
-  onSave: (patch: { categoria_profesional: string | null; fecha_alta: string | null; vacaciones_dias_anuales: number }) => void;
+  onSave: (patch: {
+    nombre: string;
+    categoria_profesional: string | null;
+    fecha_alta: string | null;
+    vacaciones_dias_anuales: number;
+    computa_kg_persona: boolean | null;
+  }) => void;
   saving: boolean;
 }) {
+  const [nombre, setNombre] = useState("");
   const [categoria, setCategoria] = useState("");
   const [fechaAlta, setFechaAlta] = useState("");
   const [vacaciones, setVacaciones] = useState("30");
+  const [computaOpcion, setComputaOpcion] = useState<ComputaKgPersonaOpcion>("auto");
 
   // Reinicia el formulario cada vez que cambia el trabajador a editar.
   const trabajadorId = trabajador?.id ?? null;
   const [lastId, setLastId] = useState<string | null>(null);
   if (trabajadorId !== lastId) {
     setLastId(trabajadorId);
+    setNombre(trabajador?.nombre ?? "");
     setCategoria(trabajador?.categoria_profesional ?? "");
     setFechaAlta(trabajador?.fecha_alta ?? "");
     setVacaciones(String(trabajador?.vacaciones_dias_anuales ?? 30));
+    setComputaOpcion(
+      trabajador?.computa_kg_persona === true ? "si" : trabajador?.computa_kg_persona === false ? "no" : "auto",
+    );
   }
+
+  const nombreValido = nombre.trim().length > 0;
 
   return (
     <Dialog open={Boolean(trabajador)} onOpenChange={(open) => !open && onClose()}>
@@ -322,6 +359,18 @@ function EditarTrabajadorDialog({
           <DialogTitle>{trabajador?.nombre}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="rrhh-nombre">Nombre</Label>
+            <Input
+              id="rrhh-nombre"
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              placeholder="Nombre y apellidos"
+            />
+            {!nombreValido ? (
+              <p className="text-xs text-destructive">El nombre no puede quedar vacío.</p>
+            ) : null}
+          </div>
           <div className="space-y-1.5">
             <Label htmlFor="rrhh-categoria">Categoría profesional</Label>
             <Input
@@ -351,16 +400,36 @@ function EditarTrabajadorDialog({
               onChange={(e) => setVacaciones(e.target.value)}
             />
           </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="rrhh-computa-kg">Computa en kg/persona</Label>
+            <Select value={computaOpcion} onValueChange={(v) => setComputaOpcion(v as ComputaKgPersonaOpcion)}>
+              <SelectTrigger id="rrhh-computa-kg">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Automático (según zona)</SelectItem>
+                <SelectItem value="si">Sí computa</SelectItem>
+                <SelectItem value="no">No computa</SelectItem>
+              </SelectContent>
+            </Select>
+            {computaOpcion === "auto" && trabajador ? (
+              <p className="text-xs text-muted-foreground">
+                Ahora: {cuentaTrabajadorKgPersona(trabajador) ? "sí computa" : "no computa"}
+              </p>
+            ) : null}
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
           <Button
             onClick={() => onSave({
+              nombre: nombre.trim(),
               categoria_profesional: categoria.trim() || null,
               fecha_alta: fechaAlta || null,
               vacaciones_dias_anuales: Number(vacaciones) || 30,
+              computa_kg_persona: computaOpcion === "si" ? true : computaOpcion === "no" ? false : null,
             })}
-            disabled={saving}
+            disabled={saving || !nombreValido}
           >
             {saving ? "Guardando…" : "Guardar"}
           </Button>
