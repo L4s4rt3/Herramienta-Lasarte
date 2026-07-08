@@ -475,7 +475,7 @@ export function buildCalidadExcelRows(lotes: CalidadLote[], attachmentCounts: Re
     "Productor/Finca": lote.productor_finca_nombre,
     Producto: lote.producto,
     Variedad: lote.variedad,
-    Cantidad: lote.cantidad,
+    Box: lote.cantidad,
     Hora: formatHoraCorta(lote.hora) ?? "",
     "Aerobotics realizado": lote.aerobotics_realizado ? "Si" : "No",
     Calidad: lote.calidad,
@@ -503,7 +503,7 @@ export function buildCalidadIncidentRows(lotes: CalidadLote[], attachmentCounts:
       "Productor/Finca": lote.productor_finca_nombre,
       Producto: lote.producto,
       Variedad: lote.variedad,
-      Cantidad: lote.cantidad,
+      Box: lote.cantidad,
       Hora: formatHoraCorta(lote.hora) ?? "",
       Calidad: lote.calidad,
       Defectos: (lote.defectos ?? []).join(", "),
@@ -681,7 +681,7 @@ function drawLoteCard(doc: jsPDF, lote: CalidadLote, index: number, photoCount: 
   doc.setFontSize(7);
   doc.setTextColor(...PDF_THEME.muted);
   doc.text(safePdf(`Lote ${lote.numero_lote || "-"} - ${lote.producto || "-"} - ${lote.variedad || "-"}`), x + 25, y + 15.2);
-  doc.text(safePdf(`Cantidad: ${lote.cantidad || "-"}   Hora: ${formatHoraCorta(lote.hora) || "-"}   Aerobotics: ${lote.aerobotics_realizado ? "Si" : "No"}   Fotos: ${photoCount}`), x + 25, y + 20.3);
+  doc.text(safePdf(`Box: ${lote.cantidad || "-"}   Hora: ${formatHoraCorta(lote.hora) || "-"}   Aerobotics: ${lote.aerobotics_realizado ? "Si" : "No"}   Fotos: ${photoCount}`), x + 25, y + 20.3);
 
   drawQualityPill(doc, x + w - 34, y + 7, lote.calidad, qualityColor, softColor, 27);
 

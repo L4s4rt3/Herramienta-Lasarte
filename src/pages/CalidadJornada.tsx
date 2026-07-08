@@ -711,7 +711,7 @@ export default function CalidadJornadaPage() {
       hora: currentHora(),
     });
     if (created) {
-      toast({ title: "Lote duplicado", description: "Productor, finca y producto copiados. Completa lote y cantidad." });
+      toast({ title: "Lote duplicado", description: "Productor, finca y producto copiados. Completa lote y box." });
     }
   }
 
@@ -1238,7 +1238,7 @@ export default function CalidadJornadaPage() {
                           </Badge>
                         </div>
                         <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                          {lote.numero_lote || "Sin lote"} · {lote.variedad || lote.producto || "Sin producto"} · {lote.cantidad || "Sin cantidad"}
+                          {lote.numero_lote || "Sin lote"} · {lote.variedad || lote.producto || "Sin producto"} · {lote.cantidad || "Sin box"}
                         </p>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {lote.aerobotics_realizado && (
@@ -1499,7 +1499,7 @@ export default function CalidadJornadaPage() {
                     <Input id="variedad-lote" value={selected.variedad} onChange={(event) => patchSelected({ variedad: event.target.value })} placeholder="Navel Powell" className={glassInputClassName()} disabled={isCalidadLoteLocked(selected)} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="cantidad-lote">Cantidad</Label>
+                    <Label htmlFor="cantidad-lote">Box</Label>
                     <Input id="cantidad-lote" value={selected.cantidad} onChange={(event) => patchSelected({ cantidad: event.target.value })} placeholder="64 Box" className={glassInputClassName()} disabled={isCalidadLoteLocked(selected)} />
                   </div>
                 </section>

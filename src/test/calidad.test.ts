@@ -85,7 +85,7 @@ describe("calidad helpers", () => {
       "Productor/Finca": "Los Corrales",
       Producto: "Naranja",
       Variedad: "Navel Powell",
-      Cantidad: "64 Box",
+      Box: "64 Box",
       "Aerobotics realizado": "Si",
       Calidad: "Regular",
       Defectos: "Rameado",
