@@ -55,7 +55,18 @@ export interface TrabajadorPlantillaRow {
    * src/lib/asistenciaRendimiento.ts); true/false fuerzan el valor.
    */
   computa_kg_persona: boolean | null;
+  email: string | null;
+  telefono: string | null;
+  dni: string | null;
   created_at: string;
+}
+
+/** Baja laboral ABIERTA (fecha_fin IS NULL) de un trabajador. */
+export interface BajaAbiertaRow {
+  id: string;
+  trabajador_id: string;
+  fecha_inicio: string;
+  motivo: string;
 }
 
 export interface AsistenciaDetalleFaltaRow {
@@ -153,6 +164,7 @@ export function useRrhhPlantilla() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const queryKey = ["rrhh-plantilla"] as const;
+  const bajasQueryKey = ["rrhh-plantilla-bajas-abiertas"] as const;
 
   const query = useQuery({
     queryKey,
@@ -170,16 +182,59 @@ export function useRrhhPlantilla() {
     enabled: Boolean(user),
   });
 
+  // Bajas laborales ABIERTAS de toda la plantilla (una consulta para todos, en
+  // vez de una por trabajador): fecha_fin IS NULL = baja en curso.
+  const bajasQuery = useQuery({
+    queryKey: bajasQueryKey,
+    queryFn: async (): Promise<BajaAbiertaRow[]> => {
+      const { data, error } = await SUPA
+        .from("asistencia_bajas_laborales")
+        .select("id, trabajador_id, fecha_inicio, motivo")
+        .is("fecha_fin", null);
+      if (error) throw toError(error);
+      return (data ?? []) as BajaAbiertaRow[];
+    },
+    enabled: Boolean(user),
+  });
+
   const trabajadores = useMemo(() => query.data ?? [], [query.data]);
+
+  const bajaAbiertaPorTrabajador = useMemo(() => {
+    const map = new Map<string, BajaAbiertaRow>();
+    for (const b of bajasQuery.data ?? []) map.set(b.trabajador_id, b);
+    return map;
+  }, [bajasQuery.data]);
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey });
+    queryClient.invalidateQueries({ queryKey: bajasQueryKey });
+    queryClient.invalidateQueries({ queryKey: ["rrhh-ficha"] });
+  };
+
+  function withDuplicateNombreError<T>(fn: () => Promise<T>): Promise<T> {
+    return fn().catch((error) => {
+      // UNIQUE(nombre): el dataset de trabajadores es compartido entre secciones.
+      if ((error as { code?: string }).code === "23505") {
+        const dupError = new Error("Ya existe un trabajador con ese nombre.") as Error & { code: string };
+        dupError.code = "23505";
+        throw dupError;
+      }
+      throw error;
+    });
+  }
 
   const updateFicha = useMutation({
     mutationFn: async (input: {
       id: string;
       nombre?: string;
+      zona?: string | null;
       categoria_profesional?: string | null;
       fecha_alta?: string | null;
       vacaciones_dias_anuales?: number;
       computa_kg_persona?: boolean | null;
+      email?: string | null;
+      telefono?: string | null;
+      dni?: string | null;
     }) => {
       const { id, ...patch } = input;
       if (patch.nombre !== undefined) {
@@ -187,27 +242,96 @@ export function useRrhhPlantilla() {
         if (!nombre) throw new Error("El nombre no puede quedar vacío.");
         patch.nombre = nombre;
       }
-      const { error } = await SUPA.from("trabajadores").update(patch).eq("id", id);
-      if (error) {
-        // UNIQUE(nombre): el dataset de trabajadores es compartido entre secciones.
-        if ((error as { code?: string }).code === "23505") {
-          const dupError = new Error("Ya existe un trabajador con ese nombre.") as Error & { code: string };
-          dupError.code = "23505";
-          throw dupError;
-        }
-        throw toError(error);
-      }
+      await withDuplicateNombreError(async () => {
+        const { error } = await SUPA.from("trabajadores").update(patch).eq("id", id);
+        if (error) throw toError(error);
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
     },
   });
 
+  const altaTrabajador = useMutation({
+    mutationFn: async (input: {
+      nombre: string;
+      zona: string;
+      categoria_profesional?: string | null;
+      fecha_alta?: string | null;
+      vacaciones_dias_anuales?: number;
+      computa_kg_persona?: boolean | null;
+      email?: string | null;
+      telefono?: string | null;
+      dni?: string | null;
+    }) => {
+      const nombre = input.nombre.trim();
+      if (!nombre) throw new Error("El nombre no puede quedar vacío.");
+      const zona = input.zona.trim();
+      if (!zona) throw new Error("La zona / puesto no puede quedar vacío.");
+      if (!user) throw new Error("Sesión no válida.");
+      await withDuplicateNombreError(async () => {
+        const { error } = await SUPA.from("trabajadores").insert({
+          user_id: user.id,
+          nombre,
+          zona,
+          activo: true,
+          categoria_profesional: input.categoria_profesional?.trim() || null,
+          fecha_alta: input.fecha_alta || null,
+          vacaciones_dias_anuales: input.vacaciones_dias_anuales ?? 30,
+          computa_kg_persona: input.computa_kg_persona ?? null,
+          email: input.email?.trim() || null,
+          telefono: input.telefono?.trim() || null,
+          dni: input.dni?.trim() || null,
+        });
+        if (error) throw toError(error);
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey });
+    },
+  });
+
+  const setActivo = useMutation({
+    mutationFn: async (input: { id: string; activo: boolean }) => {
+      const { error } = await SUPA.from("trabajadores").update({ activo: input.activo }).eq("id", input.id);
+      if (error) throw toError(error);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey });
+    },
+  });
+
+  const darDeBaja = useMutation({
+    mutationFn: async (input: { trabajador_id: string; fecha_inicio: string; motivo?: string | null }) => {
+      const { error } = await SUPA.from("asistencia_bajas_laborales").insert({
+        trabajador_id: input.trabajador_id,
+        fecha_inicio: input.fecha_inicio,
+        fecha_fin: null,
+        motivo: input.motivo?.trim() || "Baja laboral",
+      });
+      if (error) throw toError(error);
+    },
+    onSuccess: invalidateAll,
+  });
+
+  const darDeAlta = useMutation({
+    mutationFn: async (input: { id: string; fecha_fin: string }) => {
+      const { error } = await SUPA.from("asistencia_bajas_laborales").update({ fecha_fin: input.fecha_fin }).eq("id", input.id);
+      if (error) throw toError(error);
+    },
+    onSuccess: invalidateAll,
+  });
+
   return {
     trabajadores,
-    isLoading: query.isLoading,
+    bajaAbiertaPorTrabajador,
+    isLoading: query.isLoading || bajasQuery.isLoading,
     error: query.error,
     updateFicha,
+    altaTrabajador,
+    setActivo,
+    darDeBaja,
+    darDeAlta,
   };
 }
 

@@ -1,10 +1,11 @@
 // src/pages/RrhhPersonas.tsx
-// Sección "Plantilla" de RRHH: listado de trabajadores con datos de personal
-// (categoría profesional, fecha de alta, antigüedad) + ficha individual de
-// consulta (faltas, bajas, justificantes, amonestaciones, vacaciones, bolsa de
-// horas, nóminas). La gestión/alta de cada uno de esos historiales vive en sus
-// propias secciones; aquí solo se consulta y se edita el trío de campos del
-// trabajador (categoría, fecha de alta, días de vacaciones anuales).
+// Sección "Plantilla" de RRHH: centro de gestión de trabajadores — alta, edición
+// rápida de ficha (nombre, zona/puesto, categoría, fecha de alta, vacaciones,
+// computa kg/persona, DNI, email, teléfono), activo/inactivo, baja/alta laboral
+// con un botón y descarga a Excel — más la ficha individual de consulta (faltas,
+// bajas, justificantes, amonestaciones, vacaciones, bolsa de horas, nóminas). La
+// gestión/alta de cada uno de esos historiales vive en sus propias secciones;
+// aquí solo se consultan en la ficha.
 import { useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -16,9 +17,12 @@ import {
   Files,
   Palmtree,
   Pencil,
+  Plus,
   Receipt,
   Search,
   ShieldAlert,
+  UserMinus,
+  UserPlus,
   UserRound,
   Users,
 } from "lucide-react";
@@ -28,7 +32,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -36,21 +40,25 @@ import {
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { KPICard } from "@/components/KPICard";
 import { toast } from "@/hooks/use-toast";
 import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatNumber, today } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { createWorkbook, appendRowsSheet, saveWorkbook } from "@/lib/exportWorkbook";
 import { diasNaturalesPeriodo, saldoVacaciones } from "@/lib/rrhhVacaciones";
 import { cuentaTrabajadorKgPersona } from "@/lib/asistenciaRendimiento";
 import {
   urlDescargaRrhhDoc,
   useRrhhFichaPersona,
   useRrhhPlantilla,
+  type BajaAbiertaRow,
   type RrhhGravedad,
   type TrabajadorPlantillaRow,
 } from "@/hooks/useRrhhPersonas";
@@ -113,28 +121,99 @@ async function abrirDescarga(path: string | null) {
   }
 }
 
+/** Texto de la situación laboral actual (para tabla y export): Inactivo / En baja desde X / Activo. */
+function situacionTexto(trabajador: TrabajadorPlantillaRow, baja: BajaAbiertaRow | undefined): string {
+  if (!trabajador.activo) return "Inactivo";
+  if (baja) return `En baja desde ${formatDate(baja.fecha_inicio)}`;
+  return "Activo";
+}
+
+function computaKgPersonaTexto(trabajador: TrabajadorPlantillaRow): string {
+  if (trabajador.computa_kg_persona === true) return "Sí";
+  if (trabajador.computa_kg_persona === false) return "No";
+  return `Auto (${cuentaTrabajadorKgPersona(trabajador) ? "Sí" : "No"})`;
+}
+
+// Ancho de columna aproximado según el contenido más largo de cada hoja (mismo
+// criterio que inferExportColumnWidths de Asistencia.tsx, sin compartir módulo).
+function inferColumnWidths(rows: Record<string, unknown>[]) {
+  const headers = Array.from(rows.reduce<Set<string>>((set, row) => {
+    Object.keys(row).forEach((key) => set.add(key));
+    return set;
+  }, new Set()));
+  if (headers.length === 0) return [18];
+  return headers.map((header) => {
+    const maxContent = rows.reduce((max, row) => Math.max(max, String(row[header] ?? "").length), header.length);
+    return Math.min(Math.max(maxContent + 3, 12), 46);
+  });
+}
+
+function exportarPlantilla(
+  trabajadores: TrabajadorPlantillaRow[],
+  bajaAbiertaPorTrabajador: Map<string, BajaAbiertaRow>,
+) {
+  try {
+    const workbook = createWorkbook("Lasarte SAT - Plantilla de trabajadores", "Listado completo de trabajadores");
+    const rows = [...trabajadores]
+      .sort((a, b) => (a.zona ?? "").localeCompare(b.zona ?? "", "es") || a.nombre.localeCompare(b.nombre, "es"))
+      .map((t) => ({
+        Nombre: t.nombre,
+        "Puesto / Zona": t.zona ?? "",
+        "Categoría profesional": t.categoria_profesional ?? "",
+        DNI: t.dni ?? "",
+        Email: t.email ?? "",
+        Teléfono: t.telefono ?? "",
+        "Fecha de alta": t.fecha_alta ? formatDate(t.fecha_alta) : "",
+        Antigüedad: antiguedadTexto(t.fecha_alta),
+        Estado: situacionTexto(t, bajaAbiertaPorTrabajador.get(t.id)),
+        "Vacaciones/año": t.vacaciones_dias_anuales,
+        "Computa kg/persona": computaKgPersonaTexto(t),
+      }));
+    appendRowsSheet(workbook, "Trabajadores", rows, inferColumnWidths(rows), { freezeHeader: true });
+    saveWorkbook(workbook, `Lasarte_Plantilla_${today()}.xlsx`);
+    toast({ title: "Plantilla descargada" });
+  } catch (err) {
+    toast({ title: "Error al exportar la plantilla", description: errorMessage(err), variant: "destructive" });
+  }
+}
+
 // ─── Página principal ───────────────────────────────────────────────────────
 
 export default function RrhhPersonas() {
-  const { trabajadores, isLoading, error, updateFicha } = useRrhhPlantilla();
+  const {
+    trabajadores, bajaAbiertaPorTrabajador, isLoading, error,
+    updateFicha, altaTrabajador, setActivo, darDeBaja, darDeAlta,
+  } = useRrhhPlantilla();
   const [search, setSearch] = useState("");
+  const [mostrarInactivos, setMostrarInactivos] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<TrabajadorPlantillaRow | null>(null);
+  const [addingOpen, setAddingOpen] = useState(false);
+
+  const zonasSugeridas = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of trabajadores) {
+      if (t.zona?.trim()) set.add(t.zona.trim());
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
+  }, [trabajadores]);
 
   const trabajadoresFiltrados = useMemo(() => {
     const q = search.trim().toLocaleLowerCase("es");
-    const lista = q
+    let lista = q
       ? trabajadores.filter((t) => t.nombre.toLocaleLowerCase("es").includes(q))
       : trabajadores;
+    if (!mostrarInactivos) lista = lista.filter((t) => t.activo);
     return [...lista].sort((a, b) => {
       if (a.activo !== b.activo) return a.activo ? -1 : 1;
       return a.nombre.localeCompare(b.nombre, "es");
     });
-  }, [trabajadores, search]);
+  }, [trabajadores, search, mostrarInactivos]);
 
   const activos = trabajadores.filter((t) => t.activo);
   const conCategoria = activos.filter((t) => t.categoria_profesional?.trim()).length;
   const conFechaAlta = activos.filter((t) => t.fecha_alta).length;
+  const enBaja = activos.filter((t) => bajaAbiertaPorTrabajador.has(t.id)).length;
 
   const selected = trabajadores.find((t) => t.id === selectedId) ?? null;
 
@@ -144,17 +223,37 @@ export default function RrhhPersonas() {
         <div>
           <p className="panel-kicker">RRHH</p>
           <h1 className="page-title">Plantilla</h1>
-          <p className="page-subtitle">Listado de trabajadores, datos de personal y ficha individual.</p>
+          <p className="page-subtitle">Centro de gestión de trabajadores: alta, ficha, bajas laborales y descarga.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            className="glass glass-hover gap-1.5"
+            onClick={() => exportarPlantilla(trabajadores, bajaAbiertaPorTrabajador)}
+          >
+            <Download className="h-4 w-4" /> Descargar plantilla
+          </Button>
+          <Button className="gap-1.5" onClick={() => setAddingOpen(true)}>
+            <Plus className="h-4 w-4" /> Añadir trabajador
+          </Button>
         </div>
       </header>
 
-      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-5">
         <KPICard
           className="glass-accented"
           label="Plantilla activa"
           value={formatNumber(activos.length)}
           hint={`${trabajadores.length - activos.length} inactivo(s)`}
           icon={Users}
+        />
+        <KPICard
+          className="glass-accented"
+          label="En baja laboral"
+          value={formatNumber(enBaja)}
+          hint={activos.length > 0 ? `de ${activos.length} activos` : undefined}
+          icon={UserMinus}
+          accent={enBaja > 0 ? "destructive" : "primary"}
         />
         <KPICard
           className="glass-accented"
@@ -179,14 +278,20 @@ export default function RrhhPersonas() {
         />
       </section>
 
-      <div className="section-toolbar flex items-center gap-2">
-        <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar por nombre..."
-          className="h-9 border-0 bg-transparent shadow-none focus-visible:ring-0"
-        />
+      <div className="section-toolbar flex flex-wrap items-center gap-3">
+        <div className="flex flex-1 items-center gap-2">
+          <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por nombre..."
+            className="h-9 border-0 bg-transparent shadow-none focus-visible:ring-0"
+          />
+        </div>
+        <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+          <Switch checked={mostrarInactivos} onCheckedChange={setMostrarInactivos} />
+          Mostrar inactivos
+        </label>
       </div>
 
       <Card className="glass-accented overflow-hidden">
@@ -214,7 +319,7 @@ export default function RrhhPersonas() {
                     <TableHead>Fecha de alta</TableHead>
                     <TableHead>Antigüedad</TableHead>
                     <TableHead>Kg/persona</TableHead>
-                    <TableHead>Estado</TableHead>
+                    <TableHead>Situación</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -250,25 +355,56 @@ export default function RrhhPersonas() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={t.activo ? "border-success/40 bg-success/10 text-success" : "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground"}
-                        >
-                          {t.activo ? "Activo" : "Inactivo"}
-                        </Badge>
+                        {(() => {
+                          const baja = bajaAbiertaPorTrabajador.get(t.id);
+                          if (!t.activo) {
+                            return (
+                              <Badge variant="outline" className="border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground">
+                                Inactivo
+                              </Badge>
+                            );
+                          }
+                          if (baja) {
+                            return (
+                              <Badge variant="outline" className="border-warning/40 bg-warning/10 text-warning">
+                                En baja desde {formatDate(baja.fecha_inicio)}
+                              </Badge>
+                            );
+                          }
+                          return (
+                            <Badge variant="outline" className="border-success/40 bg-success/10 text-success">Activo</Badge>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 rounded-lg"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditing(t);
-                          }}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                          <Switch
+                            checked={t.activo}
+                            onCheckedChange={async (checked) => {
+                              try {
+                                await setActivo.mutateAsync({ id: t.id, activo: checked });
+                                toast({ title: checked ? "Trabajador activado" : "Trabajador desactivado", description: t.nombre });
+                              } catch (err) {
+                                toast({ title: "Error al cambiar el estado", description: errorMessage(err), variant: "destructive" });
+                              }
+                            }}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 rounded-lg"
+                            onClick={() => setEditing(t)}
+                            title="Editar ficha"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <BajaLaboralAction
+                            trabajador={t}
+                            baja={bajaAbiertaPorTrabajador.get(t.id) ?? null}
+                            darDeBaja={darDeBaja}
+                            darDeAlta={darDeAlta}
+                          />
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -278,6 +414,28 @@ export default function RrhhPersonas() {
           )}
         </CardContent>
       </Card>
+
+      <ZonasDatalist zonas={zonasSugeridas} />
+
+      <AltaTrabajadorDialog
+        open={addingOpen}
+        onClose={() => setAddingOpen(false)}
+        onSave={async (input) => {
+          try {
+            await altaTrabajador.mutateAsync(input);
+            toast({ title: "Trabajador dado de alta", description: input.nombre });
+            setAddingOpen(false);
+          } catch (err) {
+            const codigo = (err as { code?: string } | null)?.code;
+            if (codigo === "23505") {
+              toast({ title: "Nombre duplicado", description: "Ya existe un trabajador con ese nombre.", variant: "destructive" });
+            } else {
+              toast({ title: "Error al dar de alta", description: errorMessage(err), variant: "destructive" });
+            }
+          }
+        }}
+        saving={altaTrabajador.isPending}
+      />
 
       <EditarTrabajadorDialog
         trabajador={editing}
@@ -309,9 +467,35 @@ export default function RrhhPersonas() {
   );
 }
 
-// ─── Dialog de edición (categoría / fecha alta / vacaciones) ───────────────
+// ─── Datalist de autocompletado de zona (compartido por ambos formularios) ──
+
+const ZONAS_DATALIST_ID = "rrhh-zonas-existentes";
+
+function ZonasDatalist({ zonas }: { zonas: string[] }) {
+  return (
+    <datalist id={ZONAS_DATALIST_ID}>
+      {zonas.map((z) => (
+        <option key={z} value={z} />
+      ))}
+    </datalist>
+  );
+}
+
+// ─── Dialog de edición de ficha (gestión rápida completa) ──────────────────
 
 type ComputaKgPersonaOpcion = "auto" | "si" | "no";
+
+interface TrabajadorFormPatch {
+  nombre: string;
+  zona: string | null;
+  categoria_profesional: string | null;
+  fecha_alta: string | null;
+  vacaciones_dias_anuales: number;
+  computa_kg_persona: boolean | null;
+  email: string | null;
+  telefono: string | null;
+  dni: string | null;
+}
 
 function EditarTrabajadorDialog({
   trabajador,
@@ -321,20 +505,18 @@ function EditarTrabajadorDialog({
 }: {
   trabajador: TrabajadorPlantillaRow | null;
   onClose: () => void;
-  onSave: (patch: {
-    nombre: string;
-    categoria_profesional: string | null;
-    fecha_alta: string | null;
-    vacaciones_dias_anuales: number;
-    computa_kg_persona: boolean | null;
-  }) => void;
+  onSave: (patch: TrabajadorFormPatch) => void;
   saving: boolean;
 }) {
   const [nombre, setNombre] = useState("");
+  const [zona, setZona] = useState("");
   const [categoria, setCategoria] = useState("");
   const [fechaAlta, setFechaAlta] = useState("");
   const [vacaciones, setVacaciones] = useState("30");
   const [computaOpcion, setComputaOpcion] = useState<ComputaKgPersonaOpcion>("auto");
+  const [email, setEmail] = useState("");
+  const [telefono, setTelefono] = useState("");
+  const [dni, setDni] = useState("");
 
   // Reinicia el formulario cada vez que cambia el trabajador a editar.
   const trabajadorId = trabajador?.id ?? null;
@@ -342,23 +524,28 @@ function EditarTrabajadorDialog({
   if (trabajadorId !== lastId) {
     setLastId(trabajadorId);
     setNombre(trabajador?.nombre ?? "");
+    setZona(trabajador?.zona ?? "");
     setCategoria(trabajador?.categoria_profesional ?? "");
     setFechaAlta(trabajador?.fecha_alta ?? "");
     setVacaciones(String(trabajador?.vacaciones_dias_anuales ?? 30));
     setComputaOpcion(
       trabajador?.computa_kg_persona === true ? "si" : trabajador?.computa_kg_persona === false ? "no" : "auto",
     );
+    setEmail(trabajador?.email ?? "");
+    setTelefono(trabajador?.telefono ?? "");
+    setDni(trabajador?.dni ?? "");
   }
 
   const nombreValido = nombre.trim().length > 0;
 
   return (
     <Dialog open={Boolean(trabajador)} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="glass-accented sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{trabajador?.nombre}</DialogTitle>
+          <DialogDescription>Edita cualquier dato de la ficha y guarda los cambios.</DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        <div className="max-h-[65vh] space-y-4 overflow-y-auto pr-1">
           <div className="space-y-1.5">
             <Label htmlFor="rrhh-nombre">Nombre</Label>
             <Input
@@ -371,34 +558,57 @@ function EditarTrabajadorDialog({
               <p className="text-xs text-destructive">El nombre no puede quedar vacío.</p>
             ) : null}
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="rrhh-categoria">Categoría profesional</Label>
-            <Input
-              id="rrhh-categoria"
-              value={categoria}
-              onChange={(e) => setCategoria(e.target.value)}
-              placeholder="p. ej. Oficial de 2ª"
-            />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-zona">Zona / puesto</Label>
+              <Input
+                id="rrhh-zona"
+                value={zona}
+                onChange={(e) => setZona(e.target.value)}
+                placeholder="p. ej. Envasado"
+                list={ZONAS_DATALIST_ID}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-categoria">Categoría profesional</Label>
+              <Input
+                id="rrhh-categoria"
+                value={categoria}
+                onChange={(e) => setCategoria(e.target.value)}
+                placeholder="p. ej. Oficial de 2ª"
+              />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="rrhh-fecha-alta">Fecha de alta</Label>
-            <Input
-              id="rrhh-fecha-alta"
-              type="date"
-              value={fechaAlta}
-              onChange={(e) => setFechaAlta(e.target.value)}
-            />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-fecha-alta">Fecha de alta</Label>
+              <GlassDatePicker id="rrhh-fecha-alta" value={fechaAlta} onChange={setFechaAlta} className="w-full" label="Sin fecha" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-vacaciones">Días de vacaciones anuales</Label>
+              <Input
+                id="rrhh-vacaciones"
+                type="number"
+                min={0}
+                max={60}
+                value={vacaciones}
+                onChange={(e) => setVacaciones(e.target.value)}
+              />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="rrhh-vacaciones">Días de vacaciones anuales</Label>
-            <Input
-              id="rrhh-vacaciones"
-              type="number"
-              min={0}
-              max={60}
-              value={vacaciones}
-              onChange={(e) => setVacaciones(e.target.value)}
-            />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-dni">DNI</Label>
+              <Input id="rrhh-dni" value={dni} onChange={(e) => setDni(e.target.value)} placeholder="12345678A" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-email">Email</Label>
+              <Input id="rrhh-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="correo@ejemplo.com" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-telefono">Teléfono</Label>
+              <Input id="rrhh-telefono" type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} placeholder="600 000 000" />
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="rrhh-computa-kg">Computa en kg/persona</Label>
@@ -424,14 +634,263 @@ function EditarTrabajadorDialog({
           <Button
             onClick={() => onSave({
               nombre: nombre.trim(),
+              zona: zona.trim() || null,
               categoria_profesional: categoria.trim() || null,
               fecha_alta: fechaAlta || null,
               vacaciones_dias_anuales: Number(vacaciones) || 30,
               computa_kg_persona: computaOpcion === "si" ? true : computaOpcion === "no" ? false : null,
+              email: email.trim() || null,
+              telefono: telefono.trim() || null,
+              dni: dni.trim() || null,
             })}
             disabled={saving || !nombreValido}
           >
             {saving ? "Guardando…" : "Guardar"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Dialog de alta de trabajador ───────────────────────────────────────────
+
+function AltaTrabajadorDialog({
+  open,
+  onClose,
+  onSave,
+  saving,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSave: (input: {
+    nombre: string;
+    zona: string;
+    categoria_profesional?: string | null;
+    fecha_alta?: string | null;
+    vacaciones_dias_anuales?: number;
+    computa_kg_persona?: boolean | null;
+    email?: string | null;
+    telefono?: string | null;
+    dni?: string | null;
+  }) => void;
+  saving: boolean;
+}) {
+  const [nombre, setNombre] = useState("");
+  const [zona, setZona] = useState("");
+  const [categoria, setCategoria] = useState("");
+  const [fechaAlta, setFechaAlta] = useState(today());
+  const [vacaciones, setVacaciones] = useState("30");
+  const [email, setEmail] = useState("");
+  const [telefono, setTelefono] = useState("");
+  const [dni, setDni] = useState("");
+
+  function resetForm() {
+    setNombre("");
+    setZona("");
+    setCategoria("");
+    setFechaAlta(today());
+    setVacaciones("30");
+    setEmail("");
+    setTelefono("");
+    setDni("");
+  }
+
+  function handleOpenChange(next: boolean) {
+    if (!next) onClose();
+  }
+
+  const nombreValido = nombre.trim().length > 0;
+  const zonaValida = zona.trim().length > 0;
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (next) resetForm();
+        handleOpenChange(next);
+      }}
+    >
+      <DialogContent className="glass-accented sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserPlus className="h-5 w-5 text-primary" /> Añadir trabajador
+          </DialogTitle>
+          <DialogDescription>Nombre y zona son obligatorios; el resto se puede completar más tarde.</DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[65vh] space-y-4 overflow-y-auto pr-1">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-alta-nombre">Nombre *</Label>
+              <Input id="rrhh-alta-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre y apellidos" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-alta-zona">Zona / puesto *</Label>
+              <Input
+                id="rrhh-alta-zona"
+                value={zona}
+                onChange={(e) => setZona(e.target.value)}
+                placeholder="p. ej. Envasado"
+                list={ZONAS_DATALIST_ID}
+              />
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-alta-categoria">Categoría profesional</Label>
+              <Input id="rrhh-alta-categoria" value={categoria} onChange={(e) => setCategoria(e.target.value)} placeholder="p. ej. Oficial de 2ª" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-alta-fecha">Fecha de alta</Label>
+              <GlassDatePicker id="rrhh-alta-fecha" value={fechaAlta} onChange={setFechaAlta} className="w-full" />
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-alta-dni">DNI</Label>
+              <Input id="rrhh-alta-dni" value={dni} onChange={(e) => setDni(e.target.value)} placeholder="12345678A" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-alta-email">Email</Label>
+              <Input id="rrhh-alta-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="correo@ejemplo.com" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-alta-telefono">Teléfono</Label>
+              <Input id="rrhh-alta-telefono" type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} placeholder="600 000 000" />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="rrhh-alta-vacaciones">Días de vacaciones anuales</Label>
+            <Input
+              id="rrhh-alta-vacaciones"
+              type="number"
+              min={0}
+              max={60}
+              value={vacaciones}
+              onChange={(e) => setVacaciones(e.target.value)}
+              className="max-w-[10rem]"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
+          <Button
+            onClick={() => onSave({
+              nombre: nombre.trim(),
+              zona: zona.trim(),
+              categoria_profesional: categoria.trim() || null,
+              fecha_alta: fechaAlta || null,
+              vacaciones_dias_anuales: Number(vacaciones) || 30,
+              computa_kg_persona: null,
+              email: email.trim() || null,
+              telefono: telefono.trim() || null,
+              dni: dni.trim() || null,
+            })}
+            disabled={saving || !nombreValido || !zonaValida}
+          >
+            {saving ? "Guardando…" : "Añadir"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Acción de baja / alta laboral (botón único con estado) ────────────────
+
+function BajaLaboralAction({
+  trabajador,
+  baja,
+  darDeBaja,
+  darDeAlta,
+}: {
+  trabajador: TrabajadorPlantillaRow;
+  baja: BajaAbiertaRow | null;
+  darDeBaja: ReturnType<typeof useRrhhPlantilla>["darDeBaja"];
+  darDeAlta: ReturnType<typeof useRrhhPlantilla>["darDeAlta"];
+}) {
+  const [open, setOpen] = useState(false);
+  const [fecha, setFecha] = useState(today());
+  const [motivo, setMotivo] = useState("");
+
+  function handleOpenChange(next: boolean) {
+    if (next) {
+      setFecha(today());
+      setMotivo("");
+    }
+    setOpen(next);
+  }
+
+  const esAlta = Boolean(baja);
+
+  async function handleSubmit() {
+    if (esAlta && baja) {
+      if (fecha < baja.fecha_inicio) {
+        toast({ title: "Fecha no válida", description: "La fecha de alta debe ser igual o posterior al inicio de la baja.", variant: "destructive" });
+        return;
+      }
+      try {
+        await darDeAlta.mutateAsync({ id: baja.id, fecha_fin: fecha });
+        toast({ title: "Trabajador dado de alta", description: trabajador.nombre });
+        setOpen(false);
+      } catch (err) {
+        toast({ title: "Error al dar de alta", description: errorMessage(err), variant: "destructive" });
+      }
+      return;
+    }
+    try {
+      await darDeBaja.mutateAsync({ trabajador_id: trabajador.id, fecha_inicio: fecha, motivo: motivo.trim() || null });
+      toast({ title: "Trabajador dado de baja", description: trabajador.nombre });
+      setOpen(false);
+    } catch (err) {
+      toast({ title: "Error al dar de baja", description: errorMessage(err), variant: "destructive" });
+    }
+  }
+
+  const saving = darDeBaja.isPending || darDeAlta.isPending;
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn("h-8 w-8 rounded-lg", esAlta ? "text-warning hover:text-warning" : "text-muted-foreground")}
+          title={esAlta ? "Dar de alta" : "Dar de baja"}
+        >
+          {esAlta ? <UserPlus className="h-3.5 w-3.5" /> : <UserMinus className="h-3.5 w-3.5" />}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="glass-accented sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{esAlta ? "Dar de alta" : "Dar de baja"} · {trabajador.nombre}</DialogTitle>
+          {esAlta && baja ? (
+            <DialogDescription>En baja desde el {formatDate(baja.fecha_inicio)} ({baja.motivo}).</DialogDescription>
+          ) : (
+            <DialogDescription>Registra el inicio de la baja laboral.</DialogDescription>
+          )}
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>{esAlta ? "Fecha de alta (fin de baja)" : "Fecha de inicio"}</Label>
+            <GlassDatePicker value={fecha} onChange={setFecha} className="w-full" />
+          </div>
+          {!esAlta ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-baja-motivo">Motivo (opcional)</Label>
+              <Input
+                id="rrhh-baja-motivo"
+                value={motivo}
+                onChange={(e) => setMotivo(e.target.value)}
+                placeholder="Baja laboral"
+              />
+            </div>
+          ) : null}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>Cancelar</Button>
+          <Button onClick={handleSubmit} disabled={saving}>
+            {saving ? "Guardando…" : esAlta ? "Dar de alta" : "Dar de baja"}
           </Button>
         </DialogFooter>
       </DialogContent>
