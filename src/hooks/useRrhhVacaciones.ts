@@ -146,19 +146,22 @@ export function useRrhhVacaciones() {
 
   const crearPeriodo = useMutation({
     mutationFn: async (input: {
-      trabajador_id: string;
+      /** Uno o varios trabajadores: se crea el mismo periodo para cada uno. */
+      trabajador_ids: string[];
       fecha_inicio: string;
       fecha_fin: string;
       dias_naturales: number;
       notas?: string | null;
     }) => {
-      const { error } = await SUPA.from("rrhh_vacaciones_periodos").insert({
-        trabajador_id: input.trabajador_id,
+      const rows = input.trabajador_ids.map((trabajador_id) => ({
+        trabajador_id,
         fecha_inicio: input.fecha_inicio,
         fecha_fin: input.fecha_fin,
         dias_naturales: input.dias_naturales,
         notas: input.notas ?? null,
-      });
+      }));
+      if (rows.length === 0) return;
+      const { error } = await SUPA.from("rrhh_vacaciones_periodos").insert(rows);
       if (error) throw toError(error);
     },
     onSuccess: invalidateAll,
@@ -174,17 +177,20 @@ export function useRrhhVacaciones() {
 
   const registrarHoras = useMutation({
     mutationFn: async (input: {
-      trabajador_id: string;
+      /** Uno o varios trabajadores: se crea el mismo registro de horas para cada uno. */
+      trabajador_ids: string[];
       fecha: string;
       horas: number;
       motivo?: string | null;
     }) => {
-      const { error } = await SUPA.from("rrhh_horas").insert({
-        trabajador_id: input.trabajador_id,
+      const rows = input.trabajador_ids.map((trabajador_id) => ({
+        trabajador_id,
         fecha: input.fecha,
         horas: input.horas,
         motivo: input.motivo ?? null,
-      });
+      }));
+      if (rows.length === 0) return;
+      const { error } = await SUPA.from("rrhh_horas").insert(rows);
       if (error) throw toError(error);
     },
     onSuccess: invalidateAll,
