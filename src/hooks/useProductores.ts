@@ -1,7 +1,7 @@
 // src/hooks/useProductores.ts
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import type { CalidadEstado } from "@/lib/calidad";
+import type { CalidadEstado, CalidadInformeEstado } from "@/lib/calidad";
 import { detectarTipoClasificacion } from "@/lib/destinoClasificacion";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
@@ -33,11 +33,23 @@ export interface CalidadResumenProductor {
 }
 
 export interface CalidadNotaProductor {
+  id: string;
   fecha: string;
   numero_lote: string;
   calidad: CalidadEstado;
   defectos: string[];
   hora: string | null;
+  /** Campos adicionales para poder abrir la ficha completa (CalidadInformeDialog). */
+  productor_finca_nombre: string;
+  producto: string;
+  variedad: string;
+  cantidad: string;
+  observacion: string;
+  accion_recomendada: string;
+  informe_generado: string;
+  informe_estado: CalidadInformeEstado;
+  aerobotics_realizado: boolean;
+  defecto_otro: string;
 }
 
 /** Desglose de calibre/clase/grupo de destino de un productor, derivado del "Informe LOTE" (lote_clasificacion). */
@@ -166,12 +178,22 @@ type LoteDiaRow = {
 };
 
 type CalidadLoteRow = {
+  id: string;
   numero_lote: string;
   productor_finca_nombre: string;
   calidad: string;
   defectos: string[] | null;
   fecha: string;
   hora: string | null;
+  producto: string | null;
+  variedad: string | null;
+  cantidad: string | null;
+  observacion: string | null;
+  accion_recomendada: string | null;
+  informe_generado: string | null;
+  informe_estado: string | null;
+  aerobotics_realizado: boolean | null;
+  defecto_otro: string | null;
 };
 
 type ClasificacionRow = {
@@ -211,7 +233,9 @@ export function useProductores(desde: string, hasta: string) {
       // ── 2. Notas de calidad en el rango ──────────────────────────────
       const { data: calidadRaw, error: cErr } = await supabase
         .from("calidad_lotes")
-        .select("numero_lote, productor_finca_nombre, calidad, defectos, fecha, hora")
+        .select(
+          "id, numero_lote, productor_finca_nombre, calidad, defectos, fecha, hora, producto, variedad, cantidad, observacion, accion_recomendada, informe_generado, informe_estado, aerobotics_realizado, defecto_otro",
+        )
         .gte("fecha", desde)
         .lte("fecha", hasta);
 
@@ -359,11 +383,22 @@ export function useProductores(desde: string, hasta: string) {
               .slice(0, 5);
             const historial: CalidadNotaProductor[] = calidadDelProductor
               .map((c) => ({
+                id: c.id,
                 fecha: c.fecha,
                 numero_lote: c.numero_lote,
                 calidad: c.calidad as CalidadEstado,
                 defectos: c.defectos ?? [],
                 hora: c.hora ?? null,
+                productor_finca_nombre: c.productor_finca_nombre ?? "",
+                producto: c.producto ?? "",
+                variedad: c.variedad ?? "",
+                cantidad: c.cantidad ?? "",
+                observacion: c.observacion ?? "",
+                accion_recomendada: c.accion_recomendada ?? "",
+                informe_generado: c.informe_generado ?? "",
+                informe_estado: (c.informe_estado as CalidadInformeEstado) ?? "borrador",
+                aerobotics_realizado: c.aerobotics_realizado ?? false,
+                defecto_otro: c.defecto_otro ?? "",
               }))
               .sort((a, b) => (b.fecha + (b.hora ?? "")).localeCompare(a.fecha + (a.hora ?? "")));
             calidad = {

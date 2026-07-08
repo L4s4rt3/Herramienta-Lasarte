@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { BadgeCheck, Camera, ClipboardCheck, ExternalLink, Loader2 } from "lucide-react";
+import { BadgeCheck, Camera, ClipboardCheck, ExternalLink, FileSearch, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CalidadInformeDialog } from "@/components/CalidadInformeDialog";
 import { toast } from "@/hooks/use-toast";
 import {
   attachmentCountMap,
@@ -31,6 +32,8 @@ export default function PartDetailCalidad({ date }: { date: string }) {
   const [loading, setLoading] = useState(true);
   const [lotes, setLotes] = useState<CalidadLote[]>([]);
   const [adjuntos, setAdjuntos] = useState<CalidadAdjunto[]>([]);
+  const [loteSeleccionado, setLoteSeleccionado] = useState<CalidadLote | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -132,7 +135,23 @@ export default function PartDetailCalidad({ date }: { date: string }) {
 
             <div className="space-y-3">
               {lotes.map((lote) => (
-                <div key={lote.id} className="rounded-xl border border-border/70 bg-[var(--glass-bg)] p-4">
+                <div
+                  key={lote.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setLoteSeleccionado(lote);
+                    setDialogOpen(true);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setLoteSeleccionado(lote);
+                      setDialogOpen(true);
+                    }
+                  }}
+                  className="cursor-pointer rounded-xl border border-border/70 bg-[var(--glass-bg)] p-4 transition-colors hover:border-primary/40 hover:bg-[var(--glass-bg-strong)]"
+                >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
@@ -159,6 +178,10 @@ export default function PartDetailCalidad({ date }: { date: string }) {
                         {[lote.producto, lote.variedad, lote.cantidad, lote.hora].filter(Boolean).join(" · ")}
                       </p>
                     </div>
+                    <span className="inline-flex shrink-0 items-center gap-1 self-start rounded-lg border border-primary/20 bg-primary/8 px-2 py-1 text-xs font-medium text-primary">
+                      <FileSearch className="h-3.5 w-3.5" />
+                      Ver informe
+                    </span>
                   </div>
                   {(lote.defectos.length > 0 || lote.observacion || lote.accion_recomendada) && (
                     <div className="mt-3 grid gap-3 lg:grid-cols-3">
@@ -182,6 +205,12 @@ export default function PartDetailCalidad({ date }: { date: string }) {
           </>
         )}
       </CardContent>
+      <CalidadInformeDialog
+        lote={loteSeleccionado}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        adjuntosCount={loteSeleccionado ? counts[loteSeleccionado.id] ?? 0 : 0}
+      />
     </Card>
   );
 }

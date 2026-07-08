@@ -15,8 +15,9 @@ import { DeltaChip } from "@/components/DeltaChip";
 import { WeekSelector } from "@/components/WeekSelector";
 import { buildWeekRange } from "@/lib/analisisDiarioView";
 import type { Periodo } from "@/lib/analisisDiarioView";
-import { useProductores, type ProductorDossier, type MediasPlanta } from "@/hooks/useProductores";
+import { useProductores, type ProductorDossier, type MediasPlanta, type CalidadNotaProductor } from "@/hooks/useProductores";
 import type { CalidadEstado } from "@/lib/calidad";
+import { CalidadInformeDialog } from "@/components/CalidadInformeDialog";
 import { formatKg, formatDate, today, toISODateLocal } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { GRUPO_COLORS } from "@/lib/destinoClasificacion";
@@ -844,6 +845,9 @@ function AprovechamientoCard({ aprovechamiento }: { aprovechamiento: ProductorDo
 // ─── Calidad del productor ───────────────────────────────────────────────
 
 function CalidadProductorCard({ calidad }: { calidad: ProductorDossier["calidad"] }) {
+  const [notaSeleccionada, setNotaSeleccionada] = useState<CalidadNotaProductor | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+
   return (
     <Card className="glass-accented">
       <CardContent className="p-3 space-y-3">
@@ -881,12 +885,20 @@ function CalidadProductorCard({ calidad }: { calidad: ProductorDossier["calidad"
             )}
             {calidad.historial.length > 1 && (
               <div>
-                <p className="panel-kicker mb-1">Historial de incidencias</p>
+                <p className="panel-kicker mb-1">Historial de incidencias · pulsa para ver el informe</p>
                 <div className="divide-y divide-[var(--glass-border)] rounded-lg border border-[var(--glass-border)]">
                   {calidad.historial.map((nota, i) => (
-                    <div
+                    <button
                       key={`${nota.numero_lote}-${nota.fecha}-${i}`}
-                      className={cn("flex flex-wrap items-center gap-x-2.5 gap-y-1 px-2.5 py-1.5 text-xs", i % 2 === 1 && "bg-[var(--glass-bg)]/40")}
+                      type="button"
+                      onClick={() => {
+                        setNotaSeleccionada(nota);
+                        setDialogOpen(true);
+                      }}
+                      className={cn(
+                        "flex w-full flex-wrap items-center gap-x-2.5 gap-y-1 px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-[var(--glass-bg-strong)]",
+                        i % 2 === 1 && "bg-[var(--glass-bg)]/40",
+                      )}
                     >
                       <span className="w-16 shrink-0 text-[11px] text-muted-foreground whitespace-nowrap">
                         {formatDateShort(nota.fecha)}{nota.hora ? ` ${nota.hora}` : ""}
@@ -896,7 +908,7 @@ function CalidadProductorCard({ calidad }: { calidad: ProductorDossier["calidad"
                       {nota.defectos.length > 0 && (
                         <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{nota.defectos.join(", ")}</span>
                       )}
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -904,6 +916,7 @@ function CalidadProductorCard({ calidad }: { calidad: ProductorDossier["calidad"
           </div>
         )}
       </CardContent>
+      <CalidadInformeDialog lote={notaSeleccionada} open={dialogOpen} onOpenChange={setDialogOpen} />
     </Card>
   );
 }

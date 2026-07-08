@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -27,16 +27,20 @@ import {
   calcularRendimientoGrupos, calcularResumenKgPersonaOperacion, RENDIMIENTO_GRUPOS,
 } from "@/lib/asistenciaRendimiento";
 import { calcularRendimientoZonasAlmacen } from "@/lib/asistenciaPlantilla";
-import { calidadSummary, buildCalidadIncidentRows, type CalidadLote } from "@/lib/calidad";
+import {
+  attachmentCountMap, calidadSummary, buildCalidadIncidentRows,
+  type CalidadAdjunto, type CalidadEstado, type CalidadLote,
+} from "@/lib/calidad";
 import { cn } from "@/lib/utils";
 import { PART_DETAIL_MANUAL_FIELDS } from "@/lib/partDetailManualFields";
 import { toast } from "@/hooks/use-toast";
 import {
   ArrowLeft, Save, Lock, Unlock, Sparkles, Loader2, BarChart3, MoreHorizontal,
-  ChevronDown, Truck, Package, TrendingDown, Gauge, Timer,
+  ChevronDown, Truck, Package, TrendingDown, Gauge, Timer, ClipboardCheck,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExportPartesDialog } from "@/components/ExportPartesDialog";
+import { CalidadInformeDialog } from "@/components/CalidadInformeDialog";
 import PartDetailArchivos from "@/components/PartDetailArchivos";
 import PartDetailCalidad from "@/components/PartDetailCalidad";
 import PartDetailManual from "@/components/PartDetailManual";
@@ -67,6 +71,15 @@ interface Parte {
 // Mismo nombre que usa Asistencia para esta zona (internamente es "Envasadoras").
 const RENDIMIENTO_LABELS: Record<string, string> = {
   Envasadoras: "Mesas", Industria: "Industria", Mallas: "Mallas", Graneleras: "Graneleras",
+};
+
+// Mismos colores que PartDetailCalidad/Productores para el badge de calidad.
+const QUALITY_STYLE: Record<CalidadEstado, string> = {
+  Excelente: "border-emerald-600/35 bg-emerald-600/12 text-emerald-800 dark:text-emerald-200",
+  Bueno: "border-emerald-500/30 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
+  Regular: "border-amber-500/35 bg-amber-500/14 text-amber-700 dark:text-amber-300",
+  Deficiente: "border-orange-500/35 bg-orange-500/14 text-orange-700 dark:text-orange-300",
+  Pésimo: "border-red-500/35 bg-red-500/12 text-red-700 dark:text-red-300",
 };
 
 const CATEGORIES = [
@@ -124,6 +137,10 @@ export default function PartDetail() {
   const [saving, setSaving] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [uploadingCat, setUploadingCat] = useState<CategoryId | null>(null);
+  const [activeTab, setActiveTab] = useState("archivos");
+  const [calidadPreview, setCalidadPreview] = useState<CalidadLote | null>(null);
+  const [calidadPreviewOpen, setCalidadPreviewOpen] = useState(false);
+  const tabsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const nextCachedParte = id
@@ -399,12 +416,29 @@ export default function PartDetail() {
     queryKey: ["parte-detail", parte?.id, "calidad", parte?.date],
     enabled: Boolean(parte?.date),
     queryFn: async () => {
-      const { data } = await supabase.from("calidad_lotes").select("*").eq("fecha", parte!.date);
+      const { data } = await supabase.from("calidad_lotes").select("*").eq("fecha", parte!.date).order("created_at", { ascending: true });
       return (data ?? []) as CalidadLote[];
     },
   });
   const calidadResumen = calidadDelDia ? calidadSummary(calidadDelDia) : null;
   const calidadIncidencias = calidadDelDia ? buildCalidadIncidentRows(calidadDelDia).length : 0;
+
+  // Nº de adjuntos por lote, para el preview clicable de "Calidad del día".
+  const { data: calidadAdjuntosDelDia } = useQuery({
+    ...detailQueryDefaults,
+    queryKey: ["parte-detail", parte?.id, "calidad-adjuntos", parte?.date],
+    enabled: Boolean(calidadDelDia && calidadDelDia.length > 0),
+    queryFn: async () => {
+      const { data } = await supabase.from("calidad_adjuntos").select("*").in("lote_id", (calidadDelDia ?? []).map((l) => l.id));
+      return (data ?? []) as CalidadAdjunto[];
+    },
+  });
+  const calidadAdjuntoCounts = useMemo(() => attachmentCountMap(calidadAdjuntosDelDia ?? []), [calidadAdjuntosDelDia]);
+
+  const abrirTabCalidad = useCallback(() => {
+    setActiveTab("calidad");
+    tabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   const readOnly = parte?.estado !== "Borrador";
 
@@ -746,22 +780,50 @@ export default function PartDetail() {
         />
       </div>
 
-      {/* ─── Calidad del día (resumen) ───────────────────────────────────── */}
+      {/* ─── Calidad del día (resumen, más visible + clicable) ──────────── */}
       {calidadResumen && calidadResumen.total > 0 && (
         <Card className="glass-accented">
-          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
-            <div className="flex items-center gap-3">
-              <div className="h-7 w-1 shrink-0 rounded-full bg-primary" />
-              <div>
-                <p className="panel-kicker">Calidad del día</p>
-                <p className="text-sm">
-                  {calidadResumen.total} lote{calidadResumen.total === 1 ? "" : "s"} revisado{calidadResumen.total === 1 ? "" : "s"}
-                  {calidadIncidencias > 0 && (
-                    <span className="ml-1 font-medium text-warning">· {calidadIncidencias} con incidencia</span>
-                  )}
-                </p>
+          <CardContent className="space-y-3 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="h-7 w-1 shrink-0 rounded-full bg-primary" />
+                <div>
+                  <p className="panel-kicker">Calidad del día</p>
+                  <p className="text-sm">
+                    {calidadResumen.total} lote{calidadResumen.total === 1 ? "" : "s"} revisado{calidadResumen.total === 1 ? "" : "s"}
+                    {calidadIncidencias > 0 && (
+                      <span className="ml-1 font-medium text-warning">· {calidadIncidencias} con incidencia{calidadIncidencias === 1 ? "" : "s"}</span>
+                    )}
+                  </p>
+                </div>
               </div>
+              <Button variant="outline" size="sm" className="glass glass-hover" onClick={abrirTabCalidad}>
+                <ClipboardCheck className="h-4 w-4" />
+                Ver informes de calidad
+              </Button>
             </div>
+            {calidadDelDia && calidadDelDia.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {calidadDelDia.map((lote) => (
+                  <button
+                    key={lote.id}
+                    type="button"
+                    onClick={() => {
+                      setCalidadPreview(lote);
+                      setCalidadPreviewOpen(true);
+                    }}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--glass-bg-strong)]",
+                      QUALITY_STYLE[lote.calidad],
+                    )}
+                    title="Ver informe de calidad"
+                  >
+                    {lote.numero_lote || "Lote s/n"}
+                    <span className="opacity-70">· {lote.calidad}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -795,7 +857,7 @@ export default function PartDetail() {
         </Card>
       </Collapsible>
 
-      <Tabs defaultValue="archivos" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full" ref={tabsRef}>
         <TabsList className="grid w-full grid-cols-3 sm:w-auto sm:inline-flex">
           <TabsTrigger value="archivos">
             Archivos {archivos.length > 0 && <Badge variant="secondary" className="ml-1.5 px-1.5 text-[10px]">{archivos.length}</Badge>}
@@ -831,6 +893,13 @@ export default function PartDetail() {
           <PartDetailCalidad date={parte.date} />
         </TabsContent>
       </Tabs>
+
+      <CalidadInformeDialog
+        lote={calidadPreview}
+        open={calidadPreviewOpen}
+        onOpenChange={setCalidadPreviewOpen}
+        adjuntosCount={calidadPreview ? calidadAdjuntoCounts[calidadPreview.id] ?? 0 : 0}
+      />
     </div>
   );
 }
