@@ -63,6 +63,39 @@ export interface PartesTotals {
   n_rojo: number;
 }
 
+/**
+ * Agregado de reciclado de malla (Z1 + Z2) para un conjunto de partes.
+ * El % se calcula sobre los kg de producción del calibrador del mismo período
+ * (kg_produccion_calibrador), no sobre la producción real ya descontada.
+ */
+export interface RecicladoAgg {
+  z1_kg: number;
+  z2_kg: number;
+  total_kg: number;
+  calibrador_kg: number;
+  z1_pct: number;
+  z2_pct: number;
+  total_pct: number;
+}
+
+export function computeRecicladoAgg(rows: ParteRaw[]): RecicladoAgg {
+  const z1_kg = rows.reduce((s, p) => s + (Number(p.kg_reciclado_malla_z1) || 0), 0);
+  const z2_kg = rows.reduce((s, p) => s + (Number(p.kg_reciclado_malla_z2) || 0), 0);
+  const calibrador_kg = rows.reduce((s, p) => s + (Number(p.kg_produccion_calibrador) || 0), 0);
+  const total_kg = z1_kg + z2_kg;
+  const pct = (kg: number) => (calibrador_kg > 0 ? (kg / calibrador_kg) * 100 : 0);
+
+  return {
+    z1_kg,
+    z2_kg,
+    total_kg,
+    calibrador_kg,
+    z1_pct: pct(z1_kg),
+    z2_pct: pct(z2_kg),
+    total_pct: pct(total_kg),
+  };
+}
+
 // ─── Helper ─────────────────────────────────────────────────────────────────
 
 function buildCascade(p: ParteRaw): Parte {
@@ -248,5 +281,17 @@ export function usePartesDashboard(days = 30) {
     [recent]
   );
 
-  return { partes: recent, allPartes: partes, loading, totals, chartSeries };
+  // Reciclado de malla (Z1/Z2) del ÚLTIMO DÍA CON PARTE: los partes se hacen del
+  // día anterior, así que "hoy" normalmente no tiene datos todavía. Se usa la
+  // fecha más reciente presente en los partes cargados (normalmente ayer).
+  const ultimoDiaConParte = useMemo(
+    () => recent.reduce<string | null>((max, p) => (max === null || p.date > max ? p.date : max), null),
+    [recent],
+  );
+  const reciclado_dia = useMemo(
+    () => computeRecicladoAgg(ultimoDiaConParte ? recent.filter((p) => p.date === ultimoDiaConParte) : []),
+    [recent, ultimoDiaConParte]
+  );
+
+  return { partes: recent, allPartes: partes, loading, totals, chartSeries, reciclado_dia, ultimoDiaConParte };
 }

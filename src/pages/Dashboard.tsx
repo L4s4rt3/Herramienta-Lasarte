@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { usePartesDashboard } from "@/hooks/usePartes";
+import { usePartesDashboard, computeRecicladoAgg, RecicladoAgg } from "@/hooks/usePartes";
 import { useMercadona } from "@/hooks/useMercadona";
 import { KPICard } from "@/components/KPICard";
 import { SemaforoPill } from "@/components/SemaforoPill";
@@ -18,13 +18,14 @@ import {
   PieChart, Pie,
 } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatKg } from "@/lib/format";
+import { formatKg, formatPct } from "@/lib/format";
 import { calcularTphOperativa } from "@/lib/velocidadOperativa";
+import { buildPeriodoRange } from "@/lib/consumoPeriodoView";
 import { cn } from "@/lib/utils";
 import {
   Truck, Package, TrendingDown, BarChart3,
   Gauge, Droplet, Plus, ShoppingCart,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, Recycle,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -112,6 +113,64 @@ function ChartTooltip({ active, payload, label }: ChartTooltipProps) {
   return <GlassTooltip active label={label !== undefined ? String(label) : undefined} payload={items} />;
 }
 
+// ─── Reciclado de malla ─────────────────────────────────────────────────────
+
+interface RecicladoStatRowProps {
+  label: string;
+  kg: number;
+  pct: number;
+  color: string;
+}
+
+function RecicladoStatRow({ label, kg, pct, color }: RecicladoStatRowProps) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-sm">
+        <span className="font-medium">{label}</span>
+        <div className="flex items-center gap-3">
+          <span className="tabular-nums text-xs text-muted-foreground">{formatKg(kg)}</span>
+          <span className="min-w-[52px] text-right font-bold tabular-nums">{formatPct(pct)}</span>
+        </div>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{
+            width: `${Math.min(pct, 100)}%`,
+            background: `linear-gradient(90deg, ${barFill(color, 0.5)}, ${barFill(color, 0.75)})`,
+            borderRight: `1.5px solid ${color}`,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+interface RecicladoColumnProps {
+  title: string;
+  subtitle: string;
+  agg: RecicladoAgg;
+}
+
+function RecicladoColumn({ title, subtitle, agg }: RecicladoColumnProps) {
+  return (
+    <div className="space-y-3 rounded-xl bg-[var(--glass-bg)] p-4">
+      <div>
+        <p className="panel-kicker">{title}</p>
+        <p className="text-xs text-muted-foreground">{subtitle}</p>
+      </div>
+      <RecicladoStatRow label="Malla Z1" kg={agg.z1_kg} pct={agg.z1_pct} color={C.info} />
+      <RecicladoStatRow label="Malla Z2" kg={agg.z2_kg} pct={agg.z2_pct} color={C.warning} />
+      <div className="border-t border-[var(--glass-border)] pt-2.5">
+        <RecicladoStatRow label="Total reciclado" kg={agg.total_kg} pct={agg.total_pct} color={C.primary} />
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Sobre {formatKg(agg.calibrador_kg)} de calibrador
+      </p>
+    </div>
+  );
+}
+
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
@@ -128,7 +187,27 @@ export default function Dashboard() {
     const diffDays = Math.ceil((Date.now() - earliest.getTime()) / 86400000);
     return Math.max(diffDays + 7, WEEKS_IN_PANEL * 7);
   }, [weeks]);
-  const { partes, loading } = usePartesDashboard(dashboardDays);
+  const { partes, allPartes, loading, reciclado_dia, ultimoDiaConParte } = usePartesDashboard(dashboardDays);
+
+  // Reciclado de malla (Z1/Z2) de la semana activa (respeta la navegación por semanas).
+  const recicladoSemana = useMemo(() => {
+    const weekPartes = partes.filter((p) => p.date >= currentWeek.start && p.date <= currentWeek.end);
+    return computeRecicladoAgg(weekPartes);
+  }, [partes, currentWeek]);
+
+  // Reciclado del mes en curso y de toda la campaña (media ponderada del %):
+  // se calcula sobre allPartes (histórico completo), reusando los rangos de
+  // consumoPeriodoView (mes natural / campaña 1 sep – 31 ago).
+  const rangoMes = useMemo(() => buildPeriodoRange("mes", 0), []);
+  const rangoCampana = useMemo(() => buildPeriodoRange("campana", 0), []);
+  const recicladoMes = useMemo(
+    () => computeRecicladoAgg(allPartes.filter((p) => p.date >= rangoMes.start && p.date <= rangoMes.end)),
+    [allPartes, rangoMes],
+  );
+  const recicladoCampana = useMemo(
+    () => computeRecicladoAgg(allPartes.filter((p) => p.date >= rangoCampana.start && p.date <= rangoCampana.end)),
+    [allPartes, rangoCampana],
+  );
 
   const weeklyRows = useMemo(() => {
     return weeks.map((week) => {
@@ -509,6 +588,49 @@ export default function Dashboard() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ─── Reciclado de malla ───────────────────────────────────────────── */}
+      <Card className="overflow-hidden glass-accented">
+        <CardHeader className="pb-3 px-5 pt-4">
+          <div className="flex items-center gap-3">
+            <div className="h-7 w-1 rounded-full bg-primary" />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <CardTitle className="text-lg font-semibold">Reciclado de malla</CardTitle>
+                <InfoTooltip>
+                  Kg retirados por reciclado de malla Z1 y Z2 en el calibrador. El % se calcula sobre los kg de producción del calibrador (kg_produccion_calibrador) del mismo período: el último día con parte (los partes se hacen del día anterior) para la columna Día, y la semana visible para la columna Semana.
+                </InfoTooltip>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Día vs Semana {currentWeek.weekNumber} · {currentWeek.rangeLabel}
+              </p>
+            </div>
+            <Recycle className="ml-auto h-5 w-5 shrink-0 text-primary/60" />
+          </div>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 pt-1">
+          {loading ? (
+            <Skeleton className="h-56" />
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <RecicladoColumn
+                title="Último día con parte"
+                subtitle={ultimoDiaConParte
+                  ? new Date(`${ultimoDiaConParte}T12:00:00`).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "short" })
+                  : "Sin partes"}
+                agg={reciclado_dia}
+              />
+              <RecicladoColumn
+                title={`Semana ${currentWeek.weekNumber}`}
+                subtitle={currentWeek.rangeLabel}
+                agg={recicladoSemana}
+              />
+              <RecicladoColumn title="Mes" subtitle={rangoMes.label} agg={recicladoMes} />
+              <RecicladoColumn title="Campaña" subtitle={rangoCampana.label} agg={recicladoCampana} />
             </div>
           )}
         </CardContent>
