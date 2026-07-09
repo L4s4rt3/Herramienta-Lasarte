@@ -84,4 +84,6 @@ Ver detalle completo (mockups incluidos) en el historial de chat de la sesión. 
 19. **Económico · Precios/tarifas (Excel)** — recurso, unidad, €/unidad, vigente desde/hasta, proveedor, fuente, estado. Solo 1 vigente por recurso/unidad.
 
 ## Estado de implementación
-- Pendiente: infraestructura común (design tokens + helpers en exportWorkbook.ts / reportKit.ts / exportTheme.ts) y aplicación por exportación.
+- HECHO: motor común `src/lib/exportKit.ts` (Excel con marca vía exceljs) + `exportTheme.ts` (PDF rebrandeado).
+- HECHO con marca: Plantilla (RRHH), CMR (formulario real) y Hoja de ruta, Partes (Excel+PDF), Consumos (Excel+PDF), Calidad (Excel+PDF).
+- PENDIENTE (fase 2 restante): Asistencia diaria + Informe semanal/eficiencia (clasificación RRHH), Ventas por categoría (Excel), Productores, y los exports de Económico (facturación/costes/precios). Mercadona semanal se mantiene con su disposición oficial (no rebrandear).
