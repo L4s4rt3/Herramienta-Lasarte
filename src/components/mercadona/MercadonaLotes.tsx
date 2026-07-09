@@ -20,6 +20,9 @@ import {
   type MercadonaLoteSemana,
   type MercadonaProductoresData,
 } from "@/hooks/useMercadonaLotes";
+import { useCalidadProductores } from "@/hooks/useCalidadProductores";
+import { normalizeNombre } from "@/hooks/useProductores";
+import { MercadonaProductorCalidadDialog } from "@/components/mercadona/MercadonaProductorCalidadDialog";
 import type { MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
 import { mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
 import { buildPeriodoRange } from "@/lib/consumoPeriodoView";
@@ -225,6 +228,15 @@ function RankingHistoricoProductores({
   const [minKg, setMinKg] = useState<number>(DEFAULT_MIN_KG);
   const [periodoTipo, setPeriodoTipo] = useState<ProductoresPeriodoTipo>(DEFAULT_PERIODO_TIPO);
   const [offset, setOffset] = useState(0);
+  const [productorCalidad, setProductorCalidad] = useState<string | null>(null);
+  const [calidadAbierta, setCalidadAbierta] = useState(false);
+
+  const { porProductor: calidadPorProductor } = useCalidadProductores();
+
+  const abrirCalidad = (productor: string) => {
+    setProductorCalidad(productor);
+    setCalidadAbierta(true);
+  };
 
   const rango = useMemo(() => buildProductoresRango(periodoTipo, offset), [periodoTipo, offset]);
 
@@ -251,6 +263,7 @@ function RankingHistoricoProductores({
   const periodoDescripcion = periodoTipo === "total" ? "Toda la campaña" : `${rango.label} · ${rango.detail}`;
 
   return (
+    <>
     <Card className="glass-accented overflow-hidden">
       <CardHeader className="pb-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -368,36 +381,81 @@ function RankingHistoricoProductores({
                   <TableHead className="text-right">Kg</TableHead>
                   <TableHead className="text-right">Nº lotes</TableHead>
                   <TableHead className="text-right">Aprovechamiento Mercadona %</TableHead>
+                  <TableHead className="text-right">
+                    <span className="inline-flex items-center gap-1">
+                      Calidad
+                      <InfoTooltip>
+                        Pulsa una fila para ver los informes de calidad de ese productor cruzados con el
+                        aprovechamiento Mercadona de cada día.
+                      </InfoTooltip>
+                    </span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtrados.map((p, i) => (
-                  <TableRow key={p.productor}>
-                    <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
-                    <TableCell className="max-w-[240px] truncate text-xs font-medium">{p.productor}</TableCell>
-                    <TableCell className="text-right tabular-nums text-xs">{formatKg(p.kg)}</TableCell>
-                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">{p.nLotes}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
-                          <div
-                            className="h-full rounded-full bg-primary"
-                            style={{ width: `${Math.min(100, (p.pctMdnaEstimado / maxPct) * 100)}%` }}
-                          />
+                {filtrados.map((p, i) => {
+                  const nInformes = calidadPorProductor.get(normalizeNombre(p.productor))?.length ?? 0;
+                  return (
+                    <TableRow
+                      key={p.productor}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => abrirCalidad(p.productor)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          abrirCalidad(p.productor);
+                        }
+                      }}
+                      className="cursor-pointer transition-colors hover:bg-[var(--glass-bg-strong)]"
+                    >
+                      <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
+                      <TableCell className="max-w-[240px] truncate text-xs font-medium">{p.productor}</TableCell>
+                      <TableCell className="text-right tabular-nums text-xs">{formatKg(p.kg)}</TableCell>
+                      <TableCell className="text-right tabular-nums text-xs text-muted-foreground">{p.nLotes}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                            <div
+                              className="h-full rounded-full bg-primary"
+                              style={{ width: `${Math.min(100, (p.pctMdnaEstimado / maxPct) * 100)}%` }}
+                            />
+                          </div>
+                          <span className="w-14 shrink-0 tabular-nums font-semibold text-primary">
+                            {formatPct(p.pctMdnaEstimado)}
+                          </span>
                         </div>
-                        <span className="w-14 shrink-0 tabular-nums font-semibold text-primary">
-                          {formatPct(p.pctMdnaEstimado)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium",
+                            nInformes > 0
+                              ? "border-primary/30 bg-primary/10 text-primary"
+                              : "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground",
+                          )}
+                        >
+                          <ClipboardList className="h-3 w-3" />
+                          {nInformes > 0 ? nInformes : "—"}
                         </span>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
         )}
       </CardContent>
     </Card>
+    <MercadonaProductorCalidadDialog
+      productor={productorCalidad}
+      open={calidadAbierta}
+      onOpenChange={setCalidadAbierta}
+      porProductor={calidadPorProductor}
+      pctPorDia={productoresData.pctPorDia}
+    />
+    </>
   );
 }
 
