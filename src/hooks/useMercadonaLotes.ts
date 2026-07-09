@@ -28,6 +28,7 @@ import type { Tables } from "@/integrations/supabase/types";
 import type { MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
 import { normalizeNombre } from "@/hooks/useProductores";
 import { mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
+import { esProductoMdna } from "@/hooks/useMercadona";
 import type { CalidadEstado, CalidadInformeEstado } from "@/lib/calidad";
 import type { CalidadInformeLote } from "@/components/CalidadInformeDialog";
 
@@ -130,7 +131,8 @@ export function pctMdnaPorDia(productos: ProductoDiaRow[], partesById: Map<strin
     const entry = porDia.get(date) ?? { total: 0, mdna: 0 };
     const kg = Number(p.kg) || 0;
     entry.total += kg;
-    if (nombre.toUpperCase().includes("MDNA")) entry.mdna += kg;
+    // El precalibrado (PREC) NO cuenta como MDNA en el aprovechamiento.
+    if (esProductoMdna(nombre)) entry.mdna += kg;
     porDia.set(date, entry);
   }
   const pctPorDia = new Map<string, number>();

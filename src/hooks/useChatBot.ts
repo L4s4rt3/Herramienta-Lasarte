@@ -184,7 +184,11 @@ async function buildMercadonaSemanal(sections: string[], weekStart: string, week
 
   const rows = (productos ?? []).filter((p) => (p.producto ?? "").trim() !== "");
   const kgTotal = rows.reduce((s, p) => s + (Number(p.kg) || 0), 0);
-  const mdna = rows.filter((p) => (p.producto ?? "").toUpperCase().includes("MDNA"));
+  // MDNA excluyendo precalibrado (PREC): no cuenta para el aprovechamiento.
+  const mdna = rows.filter((p) => {
+    const upper = (p.producto ?? "").toUpperCase();
+    return upper.includes("MDNA") && !upper.includes("PREC");
+  });
   const kgMdna = mdna.reduce((s, p) => s + (Number(p.kg) || 0), 0);
   const cajasMdna = mdna.reduce((s, p) => s + (Number(p.n_cajas) || 0), 0);
   const pct = kgTotal > 0 ? (kgMdna / kgTotal) * 100 : 0;

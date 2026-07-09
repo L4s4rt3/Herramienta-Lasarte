@@ -44,6 +44,17 @@ interface ProductoDiaRow {
   n_cajas: number | null;
 }
 
+/**
+ * Un producto cuenta como MDNA (Mercadona) para el aprovechamiento si su nombre
+ * contiene "MDNA" y NO es precalibrado. El PRECALIBRADO ("PREC 1", "PREC 2-MDNA
+ * 5K", "PRECALIBRADO"…) es producto a medio confeccionar y NO debe computar en
+ * el aprovechamiento de Mercadona (regla del dueño, jul 2026).
+ */
+export function esProductoMdna(producto: string | null | undefined): boolean {
+  const upper = (producto ?? "").toUpperCase();
+  return upper.includes("MDNA") && !upper.includes("PREC");
+}
+
 /** Normaliza el nombre crudo de producto MDNA a un formato agrupable. */
 export function normalizarFormatoMdna(producto: string): string {
   const upper = producto.toUpperCase();
@@ -101,7 +112,7 @@ export function useMercadona(desde: string, hasta: string) {
 
     const kg_total = productos.reduce((s, p) => s + (Number(p.kg) || 0), 0);
 
-    const mdnaProductos = productos.filter((p) => (p.producto ?? "").toUpperCase().includes("MDNA"));
+    const mdnaProductos = productos.filter((p) => esProductoMdna(p.producto));
     const kg_mercadona = mdnaProductos.reduce((s, p) => s + (Number(p.kg) || 0), 0);
     const n_cajas_mercadona = mdnaProductos.reduce((s, p) => s + (Number(p.n_cajas) || 0), 0);
     const pct_kg = kg_total > 0 ? (kg_mercadona / kg_total) * 100 : 0;
@@ -132,7 +143,7 @@ export function useMercadona(desde: string, hasta: string) {
       if (!date) continue;
       const entry = porDiaMap.get(date) ?? { kg_mercadona: 0, kg_total: 0 };
       entry.kg_total += Number(p.kg) || 0;
-      if ((p.producto ?? "").toUpperCase().includes("MDNA")) {
+      if (esProductoMdna(p.producto)) {
         entry.kg_mercadona += Number(p.kg) || 0;
       }
       porDiaMap.set(date, entry);
