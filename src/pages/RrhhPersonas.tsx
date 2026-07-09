@@ -11,20 +11,25 @@ import {
   AlertTriangle,
   Briefcase,
   CalendarClock,
+  Check,
   Clock,
   Download,
+  Euro,
   FileWarning,
   Files,
+  Layers,
   Palmtree,
   Pencil,
   Plus,
   Receipt,
   Search,
   ShieldAlert,
+  Trash2,
   UserMinus,
   UserPlus,
   UserRound,
   Users,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,7 +56,7 @@ import { toast } from "@/hooks/use-toast";
 import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatNumber, today } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { createWorkbook, appendRowsSheet, saveWorkbook } from "@/lib/exportWorkbook";
+import { añadirHojaTabla, crearLibroLasarte, descargarLibro, FMT_EUR, FMT_INT, type ColumnaTabla } from "@/lib/exportKit";
 import { diasNaturalesPeriodo, saldoVacaciones } from "@/lib/rrhhVacaciones";
 import { cuentaTrabajadorKgPersona } from "@/lib/asistenciaRendimiento";
 import {
@@ -134,43 +139,57 @@ function computaKgPersonaTexto(trabajador: TrabajadorPlantillaRow): string {
   return `Auto (${cuentaTrabajadorKgPersona(trabajador) ? "Sí" : "No"})`;
 }
 
-// Ancho de columna aproximado según el contenido más largo de cada hoja (mismo
-// criterio que inferExportColumnWidths de Asistencia.tsx, sin compartir módulo).
-function inferColumnWidths(rows: Record<string, unknown>[]) {
-  const headers = Array.from(rows.reduce<Set<string>>((set, row) => {
-    Object.keys(row).forEach((key) => set.add(key));
-    return set;
-  }, new Set()));
-  if (headers.length === 0) return [18];
-  return headers.map((header) => {
-    const maxContent = rows.reduce((max, row) => Math.max(max, String(row[header] ?? "").length), header.length);
-    return Math.min(Math.max(maxContent + 3, 12), 46);
-  });
+function formatCosteHora(costeHora: number | null): string {
+  return costeHora == null ? "—" : `${formatNumber(costeHora, 2)} €/h`;
 }
 
-function exportarPlantilla(
+// Columnas de la plantilla de trabajadores (spec §9 de docs/EXPORT_TEMPLATES_SPEC.md).
+// El DNI se exporta TAL CUAL por ahora (sin enmascarar): el spec pide
+// enmascararlo por defecto, pero esa parte se aborda en una fase posterior.
+const COLUMNAS_PLANTILLA: ColumnaTabla[] = [
+  { header: "Nombre", key: "nombre", width: 26 },
+  { header: "Puesto/Zona", key: "zona", width: 20 },
+  { header: "Categoría", key: "categoria", width: 22 },
+  { header: "DNI", key: "dni", width: 14 },
+  { header: "Email", key: "email", width: 28 },
+  { header: "Teléfono", key: "telefono", width: 16 },
+  { header: "Fecha alta", key: "fechaAlta", width: 14, align: "center" },
+  { header: "Antigüedad", key: "antiguedad", width: 20 },
+  { header: "Estado", key: "estado", width: 20 },
+  { header: "Vacaciones/año", key: "vacaciones", numFmt: FMT_INT, align: "right", width: 15 },
+  { header: "Coste/hora", key: "costeHora", numFmt: FMT_EUR, align: "right", width: 14 },
+  { header: "Computa kg/persona", key: "computaKg", width: 20 },
+];
+
+async function exportarPlantilla(
   trabajadores: TrabajadorPlantillaRow[],
   bajaAbiertaPorTrabajador: Map<string, BajaAbiertaRow>,
 ) {
   try {
-    const workbook = createWorkbook("Lasarte SAT - Plantilla de trabajadores", "Listado completo de trabajadores");
-    const rows = [...trabajadores]
+    const filas = [...trabajadores]
       .sort((a, b) => (a.zona ?? "").localeCompare(b.zona ?? "", "es") || a.nombre.localeCompare(b.nombre, "es"))
       .map((t) => ({
-        Nombre: t.nombre,
-        "Puesto / Zona": t.zona ?? "",
-        "Categoría profesional": t.categoria_profesional ?? "",
-        DNI: t.dni ?? "",
-        Email: t.email ?? "",
-        Teléfono: t.telefono ?? "",
-        "Fecha de alta": t.fecha_alta ? formatDate(t.fecha_alta) : "",
-        Antigüedad: antiguedadTexto(t.fecha_alta),
-        Estado: situacionTexto(t, bajaAbiertaPorTrabajador.get(t.id)),
-        "Vacaciones/año": t.vacaciones_dias_anuales,
-        "Computa kg/persona": computaKgPersonaTexto(t),
+        nombre: t.nombre,
+        zona: t.zona ?? "",
+        categoria: t.categoria_profesional ?? "",
+        dni: t.dni ?? "",
+        email: t.email ?? "",
+        telefono: t.telefono ?? "",
+        fechaAlta: t.fecha_alta ? formatDate(t.fecha_alta) : "",
+        antiguedad: antiguedadTexto(t.fecha_alta),
+        estado: situacionTexto(t, bajaAbiertaPorTrabajador.get(t.id)),
+        vacaciones: t.vacaciones_dias_anuales,
+        costeHora: t.coste_hora,
+        computaKg: computaKgPersonaTexto(t),
       }));
-    appendRowsSheet(workbook, "Trabajadores", rows, inferColumnWidths(rows), { freezeHeader: true });
-    saveWorkbook(workbook, `Lasarte_Plantilla_${today()}.xlsx`);
+
+    const ctx = crearLibroLasarte({
+      titulo: "Plantilla de trabajadores",
+      clasificacion: "RRHH",
+      filtros: "Todos los trabajadores (activos e inactivos)",
+    });
+    añadirHojaTabla(ctx, { nombreHoja: "Trabajadores", columnas: COLUMNAS_PLANTILLA, filas });
+    await descargarLibro(ctx, `Lasarte_Plantilla_${today()}.xlsx`);
     toast({ title: "Plantilla descargada" });
   } catch (err) {
     toast({ title: "Error al exportar la plantilla", description: errorMessage(err), variant: "destructive" });
@@ -181,8 +200,9 @@ function exportarPlantilla(
 
 export default function RrhhPersonas() {
   const {
-    trabajadores, bajaAbiertaPorTrabajador, isLoading, error,
+    trabajadores, grupos, bajaAbiertaPorTrabajador, isLoading, error,
     updateFicha, altaTrabajador, setActivo, darDeBaja, darDeAlta,
+    renombrarGrupo, borrarGrupo,
   } = useRrhhPlantilla();
   const [search, setSearch] = useState("");
   const [mostrarInactivos, setMostrarInactivos] = useState(true);
@@ -319,6 +339,7 @@ export default function RrhhPersonas() {
                     <TableHead>Fecha de alta</TableHead>
                     <TableHead>Antigüedad</TableHead>
                     <TableHead>Kg/persona</TableHead>
+                    <TableHead>Coste/hora</TableHead>
                     <TableHead>Situación</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
@@ -354,6 +375,7 @@ export default function RrhhPersonas() {
                           </Badge>
                         )}
                       </TableCell>
+                      <TableCell className="tabular-nums text-muted-foreground">{formatCosteHora(t.coste_hora)}</TableCell>
                       <TableCell>
                         {(() => {
                           const baja = bajaAbiertaPorTrabajador.get(t.id);
@@ -414,6 +436,8 @@ export default function RrhhPersonas() {
           )}
         </CardContent>
       </Card>
+
+      <GruposPuestosCard grupos={grupos} renombrarGrupo={renombrarGrupo} borrarGrupo={borrarGrupo} />
 
       <ZonasDatalist zonas={zonasSugeridas} />
 
@@ -481,6 +505,143 @@ function ZonasDatalist({ zonas }: { zonas: string[] }) {
   );
 }
 
+// ─── Grupos y puestos (gestión de zonas de la plantilla) ───────────────────
+// Antes vivía en Asistencia.tsx (renameGrupo/deleteGrupo); el dueño pidió que
+// toda la gestión de grupos/puestos viva aquí en Plantilla, no en asistencia
+// diaria. Renombrar/borrar actúa sobre la columna zona de todos los
+// trabajadores que la tengan asignada.
+
+function GruposPuestosCard({
+  grupos,
+  renombrarGrupo,
+  borrarGrupo,
+}: {
+  grupos: string[];
+  renombrarGrupo: ReturnType<typeof useRrhhPlantilla>["renombrarGrupo"];
+  borrarGrupo: ReturnType<typeof useRrhhPlantilla>["borrarGrupo"];
+}) {
+  const [editingGrupo, setEditingGrupo] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState("");
+
+  function startEditing(grupo: string) {
+    setEditingGrupo(grupo);
+    setEditingValue(grupo);
+  }
+
+  function cancelEditing() {
+    setEditingGrupo(null);
+    setEditingValue("");
+  }
+
+  async function handleRename(actual: string) {
+    const nuevo = editingValue.trim();
+    if (!nuevo) return;
+    try {
+      await renombrarGrupo.mutateAsync({ actual, nuevo });
+      toast({ title: "Grupo renombrado", description: nuevo });
+      cancelEditing();
+    } catch (err) {
+      toast({ title: "Error al renombrar", description: errorMessage(err), variant: "destructive" });
+    }
+  }
+
+  async function handleDelete(grupo: string) {
+    if (typeof window !== "undefined" && !window.confirm(`¿Borrar el grupo "${grupo}"? Los trabajadores de este grupo quedarán sin grupo asignado.`)) {
+      return;
+    }
+    try {
+      await borrarGrupo.mutateAsync({ grupo });
+      toast({ title: "Grupo borrado", description: grupo });
+    } catch (err) {
+      toast({ title: "Error al borrar", description: errorMessage(err), variant: "destructive" });
+    }
+  }
+
+  return (
+    <Card className="glass-accented">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Layers className="h-4 w-4 text-primary" /> Grupos y puestos
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Renombra o borra las zonas/grupos existentes en la plantilla. El cambio se aplica a todos los trabajadores de ese grupo.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {grupos.length === 0 ? (
+          <p className="py-4 text-center text-sm text-muted-foreground">Todavía no hay grupos asignados a ningún trabajador.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {grupos.map((grupo) => (
+              <div
+                key={grupo}
+                className="flex items-center gap-1.5 rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg)] py-1 pl-3 pr-1.5"
+              >
+                {editingGrupo === grupo ? (
+                  <>
+                    <Input
+                      value={editingValue}
+                      onChange={(e) => setEditingValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void handleRename(grupo);
+                        if (e.key === "Escape") cancelEditing();
+                      }}
+                      className="h-8 w-40 bg-background/80 text-sm"
+                      autoFocus
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-success hover:text-success"
+                      onClick={() => void handleRename(grupo)}
+                      title="Guardar"
+                      disabled={renombrarGrupo.isPending}
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground"
+                      onClick={cancelEditing}
+                      title="Cancelar"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-sm font-medium">{grupo}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-primary"
+                      onClick={() => startEditing(grupo)}
+                      title={`Editar ${grupo}`}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => void handleDelete(grupo)}
+                      title={`Borrar ${grupo}`}
+                      disabled={borrarGrupo.isPending}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Dialog de edición de ficha (gestión rápida completa) ──────────────────
 
 type ComputaKgPersonaOpcion = "auto" | "si" | "no";
@@ -495,6 +656,7 @@ interface TrabajadorFormPatch {
   email: string | null;
   telefono: string | null;
   dni: string | null;
+  coste_hora: number | null;
 }
 
 function EditarTrabajadorDialog({
@@ -517,6 +679,7 @@ function EditarTrabajadorDialog({
   const [email, setEmail] = useState("");
   const [telefono, setTelefono] = useState("");
   const [dni, setDni] = useState("");
+  const [costeHora, setCosteHora] = useState("");
 
   // Reinicia el formulario cada vez que cambia el trabajador a editar.
   const trabajadorId = trabajador?.id ?? null;
@@ -534,6 +697,7 @@ function EditarTrabajadorDialog({
     setEmail(trabajador?.email ?? "");
     setTelefono(trabajador?.telefono ?? "");
     setDni(trabajador?.dni ?? "");
+    setCosteHora(trabajador?.coste_hora != null ? String(trabajador.coste_hora) : "");
   }
 
   const nombreValido = nombre.trim().length > 0;
@@ -610,6 +774,22 @@ function EditarTrabajadorDialog({
               <Input id="rrhh-telefono" type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} placeholder="600 000 000" />
             </div>
           </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-coste-hora" className="flex items-center gap-1.5">
+                <Euro className="h-3.5 w-3.5 text-muted-foreground" /> Coste por hora (€)
+              </Label>
+              <Input
+                id="rrhh-coste-hora"
+                type="number"
+                min={0}
+                step="0.01"
+                value={costeHora}
+                onChange={(e) => setCosteHora(e.target.value)}
+                placeholder="Sin coste"
+              />
+            </div>
+          </div>
           <div className="space-y-1.5">
             <Label htmlFor="rrhh-computa-kg">Computa en kg/persona</Label>
             <Select value={computaOpcion} onValueChange={(v) => setComputaOpcion(v as ComputaKgPersonaOpcion)}>
@@ -642,6 +822,7 @@ function EditarTrabajadorDialog({
               email: email.trim() || null,
               telefono: telefono.trim() || null,
               dni: dni.trim() || null,
+              coste_hora: costeHora.trim() === "" ? null : Number(costeHora),
             })}
             disabled={saving || !nombreValido}
           >
@@ -673,6 +854,7 @@ function AltaTrabajadorDialog({
     email?: string | null;
     telefono?: string | null;
     dni?: string | null;
+    coste_hora?: number | null;
   }) => void;
   saving: boolean;
 }) {
@@ -684,6 +866,7 @@ function AltaTrabajadorDialog({
   const [email, setEmail] = useState("");
   const [telefono, setTelefono] = useState("");
   const [dni, setDni] = useState("");
+  const [costeHora, setCosteHora] = useState("");
 
   function resetForm() {
     setNombre("");
@@ -694,6 +877,7 @@ function AltaTrabajadorDialog({
     setEmail("");
     setTelefono("");
     setDni("");
+    setCosteHora("");
   }
 
   function handleOpenChange(next: boolean) {
@@ -759,17 +943,32 @@ function AltaTrabajadorDialog({
               <Input id="rrhh-alta-telefono" type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} placeholder="600 000 000" />
             </div>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="rrhh-alta-vacaciones">Días de vacaciones anuales</Label>
-            <Input
-              id="rrhh-alta-vacaciones"
-              type="number"
-              min={0}
-              max={60}
-              value={vacaciones}
-              onChange={(e) => setVacaciones(e.target.value)}
-              className="max-w-[10rem]"
-            />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-alta-vacaciones">Días de vacaciones anuales</Label>
+              <Input
+                id="rrhh-alta-vacaciones"
+                type="number"
+                min={0}
+                max={60}
+                value={vacaciones}
+                onChange={(e) => setVacaciones(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rrhh-alta-coste-hora" className="flex items-center gap-1.5">
+                <Euro className="h-3.5 w-3.5 text-muted-foreground" /> Coste por hora (€)
+              </Label>
+              <Input
+                id="rrhh-alta-coste-hora"
+                type="number"
+                min={0}
+                step="0.01"
+                value={costeHora}
+                onChange={(e) => setCosteHora(e.target.value)}
+                placeholder="Sin coste"
+              />
+            </div>
           </div>
         </div>
         <DialogFooter>
@@ -785,6 +984,7 @@ function AltaTrabajadorDialog({
               email: email.trim() || null,
               telefono: telefono.trim() || null,
               dni: dni.trim() || null,
+              coste_hora: costeHora.trim() === "" ? null : Number(costeHora),
             })}
             disabled={saving || !nombreValido || !zonaValida}
           >

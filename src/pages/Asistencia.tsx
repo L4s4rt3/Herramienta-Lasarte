@@ -5,15 +5,11 @@ import { useAuth } from "@/contexts/AuthProvider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -23,9 +19,9 @@ import {
 import { Calendar as DatePickerCalendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Plus, Trash2, Upload, ChevronLeft, ChevronRight, UserCheck, UserX,
+  Plus, Upload, ChevronLeft, ChevronRight, UserCheck, UserX,
   Users, Calendar as CalendarIcon, CalendarDays, Search, Eraser,
-  CheckCircle2, PackageCheck, FileText, Download, ChevronDown, Pencil, X,
+  PackageCheck, FileText, Download, ChevronDown, X,
   ShieldOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -46,7 +42,6 @@ import {
   RENDIMIENTO_GRUPOS,
 } from "@/lib/asistenciaRendimiento";
 import {
-  enumerateIsoDateRange,
   previousIsoDate,
   shouldApplyBajaLaboralToDate,
 } from "@/lib/asistenciaBajasLaborales";
@@ -57,19 +52,14 @@ import {
 } from "@/lib/asistenciaComparativa";
 import { exportEficienciaToExcel, exportEficienciaToPDF } from "@/lib/exportEficiencia";
 import {
-  addAsistenciaGroup,
   ASISTENCIA_GROUPS_STORAGE_KEY,
   DEFAULT_ASISTENCIA_GRUPOS,
-  removeAsistenciaGroup,
-  renameAsistenciaGroup,
   sanitizeAsistenciaGroups,
   SIN_GRUPO_LABEL,
 } from "@/lib/asistenciaGrupos";
 import {
   aplicarZonasOperativasTrabajadores,
-  darBajaTrabajadorPreservandoHistorial,
   resolveTrabajadoresPorLista,
-  resolveTrabajadoresPorNombre,
   type TrabajadorNoResuelto,
 } from "@/lib/asistenciaTrabajadores";
 import { useTrabajadoresAlias } from "@/hooks/useTrabajadoresAlias";
@@ -105,14 +95,6 @@ const RENDIMIENTO_GROUP_LABELS: Record<string, string> = {
   Mallas: "Mallas",
   Graneleras: "Graneleras",
 };
-const DEFAULT_BAJA_LABORAL_NAMES = [
-  "Anais Castells Sanchez",
-  "Lucia Ferrero Martinez",
-  "Monserrat Garcia Alcazar",
-  "Cristobalina Pigner Garcia",
-  "Cristobalina Reyes Cadiz",
-].join("\n");
-
 function formatoEntero(value: number) {
   return new Intl.NumberFormat("es-ES").format(Math.round(value));
 }
@@ -434,27 +416,14 @@ export default function Asistencia() {
   const [asistencia, setAsistencia] = useState<Record<string, boolean>>({});
   const [asistenciaMotivos, setAsistenciaMotivos] = useState<Record<string, string | null>>({});
   const [bajasLaborales, setBajasLaborales] = useState<AsistenciaBajaLaboralRow[]>([]);
-  const [loadingTrabajadores, setLoadingTrabajadores] = useState(true);
   const [loadingAsistencia, setLoadingAsistencia] = useState(false);
-  const [newWorkerName, setNewWorkerName] = useState("");
-  const [newWorkerZona, setNewWorkerZona] = useState("");
-  const [grupos, setGrupos] = useState<string[]>(loadStoredGrupos);
-  const [newGroupName, setNewGroupName] = useState("");
-  const [editingGroupName, setEditingGroupName] = useState<string | null>(null);
-  const [editingGroupValue, setEditingGroupValue] = useState("");
-  const [editingWorkerId, setEditingWorkerId] = useState<string | null>(null);
-  const [editingWorkerName, setEditingWorkerName] = useState("");
-  const [showWorkerList, setShowWorkerList] = useState(false);
+  const [grupos] = useState<string[]>(loadStoredGrupos);
   const [importingMode, setImportingMode] = useState<"daily" | "weekly" | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [workerFilter, setWorkerFilter] = useState<WorkerFilter>("todos");
   const [selectedGroup, setSelectedGroup] = useState("todos");
   const [parteDelDia, setParteDelDia] = useState<ParteDiarioRendimiento | null>(null);
   const [exportingAsistencia, setExportingAsistencia] = useState<"excel" | "pdf" | "lista" | "parte" | null>(null);
-  const [bajaLaboralNamesInput, setBajaLaboralNamesInput] = useState(DEFAULT_BAJA_LABORAL_NAMES);
-  const [bajaLaboralStartDate, setBajaLaboralStartDate] = useState(today());
-  const [bajaLaboralEndDate, setBajaLaboralEndDate] = useState("");
-  const [applyingBajaLaboral, setApplyingBajaLaboral] = useState(false);
   const [viewMode, setViewMode] = useState<"daily" | "weekly">("daily");
   const [weekStart, setWeekStart] = useState(() => getWeekDates(today())[0]);
   const [semanaData, setSemanaData] = useState<SemanaDataRaw | null>(null);
@@ -474,7 +443,6 @@ export default function Asistencia() {
   // ─── Load trabajadores ──────────────────────────────────────────────────
 
   async function loadTrabajadores() {
-    setLoadingTrabajadores(true);
     const { data, error } = await supabase
       .from("trabajadores")
       .select("*")
@@ -484,7 +452,6 @@ export default function Asistencia() {
     } else {
       setTrabajadores(aplicarZonasOperativasTrabajadores(data ?? []));
     }
-    setLoadingTrabajadores(false);
   }
 
   // ─── Load asistencia for date ──────────────────────────────────────────
@@ -836,121 +803,6 @@ export default function Asistencia() {
     }
   }, [grupos]);
 
-  // ─── Worker CRUD ───────────────────────────────────────────────────────
-
-  async function addTrabajador() {
-    if (!user || !newWorkerName.trim()) return;
-    const { error } = await supabase.from("trabajadores").insert({
-      user_id: user.id,
-      nombre: newWorkerName.trim(),
-      zona: newWorkerZona || null,
-    });
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      return;
-    }
-    setNewWorkerName("");
-    setNewWorkerZona("");
-    loadTrabajadores();
-  }
-
-  async function toggleTrabajadorActivo(t: TrabajadorRow) {
-    const { error } = await supabase
-      .from("trabajadores")
-      .update({ activo: !t.activo })
-      .eq("id", t.id);
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      return;
-    }
-    setTrabajadores((prev) =>
-      prev.map((x) => (x.id === t.id ? { ...x, activo: !x.activo } : x))
-    );
-  }
-
-  async function deleteTrabajador(id: string) {
-    const trabajador = trabajadores.find((item) => item.id === id);
-    if (trabajador && !trabajador.activo) return;
-
-    const { error } = await supabase
-      .from("trabajadores")
-      .update({ activo: false })
-      .eq("id", id);
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      return;
-    }
-    setTrabajadores((prev) => darBajaTrabajadorPreservandoHistorial(prev, id));
-    toast({ title: "Trabajador dado de baja", description: "Se conserva su asistencia histórica." });
-  }
-
-  async function aplicarBajaLaboralPorNombre() {
-    if (!user) return;
-
-    const fechaInicio = bajaLaboralStartDate || selectedDate;
-    const fechaFin = bajaLaboralEndDate || null;
-    if (fechaFin && fechaFin < fechaInicio) {
-      toast({ title: "Fechas no validas", description: "La fecha fin no puede ser anterior al inicio.", variant: "destructive" });
-      return;
-    }
-
-    const preview = resolveTrabajadoresPorNombre(trabajadores, bajaLaboralNamesInput);
-    const ids = preview.matches.map((match) => match.trabajador.id);
-    if (ids.length === 0) {
-      toast({
-        title: "Sin ausencias para aplicar",
-        description: preview.inputs.length === 0 ? "Pega al menos un nombre." : "No hay coincidencias activas en la lista.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setApplyingBajaLaboral(true);
-    const periodRows = ids.map((id) => ({
-      user_id: user.id,
-      trabajador_id: id,
-      fecha_inicio: fechaInicio,
-      fecha_fin: fechaFin,
-      motivo: BAJA_LABORAL_MOTIVO,
-    }));
-    const { error: periodError } = await supabase
-      .from("asistencia_bajas_laborales")
-      .insert(periodRows);
-
-    if (periodError) {
-      setApplyingBajaLaboral(false);
-      toast({ title: "Error", description: periodError.message, variant: "destructive" });
-      return;
-    }
-
-    const attendanceEnd = fechaFin ?? (selectedDate >= fechaInicio ? selectedDate : fechaInicio);
-    const dates = enumerateIsoDateRange(fechaInicio, attendanceEnd);
-    const records = ids.flatMap((id) => dates.map((date) => ({
-      user_id: user.id,
-      date,
-      trabajador_id: id,
-      presente: false,
-      motivo_ausencia: BAJA_LABORAL_MOTIVO,
-    })));
-    const { error } = await supabase
-      .from("asistencia_detalle")
-      .upsert(records, { onConflict: "date,trabajador_id" });
-    setApplyingBajaLaboral(false);
-
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      return;
-    }
-
-    await loadAsistencia(selectedDate);
-    toast({
-      title: `${ids.length} baja(s) laboral(es) registrada(s)`,
-      description: preview.missing.length > 0
-        ? `No encontrados: ${preview.missing.slice(0, 3).join(", ")}${preview.missing.length > 3 ? "..." : ""}`
-        : fechaFin ? `${fechaInicio} a ${fechaFin}.` : `Desde ${fechaInicio}, sin fecha fin.`,
-    });
-  }
-
   // ─── Nombres sin asignar (importaciones Excel) ─────────────────────────
   // Principio: ningun nombre se pierde en silencio. Vincular guarda el alias
   // para siempre (proximas importaciones ya lo resuelven solas) y aplica la
@@ -1015,149 +867,6 @@ export default function Asistencia() {
     } finally {
       setVinculandoNombre(null);
     }
-  }
-
-  function startEditingTrabajador(trabajador: TrabajadorRow) {
-    setEditingWorkerId(trabajador.id);
-    setEditingWorkerName(trabajador.nombre);
-  }
-
-  function cancelEditingTrabajador() {
-    setEditingWorkerId(null);
-    setEditingWorkerName("");
-  }
-
-  async function updateTrabajadorNombre(trabajador: TrabajadorRow) {
-    const nextName = editingWorkerName.trim().replace(/\s+/g, " ");
-    if (!nextName) return;
-
-    const { error } = await supabase
-      .from("trabajadores")
-      .update({ nombre: nextName })
-      .eq("id", trabajador.id);
-
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      return;
-    }
-
-    setTrabajadores((prev) =>
-      prev.map((item) => (item.id === trabajador.id ? { ...item, nombre: nextName } : item))
-    );
-    cancelEditingTrabajador();
-    toast({ title: "Nombre actualizado", description: nextName });
-  }
-
-  function addGrupo() {
-    const sanitizedGroup = sanitizeAsistenciaGroups([newGroupName])[0];
-    if (!sanitizedGroup) return;
-
-    const nextGroups = addAsistenciaGroup(grupos, sanitizedGroup);
-    if (nextGroups.length === grupos.length) {
-      toast({ title: "Grupo ya existe", description: sanitizedGroup });
-      setNewGroupName("");
-      return;
-    }
-
-    setGrupos(nextGroups);
-    setNewGroupName("");
-    setNewWorkerZona(sanitizedGroup);
-    toast({ title: "Grupo añadido", description: sanitizedGroup });
-  }
-
-  function startEditingGrupo(grupo: string) {
-    setEditingGroupName(grupo);
-    setEditingGroupValue(grupo);
-  }
-
-  function cancelEditingGrupo() {
-    setEditingGroupName(null);
-    setEditingGroupValue("");
-  }
-
-  async function renameGrupo(grupo: string) {
-    if (!user) return;
-
-    const sanitizedGroup = sanitizeAsistenciaGroups([editingGroupValue])[0];
-    if (!sanitizedGroup) return;
-
-    const nextGroups = renameAsistenciaGroup(gruposDisponibles, grupo, sanitizedGroup);
-    if (JSON.stringify(nextGroups) === JSON.stringify(gruposDisponibles) && sanitizedGroup !== grupo) {
-      toast({ title: "No se pudo renombrar", description: "Revisa que el nombre no exista ya.", variant: "destructive" });
-      return;
-    }
-
-    // Dataset compartido: se actualizan todos los trabajadores del grupo,
-    // sin filtrar por user_id (RLS permite el update a owner/admin/rrhh).
-    const { error } = await supabase
-      .from("trabajadores")
-      .update({ zona: sanitizedGroup })
-      .eq("zona", grupo);
-
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      return;
-    }
-
-    setTrabajadores((prev) =>
-      prev.map((trabajador) => (trabajador.zona === grupo ? { ...trabajador, zona: sanitizedGroup } : trabajador))
-    );
-    setGrupos(nextGroups);
-    if (selectedGroup === grupo) setSelectedGroup(sanitizedGroup);
-    if (newWorkerZona === grupo) setNewWorkerZona(sanitizedGroup);
-    cancelEditingGrupo();
-    toast({ title: "Grupo renombrado", description: sanitizedGroup });
-  }
-
-  async function deleteGrupo(grupo: string) {
-    if (!user) return;
-
-    const trabajadoresEnGrupo = trabajadores.filter((trabajador) => trabajador.zona === grupo);
-    const shouldDelete =
-      trabajadoresEnGrupo.length === 0 ||
-      typeof window === "undefined" ||
-      window.confirm(`Borrar "${grupo}" y dejar ${trabajadoresEnGrupo.length} trabajador(es) sin grupo?`);
-
-    if (!shouldDelete) return;
-
-    if (trabajadoresEnGrupo.length > 0) {
-      // Dataset compartido: se actualizan todos los trabajadores del grupo,
-      // sin filtrar por user_id (RLS permite el update a owner/admin/rrhh).
-      const { error } = await supabase
-        .from("trabajadores")
-        .update({ zona: null })
-        .eq("zona", grupo);
-
-      if (error) {
-        toast({ title: "Error", description: error.message, variant: "destructive" });
-        return;
-      }
-    }
-
-    setTrabajadores((prev) =>
-      prev.map((trabajador) => (trabajador.zona === grupo ? { ...trabajador, zona: null } : trabajador))
-    );
-    setGrupos((prev) => removeAsistenciaGroup(prev, grupo));
-    if (selectedGroup === grupo) setSelectedGroup("todos");
-    if (newWorkerZona === grupo) setNewWorkerZona("");
-    toast({ title: "Grupo borrado", description: grupo });
-  }
-
-  async function updateTrabajadorZona(trabajador: TrabajadorRow, zona: string) {
-    const nextZona = zona || null;
-    const { error } = await supabase
-      .from("trabajadores")
-      .update({ zona: nextZona })
-      .eq("id", trabajador.id);
-
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      return;
-    }
-
-    setTrabajadores((prev) =>
-      prev.map((item) => (item.id === trabajador.id ? { ...item, zona: nextZona } : item))
-    );
   }
 
   // ─── Asistencia CRUD ──────────────────────────────────────────────────
@@ -1478,10 +1187,6 @@ export default function Asistencia() {
     return ordered;
   }, [gruposDisponibles]);
   const activos = useMemo(() => trabajadores.filter((t) => t.activo), [trabajadores]);
-  const bajaLaboralPreview = useMemo(
-    () => resolveTrabajadoresPorNombre(trabajadores, bajaLaboralNamesInput),
-    [trabajadores, bajaLaboralNamesInput],
-  );
   const totalActivos = activos.length;
   const presentesCount = activos.filter((t) => asistencia[t.id] === true).length;
   const sinRegistro = activos.filter((t) => asistencia[t.id] === undefined).length;
@@ -1934,461 +1639,6 @@ export default function Asistencia() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Dialog open={showWorkerList} onOpenChange={setShowWorkerList}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm" className="glass glass-hover">
-                <Users className="h-4 w-4 mr-1" /> Gestionar
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Lista de trabajadores</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                {/*
-                <div>
-                  <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-bold text-foreground">Grupos</p>
-                      <p className="text-xs text-muted-foreground">{gruposDisponibles.length} grupos disponibles</p>
-                    </div>
-                    <Badge variant="secondary" className="rounded-full">
-                      {trabajadores.length} trabajadores
-                    </Badge>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Input
-                      placeholder="Nuevo grupo"
-                      value={newGroupName}
-                      onChange={(e) => setNewGroupName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && addGrupo()}
-                      className="h-10 min-w-[190px] flex-1"
-                    />
-                    <Button
-                      type="button"
-                      onClick={addGrupo}
-                      disabled={sanitizeAsistenciaGroups([newGroupName]).length === 0}
-                      className="h-10 glass glass-hover"
-                    >
-                      <Plus className="mr-1 h-4 w-4" /> Añadir grupo
-                    </Button>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {gruposDisponibles.map((grupo) => {
-                      const totalGrupo = trabajadores.filter((trabajador) => trabajador.zona === grupo).length;
-                      return (
-                        <div
-                          key={grupo}
-                          className="flex items-center gap-2 rounded-full border border-[var(--glass-border)] bg-background/55 py-1 pl-3 pr-1 text-sm shadow-sm"
-                        >
-                          {editingGroupName === grupo ? (
-                            <>
-                              <Input
-                                value={editingGroupValue}
-                                onChange={(e) => setEditingGroupValue(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") void renameGrupo(grupo);
-                                  if (e.key === "Escape") cancelEditingGrupo();
-                                }}
-                                className="h-8 w-44 rounded-full bg-background/80 px-3 text-sm"
-                                autoFocus
-                              />
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 rounded-full text-emerald-700"
-                                onClick={() => void renameGrupo(grupo)}
-                                title={`Guardar ${grupo}`}
-                              >
-                                <CheckCircle2 className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 rounded-full text-muted-foreground"
-                                onClick={cancelEditingGrupo}
-                                title="Cancelar"
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </Button>
-                            </>
-                          ) : (
-                            <>
-                              <span className="font-semibold">{grupo}</span>
-                              <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{totalGrupo}</span>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 rounded-full text-muted-foreground hover:text-primary"
-                                onClick={() => startEditingGrupo(grupo)}
-                                title={`Editar ${grupo}`}
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
-                                onClick={() => void deleteGrupo(grupo)}
-                                title={`Borrar ${grupo}`}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-                */}
-                <div className="flex flex-wrap items-end gap-3">
-                  <div className="flex-1 min-w-[200px]">
-                    <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Nombre</label>
-                    <Input
-                      placeholder="Nuevo trabajador"
-                      value={newWorkerName}
-                      onChange={(e) => setNewWorkerName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && addTrabajador()}
-                      className="h-10"
-                    />
-                  </div>
-                  <div className="w-44">
-                    <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Grupo</label>
-                    <Select
-                      value={newWorkerZona || "__none__"}
-                      onValueChange={(v) => setNewWorkerZona(v === "__none__" ? "" : v)}
-                    >
-                      <SelectTrigger className="h-10">
-                        <SelectValue placeholder="Sin grupo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Sin grupo</SelectItem>
-                        {gruposDisponibles.map((z) => (
-                          <SelectItem key={z} value={z}>{z}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button type="button" variant="outline" className="h-10 gap-2 glass glass-hover">
-                        <Users className="h-4 w-4" />
-                        Grupos
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[380px] rounded-2xl border-[var(--glass-border)] bg-background/95 p-3 shadow-[var(--glass-shadow)] backdrop-blur-xl" align="end">
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-bold text-foreground">Grupos</p>
-                            <p className="text-xs text-muted-foreground">{gruposDisponibles.length} activos</p>
-                          </div>
-                          <Badge variant="secondary" className="rounded-full">{trabajadores.length}</Badge>
-                        </div>
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="Nuevo grupo"
-                            value={newGroupName}
-                            onChange={(e) => setNewGroupName(e.target.value)}
-                            onKeyDown={(e) => e.key === "Enter" && addGrupo()}
-                            className="h-9"
-                          />
-                          <Button
-                            type="button"
-                            size="icon"
-                            onClick={addGrupo}
-                            disabled={sanitizeAsistenciaGroups([newGroupName]).length === 0}
-                            className="h-9 w-9 shrink-0 glass glass-hover"
-                            title="Añadir grupo"
-                          >
-                            <Plus className="h-4 w-4" />
-                          </Button>
-                        </div>
-                        <div className="max-h-[320px] space-y-1 overflow-y-auto pr-1">
-                          {gruposDisponibles.map((grupo) => {
-                            const totalGrupo = trabajadores.filter((trabajador) => trabajador.zona === grupo).length;
-                            return (
-                              <div
-                                key={grupo}
-                                className="flex min-h-10 items-center gap-2 rounded-xl border border-transparent px-2 py-1.5 hover:border-[var(--glass-border)] hover:bg-muted/45"
-                              >
-                                {editingGroupName === grupo ? (
-                                  <>
-                                    <Input
-                                      value={editingGroupValue}
-                                      onChange={(e) => setEditingGroupValue(e.target.value)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter") void renameGrupo(grupo);
-                                        if (e.key === "Escape") cancelEditingGrupo();
-                                      }}
-                                      className="h-8 min-w-0 flex-1 bg-background/80 text-sm"
-                                      autoFocus
-                                    />
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 shrink-0 text-emerald-700"
-                                      onClick={() => void renameGrupo(grupo)}
-                                      title={`Guardar ${grupo}`}
-                                    >
-                                      <CheckCircle2 className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 shrink-0 text-muted-foreground"
-                                      onClick={cancelEditingGrupo}
-                                      title="Cancelar"
-                                    >
-                                      <X className="h-4 w-4" />
-                                    </Button>
-                                  </>
-                                ) : (
-                                  <>
-                                    <span className="min-w-0 flex-1 truncate text-sm font-semibold">{grupo}</span>
-                                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{totalGrupo}</span>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
-                                      onClick={() => startEditingGrupo(grupo)}
-                                      title={`Editar ${grupo}`}
-                                    >
-                                      <Pencil className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                                      onClick={() => void deleteGrupo(grupo)}
-                                      title={`Borrar ${grupo}`}
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                  <Button onClick={addTrabajador} disabled={!newWorkerName.trim()} className="h-10 glass glass-hover">
-                    <Plus className="h-4 w-4 mr-1" /> Añadir
-                  </Button>
-                </div>
-                <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <div>
-                        <p className="text-sm font-semibold">Ausencias por baja laboral</p>
-                        <p className="text-xs text-muted-foreground">Define inicio y fin opcional. Si no hay fin, queda abierta hasta marcar presente.</p>
-                      </div>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <div>
-                          <p className="mb-1 text-xs font-medium text-muted-foreground">Desde</p>
-                          <Input
-                            type="date"
-                            value={bajaLaboralStartDate}
-                            onChange={(event) => setBajaLaboralStartDate(event.target.value)}
-                            className="h-9 bg-background/60"
-                          />
-                        </div>
-                        <div>
-                          <p className="mb-1 text-xs font-medium text-muted-foreground">Hasta</p>
-                          <Input
-                            type="date"
-                            value={bajaLaboralEndDate}
-                            onChange={(event) => setBajaLaboralEndDate(event.target.value)}
-                            className="h-9 bg-background/60"
-                            placeholder="Sin fecha fin"
-                          />
-                        </div>
-                      </div>
-                      <Textarea
-                        value={bajaLaboralNamesInput}
-                        onChange={(event) => setBajaLaboralNamesInput(event.target.value)}
-                        placeholder={"Anais Castells Sanchez\nLucia Ferrero Martinez"}
-                        className="min-h-[88px] bg-background/60"
-                      />
-                    </div>
-                    <div className="flex w-full flex-col gap-2 lg:w-56">
-                      <Button
-                        type="button"
-                        className="h-9"
-                        onClick={() => void aplicarBajaLaboralPorNombre()}
-                        disabled={applyingBajaLaboral || bajaLaboralPreview.matches.length === 0}
-                      >
-                        <UserX className="h-4 w-4" />
-                        {applyingBajaLaboral ? "Aplicando..." : "Marcar baja laboral"}
-                      </Button>
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <Badge variant="outline" className="justify-center rounded-md">
-                          {bajaLaboralPreview.matches.length} encontradas
-                        </Badge>
-                        <Badge variant="secondary" className="justify-center rounded-md">
-                          {bajaLaboralPreview.inactive.length} inactivas
-                        </Badge>
-                        <Badge variant={bajaLaboralPreview.missing.length > 0 ? "destructive" : "outline"} className="col-span-2 justify-center rounded-md">
-                          {bajaLaboralPreview.missing.length} sin encontrar
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                  {bajaLaboralPreview.missing.length > 0 ? (
-                    <p className="mt-2 text-xs text-destructive">
-                      Sin encontrar: {bajaLaboralPreview.missing.slice(0, 4).join(", ")}{bajaLaboralPreview.missing.length > 4 ? "..." : ""}
-                    </p>
-                  ) : null}
-                  {bajaLaboralPreview.ambiguous.length > 0 ? (
-                    <p className="mt-2 text-xs text-warning">
-                      Revisa duplicados: {bajaLaboralPreview.ambiguous.map((item) => item.input).join(", ")}
-                    </p>
-                  ) : null}
-                </div>
-                {loadingTrabajadores ? (
-                  <div className="space-y-2">
-                    {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10" />)}
-                  </div>
-                ) : (
-                  <div className="glass rounded-xl overflow-hidden">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="text-xs font-bold uppercase">Nombre</TableHead>
-                          <TableHead className="text-xs font-bold uppercase">Grupo</TableHead>
-                          <TableHead className="text-xs font-bold uppercase">Estado</TableHead>
-                          <TableHead className="w-24"></TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {trabajadores.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                              Añade trabajadores para comenzar
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          groupByZona(trabajadores).flatMap(({ grupo, workers }) => [
-                            <TableRow key={`h-${grupo}`} className="bg-[var(--glass-bg-strong)]">
-                              <TableCell colSpan={4} className="font-bold text-sm py-3">
-                                {grupo} <span className="text-muted-foreground font-normal">({workers.length})</span>
-                              </TableCell>
-                            </TableRow>,
-                            ...workers.map((t) => (
-                              <TableRow key={t.id} className={cn(!t.activo && "opacity-50")}>
-                                <TableCell className="min-w-[220px]">
-                                  {editingWorkerId === t.id ? (
-                                    <div className="flex items-center gap-1">
-                                      <Input
-                                        value={editingWorkerName}
-                                        onChange={(e) => setEditingWorkerName(e.target.value)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Enter") void updateTrabajadorNombre(t);
-                                          if (e.key === "Escape") cancelEditingTrabajador();
-                                        }}
-                                        className="h-9 min-w-[190px] bg-background/70 text-sm"
-                                        autoFocus
-                                      />
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 text-emerald-700"
-                                        onClick={() => void updateTrabajadorNombre(t)}
-                                        title="Guardar nombre"
-                                      >
-                                        <CheckCircle2 className="h-4 w-4" />
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 text-muted-foreground"
-                                        onClick={cancelEditingTrabajador}
-                                        title="Cancelar"
-                                      >
-                                        <X className="h-4 w-4" />
-                                      </Button>
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="font-semibold text-sm">{t.nombre}</span>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
-                                        onClick={() => startEditingTrabajador(t)}
-                                        title={`Editar ${t.nombre}`}
-                                      >
-                                        <Pencil className="h-4 w-4" />
-                                      </Button>
-                                    </div>
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  <Select
-                                    value={t.zona ?? "__none__"}
-                                    onValueChange={(value) => void updateTrabajadorZona(t, value === "__none__" ? "" : value)}
-                                  >
-                                    <SelectTrigger className="h-9 min-w-[160px] border-[var(--glass-border)] bg-background/60 text-sm">
-                                      <SelectValue placeholder="Sin grupo" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="__none__">Sin grupo</SelectItem>
-                                      {gruposDisponibles.map((z) => (
-                                        <SelectItem key={z} value={z}>{z}</SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </TableCell>
-                                <TableCell>
-                                  <Badge variant={t.activo ? "default" : "secondary"} className="text-xs">
-                                    {t.activo ? "Activo" : "Inactivo"}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex justify-end gap-1">
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-9 w-9"
-                                      onClick={() => toggleTrabajadorActivo(t)}
-                                      title={t.activo ? "Desactivar" : "Activar"}
-                                    >
-                                      {t.activo ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-9 w-9 text-destructive"
-                                      disabled={!t.activo}
-                                      onClick={() => deleteTrabajador(t.id)}
-                                      title="Quitar de la lista activa sin borrar historial"
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            )),
-                          ])
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </div>
-            </DialogContent>
-          </Dialog>
         </div>
       </div>
 
@@ -2561,7 +1811,7 @@ export default function Asistencia() {
                 <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
                   <Users className="h-10 w-10 mb-3 opacity-30" />
                   <p className="text-sm font-medium">Añade trabajadores activos</p>
-                  <p className="text-xs mt-1">Gestiona la lista desde el panel lateral</p>
+                  <p className="text-xs mt-1">Gestiona la plantilla desde RRHH → Plantilla</p>
                 </div>
               ) : (() => {
                 if (trabajadoresVisibles.length === 0) return (

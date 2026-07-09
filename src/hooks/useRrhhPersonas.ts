@@ -22,6 +22,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
+import { normalizeAsistenciaGroup, sanitizeAsistenciaGroups } from "@/lib/asistenciaGrupos";
 
 // Cast local: las tablas/columnas rrhh_* aun no estan en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
@@ -58,6 +59,8 @@ export interface TrabajadorPlantillaRow {
   email: string | null;
   telefono: string | null;
   dni: string | null;
+  /** Coste/hora (€) del trabajador, usado por el módulo económico de coste de personal. */
+  coste_hora: number | null;
   created_at: string;
 }
 
@@ -199,6 +202,13 @@ export function useRrhhPlantilla() {
 
   const trabajadores = useMemo(() => query.data ?? [], [query.data]);
 
+  // Grupos/zonas distintos presentes en la plantilla cargada (para la sección
+  // "Grupos y puestos" de Plantilla: renombrar/borrar zonas existentes).
+  const grupos = useMemo(() => {
+    const zonas = trabajadores.map((t) => t.zona).filter((z): z is string => Boolean(z && z.trim()));
+    return sanitizeAsistenciaGroups(zonas).sort((a, b) => a.localeCompare(b, "es"));
+  }, [trabajadores]);
+
   const bajaAbiertaPorTrabajador = useMemo(() => {
     const map = new Map<string, BajaAbiertaRow>();
     for (const b of bajasQuery.data ?? []) map.set(b.trabajador_id, b);
@@ -235,6 +245,7 @@ export function useRrhhPlantilla() {
       email?: string | null;
       telefono?: string | null;
       dni?: string | null;
+      coste_hora?: number | null;
     }) => {
       const { id, ...patch } = input;
       if (patch.nombre !== undefined) {
@@ -263,6 +274,7 @@ export function useRrhhPlantilla() {
       email?: string | null;
       telefono?: string | null;
       dni?: string | null;
+      coste_hora?: number | null;
     }) => {
       const nombre = input.nombre.trim();
       if (!nombre) throw new Error("El nombre no puede quedar vacío.");
@@ -282,6 +294,7 @@ export function useRrhhPlantilla() {
           email: input.email?.trim() || null,
           telefono: input.telefono?.trim() || null,
           dni: input.dni?.trim() || null,
+          coste_hora: input.coste_hora ?? null,
         });
         if (error) throw toError(error);
       });
@@ -322,8 +335,39 @@ export function useRrhhPlantilla() {
     onSuccess: invalidateAll,
   });
 
+  // ─── Grupos/puestos (zona de trabajadores) ──────────────────────────────
+  // Misma lógica que antes vivía en Asistencia.tsx (renameGrupo/deleteGrupo):
+  // el "grupo" es la columna zona de trabajadores, dataset compartido, sin
+  // filtrar por user_id (RLS permite el update a owner/admin/rrhh).
+
+  const renombrarGrupo = useMutation({
+    mutationFn: async (input: { actual: string; nuevo: string }) => {
+      const actual = normalizeAsistenciaGroup(input.actual);
+      if (!actual) throw new Error("El grupo actual no es válido.");
+      const nuevo = sanitizeAsistenciaGroups([input.nuevo])[0];
+      if (!nuevo) throw new Error("El nuevo nombre no puede quedar vacío.");
+      if (nuevo === actual) return;
+
+      const { error } = await SUPA.from("trabajadores").update({ zona: nuevo }).eq("zona", actual);
+      if (error) throw toError(error);
+    },
+    onSuccess: invalidateAll,
+  });
+
+  const borrarGrupo = useMutation({
+    mutationFn: async (input: { grupo: string }) => {
+      const grupo = normalizeAsistenciaGroup(input.grupo);
+      if (!grupo) throw new Error("El grupo no es válido.");
+
+      const { error } = await SUPA.from("trabajadores").update({ zona: null }).eq("zona", grupo);
+      if (error) throw toError(error);
+    },
+    onSuccess: invalidateAll,
+  });
+
   return {
     trabajadores,
+    grupos,
     bajaAbiertaPorTrabajador,
     isLoading: query.isLoading || bajasQuery.isLoading,
     error: query.error,
@@ -332,6 +376,8 @@ export function useRrhhPlantilla() {
     setActivo,
     darDeBaja,
     darDeAlta,
+    renombrarGrupo,
+    borrarGrupo,
   };
 }
 

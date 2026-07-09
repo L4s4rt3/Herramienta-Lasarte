@@ -1,22 +1,58 @@
 import type jsPDF from "jspdf";
 
+// Paleta alineada al sistema de diseño común LASARTE (docs/EXPORT_TEMPLATES_SPEC.md
+// §0.1). Se mantienen las MISMAS claves que antes (primary, primaryDark, forest,
+// cream, creamStrong, ...) para no romper a quien ya las usa (calidad.ts, cmrPdf.ts,
+// exportPartes.ts, exportConsumo.ts, exportEficiencia.ts, reportKit.ts) — solo
+// cambia el valor hex hacia el de la especificación, eligiendo el más afín al rol
+// que esa clave ya cumplía:
+//  - primary      -> Naranja acento  #F28C00 (avisos, KPIs destacados, variaciones;
+//                     ya se usaba como tono cálido de acento/aviso)
+//  - primaryDark  -> Azul principal  #253A70 (cabeceras, tablas, títulos destacados)
+//  - forest       -> Azul principal  #253A70 (banda de cabecera de módulos con
+//                     banda propia, p.ej. Calidad; unifica con el resto en azul)
+//  - cream        -> Gris fondo      #F7F8FA (filas alternas / zonas de lectura)
+//  - creamStrong  -> Azul claro fondo#EEF3FA (cajas de metadatos / resaltados)
+//  - success      -> Verde acento    #97C428 (indicadores positivos, separadores,
+//                     acentos — incluida la línea verde de la cabecera común)
+//  - destructive  -> Rojo alerta     #B42318 (incidencias, faltas, bloqueos)
+//  - warning/info -> se mantienen (no cubiertos por la paleta de marca del spec;
+//                     son tonos semánticos de estado, no de identidad corporativa)
 export const PDF_THEME = {
-  primary: [242, 107, 33] as [number, number, number],
-  primaryDark: [124, 68, 33] as [number, number, number],
-  forest: [32, 80, 57] as [number, number, number],
-  cream: [252, 248, 238] as [number, number, number],
-  creamStrong: [246, 235, 214] as [number, number, number],
+  primary: [242, 140, 0] as [number, number, number],
+  primaryDark: [37, 58, 112] as [number, number, number],
+  forest: [37, 58, 112] as [number, number, number],
+  cream: [247, 248, 250] as [number, number, number],
+  creamStrong: [238, 243, 250] as [number, number, number],
   white: [255, 255, 255] as [number, number, number],
-  text: [38, 47, 38] as [number, number, number],
-  muted: [106, 111, 98] as [number, number, number],
-  border: [224, 205, 171] as [number, number, number],
-  success: [46, 139, 87] as [number, number, number],
+  text: [46, 46, 46] as [number, number, number],
+  muted: [107, 114, 128] as [number, number, number],
+  border: [217, 222, 232] as [number, number, number],
+  success: [151, 196, 40] as [number, number, number],
   warning: [201, 135, 22] as [number, number, number],
-  destructive: [188, 60, 55] as [number, number, number],
+  destructive: [180, 35, 24] as [number, number, number],
   info: [45, 128, 170] as [number, number, number],
 };
 
 export const EXPORT_FOOTER_TEXT = "Lasarte SAT · Herramienta de control operativo";
+
+// Clasificación del documento (spec §0.4/Campos técnicos). Textos legales por
+// clasificación — mismos que usa el motor Excel (src/lib/exportKit.ts); se
+// duplican aquí (en vez de importar) para no acoplar el módulo de tema PDF al
+// motor de Excel, que vive en una capa distinta.
+export type ExportClasificacion = "Interno" | "Confidencial" | "Dirección" | "RRHH";
+
+export const CLASIFICACION_TEXTO_PDF: Record<ExportClasificacion, string> = {
+  Interno: "Documento de uso interno de Herramienta Lasarte.",
+  Confidencial: "Documento confidencial. Uso restringido a personal autorizado.",
+  Dirección: "Documento interno de dirección. No distribuir sin autorización.",
+  RRHH: "Documento confidencial. Contiene datos personales. Uso limitado a personal autorizado conforme RGPD/LOPDGDD.",
+};
+
+// Nota sobre formatos numéricos españoles: exportTheme.ts es solo el tema visual
+// (colores/cabecera/pie); el formateo de números para las tablas PDF ya vive en
+// src/lib/format.ts (formatKg/formatPct/formatNumber, locale "es-ES"), consistente
+// con las constantes FMT_* del motor Excel en src/lib/exportKit.ts.
 
 const LASARTE_LOGO_PATH = "/branding/lasarte-logo-horizontal.jpg";
 // Relacion de aspecto real del logo horizontal nuevo (900x357 px en el jpg fuente).
@@ -96,30 +132,40 @@ export function drawLogoOrFallback(
 
 export function drawExportHeader(doc: jsPDF, pageIndex: number, title: string, subtitle?: string) {
   const pageWidth = doc.internal.pageSize.getWidth();
-  doc.setFillColor(...PDF_THEME.cream);
+  // Cabecera común (spec §0.3): fondo blanco + banda azul 3-5 mm + línea verde
+  // fina 1 mm (antes: fondo color crema + una única banda naranja de 3 mm).
+  doc.setFillColor(...PDF_THEME.white);
   doc.rect(0, 0, pageWidth, 22, "F");
-  doc.setFillColor(...PDF_THEME.primary);
-  doc.rect(0, 0, pageWidth, 3, "F");
+  doc.setFillColor(...PDF_THEME.primaryDark);
+  doc.rect(0, 0, pageWidth, 4, "F");
+  doc.setFillColor(...PDF_THEME.success);
+  doc.rect(0, 4, pageWidth, 1, "F");
   doc.setDrawColor(...PDF_THEME.border);
   doc.line(8, 22, pageWidth - 8, 22);
 
-  const logoWidth = drawLogoOrFallback(doc, 8, 6, 10, { x: 8, yBaseline: 12, fontSize: 10 });
+  const logoWidth = drawLogoOrFallback(doc, 8, 7, 10, { x: 8, yBaseline: 15, fontSize: 10 });
   const titleX = logoWidth > 0 ? 8 + logoWidth + 4 : 8;
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(...PDF_THEME.text);
-  doc.text(title, titleX, 16);
+  doc.text(title, titleX, 17);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   doc.setTextColor(...PDF_THEME.muted);
-  if (subtitle) doc.text(subtitle, pageWidth / 2, 16, { align: "center" });
-  doc.text(`Pag. ${pageIndex}`, pageWidth - 8, 10, { align: "right" });
-  doc.text(new Date().toLocaleDateString("es-ES"), pageWidth - 8, 16, { align: "right" });
+  if (subtitle) doc.text(subtitle, pageWidth / 2, 17, { align: "center" });
+  doc.text(`Pag. ${pageIndex}`, pageWidth - 8, 11, { align: "right" });
+  doc.text(new Date().toLocaleDateString("es-ES"), pageWidth - 8, 17, { align: "right" });
 }
 
-export function drawExportFooter(doc: jsPDF) {
+/**
+ * Pie común (spec §0.4). `clasificacion` es OPCIONAL y retrocompatible: quien ya
+ * llama a `drawExportFooter(doc)` sin ese argumento sigue viendo exactamente el
+ * mismo pie de siempre; los exports que se migren pueden pasar la clasificación
+ * del documento para añadir el texto legal correspondiente (RGPD, dirección, etc.).
+ */
+export function drawExportFooter(doc: jsPDF, options: { clasificacion?: ExportClasificacion } = {}) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   doc.setDrawColor(...PDF_THEME.border);
@@ -128,6 +174,15 @@ export function drawExportFooter(doc: jsPDF) {
   doc.setFontSize(6);
   doc.setTextColor(...PDF_THEME.muted);
   doc.text(EXPORT_FOOTER_TEXT, pageWidth / 2, pageHeight - 7, { align: "center" });
+  if (options.clasificacion) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(5.5);
+    doc.setTextColor(...PDF_THEME.destructive);
+    doc.text(CLASIFICACION_TEXTO_PDF[options.clasificacion], pageWidth / 2, pageHeight - 4, {
+      align: "center",
+      maxWidth: pageWidth - 16,
+    });
+  }
 }
 
 /**
