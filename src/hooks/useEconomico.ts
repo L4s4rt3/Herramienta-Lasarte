@@ -48,6 +48,9 @@ import {
   type CosteSemana,
 } from "@/lib/economico";
 import type { ConsumoFisicoRow, SesionConsumoRow } from "@/lib/types";
+import { useMercadonaVentas, type MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
+import { mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
+import { METODOS_ORDEN } from "@/components/mercadona/mercadonaAnalisis.helpers";
 
 // Cast local: la tabla economico_precios aun no esta en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
@@ -346,5 +349,203 @@ export function useCostesPeriodo(desde: string, hasta: string): CostesPeriodo {
     serieSemanal,
     isLoading,
     sinPermiso,
+  };
+}
+
+// ─── Panel económico: costes + facturación Mercadona del periodo ────────────
+//
+// Composición de usePreciosRecursos/useCostesPeriodo (ya usados por
+// Costes/Precios) con useMercadonaVentas (ya usado por Facturación) para dar
+// el cruce facturación-vs-coste que necesita el dashboard de portada. No
+// sustituye a ninguno de los hooks anteriores: EconomicoFacturacion/Costes/
+// Precios siguen llamando a los suyos tal cual.
+
+/** true si la semana trae base_iva real (formato semanal real, v2), no el histórico. */
+function tieneBaseIvaSemana(semana: MercadonaSemanaConMetodos): boolean {
+  return semana.metodos.some((m) => m.base_iva != null) || semana.ajustes_base_iva != null;
+}
+
+/** true si el rango [desde, hasta] de la semana solapa con [rangoStart, rangoEnd]. */
+function solapaRango(desde: string, hasta: string, rangoStart: string, rangoEnd: string): boolean {
+  return desde <= rangoEnd && hasta >= rangoStart;
+}
+
+export interface EconomicoSemanaFacturacion {
+  id: string;
+  anio: number;
+  semana: number;
+  /** Base IVA de métodos + ajustes/abonos de la semana. */
+  neto: number;
+  vendidoKg: number;
+  /** Lunes de la semana (rango L-S de Mercadona). */
+  desde: string;
+  /** Sábado de la semana. */
+  hasta: string;
+}
+
+function buildSemanaFacturacion(s: MercadonaSemanaConMetodos): EconomicoSemanaFacturacion {
+  const facturacionMetodos = s.metodos.reduce((sum, m) => sum + (m.base_iva ?? 0), 0);
+  const neto = facturacionMetodos + (s.ajustes_base_iva ?? 0);
+  const { desde, hasta } = mercadonaWeekDateRange(s.anio, s.semana);
+  return { id: s.id, anio: s.anio, semana: s.semana, neto, vendidoKg: s.vendido_kg ?? 0, desde, hasta };
+}
+
+export interface EconomicoMetodoResumen {
+  metodo: string;
+  kilos: number;
+  baseIva: number;
+  eurosPorKg: number | null;
+}
+
+/** Facturación agregada por método (kg + base IVA) de las semanas dadas, en el orden habitual de METODOS_ORDEN. */
+function buildMetodosResumen(semanas: MercadonaSemanaConMetodos[]): EconomicoMetodoResumen[] {
+  const acc = new Map<string, { kilos: number; baseIva: number }>();
+  for (const semana of semanas) {
+    for (const m of semana.metodos) {
+      if (m.base_iva == null) continue;
+      const entry = acc.get(m.metodo) ?? { kilos: 0, baseIva: 0 };
+      entry.kilos += m.kilos ?? 0;
+      entry.baseIva += m.base_iva;
+      acc.set(m.metodo, entry);
+    }
+  }
+  const codigos = Array.from(new Set([...METODOS_ORDEN, ...acc.keys()])).filter((codigo) => acc.has(codigo));
+  return codigos.map((codigo) => {
+    const entry = acc.get(codigo)!;
+    return {
+      metodo: codigo,
+      kilos: entry.kilos,
+      baseIva: entry.baseIva,
+      eurosPorKg: entry.kilos > 0 ? entry.baseIva / entry.kilos : null,
+    };
+  });
+}
+
+export interface EconomicoSerieSemanaCombinada {
+  /** Lunes de la semana (clave común entre facturación Mercadona y coste de consumos). */
+  semanaInicio: string;
+  facturacion: number;
+  coste: number;
+  margen: number;
+}
+
+/**
+ * Combina la facturación semanal de Mercadona (clave = lunes de su rango L-S)
+ * con `serieSemanal` de `useCostesPeriodo` (clave = lunes ISO) para el gráfico
+ * de evolución. Ambas claves son el mismo lunes local, así que casan sin
+ * conversión adicional.
+ */
+function buildSerieCombinada(
+  facturacionSemanas: EconomicoSemanaFacturacion[],
+  costesSerie: CosteSemana[],
+): EconomicoSerieSemanaCombinada[] {
+  const map = new Map<string, { facturacion: number; coste: number }>();
+  for (const s of facturacionSemanas) {
+    const entry = map.get(s.desde) ?? { facturacion: 0, coste: 0 };
+    entry.facturacion += s.neto;
+    map.set(s.desde, entry);
+  }
+  for (const c of costesSerie) {
+    const entry = map.get(c.semanaInicio) ?? { facturacion: 0, coste: 0 };
+    entry.coste += c.coste;
+    map.set(c.semanaInicio, entry);
+  }
+  return Array.from(map.entries())
+    .map(([semanaInicio, v]) => ({ semanaInicio, facturacion: v.facturacion, coste: v.coste, margen: v.facturacion - v.coste }))
+    .sort((a, b) => a.semanaInicio.localeCompare(b.semanaInicio));
+}
+
+export interface EconomicoPanelData {
+  isLoading: boolean;
+  /** Igual que `usePreciosRecursos().sinPermiso`: sin esto, ni tarifas ni costes se pueden calcular. */
+  sinPermiso: boolean;
+  hayPrecioCero: boolean;
+  /** Las tablas mercadona_* aun no existen en esta instancia (ver useMercadonaVentas). */
+  tablesMissingVentas: boolean;
+  costes: CostesPeriodo;
+  facturacionRango: number;
+  vendidoKgRango: number;
+  /** Base IVA / vendido del periodo. Null si no hay kg vendidos con base IVA. */
+  eurosPorKgMedio: number | null;
+  /** facturacionRango - costes.costeTotal. Fase 1: no incluye mano de obra ni fruta. */
+  margenBruto: number;
+  /** Semanas de Mercadona con base IVA que solapan el periodo, más reciente primero. */
+  semanasEnRango: EconomicoSemanaFacturacion[];
+  /** Facturación por método (MA12KGC/MA3KGC/...) agregada del periodo. */
+  metodosDelPeriodo: EconomicoMetodoResumen[];
+  /** Un punto por semana (lunes) con facturación, coste y margen, para el gráfico de evolución. */
+  serieCombinada: EconomicoSerieSemanaCombinada[];
+  /** `costes.porRecurso` con el coste/kg producido añadido. */
+  porRecursoConKg: (CostePorRecurso & { costePorKg: number | null })[];
+}
+
+/**
+ * Datos del dashboard de portada del Económico: cruza `useCostesPeriodo`
+ * (agua/gasoil/electricidad/quimicos vs tarifas) con `useMercadonaVentas`
+ * (facturación) para el periodo [desde, hasta]. Pensado solo para
+ * EconomicoPanel — el resto de páginas del espacio siguen usando
+ * `useCostesPeriodo`/`usePreciosRecursos`/`useMercadonaVentas` directamente.
+ */
+export function useEconomicoPanel(desde: string, hasta: string): EconomicoPanelData {
+  const { hayPrecioCero, sinPermiso } = usePreciosRecursos();
+  const costes = useCostesPeriodo(desde, hasta);
+  const ventas = useMercadonaVentas();
+
+  const semanasConBaseIva = useMemo(
+    () => ventas.semanas.filter(tieneBaseIvaSemana),
+    [ventas.semanas],
+  );
+
+  const semanasEnRangoRaw = useMemo(
+    () => semanasConBaseIva.filter((s) => {
+      const { desde: d, hasta: h } = mercadonaWeekDateRange(s.anio, s.semana);
+      return solapaRango(d, h, desde, hasta);
+    }),
+    [semanasConBaseIva, desde, hasta],
+  );
+
+  const semanasEnRango = useMemo(
+    () => semanasEnRangoRaw
+      .map(buildSemanaFacturacion)
+      .sort((a, b) => (b.anio - a.anio) || (b.semana - a.semana)),
+    [semanasEnRangoRaw],
+  );
+
+  const facturacionRango = useMemo(() => semanasEnRango.reduce((sum, s) => sum + s.neto, 0), [semanasEnRango]);
+  const vendidoKgRango = useMemo(() => semanasEnRango.reduce((sum, s) => sum + s.vendidoKg, 0), [semanasEnRango]);
+  const eurosPorKgMedio = vendidoKgRango > 0 ? facturacionRango / vendidoKgRango : null;
+  const margenBruto = facturacionRango - costes.costeTotal;
+
+  const metodosDelPeriodo = useMemo(() => buildMetodosResumen(semanasEnRangoRaw), [semanasEnRangoRaw]);
+
+  const serieCombinada = useMemo(
+    () => buildSerieCombinada(semanasEnRango, costes.serieSemanal),
+    [semanasEnRango, costes.serieSemanal],
+  );
+
+  const porRecursoConKg = useMemo(
+    () => costes.porRecurso.map((r) => ({
+      ...r,
+      costePorKg: costes.kgProducidos > 0 ? r.coste / costes.kgProducidos : null,
+    })),
+    [costes.porRecurso, costes.kgProducidos],
+  );
+
+  const isLoading = costes.isLoading || ventas.isLoading;
+
+  return {
+    isLoading,
+    sinPermiso,
+    hayPrecioCero,
+    tablesMissingVentas: ventas.tablesMissing,
+    costes,
+    facturacionRango,
+    vendidoKgRango,
+    eurosPorKgMedio,
+    margenBruto,
+    semanasEnRango,
+    metodosDelPeriodo,
+    serieCombinada,
+    porRecursoConKg,
   };
 }
