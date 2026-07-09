@@ -5,7 +5,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  ChevronDown, ChevronsUpDown, ChevronUp, Droplet, Euro, Fuel, FlaskConical,
+  AlertTriangle, ChevronDown, ChevronsUpDown, ChevronUp, Droplet, Euro, Fuel, FlaskConical,
   Package, Scale, ShieldAlert, Users, Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -22,6 +22,7 @@ import { KPICard } from "@/components/KPICard";
 import { ConsumoPeriodoSelector } from "@/components/consumos/ConsumoPeriodoSelector";
 import { useCostesPeriodo } from "@/hooks/useEconomico";
 import { useCostePersonal } from "@/hooks/useCostePersonal";
+import { useCosteMallas } from "@/hooks/useCosteMallas";
 import type { CostePersonaRow } from "@/lib/costePersonal";
 import {
   buildPeriodoRange,
@@ -117,6 +118,11 @@ export default function EconomicoCostes() {
     isLoading: isLoadingPersonal,
     sinPermiso: sinPermisoPersonal,
   } = useCostePersonal(periodoRange.start, periodoRange.end);
+
+  const {
+    z1: mallasZ1, z2: mallasZ2, totalMallas, totalGasto: gastoMallasTotal,
+    faltanDatos: faltanDatosMallas, isLoading: isLoadingMallas, sinPermiso: sinPermisoMallas,
+  } = useCosteMallas(periodoRange.start, periodoRange.end);
 
   const [personaSortKey, setPersonaSortKey] = useState<PersonaSortKey>("coste");
   const [personaSortDir, setPersonaSortDir] = useState<SortDir>("desc");
@@ -314,6 +320,76 @@ export default function EconomicoCostes() {
             </ResponsiveContainer>
           </CardContent>
         </Card>
+      )}
+
+      <div className="flex items-center gap-3 pt-2">
+        <div className="h-7 w-1 rounded-full bg-primary" />
+        <div>
+          <p className="panel-kicker">Económico</p>
+          <h2 className="text-xl font-semibold tracking-tight">Coste de mallas rotas</h2>
+          <p className="text-sm text-muted-foreground">Reciclado de malla de cada zona / kg por malla = mallas rotas, × precio por malla = gasto.</p>
+        </div>
+      </div>
+
+      {sinPermisoMallas ? (
+        <Card className="glass-accented">
+          <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
+            <ShieldAlert className="h-10 w-10 text-warning" />
+            <div>
+              <h2 className="text-xl font-semibold">Acceso restringido</h2>
+              <p className="mt-2 max-w-md text-sm text-muted-foreground">
+                Solo administración puede ver esta sección.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {faltanDatosMallas && (
+            <Card className="glass border-warning/30 bg-warning/6">
+              <CardContent className="flex items-center gap-3 pt-6">
+                <AlertTriangle className="h-5 w-5 shrink-0 text-warning" />
+                <p className="text-sm">
+                  <span className="font-semibold">Falta config de mallas:</span>{" "}
+                  hay reciclado de malla sin kg/precio por malla configurado, así que su gasto sale a 0 abajo.{" "}
+                  <Link to="/economico/precios" className="font-semibold underline underline-offset-2">
+                    Configura el peso y precio por malla
+                  </Link>.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {isLoadingMallas ? (
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-32" />)}
+            </div>
+          ) : (
+            <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+              <KPICard
+                label="Mallas rotas Z1"
+                value={formatNumber(mallasZ1.mallas, 0)}
+                icon={Package}
+                accent={mallasZ1.kg > 0 && mallasZ1.gasto === 0 ? "warning" : "primary"}
+                hint={formatEuro(mallasZ1.gasto)}
+              />
+              <KPICard
+                label="Mallas rotas Z2"
+                value={formatNumber(mallasZ2.mallas, 0)}
+                icon={Package}
+                accent={mallasZ2.kg > 0 && mallasZ2.gasto === 0 ? "warning" : "primary"}
+                hint={formatEuro(mallasZ2.gasto)}
+              />
+              <KPICard
+                label="Gasto total mallas"
+                value={formatEuro(gastoMallasTotal)}
+                icon={Euro}
+                accent="success"
+                hint={`${formatNumber(totalMallas, 0)} malla(s) rotas`}
+              />
+            </section>
+          )}
+        </>
       )}
 
       <div className="flex items-center gap-3 pt-2">

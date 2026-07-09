@@ -35,6 +35,11 @@ import {
   type EditarTarifaInput,
   type NuevaTarifaInput,
 } from "@/hooks/useEconomico";
+import {
+  useMallasConfig,
+  type NuevaMallaConfigInput,
+} from "@/hooks/useCosteMallas";
+import type { ZonaMalla } from "@/lib/costeMallas";
 import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatNumber, today } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -61,6 +66,8 @@ export default function EconomicoPrecios() {
     recursos, vigentesPorRecurso, historicoPorRecurso, hayPrecioCero,
     isLoading, sinPermiso, crear, editar, borrar,
   } = usePreciosRecursos();
+
+  const mallas = useMallasConfig();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<EconomicoPrecioRow | null>(null);
@@ -265,6 +272,8 @@ export default function EconomicoPrecios() {
           )}
         </CardContent>
       </Card>
+
+      <MallasRotasSection mallas={mallas} />
 
       <TarifaDialog
         open={dialogOpen}
@@ -480,6 +489,289 @@ function TarifaDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancelar</Button>
           <Button onClick={handleSubmit} disabled={saving}>
             {saving ? "Guardando…" : isEditing ? "Guardar cambios" : "Registrar tarifa"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Sección "Mallas rotas (Z1/Z2)" ──────────────────────────────────────────
+// Config del gasto de mallas rotas: tipo de malla, kg de fruta por malla y
+// precio por malla, con histórico por zona (mismo patrón que las tarifas de
+// recursos de arriba). Un cambio real de peso/precio es una vigencia nueva,
+// nunca una edición de la anterior — por eso solo hay "alta", no editar/borrar.
+
+const ZONAS_MALLA: ZonaMalla[] = ["z1", "z2"];
+
+const ZONA_LABEL: Record<ZonaMalla, string> = {
+  z1: "Zona 1 (Z1)",
+  z2: "Zona 2 (Z2)",
+};
+
+function formatKgPorMalla(kgPorMalla: number | null): string {
+  return kgPorMalla != null ? `${formatNumber(kgPorMalla, 1)} kg/malla` : "—";
+}
+
+function formatPrecioMalla(precioMalla: number | null): string {
+  return precioMalla != null ? `${formatNumber(precioMalla, 2)} €/malla` : "—";
+}
+
+function MallasRotasSection({ mallas }: { mallas: ReturnType<typeof useMallasConfig> }) {
+  const {
+    vigentePorZona, historicoPorZona, hayDatosFaltantes, isLoading, crear,
+  } = mallas;
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [zonaDialog, setZonaDialog] = useState<ZonaMalla>("z1");
+  const [expandidos, setExpandidos] = useState<Set<ZonaMalla>>(new Set());
+
+  const toggleExpandido = (zona: ZonaMalla) => {
+    setExpandidos((prev) => {
+      const next = new Set(prev);
+      if (next.has(zona)) next.delete(zona);
+      else next.add(zona);
+      return next;
+    });
+  };
+
+  return (
+    <>
+      <div className="flex items-center gap-3 pt-2">
+        <div className="h-7 w-1 rounded-full bg-primary" />
+        <div>
+          <p className="panel-kicker">Económico</p>
+          <h2 className="text-xl font-semibold tracking-tight">Mallas rotas (Z1/Z2)</h2>
+          <p className="text-sm text-muted-foreground">
+            En Z1 se usa un tipo de malla y en Z2 otro: peso de fruta por malla y precio por malla, para calcular el gasto de mallas rotas.
+          </p>
+        </div>
+      </div>
+
+      {hayDatosFaltantes && (
+        <Card className="glass border-warning/30 bg-warning/6">
+          <CardContent className="flex items-center gap-3 pt-6">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-warning" />
+            <p className="text-sm">
+              <span className="font-semibold">Falta config de mallas:</span> el gasto de mallas rotas saldrá a 0 para las zonas marcadas abajo hasta que indiques el kg por malla y el precio por malla.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className="glass-accented overflow-hidden">
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="flex flex-col items-center gap-2 py-14 text-sm text-muted-foreground">Cargando…</div>
+          ) : (
+            <ul className="divide-y divide-[var(--glass-border)]">
+              {ZONAS_MALLA.map((zona) => {
+                const vigente = vigentePorZona.get(zona) ?? null;
+                const historico = historicoPorZona.get(zona) ?? [];
+                const expandido = expandidos.has(zona);
+                const faltaConfig = !vigente || vigente.kg_por_malla == null || vigente.precio_malla == null;
+
+                return (
+                  <li key={zona}>
+                    <Collapsible open={expandido} onOpenChange={() => toggleExpandido(zona)}>
+                      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5">
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                          <CollapsibleTrigger asChild>
+                            <button
+                              type="button"
+                              className="flex items-center gap-2 text-left"
+                              aria-label={expandido ? "Ocultar histórico" : "Ver histórico"}
+                            >
+                              <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200", expandido && "rotate-180")} />
+                              <span className="font-semibold">{ZONA_LABEL[zona]}</span>
+                            </button>
+                          </CollapsibleTrigger>
+                          {vigente?.tipo_malla && (
+                            <Badge variant="outline" className="rounded-md px-2 py-0 text-xs">
+                              {vigente.tipo_malla}
+                            </Badge>
+                          )}
+                          {faltaConfig && (
+                            <Badge variant="outline" className="border-warning/40 bg-warning/10 text-[10px] text-warning">
+                              Sin config
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <p className="text-sm font-semibold tabular-nums">
+                              {formatKgPorMalla(vigente?.kg_por_malla ?? null)} · {formatPrecioMalla(vigente?.precio_malla ?? null)}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {vigente ? `Desde ${formatDate(vigente.vigente_desde)}` : "Sin vigencia registrada"}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => { setZonaDialog(zona); setDialogOpen(true); }}
+                          >
+                            <Plus className="mr-1 h-3.5 w-3.5" /> Vigencia
+                          </Button>
+                        </div>
+                      </div>
+                      <CollapsibleContent>
+                        <div className="border-t border-[var(--glass-border)] bg-[var(--glass-bg-strong)]/40 px-4 py-3">
+                          <p className="mb-2 text-[11px] uppercase tracking-wider text-muted-foreground">Histórico</p>
+                          {historico.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">Sin vigencias registradas todavía.</p>
+                          ) : (
+                            <ul className="space-y-1.5">
+                              {historico.map((fila) => (
+                                <li key={fila.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                                  <div className="min-w-0">
+                                    <span className="font-medium tabular-nums">
+                                      {fila.tipo_malla ? `${fila.tipo_malla} · ` : ""}
+                                      {formatKgPorMalla(fila.kg_por_malla)} · {formatPrecioMalla(fila.precio_malla)}
+                                    </span>
+                                    <span className="ml-2 text-xs text-muted-foreground">desde {formatDate(fila.vigente_desde)}</span>
+                                    {fila.notas ? <span className="ml-2 text-xs text-muted-foreground">· {fila.notas}</span> : null}
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <MallaConfigDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        zona={zonaDialog}
+        crear={crear}
+      />
+    </>
+  );
+}
+
+function MallaConfigDialog({
+  open, onOpenChange, zona, crear,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  zona: ZonaMalla;
+  crear: ReturnType<typeof useMallasConfig>["crear"];
+}) {
+  const [tipoMalla, setTipoMalla] = useState("");
+  const [kgPorMalla, setKgPorMalla] = useState("");
+  const [precioMalla, setPrecioMalla] = useState("");
+  const [vigenteDesde, setVigenteDesde] = useState(today());
+  const [notas, setNotas] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const resetForm = () => {
+    setTipoMalla("");
+    setKgPorMalla("");
+    setPrecioMalla("");
+    setVigenteDesde(today());
+    setNotas("");
+  };
+
+  const handleSubmit = async () => {
+    const kgNumerico = kgPorMalla.trim() ? Number(kgPorMalla.replace(",", ".")) : null;
+    if (kgPorMalla.trim() && (!Number.isFinite(kgNumerico) || (kgNumerico as number) <= 0)) {
+      toast({ title: "Kg por malla no válido", description: "Introduce un peso mayor que 0, o déjalo en blanco.", variant: "destructive" });
+      return;
+    }
+    const precioNumerico = precioMalla.trim() ? Number(precioMalla.replace(",", ".")) : null;
+    if (precioMalla.trim() && (!Number.isFinite(precioNumerico) || (precioNumerico as number) < 0)) {
+      toast({ title: "Precio por malla no válido", description: "Introduce un precio válido, o déjalo en blanco.", variant: "destructive" });
+      return;
+    }
+    if (!vigenteDesde) {
+      toast({ title: "Fecha requerida", description: "Indica desde cuándo es válida esta vigencia.", variant: "destructive" });
+      return;
+    }
+
+    const payload: NuevaMallaConfigInput = {
+      zona,
+      tipo_malla: tipoMalla.trim() || null,
+      kg_por_malla: kgNumerico,
+      precio_malla: precioNumerico,
+      vigente_desde: vigenteDesde,
+      notas: notas.trim() || null,
+    };
+
+    setSaving(true);
+    try {
+      await crear.mutateAsync(payload);
+      toast({ title: "Vigencia registrada" });
+      resetForm();
+      onOpenChange(false);
+    } catch (error) {
+      toast({ title: "Error al guardar", description: errorMessage(error), variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { if (!next) resetForm(); onOpenChange(next); }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Nueva vigencia — {ZONA_LABEL[zona]}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Tipo de malla</Label>
+            <Input
+              value={tipoMalla}
+              onChange={(e) => setTipoMalla(e.target.value)}
+              placeholder="p.ej. malla verde 10kg"
+            />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Kg de fruta por malla</Label>
+              <Input
+                inputMode="decimal"
+                value={kgPorMalla}
+                onChange={(e) => setKgPorMalla(e.target.value)}
+                placeholder="0,00"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Precio por malla (€)</Label>
+              <Input
+                inputMode="decimal"
+                value={precioMalla}
+                onChange={(e) => setPrecioMalla(e.target.value)}
+                placeholder="0,00"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Vigente desde</Label>
+            <GlassDatePicker value={vigenteDesde} onChange={setVigenteDesde} className="w-full" />
+            <p className="text-xs text-muted-foreground">
+              Un cambio real de peso o precio de malla es siempre una vigencia nueva desde esta fecha, no una edición de la anterior.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Notas (opcional)</Label>
+            <Textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={2} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancelar</Button>
+          <Button onClick={handleSubmit} disabled={saving}>
+            {saving ? "Guardando…" : "Registrar vigencia"}
           </Button>
         </DialogFooter>
       </DialogContent>
