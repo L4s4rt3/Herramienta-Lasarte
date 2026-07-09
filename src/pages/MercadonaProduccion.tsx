@@ -23,8 +23,9 @@ import { useState } from "react";
 import { ChevronLeft, ChevronRight, PackageSearch, Percent, Scale } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KPICard } from "@/components/KPICard";
-import { MercadonaLotes } from "@/components/mercadona/MercadonaLotes";
+import { MercadonaLotes, MercadonaProductoresRanking } from "@/components/mercadona/MercadonaLotes";
 import { useMercadona } from "@/hooks/useMercadona";
 import {
   shiftSemanaMercadona,
@@ -37,6 +38,7 @@ import { formatKg, formatPct } from "@/lib/format";
 
 export default function MercadonaProduccion() {
   const [seleccionada, setSeleccionada] = useState<MercadonaProduccionSemana | null>(null);
+  const [tab, setTab] = useState<"lotes" | "productores">("lotes");
   const { efectiva, isDefaultLoading } = useSemanaProduccionEfectiva(seleccionada);
 
   const rango = mercadonaWeekDateRange(efectiva.anio, efectiva.semana);
@@ -82,85 +84,98 @@ export default function MercadonaProduccion() {
         </div>
       </header>
 
-      <div className="flex items-center justify-between gap-3 rounded-xl glass-accented p-3">
-        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => navigate(-1)}>
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <div className="text-center">
-          <p className="text-sm font-semibold">Semana {efectiva.semana} · {efectiva.anio}</p>
-          <p className="text-xs text-muted-foreground">{rangoLabel}</p>
-        </div>
-        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => navigate(1)}>
-          <ChevronRight className="h-4 w-4" />
-        </Button>
-      </div>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as "lotes" | "productores")} className="space-y-4">
+        <TabsList className="w-full flex-wrap sm:w-auto">
+          <TabsTrigger value="lotes">Lotes y semana</TabsTrigger>
+          <TabsTrigger value="productores">Aprovechamiento por productor</TabsTrigger>
+        </TabsList>
 
-      {sinProduccion ? (
-        <Card className="glass-accented">
-          <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
-            <PackageSearch className="h-10 w-10 text-muted-foreground/50" />
-            <div>
-              <h2 className="text-lg font-semibold">Sin producción registrada esta semana</h2>
-              <p className="mt-1 max-w-md text-sm text-muted-foreground">
-                No hay partes diarios entre el {rangoLabel}. Prueba con la semana anterior o espera a que se suba el parte del día.
-              </p>
+        <TabsContent value="lotes" className="space-y-4">
+          <div className="flex items-center justify-between gap-3 rounded-xl glass-accented p-3">
+            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => navigate(-1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <div className="text-center">
+              <p className="text-sm font-semibold">Semana {efectiva.semana} · {efectiva.anio}</p>
+              <p className="text-xs text-muted-foreground">{rangoLabel}</p>
             </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          <section className="grid grid-cols-2 gap-3 xl:grid-cols-3">
-            <KPICard
-              className="glass-accented"
-              label="Aprovechamiento MDNA"
-              value={cargandoResumen ? "…" : formatPct(mercadona.pct_kg)}
-              hint="Kg confeccionados MDNA sobre el total de la semana"
-              icon={Percent}
-            />
-            <KPICard
-              className="glass-accented"
-              label="Kg MDNA"
-              value={cargandoResumen ? "…" : formatKg(mercadona.kg_mercadona)}
-              hint={cargandoResumen ? undefined : `de ${formatKg(mercadona.kg_total)} confeccionados`}
-              icon={Scale}
-            />
-            <KPICard
-              className="glass-accented col-span-2 xl:col-span-1"
-              label="Cajas MDNA"
-              value={cargandoResumen ? "…" : String(mercadona.n_cajas_mercadona)}
-              hint="Cajas confeccionadas de formatos Mercadona"
-              icon={PackageSearch}
-            />
-          </section>
+            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => navigate(1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
 
-          <Card className="glass-accented overflow-hidden">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Categorías/formatos para Mercadona</CardTitle>
-              <p className="text-xs text-muted-foreground">Kg y % sobre el total MDNA de la semana, por formato (3 kg, 4 kg, 5 kg, granel…).</p>
-            </CardHeader>
-            <CardContent>
-              {cargandoResumen ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">Cargando…</p>
-              ) : mercadona.por_formato.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">Sin formatos MDNA esta semana.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {mercadona.por_formato.map((f) => (
-                    <li key={f.formato} className="flex items-center justify-between rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 text-xs">
-                      <span className="font-medium">{f.formato}</span>
-                      <span className="tabular-nums text-muted-foreground">
-                        {formatKg(f.kg)} · <span className="font-semibold text-foreground">{formatPct(f.pct)}</span>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
+          {sinProduccion ? (
+            <Card className="glass-accented">
+              <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
+                <PackageSearch className="h-10 w-10 text-muted-foreground/50" />
+                <div>
+                  <h2 className="text-lg font-semibold">Sin producción registrada esta semana</h2>
+                  <p className="mt-1 max-w-md text-sm text-muted-foreground">
+                    No hay partes diarios entre el {rangoLabel}. Prueba con la semana anterior o espera a que se suba el parte del día.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              <section className="grid grid-cols-2 gap-3 xl:grid-cols-3">
+                <KPICard
+                  className="glass-accented"
+                  label="Aprovechamiento MDNA"
+                  value={cargandoResumen ? "…" : formatPct(mercadona.pct_kg)}
+                  hint="Kg confeccionados MDNA sobre el total de la semana"
+                  icon={Percent}
+                />
+                <KPICard
+                  className="glass-accented"
+                  label="Kg MDNA"
+                  value={cargandoResumen ? "…" : formatKg(mercadona.kg_mercadona)}
+                  hint={cargandoResumen ? undefined : `de ${formatKg(mercadona.kg_total)} confeccionados`}
+                  icon={Scale}
+                />
+                <KPICard
+                  className="glass-accented col-span-2 xl:col-span-1"
+                  label="Cajas MDNA"
+                  value={cargandoResumen ? "…" : String(mercadona.n_cajas_mercadona)}
+                  hint="Cajas confeccionadas de formatos Mercadona"
+                  icon={PackageSearch}
+                />
+              </section>
 
-          <MercadonaLotes activeSemana={activeSemana} />
-        </div>
-      )}
+              <Card className="glass-accented overflow-hidden">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Categorías/formatos para Mercadona</CardTitle>
+                  <p className="text-xs text-muted-foreground">Kg y % sobre el total MDNA de la semana, por formato (3 kg, 4 kg, 5 kg, granel…).</p>
+                </CardHeader>
+                <CardContent>
+                  {cargandoResumen ? (
+                    <p className="py-6 text-center text-sm text-muted-foreground">Cargando…</p>
+                  ) : mercadona.por_formato.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-muted-foreground">Sin formatos MDNA esta semana.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {mercadona.por_formato.map((f) => (
+                        <li key={f.formato} className="flex items-center justify-between rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 text-xs">
+                          <span className="font-medium">{f.formato}</span>
+                          <span className="tabular-nums text-muted-foreground">
+                            {formatKg(f.kg)} · <span className="font-semibold text-foreground">{formatPct(f.pct)}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+
+              <MercadonaLotes activeSemana={activeSemana} />
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="productores" className="space-y-4">
+          <MercadonaProductoresRanking />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -3,7 +3,7 @@
 // rinden de verdad para el cliente — ranking histórico de aprovechamiento
 // MDNA, lotes de la semana activa y calidad orientativa de esos días.
 import { useMemo, useState } from "react";
-import { AlertTriangle, ClipboardList, FileSearch, Package, ScrollText, TrendingUp, Trophy } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, ClipboardList, FileSearch, Package, ScrollText, TrendingUp, Trophy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -12,14 +12,18 @@ import { CalidadInformeDialog, type CalidadInformeLote } from "@/components/Cali
 import { useMercadona } from "@/hooks/useMercadona";
 import {
   buildCalidadIndex,
+  computeProductoresRango,
   matchCalidadParaLote,
   useMercadonaLotes,
+  useMercadonaProductoresData,
   type MercadonaCalidadSemana,
   type MercadonaLoteSemana,
+  type MercadonaProductoresData,
 } from "@/hooks/useMercadonaLotes";
 import type { MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
 import { mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
-import { formatDate, formatKg, formatNumber, formatPct } from "@/lib/format";
+import { buildPeriodoRange } from "@/lib/consumoPeriodoView";
+import { formatDate, formatKg, formatNumber, formatPct, toISODateLocal } from "@/lib/format";
 import { tphColor } from "@/lib/chartTheme";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -38,7 +42,6 @@ export function MercadonaLotes({ activeSemana }: { activeSemana: MercadonaSemana
   const mercadona = useMercadona(rango?.desde ?? "1970-01-01", rango?.hasta ?? "1970-01-01");
   const {
     lotesSemana, isLoadingLotesSemana,
-    productoresHistorico, isLoadingProductoresHistorico,
     calidadSemana, isLoadingCalidadSemana,
   } = useMercadonaLotes(activeSemana);
 
@@ -69,7 +72,6 @@ export function MercadonaLotes({ activeSemana }: { activeSemana: MercadonaSemana
   return (
     <div className="space-y-4">
       <ResumenCompacto mercadona={mercadona} />
-      <RankingHistoricoProductores productores={productoresHistorico} isLoading={isLoadingProductoresHistorico} />
       <LotesSemanaTabla
         lotes={lotesSemana}
         isLoading={isLoadingLotesSemana}
@@ -153,6 +155,17 @@ function ResumenCompacto({ mercadona }: { mercadona: ReturnType<typeof useMercad
 
 // ─── 1. Ranking histórico de productores ─────────────────────────────────────
 
+/**
+ * Ranking de aprovechamiento Mercadona por productor como bloque autónomo,
+ * pensado para vivir en su propia pestaña dentro de la sección de Mercadona.
+ * Es independiente de la semana activa: carga sus propios datos históricos y
+ * su selector de periodo (Día/Semana/Campaña/Total) manda sobre qué se muestra.
+ */
+export function MercadonaProductoresRanking() {
+  const { data, isLoading } = useMercadonaProductoresData();
+  return <RankingHistoricoProductores productoresData={data} isLoading={isLoading} />;
+}
+
 /** Presets de umbral de kg mínimos para no dejar que productores de poco volumen distorsionen el ranking. */
 const KG_THRESHOLD_PRESETS: Array<{ label: string; value: number }> = [
   { label: "Todos", value: 0 },
@@ -162,19 +175,80 @@ const KG_THRESHOLD_PRESETS: Array<{ label: string; value: number }> = [
 
 const DEFAULT_MIN_KG = 10_000;
 
+/** Periodo del ranking de aprovechamiento por productor: Día, Semana, Campaña o Total (todo el histórico). */
+type ProductoresPeriodoTipo = "dia" | "semana" | "campana" | "total";
+
+const PERIODO_OPTIONS: Array<{ value: ProductoresPeriodoTipo; label: string }> = [
+  { value: "dia", label: "Día" },
+  { value: "semana", label: "Semana" },
+  { value: "campana", label: "Campaña" },
+  { value: "total", label: "Total" },
+];
+
+/** Periodo por defecto: Total, para no alterar los números que ya se verificaron como vista de entrada. */
+const DEFAULT_PERIODO_TIPO: ProductoresPeriodoTipo = "total";
+
+interface ProductoresRango {
+  desde: string | null;
+  hasta: string | null;
+  label: string;
+  detail: string;
+}
+
+/**
+ * Rango [desde, hasta] (ISO "yyyy-mm-dd") para el periodo activo del ranking
+ * de productores, desplazado `offset` unidades desde hoy. "Total" no filtra
+ * (desde/hasta null); "Día" es un único día (hoy + offset); "Semana" y
+ * "Campaña" reutilizan `buildPeriodoRange` (misma campaña citrícola sep→ago
+ * que el resto de la app).
+ */
+function buildProductoresRango(tipo: ProductoresPeriodoTipo, offset: number, today: Date = new Date()): ProductoresRango {
+  if (tipo === "total") {
+    return { desde: null, hasta: null, label: "Total", detail: "Todos los datos" };
+  }
+  if (tipo === "dia") {
+    const dia = new Date(today);
+    dia.setDate(dia.getDate() + offset);
+    const iso = toISODateLocal(dia);
+    return { desde: iso, hasta: iso, label: "Día", detail: formatDate(iso) };
+  }
+  const periodo = buildPeriodoRange(tipo, offset, today);
+  return { desde: periodo.start, hasta: periodo.end, label: periodo.label, detail: periodo.detail };
+}
+
 function RankingHistoricoProductores({
-  productores, isLoading,
+  productoresData, isLoading,
 }: {
-  productores: Array<{ productor: string; kg: number; nLotes: number; pctMdnaEstimado: number }>;
+  productoresData: MercadonaProductoresData;
   isLoading: boolean;
 }) {
   const [minKg, setMinKg] = useState<number>(DEFAULT_MIN_KG);
+  const [periodoTipo, setPeriodoTipo] = useState<ProductoresPeriodoTipo>(DEFAULT_PERIODO_TIPO);
+  const [offset, setOffset] = useState(0);
+
+  const rango = useMemo(() => buildProductoresRango(periodoTipo, offset), [periodoTipo, offset]);
+
+  const todayIso = toISODateLocal(new Date());
+  const siguienteRango = periodoTipo === "total" ? null : buildProductoresRango(periodoTipo, offset + 1);
+  const canNavigateNext = siguienteRango !== null && siguienteRango.desde !== null && siguienteRango.desde <= todayIso;
+  const isCurrent = offset === 0;
+
+  const cambiarPeriodoTipo = (tipo: ProductoresPeriodoTipo) => {
+    setPeriodoTipo(tipo);
+    setOffset(0);
+  };
+
+  const productoresRango = useMemo(
+    () => computeProductoresRango(productoresData.lotes, productoresData.pctPorDia, productoresData.partesById, rango.desde, rango.hasta, 0),
+    [productoresData, rango.desde, rango.hasta],
+  );
 
   const filtrados = useMemo(
-    () => productores.filter((p) => minKg <= 0 || p.kg >= minKg),
-    [productores, minKg],
+    () => productoresRango.filter((p) => minKg <= 0 || p.kg >= minKg),
+    [productoresRango, minKg],
   );
   const maxPct = Math.max(1, ...filtrados.map((p) => p.pctMdnaEstimado));
+  const periodoDescripcion = periodoTipo === "total" ? "Toda la campaña" : `${rango.label} · ${rango.detail}`;
 
   return (
     <Card className="glass-accented overflow-hidden">
@@ -189,37 +263,96 @@ function RankingHistoricoProductores({
               productores de poco volumen no distorsionen la comparación.
             </InfoTooltip>
           </CardTitle>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] text-muted-foreground">Umbral de kg</span>
-            {KG_THRESHOLD_PRESETS.map((preset) => (
-              <button
-                key={preset.value}
-                type="button"
-                onClick={() => setMinKg(preset.value)}
-                className={cn(
-                  "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
-                  minKg === preset.value
-                    ? "border-primary/40 bg-primary/10 text-primary"
-                    : "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {preset.label}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Selector de periodo: Día · Semana · Campaña · Total */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex items-center gap-1 rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg)] p-0.5">
+                {PERIODO_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => cambiarPeriodoTipo(option.value)}
+                    className={cn(
+                      "rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors",
+                      periodoTipo === option.value
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              {periodoTipo !== "total" && (
+                <>
+                  <div className="flex items-center gap-1 rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg)] px-1 py-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setOffset((o) => o - 1)}
+                      className="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                      title="Periodo anterior"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                    </button>
+                    <div className="min-w-[110px] px-1 text-center">
+                      <p className="text-[11px] font-semibold leading-tight">{rango.label}</p>
+                      <p className="text-[10px] leading-tight text-muted-foreground">{rango.detail}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setOffset((o) => o + 1)}
+                      disabled={!canNavigateNext}
+                      className="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                      title="Periodo siguiente"
+                    >
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setOffset(0)}
+                    disabled={isCurrent}
+                    className="rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Hoy
+                  </button>
+                </>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-muted-foreground">Umbral de kg</span>
+              {KG_THRESHOLD_PRESETS.map((preset) => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  onClick={() => setMinKg(preset.value)}
+                  className={cn(
+                    "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                    minKg === preset.value
+                      ? "border-primary/40 bg-primary/10 text-primary"
+                      : "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Toda la campaña · % MDNA estimado por reparto diario · ordenado de mayor a menor aprovechamiento ·{" "}
+          {periodoDescripcion} · % MDNA estimado por reparto diario · ordenado de mayor a menor aprovechamiento ·{" "}
           {filtrados.length} productor{filtrados.length === 1 ? "" : "es"} mostrado{filtrados.length === 1 ? "" : "s"}
-          {productores.length !== filtrados.length ? ` de ${productores.length}` : ""}
+          {productoresRango.length !== filtrados.length ? ` de ${productoresRango.length}` : ""}
         </p>
       </CardHeader>
       <CardContent className="p-0">
         {isLoading ? (
           <p className="py-6 text-center text-sm text-muted-foreground">Cargando…</p>
-        ) : productores.length === 0 ? (
+        ) : productoresRango.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            Todavía no hay productores registrados.
+            {periodoTipo === "total"
+              ? "Todavía no hay productores registrados."
+              : "Sin productores registrados en este periodo."}
           </p>
         ) : filtrados.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">

@@ -34,7 +34,7 @@ import type { CalidadInformeLote } from "@/components/CalidadInformeDialog";
 
 const IN_CHUNK_SIZE = 200;
 
-type LoteDiaRow = Pick<
+export type LoteDiaRow = Pick<
   Tables<"lotes_dia">,
   "part_id" | "productor" | "lote_codigo" | "producto" | "kg_peso_total" | "toneladas_hora" | "duracion_min" | "peso_fruta_promedio_g"
 >;
@@ -272,19 +272,70 @@ export function computeProductoresHistorico(
 }
 
 /**
- * Ranking histórico de productores (toda la campaña, todos los partes) por
- * aprovechamiento MDNA estimado. Devuelve todos los productores con kg > 0;
- * el filtrado por volumen mínimo (minKg) se aplica en la UI.
+ * Como `computeProductoresHistorico`, pero restringe primero el conjunto de
+ * lotes a un rango de fechas [desde, hasta] (comparación lexicográfica de
+ * fechas ISO "yyyy-mm-dd", sin parsear). Si `desde` y `hasta` son ambos
+ * `null` no filtra por fecha (equivale a "Total": toda la campaña/histórico).
+ * Los lotes sin fecha conocida (part_id ausente de `partesById`) se excluyen
+ * en cuanto se pide un rango. Función pura, no toca la fórmula del
+ * aprovechamiento (delega en `computeProductoresHistorico`).
  */
-function useMercadonaProductoresHistorico() {
+export function computeProductoresRango(
+  lotes: LoteDiaRow[],
+  pctPorDia: Map<string, number>,
+  partesById: Map<string, string>,
+  desde: string | null,
+  hasta: string | null,
+  minKg = 0,
+): MercadonaProductorHistorico[] {
+  if (desde === null && hasta === null) {
+    return computeProductoresHistorico(lotes, pctPorDia, partesById, minKg);
+  }
+
+  const enRango = lotes.filter((l) => {
+    const date = partesById.get(l.part_id);
+    if (!date) return false;
+    if (desde !== null && date < desde) return false;
+    if (hasta !== null && date > hasta) return false;
+    return true;
+  });
+
+  return computeProductoresHistorico(enRango, pctPorDia, partesById, minKg);
+}
+
+export interface MercadonaProductoresData {
+  lotes: LoteDiaRow[];
+  pctPorDia: Map<string, number>;
+  partesById: Map<string, string>;
+  /** Fecha ISO mínima presente en partesById, o null si no hay datos. */
+  minDate: string | null;
+  /** Fecha ISO máxima presente en partesById, o null si no hay datos. */
+  maxDate: string | null;
+}
+
+const EMPTY_PRODUCTORES_DATA: MercadonaProductoresData = {
+  lotes: [],
+  pctPorDia: new Map(),
+  partesById: new Map(),
+  minDate: null,
+  maxDate: null,
+};
+
+/**
+ * Carga UNA vez todos los lotes/producto_dia históricos (toda la campaña,
+ * todos los partes) y expone los datos crudos para que el consumidor calcule
+ * el ranking de productores por el rango de fechas que quiera, en cliente,
+ * sin volver a pedir datos a Supabase por cada cambio de periodo.
+ */
+export function useMercadonaProductoresData() {
   const query = useQuery({
     queryKey: ["mercadona-productores-historico"],
-    queryFn: async (): Promise<MercadonaProductorHistorico[]> => {
+    queryFn: async (): Promise<MercadonaProductoresData> => {
       const { data: partes, error: partesError } = await supabase
         .from("partes_diarios")
         .select("id, date");
       if (partesError) throw partesError;
-      if (!partes || partes.length === 0) return [];
+      if (!partes || partes.length === 0) return EMPTY_PRODUCTORES_DATA;
 
       const partesById = new Map(partes.map((p) => [p.id as string, p.date as string]));
       const ids = Array.from(partesById.keys());
@@ -295,11 +346,19 @@ function useMercadonaProductoresHistorico() {
       ]);
 
       const pctPorDia = pctMdnaPorDia(productos, partesById);
-      return computeProductoresHistorico(lotes, pctPorDia, partesById);
+
+      let minDate: string | null = null;
+      let maxDate: string | null = null;
+      for (const date of partesById.values()) {
+        if (minDate === null || date < minDate) minDate = date;
+        if (maxDate === null || date > maxDate) maxDate = date;
+      }
+
+      return { lotes, pctPorDia, partesById, minDate, maxDate };
     },
   });
 
-  return { productores: query.data ?? [], isLoading: query.isLoading, error: query.error };
+  return { data: query.data ?? EMPTY_PRODUCTORES_DATA, isLoading: query.isLoading, error: query.error };
 }
 
 /** Controles de calidad (calidad_lotes) con fecha dentro del rango de la semana activa. */
@@ -372,14 +431,14 @@ export function useMercadonaLotes(activeSemana: MercadonaSemanaConMetodos | null
   );
 
   const lotesSemana = useMercadonaLotesSemana(rango?.desde ?? null, rango?.hasta ?? null);
-  const productoresHistorico = useMercadonaProductoresHistorico();
+  const productoresData = useMercadonaProductoresData();
   const calidadSemana = useMercadonaCalidadSemana(rango?.desde ?? null, rango?.hasta ?? null);
 
   return {
     lotesSemana: lotesSemana.lotes,
     isLoadingLotesSemana: lotesSemana.isLoading,
-    productoresHistorico: productoresHistorico.productores,
-    isLoadingProductoresHistorico: productoresHistorico.isLoading,
+    productoresData: productoresData.data,
+    isLoadingProductores: productoresData.isLoading,
     calidadSemana: calidadSemana.controles,
     isLoadingCalidadSemana: calidadSemana.isLoading,
   };
