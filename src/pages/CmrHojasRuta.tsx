@@ -7,7 +7,7 @@
 //    el PDF (o descargar + archivar en el histórico).
 import { useMemo, useState } from "react";
 import {
-  ChevronLeft, ChevronRight, Download, FileText, Loader2, Plus, Route, Save, Search, Trash2, Truck, Upload,
+  ChevronLeft, ChevronRight, Download, FileText, Loader2, Route, Save, Search, Truck, Upload,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,11 +21,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import {
-  prefijoDeTipo, useCmrDocumentos, useCmrDocumentosRegistrados, useListarArchivoCmr,
+  prefijoDeTipo, useCmrDocumentos, useCmrDocumentosRegistrados, useListarArchivoCmr, useSugerenciasCmr,
   type CmrDocumentoRow, type CmrPrefijo, type CmrTipo,
 } from "@/hooks/useCmrDocumentos";
 import { filtrarArchivos, parseArchivoNombre, type ArchivoListado } from "@/lib/cmrArchivo";
-import { cmrPdfFilename, generarCmrPdf, generarHojaRutaPdf, hojaRutaPdfFilename, pdfToBytes, type CmrDatos, type HojaRutaDatos, type HojaRutaParada } from "@/lib/cmrPdf";
+import {
+  cmrPdfFilename, downloadPdfBytes, generarCmrPdf, generarHojaRutaPdf, hojaRutaPdfFilename,
+  LASARTE_REMITENTE_DEFECTO, ORIGEN_DEFECTO, pdfToBytes, type CmrDatos, type HojaRutaDatos,
+} from "@/lib/cmrPdf";
 import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, today } from "@/lib/format";
 
@@ -386,19 +389,49 @@ function GenerarTab() {
 
 function GenerarCmrForm() {
   const { guardarGenerado } = useCmrDocumentos();
-  const [datos, setDatos] = useState<CmrDatos>({
-    remitente: "LASARTE SAT",
-    fecha: today(),
-  });
+  const { clientes, transportistas } = useSugerenciasCmr();
+
+  const [numCarta, setNumCarta] = useState("");
+  const [remitente, setRemitente] = useState(LASARTE_REMITENTE_DEFECTO);
+  const [consignatario, setConsignatario] = useState("");
+  const [lugarEntrega, setLugarEntrega] = useState("");
+  const [lugarFechaCarga, setLugarFechaCarga] = useState(ORIGEN_DEFECTO);
+  const [docsAnexos, setDocsAnexos] = useState("");
+  const [marcas, setMarcas] = useState("");
+  const [bultos, setBultos] = useState("");
+  const [embalaje, setEmbalaje] = useState("");
+  const [naturaleza, setNaturaleza] = useState("");
+  const [pesoBrutoKg, setPesoBrutoKg] = useState("");
+  const [transportista, setTransportista] = useState("");
+  const [matriculaTractora, setMatriculaTractora] = useState("");
+  const [matriculaRemolque, setMatriculaRemolque] = useState("");
+  const [formalizadoLugar, setFormalizadoLugar] = useState(ORIGEN_DEFECTO);
+  const [formalizadoFecha, setFormalizadoFecha] = useState(today());
   const [busy, setBusy] = useState<"pdf" | "archivar" | null>(null);
 
-  const set = <K extends keyof CmrDatos>(key: K, value: CmrDatos[K]) => setDatos((prev) => ({ ...prev, [key]: value }));
+  const buildDatos = (): CmrDatos => ({
+    numCarta: numCarta.trim() || null,
+    remitente,
+    consignatario,
+    lugarEntrega,
+    lugarFechaCarga,
+    docsAnexos,
+    marcas,
+    bultos,
+    embalaje,
+    naturaleza,
+    pesoBrutoKg,
+    transportista,
+    matriculaTractora,
+    matriculaRemolque,
+    formalizadoEn: [formalizadoLugar, formalizadoFecha ? formatDate(formalizadoFecha) : ""],
+  });
 
   const handleDescargar = async () => {
     setBusy("pdf");
     try {
-      const doc = await generarCmrPdf(datos);
-      doc.save(cmrPdfFilename(datos.numero));
+      const bytes = await generarCmrPdf(buildDatos());
+      downloadPdfBytes(bytes, cmrPdfFilename(numCarta));
       toast({ title: "PDF generado" });
     } catch (error) {
       toast({ title: "No se pudo generar el PDF", description: errorMessage(error), variant: "destructive" });
@@ -410,25 +443,25 @@ function GenerarCmrForm() {
   const handleArchivar = async () => {
     setBusy("archivar");
     try {
-      const doc = await generarCmrPdf(datos);
-      const nombre = cmrPdfFilename(datos.numero);
-      const pdfBytes = pdfToBytes(doc);
+      const datos = buildDatos();
+      const bytes = await generarCmrPdf(datos);
+      const nombre = cmrPdfFilename(numCarta);
       await guardarGenerado.mutateAsync({
         tipo: "cmr",
         datos: datos as unknown as Record<string, unknown>,
-        pdfBytes,
+        pdfBytes: bytes,
         nombre,
         metadatos: {
-          numero: datos.numero ?? null,
-          fecha: datos.fecha ?? null,
-          cliente: datos.consignatario ?? null,
-          transportista: datos.transportista ?? null,
-          matricula: datos.matricula ?? null,
-          destino: datos.lugarEntrega ?? null,
-          notas: datos.notas ?? null,
+          numero: numCarta.trim() || null,
+          fecha: formalizadoFecha || null,
+          cliente: consignatario.trim() || null,
+          transportista: transportista.trim() || null,
+          matricula: matriculaTractora.trim() || null,
+          destino: lugarEntrega.trim() || null,
+          notas: null,
         },
       });
-      doc.save(nombre);
+      downloadPdfBytes(bytes, nombre);
       toast({ title: "CMR generado y archivado", description: nombre });
     } catch (error) {
       toast({ title: "No se pudo archivar el CMR", description: errorMessage(error), variant: "destructive" });
@@ -441,49 +474,61 @@ function GenerarCmrForm() {
     <Card className="glass-accented overflow-hidden">
       <CardHeader className="pb-3">
         <CardTitle className="text-base">Carta de porte internacional (CMR)</CardTitle>
-        <p className="text-xs text-muted-foreground">Rellena las casillas relevantes; el resto del formato se genera automáticamente.</p>
+        <p className="text-xs text-muted-foreground">
+          Se rellena la plantilla oficial (la misma que ves en Archivo); solo hace falta completar las casillas relevantes.
+        </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Field label="Nº de CMR"><Input value={datos.numero ?? ""} onChange={(e) => set("numero", e.target.value)} /></Field>
-          <Field label="Fecha"><GlassDatePicker value={datos.fecha ?? ""} onChange={(v) => set("fecha", v)} className="w-full" /></Field>
-          <Field label="Matrícula del vehículo"><Input value={datos.matricula ?? ""} onChange={(e) => set("matricula", e.target.value)} /></Field>
+        <div className="grid gap-3 sm:grid-cols-4">
+          <Field label="Nº de carta"><Input value={numCarta} onChange={(e) => setNumCarta(e.target.value)} /></Field>
+          <Field label="Matrícula tractora"><Input value={matriculaTractora} onChange={(e) => setMatriculaTractora(e.target.value)} /></Field>
+          <Field label="Matrícula remolque"><Input value={matriculaRemolque} onChange={(e) => setMatriculaRemolque(e.target.value)} /></Field>
+          <Field label="Peso bruto (kg)"><Input value={pesoBrutoKg} onChange={(e) => setPesoBrutoKg(e.target.value)} /></Field>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="1. Remitente"><Textarea className="min-h-16" value={datos.remitente ?? ""} onChange={(e) => set("remitente", e.target.value)} /></Field>
-          <Field label="2. Consignatario"><Textarea className="min-h-16" value={datos.consignatario ?? ""} onChange={(e) => set("consignatario", e.target.value)} /></Field>
+          <Field label="1. Remitente"><Textarea className="min-h-20" value={remitente} onChange={(e) => setRemitente(e.target.value)} /></Field>
+          <Field label="2. Consignatario / Cliente">
+            <Input
+              list="cmr-clientes-list"
+              value={consignatario}
+              onChange={(e) => setConsignatario(e.target.value)}
+              placeholder="Nombre del cliente"
+            />
+          </Field>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="3. Lugar previsto de entrega"><Input value={datos.lugarEntrega ?? ""} onChange={(e) => set("lugarEntrega", e.target.value)} /></Field>
-          <Field label="4. Lugar y fecha de carga"><Input value={datos.lugarFechaCarga ?? ""} onChange={(e) => set("lugarFechaCarga", e.target.value)} /></Field>
+          <Field label="3. Lugar previsto de entrega (una línea por renglón)">
+            <Textarea className="min-h-16" value={lugarEntrega} onChange={(e) => setLugarEntrega(e.target.value)} />
+          </Field>
+          <Field label="4. Lugar y fecha de carga (una línea por renglón)">
+            <Textarea className="min-h-16" value={lugarFechaCarga} onChange={(e) => setLugarFechaCarga(e.target.value)} />
+          </Field>
         </div>
 
-        <Field label="5. Documentos anexos"><Input value={datos.documentosAnexos ?? ""} onChange={(e) => set("documentosAnexos", e.target.value)} /></Field>
+        <Field label="5. Documentos anexos"><Input value={docsAnexos} onChange={(e) => setDocsAnexos(e.target.value)} /></Field>
 
         <div className="grid gap-3 sm:grid-cols-4">
-          <Field label="6. Marcas y números"><Input value={datos.marcasNumeros ?? ""} onChange={(e) => set("marcasNumeros", e.target.value)} /></Field>
-          <Field label="7. Nº de bultos"><Input value={datos.numeroBultos ?? ""} onChange={(e) => set("numeroBultos", e.target.value)} /></Field>
-          <Field label="8. Modo de embalaje"><Input value={datos.modoEmbalaje ?? ""} onChange={(e) => set("modoEmbalaje", e.target.value)} /></Field>
-          <Field label="9. Naturaleza de la mercancía"><Input value={datos.naturalezaMercancia ?? ""} onChange={(e) => set("naturalezaMercancia", e.target.value)} /></Field>
+          <Field label="6. Marcas y números"><Input value={marcas} onChange={(e) => setMarcas(e.target.value)} /></Field>
+          <Field label="7. Nº de bultos"><Input value={bultos} onChange={(e) => setBultos(e.target.value)} /></Field>
+          <Field label="8. Modo de embalaje"><Input value={embalaje} onChange={(e) => setEmbalaje(e.target.value)} /></Field>
+          <Field label="9. Naturaleza de la mercancía"><Input value={naturaleza} onChange={(e) => setNaturaleza(e.target.value)} /></Field>
         </div>
 
-        <Field label="11. Peso bruto (kg)"><Input value={datos.pesoBrutoKg ?? ""} onChange={(e) => set("pesoBrutoKg", e.target.value)} /></Field>
-
-        <Field label="13. Instrucciones del remitente"><Textarea className="min-h-16" value={datos.instruccionesRemitente ?? ""} onChange={(e) => set("instruccionesRemitente", e.target.value)} /></Field>
+        <Field label="16. Transportista">
+          <Input
+            list="cmr-transportistas-list"
+            value={transportista}
+            onChange={(e) => setTransportista(e.target.value)}
+            placeholder="Nombre del transportista"
+          />
+        </Field>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="16. Transportista"><Textarea className="min-h-16" value={datos.transportista ?? ""} onChange={(e) => set("transportista", e.target.value)} /></Field>
-          <Field label="17. Porteadores sucesivos"><Textarea className="min-h-16" value={datos.porteadoresSucesivos ?? ""} onChange={(e) => set("porteadoresSucesivos", e.target.value)} /></Field>
+          <Field label="21. Formalizado en (lugar)"><Input value={formalizadoLugar} onChange={(e) => setFormalizadoLugar(e.target.value)} /></Field>
+          <Field label="21. Formalizado el (fecha)"><GlassDatePicker value={formalizadoFecha} onChange={setFormalizadoFecha} className="w-full" /></Field>
         </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="21. Formalizado en (lugar)"><Input value={datos.formalizadoLugar ?? ""} onChange={(e) => set("formalizadoLugar", e.target.value)} /></Field>
-          <Field label="21. Formalizado el (fecha)"><GlassDatePicker value={datos.formalizadoFecha ?? ""} onChange={(v) => set("formalizadoFecha", v)} className="w-full" /></Field>
-        </div>
-
-        <Field label="Notas"><Textarea className="min-h-16" value={datos.notas ?? ""} onChange={(e) => set("notas", e.target.value)} /></Field>
 
         <div className="flex flex-wrap gap-2 pt-2">
           <Button variant="outline" className="gap-2" onClick={handleDescargar} disabled={busy !== null}>
@@ -495,42 +540,49 @@ function GenerarCmrForm() {
             Descargar y archivar
           </Button>
         </div>
+
+        <datalist id="cmr-clientes-list">
+          {clientes.map((cliente) => <option key={cliente} value={cliente} />)}
+        </datalist>
+        <datalist id="cmr-transportistas-list">
+          {transportistas.map((t) => <option key={t} value={t} />)}
+        </datalist>
       </CardContent>
     </Card>
   );
 }
 
-let paradaSeq = 0;
-function nuevaParada(orden: number): HojaRutaParada & { key: string } {
-  paradaSeq += 1;
-  return { key: `p${paradaSeq}`, orden, cliente: "", destino: "", bultos: "", kg: "", observaciones: "" };
-}
-
 function GenerarHojaRutaForm() {
   const { guardarGenerado } = useCmrDocumentos();
-  const [numero, setNumero] = useState("");
-  const [fecha, setFecha] = useState(today());
-  const [transportista, setTransportista] = useState("");
-  const [matricula, setMatricula] = useState("");
-  const [conductor, setConductor] = useState("");
-  const [notas, setNotas] = useState("");
-  const [paradas, setParadas] = useState<(HojaRutaParada & { key: string })[]>(() => [nuevaParada(1)]);
-  const [busy, setBusy] = useState<"pdf" | "archivar" | null>(null);
+  const { clientes, transportistas } = useSugerenciasCmr();
 
-  const addParada = () => setParadas((prev) => [...prev, nuevaParada(prev.length + 1)]);
-  const removeParada = (key: string) =>
-    setParadas((prev) => prev.filter((p) => p.key !== key).map((p, i) => ({ ...p, orden: i + 1 })));
-  const updateParada = (key: string, patch: Partial<HojaRutaParada>) =>
-    setParadas((prev) => prev.map((p) => (p.key === key ? { ...p, ...patch } : p)));
+  const [numero, setNumero] = useState("");
+  const [transportista, setTransportista] = useState("");
+  const [destinatario, setDestinatario] = useState("");
+  const [matriculaTractora, setMatriculaTractora] = useState("");
+  const [matriculaRemolque, setMatriculaRemolque] = useState("");
+  const [origen, setOrigen] = useState(ORIGEN_DEFECTO);
+  const [destino, setDestino] = useState("");
+  const [fechaCarga, setFechaCarga] = useState(today());
+  const [fechaDescarga, setFechaDescarga] = useState("");
+  const [descripcionMercancia, setDescripcionMercancia] = useState("");
+  const [pesoKg, setPesoKg] = useState("");
+  const [observaciones, setObservaciones] = useState("");
+  const [busy, setBusy] = useState<"pdf" | "archivar" | null>(null);
 
   const buildDatos = (): HojaRutaDatos => ({
     numero: numero.trim() || null,
-    fecha,
     transportista,
-    matricula,
-    conductor,
-    notas,
-    paradas: paradas.map(({ key: _key, ...rest }) => rest),
+    destinatario,
+    matriculaTractora,
+    matriculaRemolque,
+    origen,
+    destino,
+    fechaCarga: fechaCarga || null,
+    fechaDescarga: fechaDescarga || null,
+    descripcionMercancia,
+    pesoKg,
+    observaciones,
   });
 
   const handleDescargar = async () => {
@@ -560,12 +612,12 @@ function GenerarHojaRutaForm() {
         nombre,
         metadatos: {
           numero: datos.numero,
-          fecha: datos.fecha,
-          transportista: datos.transportista ?? null,
-          matricula: datos.matricula ?? null,
-          cliente: paradas[0]?.cliente || null,
-          destino: paradas[0]?.destino || null,
-          notas: datos.notas ?? null,
+          fecha: datos.fechaCarga ?? null,
+          transportista: datos.transportista || null,
+          matricula: datos.matriculaTractora || null,
+          cliente: datos.destinatario || null,
+          destino: datos.destino || null,
+          notas: datos.observaciones || null,
         },
       });
       doc.save(nombre);
@@ -581,51 +633,54 @@ function GenerarHojaRutaForm() {
     <Card className="glass-accented overflow-hidden">
       <CardHeader className="pb-3">
         <CardTitle className="text-base">Hoja de ruta</CardTitle>
-        <p className="text-xs text-muted-foreground">Cabecera del transporte y paradas en orden de reparto.</p>
+        <p className="text-xs text-muted-foreground">
+          Documento de control de mercancías (Orden FOM 238/2003) para un envío.
+        </p>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-4">
           <Field label="Nº"><Input value={numero} onChange={(e) => setNumero(e.target.value)} /></Field>
-          <Field label="Fecha"><GlassDatePicker value={fecha} onChange={setFecha} className="w-full" /></Field>
-          <Field label="Transportista"><Input value={transportista} onChange={(e) => setTransportista(e.target.value)} /></Field>
-          <Field label="Matrícula"><Input value={matricula} onChange={(e) => setMatricula(e.target.value)} /></Field>
-        </div>
-        <Field label="Conductor"><Input value={conductor} onChange={(e) => setConductor(e.target.value)} /></Field>
-
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label>Paradas</Label>
-            <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={addParada}>
-              <Plus className="h-3.5 w-3.5" /> Añadir parada
-            </Button>
-          </div>
-
-          <div className="space-y-2">
-            {paradas.map((parada) => (
-              <div key={parada.key} className="grid grid-cols-12 items-start gap-2 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-2.5">
-                <div className="col-span-1 flex h-10 items-center justify-center text-sm font-semibold tabular-nums text-muted-foreground">
-                  {parada.orden}
-                </div>
-                <Input className="col-span-2" placeholder="Cliente" value={parada.cliente} onChange={(e) => updateParada(parada.key, { cliente: e.target.value })} />
-                <Input className="col-span-3" placeholder="Destino / dirección" value={parada.destino} onChange={(e) => updateParada(parada.key, { destino: e.target.value })} />
-                <Input className="col-span-1" placeholder="Bultos" value={parada.bultos} onChange={(e) => updateParada(parada.key, { bultos: e.target.value })} />
-                <Input className="col-span-1" placeholder="Kg" value={parada.kg} onChange={(e) => updateParada(parada.key, { kg: e.target.value })} />
-                <Input className="col-span-3" placeholder="Observaciones" value={parada.observaciones} onChange={(e) => updateParada(parada.key, { observaciones: e.target.value })} />
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="col-span-1 h-10 w-10 text-destructive hover:text-destructive"
-                  onClick={() => removeParada(parada.key)}
-                  disabled={paradas.length === 1}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
+          <Field label="Matrícula tractora"><Input value={matriculaTractora} onChange={(e) => setMatriculaTractora(e.target.value)} /></Field>
+          <Field label="Matrícula remolque"><Input value={matriculaRemolque} onChange={(e) => setMatriculaRemolque(e.target.value)} /></Field>
+          <Field label="Peso (kg)"><Input value={pesoKg} onChange={(e) => setPesoKg(e.target.value)} /></Field>
         </div>
 
-        <Field label="Notas"><Textarea className="min-h-16" value={notas} onChange={(e) => setNotas(e.target.value)} /></Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Nombre transportista">
+            <Input
+              list="hr-transportistas-list"
+              value={transportista}
+              onChange={(e) => setTransportista(e.target.value)}
+              placeholder="Nombre del transportista"
+            />
+          </Field>
+          <Field label="Destinatario">
+            <Input
+              list="hr-clientes-list"
+              value={destinatario}
+              onChange={(e) => setDestinatario(e.target.value)}
+              placeholder="Cliente / destinatario"
+            />
+          </Field>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Origen"><Input value={origen} onChange={(e) => setOrigen(e.target.value)} /></Field>
+          <Field label="Destino"><Input value={destino} onChange={(e) => setDestino(e.target.value)} /></Field>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Fecha de carga"><GlassDatePicker value={fechaCarga} onChange={setFechaCarga} className="w-full" /></Field>
+          <Field label="Fecha de descarga"><GlassDatePicker value={fechaDescarga} onChange={setFechaDescarga} className="w-full" /></Field>
+        </div>
+
+        <Field label="Descripción de la mercancía">
+          <Textarea className="min-h-16" value={descripcionMercancia} onChange={(e) => setDescripcionMercancia(e.target.value)} />
+        </Field>
+
+        <Field label="Observaciones">
+          <Textarea className="min-h-16" value={observaciones} onChange={(e) => setObservaciones(e.target.value)} />
+        </Field>
 
         <div className="flex flex-wrap gap-2 pt-2">
           <Button variant="outline" className="gap-2" onClick={handleDescargar} disabled={busy !== null}>
@@ -637,6 +692,13 @@ function GenerarHojaRutaForm() {
             Descargar y archivar
           </Button>
         </div>
+
+        <datalist id="hr-transportistas-list">
+          {transportistas.map((t) => <option key={t} value={t} />)}
+        </datalist>
+        <datalist id="hr-clientes-list">
+          {clientes.map((cliente) => <option key={cliente} value={cliente} />)}
+        </datalist>
       </CardContent>
     </Card>
   );

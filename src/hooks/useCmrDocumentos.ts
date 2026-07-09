@@ -17,7 +17,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
-import { idCortoStorage, sanearNombreArchivo } from "@/lib/cmrArchivo";
+import { idCortoStorage, parseArchivoNombre, sanearNombreArchivo } from "@/lib/cmrArchivo";
 
 // Cast local: la tabla cmr_documentos aun no esta en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
@@ -32,6 +32,58 @@ export type CmrOrigen = "generado" | "subido";
 
 export function prefijoDeTipo(tipo: CmrTipo): CmrPrefijo {
   return tipo === "cmr" ? "cmr" : "route";
+}
+
+const SUGERENCIAS_LISTADO_LIMITE = 1000;
+const SUGERENCIAS_TOP = 50;
+
+/**
+ * Deriva listas candidatas de CLIENTES y TRANSPORTISTAS a partir de los
+ * nombres de fichero del histórico digitalizado ("cmr/<hash>-PACO-CMR-10305-
+ * COFRULY-LYON-ANTONIO-CANO.pdf", ver cabecera de src/lib/cmrArchivo.ts).
+ *
+ * Es best-effort y best-effort SOLO: parseArchivoNombre ya reduce el nombre a
+ * una "etiqueta" legible (palabras separadas por espacio, sin el hash inicial
+ * ni la extensión); a partir de ahí no hay forma fiable de saber qué palabras
+ * son el cliente y cuáles el transportista (los guiones del nombre original
+ * separan TODOS los tokens por igual, no solo los campos). La heurística
+ * aplicada — quitar el token "CMR" y el número, y partir el resto por la
+ * mitad (primera mitad -> cliente, segunda mitad -> transportista) — es
+ * razonable para el patrón dominante observado ("<cliente 2 palabras>-
+ * <transportista 2 palabras>") y sirve como sugerencia de autocompletado, no
+ * como dato autoritativo.
+ */
+export function extraerCandidatosCmr(nombres: string[]): { clientes: string[]; transportistas: string[] } {
+  const clientes = new Map<string, string>();
+  const transportistas = new Map<string, string>();
+
+  for (const nombre of nombres) {
+    const { numero, etiqueta } = parseArchivoNombre(nombre, "cmr");
+    if (!etiqueta) continue;
+
+    const tokens = etiqueta
+      .split(/\s+/)
+      .filter(Boolean)
+      .filter((t) => t.toUpperCase() !== "CMR")
+      .filter((t) => !(numero && t === numero));
+    if (tokens.length < 2) continue; // sin suficientes tokens para separar cliente/transportista
+
+    const mitad = Math.ceil(tokens.length / 2);
+    const cliente = tokens.slice(0, mitad).join(" ").trim();
+    const transportista = tokens.slice(mitad).join(" ").trim();
+
+    if (cliente && !clientes.has(cliente.toLowerCase())) clientes.set(cliente.toLowerCase(), cliente);
+    if (transportista && !transportistas.has(transportista.toLowerCase())) {
+      transportistas.set(transportista.toLowerCase(), transportista);
+    }
+  }
+
+  const ordenar = (mapa: Map<string, string>) =>
+    Array.from(mapa.values())
+      .sort((a, b) => a.localeCompare(b, "es"))
+      .slice(0, SUGERENCIAS_TOP);
+
+  return { clientes: ordenar(clientes), transportistas: ordenar(transportistas) };
 }
 
 export interface CmrArchivoStorage {
@@ -126,6 +178,35 @@ export function useListarArchivoCmr(prefijo: CmrPrefijo, search: string) {
     nextPage: () => setPage((p) => (query.data?.hasMore ? p + 1 : p)),
     prevPage: () => setPage((p) => Math.max(0, p - 1)),
     resetPage: () => setPage(0),
+  };
+}
+
+/**
+ * Listas de CLIENTES y TRANSPORTISTAS candidatos, derivadas del histórico de
+ * nombres de fichero en "logistics-templates/cmr" (ver extraerCandidatosCmr).
+ * Pensado para sugerencias de autocompletado (datalist) en el formulario de
+ * "Generar", no para datos exactos: el resultado se cachea 30 min porque no
+ * necesita estar siempre al día.
+ */
+export function useSugerenciasCmr() {
+  const query = useQuery({
+    queryKey: ["cmr-sugerencias"],
+    queryFn: async () => {
+      const { data, error } = await supabase.storage.from(BUCKET).list("cmr", {
+        limit: SUGERENCIAS_LISTADO_LIMITE,
+        sortBy: { column: "name", order: "asc" },
+      });
+      if (error) throw toError(error);
+      const nombres = (data ?? []).map((f) => f.name);
+      return extraerCandidatosCmr(nombres);
+    },
+    staleTime: 1000 * 60 * 30,
+  });
+
+  return {
+    clientes: query.data?.clientes ?? [],
+    transportistas: query.data?.transportistas ?? [],
+    isLoading: query.isLoading,
   };
 }
 

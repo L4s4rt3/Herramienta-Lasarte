@@ -1,25 +1,28 @@
 // src/lib/cmrPdf.ts
-// Generación de PDF para la pestaña "Generar" de CMR y Hojas de ruta.
-// Reutiliza el mismo motor (jsPDF + jspdf-autotable) y la misma paleta/logo
-// que src/lib/exportPartes.ts, vía exportTheme.ts / reportKit.ts, para que
-// estos documentos encajen visualmente con el resto de exports de la app.
+// Generación de documentos para la pestaña "Generar" de CMR y Hojas de ruta.
 //
-// generarCmrPdf: layout de carta de porte internacional (CMR) con las
-// casillas numeradas habituales del impreso oficial, sin pretender ser una
-// réplica exacta (no hace falta), pero sí con todas las casillas relevantes
-// bien organizadas en una rejilla con bordes.
+// generarCmrPdf: RELLENA el formulario (AcroForm) de la plantilla real
+// public/plantillas/plantilla-cmr.pdf (un PDF con 46 PDFTextField, sin
+// dibujar nada por nuestra cuenta) usando pdf-lib. Así "Generar" produce
+// exactamente la misma plantilla que la que se ve/descarga en la pestaña
+// Archivo, solo que ya rellena. El mapeo de casillas -> nombre de campo está
+// documentado junto a `buildCmrFieldValues`.
 //
-// generarHojaRutaPdf: documento sencillo de cabecera + tabla de paradas +
-// totales + firma.
+// generarHojaRutaPdf: sigue usando jsPDF + jspdf-autotable (motor compartido
+// con exportPartes.ts vía exportTheme.ts/reportKit.ts) para dibujar una
+// réplica del formato de public/plantillas/plantilla-hoja-ruta.xlsx
+// ("DOCUMENTO DE CONTROL DE MERCANCÍAS", Orden FOM 238/2003).
+import { PDFDocument } from "pdf-lib";
 import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
-import { drawExportFooter, drawLogoOrFallback, finalizeExportPageNumbers, PDF_THEME, pdfTableTheme } from "./exportTheme";
+import { drawExportFooter, drawLogoOrFallback, finalizeExportPageNumbers, PDF_THEME } from "./exportTheme";
 import { ensureExportLogoLoaded, formatReportDate } from "./reportKit";
 import { formatDate } from "./format";
 
 // jsPDF no soporta acentos/ñ con la fuente helvetica estandar sin incrustar
 // una fuente propia: igual que exportPartes.ts, se normaliza el texto a ASCII
-// antes de escribirlo para evitar caracteres corruptos en el PDF.
+// antes de escribirlo para evitar caracteres corruptos en el PDF. Esto SOLO
+// aplica al motor jsPDF (Hoja de ruta); el CMR se rellena con pdf-lib sobre
+// la plantilla real, que sí soporta acentos (WinAnsiEncoding) sin problema.
 function safePdf(value: unknown): string {
   return String(value ?? "")
     .normalize("NFD")
@@ -34,7 +37,21 @@ const PAGE_H = 297;
 const MARGIN = 10;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 
-function drawDocHeader(doc: jsPDF, tituloDocumento: string, numero?: string | null) {
+/** Datos fiscales reales de la empresa cargadora, usados como remitente/origen por defecto. */
+export const LASARTE_EMPRESA = {
+  nombre: "Lasarte Cítricos S.L.",
+  cif: "B14800304",
+  direccion: "Ctra. Madrid-Cádiz km 461",
+  poblacion: "41400 Écija (Sevilla)",
+};
+
+export const LASARTE_REMITENTE_DEFECTO =
+  `${LASARTE_EMPRESA.nombre}\nCIF ${LASARTE_EMPRESA.cif}\n${LASARTE_EMPRESA.direccion}\n${LASARTE_EMPRESA.poblacion}`;
+
+/** Origen por defecto de expedición (todas las salidas de mercancía parten de Écija). */
+export const ORIGEN_DEFECTO = "ÉCIJA";
+
+function drawDocHeader(doc: jsPDF, tituloDocumento: string, numero?: string | null, subLinea?: string) {
   doc.setFillColor(...PDF_THEME.cream);
   doc.rect(0, 0, PAGE_W, 26, "F");
   doc.setFillColor(...PDF_THEME.primary);
@@ -51,7 +68,7 @@ function drawDocHeader(doc: jsPDF, tituloDocumento: string, numero?: string | nu
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.5);
   doc.setTextColor(...PDF_THEME.muted);
-  doc.text(`Generado: ${formatReportDate()}`, textX, 21.5);
+  doc.text(safePdf(subLinea) || `Generado: ${formatReportDate()}`, textX, 21.5);
 
   if (numero) {
     doc.setFont("helvetica", "bold");
@@ -63,7 +80,7 @@ function drawDocHeader(doc: jsPDF, tituloDocumento: string, numero?: string | nu
   doc.line(MARGIN, 26, PAGE_W - MARGIN, 26);
 }
 
-/** Dibuja una casilla numerada (borde + etiqueta pequeña + valor) en una rejilla de coordenadas mm. */
+/** Dibuja una casilla (borde + etiqueta pequeña + valor) en una rejilla de coordenadas mm. */
 function drawCasilla(
   doc: jsPDF,
   x: number,
@@ -81,7 +98,8 @@ function drawCasilla(
   doc.setFont("helvetica", "bold");
   doc.setFontSize(6);
   doc.setTextColor(...PDF_THEME.primaryDark);
-  doc.text(`${numero}. ${safePdf(etiqueta)}`, x + 1.5, y + 3.5);
+  const label = numero ? `${numero}. ${safePdf(etiqueta)}` : safePdf(etiqueta);
+  doc.text(label, x + 1.5, y + 3.5);
 
   if (valor) {
     doc.setFont("helvetica", "normal");
@@ -92,230 +110,277 @@ function drawCasilla(
   }
 }
 
+// ─── Parte A: CMR — relleno de la plantilla real (AcroForm) ───────────────
+
+/** Una línea de mercancía de las 7 disponibles en la plantilla (casillas 010/014/015). */
+export interface CmrLineaMercancia {
+  /** Columna 010_NN (ancha, campo libre: nº estadístico / descripción de la línea). */
+  numeroEstadistico?: string;
+  /** Columna 014_NN (peso bruto en kg de esa línea). */
+  pesoBrutoKg?: string;
+  /** Columna 015_NN (volumen en m3 de esa línea). */
+  volumenM3?: string;
+}
+
 export interface CmrDatos {
-  numero?: string | null;
-  fecha?: string | null;
-  remitente?: string; // casilla 1 — por defecto "LASARTE SAT"
-  consignatario?: string; // casilla 2
-  lugarEntrega?: string; // casilla 3
-  lugarFechaCarga?: string; // casilla 4
-  documentosAnexos?: string; // casilla 5
-  marcasNumeros?: string; // casilla 6
-  numeroBultos?: string; // casilla 7
-  modoEmbalaje?: string; // casilla 8
-  naturalezaMercancia?: string; // casilla 9
-  pesoBrutoKg?: string; // casilla 11
-  instruccionesRemitente?: string; // casilla 13
-  transportista?: string; // casilla 16
-  porteadoresSucesivos?: string; // casilla 17
-  formalizadoLugar?: string; // casilla 21 (lugar)
-  formalizadoFecha?: string; // casilla 21 (fecha)
-  matricula?: string;
-  notas?: string;
+  /** Casilla "NumCarta": número de carta de porte. */
+  numCarta?: string | null;
+  /** Casilla "001": remitente. Por defecto los datos fiscales de Lasarte. */
+  remitente?: string;
+  /** Casilla "002": consignatario / cliente. */
+  consignatario?: string;
+  /** Casillas "003_1..3": lugar previsto para la entrega (hasta 3 líneas). */
+  lugarEntrega?: string | string[];
+  /** Casillas "004_1..2": lugar y fecha de carga (hasta 2 líneas). */
+  lugarFechaCarga?: string | string[];
+  /** Casilla "005": documentos anexos. */
+  docsAnexos?: string;
+  /** Casilla "006": marcas y números. */
+  marcas?: string;
+  /** Casillas "007_1..4": número de bultos (hasta 4 líneas). */
+  bultos?: string | string[];
+  /** Casillas "008_01..02": modo de embalaje (hasta 2 líneas). */
+  embalaje?: string | string[];
+  /** Casilla "009": naturaleza de la mercancía. */
+  naturaleza?: string;
+  /**
+   * Peso bruto total en kg. Si no se aportan `lineas`, este valor se usa
+   * como atajo rápido y se coloca en la primera línea de mercancía
+   * (columna 014_01), que es la casilla numérica pensada para el peso.
+   */
+  pesoBrutoKg?: string;
+  /** Casilla "016": transportista. */
+  transportista?: string;
+  /** Casillas "021_01..03": formalizado en (lugar / fecha / …), hasta 3 líneas. */
+  formalizadoEn?: string | string[];
+  /** Casilla "TRACTORA": matrícula de la cabeza tractora. */
+  matriculaTractora?: string;
+  /** Casilla "REMOLQUE": matrícula del remolque. */
+  matriculaRemolque?: string;
+  /** Casilla "022": firma del remitente (texto, p.ej. nombre de quien firma). */
+  firmaRemitente?: string;
+  /** Casilla "023": firma del transportista (texto). */
+  firmaTransportista?: string;
+  /**
+   * Hasta 7 líneas de mercancía (casillas 010/014/015 de la plantilla). Si se
+   * omite y hay `pesoBrutoKg`, se genera automáticamente una única línea con
+   * ese peso — ver comentario de `pesoBrutoKg`.
+   */
+  lineas?: CmrLineaMercancia[];
+}
+
+const CMR_PLANTILLA_URL = "/plantillas/plantilla-cmr.pdf";
+
+/** Separa un valor en hasta `max` líneas no vacías (por saltos de línea si es string). */
+function toLines(value: string | string[] | undefined, max: number): string[] {
+  if (!value) return [];
+  const arr = Array.isArray(value) ? value : value.split(/\r?\n/);
+  return arr
+    .map((v) => String(v ?? "").trim())
+    .filter(Boolean)
+    .slice(0, max);
 }
 
 /**
- * PDF A4 vertical con el layout de una carta de porte internacional (CMR):
- * casillas numeradas 1-24 organizadas en una rejilla con bordes, tipografia
- * pequeña, numero de CMR arriba a la derecha. No es una replica exacta del
- * impreso oficial pero cubre todas las casillas relevantes solicitadas.
+ * Mapeo puro datos -> { nombreDeCampo: valor } para la plantilla-cmr.pdf.
+ * No toca pdf-lib ni fetch: es la parte testable en Node/vitest del relleno
+ * del CMR. Solo incluye claves con valor no vacío (para no pisar el resto
+ * de casillas de la plantilla con cadenas vacías al rellenarla).
+ *
+ * TODO calibrar columnas 010/014/015 si el usuario ve descuadre en el peso o
+ * el volumen por línea de mercancía: la plantilla no rotula estas 3 columnas
+ * al 100%, así que el mapeo (010=nº estadístico/descripción, 014=peso kg,
+ * 015=volumen m3) es una interpretación conservadora basada en el ancho de
+ * cada campo (010 es la columna ancha, 014/015 son las dos columnas
+ * numéricas estrechas de la derecha).
  */
-export async function generarCmrPdf(datos: CmrDatos): Promise<jsPDF> {
-  await ensureExportLogoLoaded();
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+export function buildCmrFieldValues(datos: CmrDatos): Record<string, string> {
+  const out: Record<string, string> = {};
+  const put = (name: string, value: unknown) => {
+    const v = typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
+    if (v) out[name] = v;
+  };
 
-  drawDocHeader(doc, "Carta de porte internacional (CMR)", datos.numero);
+  put("NumCarta", datos.numCarta);
+  put("001", datos.remitente?.trim() || LASARTE_REMITENTE_DEFECTO);
+  put("002", datos.consignatario);
 
-  let y = 30;
-  const remitente = datos.remitente?.trim() || "LASARTE SAT";
+  toLines(datos.lugarEntrega, 3).forEach((line, i) => put(`003_${i + 1}`, line));
+  toLines(datos.lugarFechaCarga, 2).forEach((line, i) => put(`004_${i + 1}`, line));
 
-  // Fila 1: Remitente (1) | Consignatario (2)
-  const colW = CONTENT_W / 2;
-  drawCasilla(doc, MARGIN, y, colW, 22, "1", "Remitente", remitente);
-  drawCasilla(doc, MARGIN + colW, y, colW, 22, "2", "Consignatario", datos.consignatario || "");
-  y += 22;
+  put("005", datos.docsAnexos);
+  put("006", datos.marcas);
 
-  // Fila 2: Lugar de entrega (3) | Lugar y fecha de carga (4)
-  drawCasilla(doc, MARGIN, y, colW, 16, "3", "Lugar previsto para la entrega de la mercancia", datos.lugarEntrega || "");
-  drawCasilla(doc, MARGIN + colW, y, colW, 16, "4", "Lugar y fecha de carga de la mercancia", datos.lugarFechaCarga || "");
-  y += 16;
+  toLines(datos.bultos, 4).forEach((line, i) => put(`007_${i + 1}`, line));
+  toLines(datos.embalaje, 2).forEach((line, i) => put(`008_${String(i + 1).padStart(2, "0")}`, line));
 
-  // Fila 3: Documentos anexos (5) — ancho completo
-  drawCasilla(doc, MARGIN, y, CONTENT_W, 14, "5", "Documentos anexos", datos.documentosAnexos || "");
-  y += 14;
+  put("009", datos.naturaleza);
 
-  // Fila 4: Marcas y numeros (6) | Nº bultos (7) | Embalaje (8) | Naturaleza mercancia (9)
-  const c4 = CONTENT_W / 4;
-  drawCasilla(doc, MARGIN, y, c4, 20, "6", "Marcas y numeros", datos.marcasNumeros || "");
-  drawCasilla(doc, MARGIN + c4, y, c4, 20, "7", "Nº de bultos", datos.numeroBultos || "");
-  drawCasilla(doc, MARGIN + c4 * 2, y, c4, 20, "8", "Modo de embalaje", datos.modoEmbalaje || "");
-  drawCasilla(doc, MARGIN + c4 * 3, y, c4, 20, "9", "Naturaleza de la mercancia", datos.naturalezaMercancia || "");
-  y += 20;
-
-  // Fila 5: Peso bruto kg (11) — ancho completo, destacado
-  drawCasilla(doc, MARGIN, y, CONTENT_W, 12, "11", "Peso bruto (kg)", datos.pesoBrutoKg || "");
-  y += 12;
-
-  // Fila 6: Instrucciones del remitente (13)
-  drawCasilla(doc, MARGIN, y, CONTENT_W, 18, "13", "Instrucciones del remitente", datos.instruccionesRemitente || "");
-  y += 18;
-
-  // Fila 7: Transportista (16) | Porteadores sucesivos (17)
-  drawCasilla(doc, MARGIN, y, colW, 20, "16", "Transportista", datos.transportista || "");
-  drawCasilla(doc, MARGIN + colW, y, colW, 20, "17", "Porteadores sucesivos", datos.porteadoresSucesivos || "");
-  y += 20;
-
-  // Fila 8: Matricula | Formalizado en (lugar, fecha) (21)
-  drawCasilla(doc, MARGIN, y, colW, 14, "M", "Matricula del vehiculo", datos.matricula || "");
-  const lugarFecha = [datos.formalizadoLugar, datos.formalizadoFecha ? formatDate(datos.formalizadoFecha) : datos.fecha ? formatDate(datos.fecha) : ""]
-    .filter(Boolean)
-    .join(" · ");
-  drawCasilla(doc, MARGIN + colW, y, colW, 14, "21", "Formalizado en (lugar, fecha)", lugarFecha || "");
-  y += 14;
-
-  if (datos.notas?.trim()) {
-    drawCasilla(doc, MARGIN, y, CONTENT_W, 16, "—", "Notas", datos.notas);
-    y += 16;
-  }
-
-  // Firmas: 22 remitente / 23 transportista / 24 consignatario
-  const firmaY = Math.max(y + 4, PAGE_H - 60);
-  const c3 = CONTENT_W / 3;
-  [
-    { n: "22", label: "Firma del remitente" },
-    { n: "23", label: "Firma del transportista" },
-    { n: "24", label: "Firma del consignatario" },
-  ].forEach((item, i) => {
-    drawCasilla(doc, MARGIN + c3 * i, firmaY, c3, 30, item.n, item.label);
+  const lineas: CmrLineaMercancia[] =
+    datos.lineas && datos.lineas.length > 0
+      ? datos.lineas
+      : datos.pesoBrutoKg
+        ? [{ pesoBrutoKg: datos.pesoBrutoKg }]
+        : [];
+  lineas.slice(0, 7).forEach((linea, i) => {
+    const n = String(i + 1).padStart(2, "0");
+    put(`010_${n}`, linea.numeroEstadistico);
+    put(`014_${n}`, linea.pesoBrutoKg);
+    put(`015_${n}`, linea.volumenM3);
   });
 
-  drawExportFooter(doc);
-  finalizeExportPageNumbers(doc);
-  return doc;
+  put("016", datos.transportista);
+
+  toLines(datos.formalizadoEn, 3).forEach((line, i) => put(`021_${String(i + 1).padStart(2, "0")}`, line));
+
+  put("TRACTORA", datos.matriculaTractora);
+  put("REMOLQUE", datos.matriculaRemolque);
+  put("022", datos.firmaRemitente);
+  put("023", datos.firmaTransportista);
+
+  return out;
 }
 
-export interface HojaRutaParada {
-  orden: number;
-  cliente: string;
-  destino: string;
-  bultos?: string;
-  kg?: string;
+/**
+ * Rellena la plantilla real (public/plantillas/plantilla-cmr.pdf, un AcroForm
+ * con 46 PDFTextField) con `datos` y la aplana (`form.flatten()`) para que el
+ * resultado sea un PDF plano, ya no editable, idéntico visualmente a la
+ * plantilla oficial. Devuelve los bytes del PDF listos para descargar o subir
+ * a Storage.
+ *
+ * No se testea en Node/vitest (requiere `fetch` de un asset servido por
+ * Vite/el navegador) — lo testable es `buildCmrFieldValues` de más arriba.
+ */
+export async function generarCmrPdf(datos: CmrDatos): Promise<Uint8Array> {
+  const response = await fetch(CMR_PLANTILLA_URL);
+  if (!response.ok) {
+    throw new Error(`No se pudo cargar la plantilla de CMR (${CMR_PLANTILLA_URL}).`);
+  }
+  const templateBytes = new Uint8Array(await response.arrayBuffer());
+  const pdfDoc = await PDFDocument.load(templateBytes);
+  const form = pdfDoc.getForm();
+
+  const valores = buildCmrFieldValues(datos);
+  for (const [nombre, valor] of Object.entries(valores)) {
+    try {
+      form.getTextField(nombre).setText(valor);
+    } catch {
+      // Campo inexistente o de otro tipo en la plantilla: se ignora de forma
+      // defensiva para no romper la generación completa por un nombre suelto.
+    }
+  }
+
+  form.flatten();
+  return pdfDoc.save();
+}
+
+// ─── Parte B: Hoja de ruta (Documento de control de mercancías) ───────────
+
+export interface HojaRutaDatos {
+  /** Número interno de hoja de ruta (no forma parte del impreso FOM, solo de nuestro archivo). */
+  numero?: string | null;
+  /** "Nombre Transportista". */
+  transportista?: string;
+  /** "Destinatario". */
+  destinatario?: string;
+  /** "Matrícula del Vehículo" — Tractora. */
+  matriculaTractora?: string;
+  /** "Matrícula del Vehículo" — Remolque. */
+  matriculaRemolque?: string;
+  /** "Datos Expedición" — Origen. Por defecto ÉCIJA (sede de Lasarte). */
+  origen?: string;
+  /** "Datos Expedición" — Destino. */
+  destino?: string;
+  /** "Mercancía" — Fecha Carga. */
+  fechaCarga?: string | null;
+  /** "Mercancía" — Fecha Descarga. */
+  fechaDescarga?: string | null;
+  /** "Mercancía" — Descripción. */
+  descripcionMercancia?: string;
+  /** "Mercancía" — Peso Kg. */
+  pesoKg?: string;
+  /** "Observaciones". */
   observaciones?: string;
 }
 
-export interface HojaRutaDatos {
-  numero?: string | null;
-  fecha?: string | null;
-  transportista?: string;
-  matricula?: string;
-  conductor?: string;
-  paradas: HojaRutaParada[];
-  notas?: string;
-}
-
-/** PDF A4 vertical sencillo: cabecera + tabla de paradas + totales + firma. */
+/**
+ * PDF A4 vertical que replica el formato de
+ * public/plantillas/plantilla-hoja-ruta.xlsx ("DOCUMENTO DE CONTROL DE
+ * MERCANCÍAS", Orden FOM 238/2003): un único envío (no una lista de paradas),
+ * con bloque de empresa cargadora / operador de transporte, matrícula y
+ * expedición, mercancía y observaciones, y pie con 3 firmas.
+ */
 export async function generarHojaRutaPdf(datos: HojaRutaDatos): Promise<jsPDF> {
   await ensureExportLogoLoaded();
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
 
-  drawDocHeader(doc, "Hoja de ruta", datos.numero);
+  drawDocHeader(
+    doc,
+    "Documento de control de mercancías",
+    datos.numero,
+    "Orden FOM 238/2003 - BOE núm. 38 de 13 de febrero de 2003",
+  );
 
+  const colW = CONTENT_W / 2;
   let y = 32;
-  doc.setFillColor(...PDF_THEME.creamStrong);
-  doc.roundedRect(MARGIN, y, CONTENT_W, 20, 2, 2, "F");
-  const cabecera = [
-    { label: "Fecha", value: datos.fecha ? formatDate(datos.fecha) : "" },
-    { label: "Transportista", value: datos.transportista || "" },
-    { label: "Matricula", value: datos.matricula || "" },
-    { label: "Conductor", value: datos.conductor || "" },
-  ];
-  const cw = CONTENT_W / cabecera.length;
-  cabecera.forEach((item, i) => {
-    const x = MARGIN + cw * i + 3;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(6.5);
-    doc.setTextColor(...PDF_THEME.muted);
-    doc.text(safePdf(item.label).toUpperCase(), x, y + 6);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.setTextColor(...PDF_THEME.primaryDark);
-    doc.text(safePdf(item.value) || "-", x, y + 14);
-  });
+
+  // EMPRESA CARGADORA | OPERADOR DE TRANSPORTE
+  drawCasilla(doc, MARGIN, y, colW, 26, "", "Empresa cargadora", [
+    LASARTE_EMPRESA.nombre,
+    `CIF: ${LASARTE_EMPRESA.cif}`,
+    LASARTE_EMPRESA.direccion,
+    LASARTE_EMPRESA.poblacion,
+  ]);
+  drawCasilla(doc, MARGIN + colW, y, colW, 26, "", "Operador de transporte", datos.transportista || "");
   y += 26;
 
-  const totalBultos = datos.paradas.reduce((sum, p) => sum + (Number(p.bultos) || 0), 0);
-  const totalKg = datos.paradas.reduce((sum, p) => sum + (Number(p.kg) || 0), 0);
+  // Nombre Transportista | Destinatario
+  drawCasilla(doc, MARGIN, y, colW, 16, "", "Nombre transportista", datos.transportista || "");
+  drawCasilla(doc, MARGIN + colW, y, colW, 16, "", "Destinatario", datos.destinatario || "");
+  y += 16;
 
-  autoTable(doc, {
-    startY: y,
-    head: [["#", "Cliente", "Destino / direccion", "Bultos/palets", "Kg", "Observaciones"]],
-    body: [
-      ...datos.paradas.map((p) => [
-        String(p.orden),
-        safePdf(p.cliente),
-        safePdf(p.destino),
-        safePdf(p.bultos ?? ""),
-        safePdf(p.kg ?? ""),
-        safePdf(p.observaciones ?? ""),
-      ]),
-      ["", "TOTAL", "", totalBultos ? String(totalBultos) : "", totalKg ? String(totalKg) : "", ""],
-    ],
-    margin: { top: 30, bottom: 18, left: MARGIN, right: MARGIN },
-    ...pdfTableTheme(),
-    columnStyles: {
-      0: { cellWidth: 8, halign: "center" },
-      1: { cellWidth: 38 },
-      2: { cellWidth: 58 },
-      3: { cellWidth: 22, halign: "right" },
-      4: { cellWidth: 18, halign: "right" },
-      5: { cellWidth: "auto" },
-    },
-    didParseCell: (data) => {
-      if (data.row.index === datos.paradas.length && data.section === "body") {
-        data.cell.styles.fontStyle = "bold";
-        data.cell.styles.fillColor = PDF_THEME.creamStrong;
-      }
-    },
-    didDrawPage: () => {
-      const pages = doc.getNumberOfPages();
-      if (pages > 1) drawDocHeader(doc, "Hoja de ruta", datos.numero);
-    },
+  // Matrícula del vehículo (tractora/remolque) | Datos expedición (origen/destino)
+  const matricula = [
+    datos.matriculaTractora ? `Tractora: ${datos.matriculaTractora}` : "",
+    datos.matriculaRemolque ? `Remolque: ${datos.matriculaRemolque}` : "",
+  ].filter(Boolean);
+  drawCasilla(doc, MARGIN, y, colW, 18, "", "Matrícula del vehículo", matricula.length ? matricula : "");
+
+  const expedicion = [
+    `Origen: ${datos.origen?.trim() || ORIGEN_DEFECTO}`,
+    `Destino: ${datos.destino?.trim() || ""}`,
+  ];
+  drawCasilla(doc, MARGIN + colW, y, colW, 18, "", "Datos de expedición", expedicion);
+  y += 22;
+
+  // Mercancía: título de sección + Fecha carga | Fecha descarga
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(...PDF_THEME.primaryDark);
+  doc.text("MERCANCÍA", MARGIN, y);
+  y += 3;
+
+  drawCasilla(doc, MARGIN, y, colW, 14, "", "Fecha de carga", datos.fechaCarga ? formatDate(datos.fechaCarga) : "");
+  drawCasilla(doc, MARGIN + colW, y, colW, 14, "", "Fecha de descarga", datos.fechaDescarga ? formatDate(datos.fechaDescarga) : "");
+  y += 14;
+
+  // Descripción (2/3) | Peso Kg (1/3)
+  const descW = CONTENT_W * 0.65;
+  const pesoW = CONTENT_W - descW;
+  drawCasilla(doc, MARGIN, y, descW, 30, "", "Descripción de la mercancía", datos.descripcionMercancia || "");
+  drawCasilla(doc, MARGIN + descW, y, pesoW, 30, "", "Peso (kg)", datos.pesoKg || "");
+  y += 34;
+
+  // Observaciones
+  drawCasilla(doc, MARGIN, y, CONTENT_W, 24, "", "Observaciones", datos.observaciones || "");
+  y += 24;
+
+  // Firmas: 3 columnas
+  const firmaY = Math.max(y + 8, PAGE_H - 46);
+  const c3 = CONTENT_W / 3;
+  ["Firma del cargador", "Firma del transportista", "Firma del destinatario"].forEach((label, i) => {
+    drawCasilla(doc, MARGIN + c3 * i, firmaY, c3, 32, "", label);
   });
-
-  const finalY = (doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? y;
-  let noteY = finalY + 8;
-
-  if (datos.notas?.trim()) {
-    if (noteY > 250) {
-      doc.addPage();
-      drawDocHeader(doc, "Hoja de ruta", datos.numero);
-      noteY = 32;
-    }
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.setTextColor(...PDF_THEME.primaryDark);
-    doc.text("Notas", MARGIN, noteY);
-    noteY += 4;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.5);
-    doc.setTextColor(...PDF_THEME.muted);
-    const lines = doc.splitTextToSize(safePdf(datos.notas), CONTENT_W);
-    doc.text(lines, MARGIN, noteY);
-    noteY += lines.length * 3.6 + 6;
-  }
-
-  const firmaY = Math.max(noteY + 6, PAGE_H - 40);
-  if (firmaY > PAGE_H - 20) {
-    doc.addPage();
-    drawDocHeader(doc, "Hoja de ruta", datos.numero);
-  }
-  const signY = firmaY > PAGE_H - 20 ? 60 : firmaY;
-  doc.setDrawColor(...PDF_THEME.border);
-  doc.line(MARGIN, signY + 20, MARGIN + 70, signY + 20);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7);
-  doc.setTextColor(...PDF_THEME.muted);
-  doc.text("Firma del conductor", MARGIN, signY + 24);
 
   drawExportFooter(doc);
   finalizeExportPageNumbers(doc);
@@ -353,4 +418,18 @@ export function hojaRutaPdfFilename(numero?: string | null) {
 /** Devuelve los bytes del PDF (Uint8Array) para subirlos a Storage sin pasar por doc.save(). */
 export function pdfToBytes(doc: jsPDF): Uint8Array {
   return new Uint8Array(doc.output("arraybuffer") as ArrayBuffer);
+}
+
+/** Dispara la descarga de un PDF ya en bytes (p.ej. el resultado de generarCmrPdf). */
+export function downloadPdfBytes(bytes: Uint8Array, filename: string) {
+  if (typeof document === "undefined") return;
+  const blob = new Blob([bytes], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
