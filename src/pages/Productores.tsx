@@ -18,7 +18,7 @@ import type { Periodo } from "@/lib/analisisDiarioView";
 import { useProductores, type ProductorDossier, type MediasPlanta, type CalidadNotaProductor } from "@/hooks/useProductores";
 import type { CalidadEstado } from "@/lib/calidad";
 import { CalidadInformeDialog } from "@/components/CalidadInformeDialog";
-import { formatKg, formatDate, today, toISODateLocal } from "@/lib/format";
+import { formatKg, formatDate, formatPct, today, toISODateLocal } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { GRUPO_COLORS } from "@/lib/destinoClasificacion";
 import {
@@ -57,6 +57,10 @@ const QUALITY_STYLE: Record<CalidadEstado, string> = {
 
 const CALIDAD_ORDEN: CalidadEstado[] = ["Pésimo", "Deficiente", "Regular", "Bueno", "Excelente"];
 
+/** Tooltip de metodología compartido entre la columna del ranking y el KPI del dossier. */
+const MERCADONA_APROVECHAMIENTO_INFO =
+  "Estimación: % de los kg del productor que acaban en formato MDNA, repartiendo el % MDNA de cada día entre los lotes de ese día. Excluye precalibrado. No hay vínculo exacto lote→formato.";
+
 function calidadDominante(calidad: ProductorDossier["calidad"]): CalidadEstado | null {
   if (!calidad || calidad.total === 0) return null;
   // La calidad "dominante" a efectos de alerta: la peor presente con al menos 1 registro,
@@ -81,7 +85,7 @@ function formatDateShort(iso: string): string {
 
 // ─── Sort helpers (patrón ColHead/SortIcon de PartesList.tsx) ────────────────
 
-type SortKey = "productor" | "kg" | "lotes" | "tph" | "lentos" | "peso" | "industria_pct" | "export_pct" | "ultimo_dia";
+type SortKey = "productor" | "kg" | "lotes" | "tph" | "lentos" | "peso" | "industria_pct" | "export_pct" | "mercadona_pct" | "ultimo_dia";
 type SortDir = "asc" | "desc";
 
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
@@ -250,6 +254,7 @@ export default function Productores() {
         case "peso":          va = a.peso_fruta_promedio_g ?? -1; vb = b.peso_fruta_promedio_g ?? -1; break;
         case "industria_pct": va = a.pct_industria; vb = b.pct_industria; break;
         case "export_pct":    va = a.aprovechamiento?.pct_exportacion ?? -1; vb = b.aprovechamiento?.pct_exportacion ?? -1; break;
+        case "mercadona_pct": va = a.aprovechamientoMercadonaPct; vb = b.aprovechamientoMercadonaPct; break;
         case "ultimo_dia":    va = a.ultimo_dia ?? ""; vb = b.ultimo_dia ?? ""; break;
         default:              va = a.kg_total; vb = b.kg_total;
       }
@@ -442,6 +447,15 @@ function RankingTable({ productores, kgTotalPeriodo, sortKey, sortDir, onToggleS
                   right
                   info="% de los kg clasificados (Informe LOTE) que van al grupo Exportación. Sin informe de lote no hay dato."
                 />
+                <ColHead
+                  label="Aprovech. Mercadona"
+                  sk="mercadona_pct"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onToggle={onToggleSort}
+                  right
+                  info={MERCADONA_APROVECHAMIENTO_INFO}
+                />
                 <th className="whitespace-nowrap">Calidad</th>
                 <ColHead label="Últ. día"  sk="ultimo_dia"    sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} right />
               </tr>
@@ -495,6 +509,9 @@ function RankingTable({ productores, kgTotalPeriodo, sortKey, sortDir, onToggleS
                     <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-success">
                       {p.aprovechamiento ? `${p.aprovechamiento.pct_exportacion.toFixed(1)}%` : "—"}
                     </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-primary">
+                      {formatPct(p.aprovechamientoMercadonaPct)}
+                    </td>
                     <td className="px-3 py-1.5">
                       {dominante ? (
                         <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0", QUALITY_STYLE[dominante])}>{dominante}</Badge>
@@ -533,6 +550,7 @@ function RankingTable({ productores, kgTotalPeriodo, sortKey, sortDir, onToggleS
                   <MobileField label="T/h" value={p.tph_promedio !== null ? p.tph_promedio.toFixed(1) : "—"} valueClass={tphClass(p.tph_promedio)} />
                   <MobileField label="Industria" value={p.pct_industria > 0 ? `${p.pct_industria.toFixed(1)}%` : "—"} valueClass={pctIndustriaClass(p.pct_industria)} />
                   <MobileField label="% Export" value={p.aprovechamiento ? `${p.aprovechamiento.pct_exportacion.toFixed(1)}%` : "—"} valueClass="text-success" />
+                  <MobileField label="Aprov. Mercadona" value={formatPct(p.aprovechamientoMercadonaPct)} valueClass="text-primary" />
                   {dominante && <MobileField label="Calidad" value={dominante} />}
                 </div>
               </div>
@@ -651,6 +669,11 @@ function ProductorDetalle({ dossier, medias, days, kgTotalPeriodo, activeTab, on
             deltaTrend={deltaIndustria <= 0 ? "up" : "down"}
             hint={`planta: ${medias.pct_industria_media.toFixed(1)}%`}
             labelInfo="Kg apuntados a industria sobre kg totales. Menos que la media de planta es mejor (más aprovechable)."
+          />
+          <MiniMetric
+            label="Aprovech. Mercadona"
+            value={formatPct(dossier.aprovechamientoMercadonaPct)}
+            labelInfo={MERCADONA_APROVECHAMIENTO_INFO}
           />
           <MiniMetric
             label="Peso fruta"

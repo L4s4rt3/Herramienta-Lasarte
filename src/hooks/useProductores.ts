@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { CalidadEstado, CalidadInformeEstado } from "@/lib/calidad";
 import { detectarTipoClasificacion } from "@/lib/destinoClasificacion";
+import { esProductoMdna } from "@/hooks/useMercadona";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -114,6 +115,14 @@ export interface ProductorDossier {
   kg_industria: number;
   /** kg_industria / kg_total * 100. Métrica clave: cuánto de lo traído acaba en industria. */
   pct_industria: number;
+  /**
+   * Aprovechamiento Mercadona ESTIMADO (0-100): % de los kg del productor que
+   * acaban en formato MDNA, repartiendo el % MDNA de cada día (producto_dia)
+   * entre los lotes servidos ese día. No hay vínculo exacto lote → formato,
+   * así que es una aproximación (misma metodología que useMercadonaLotes /
+   * computeProductoresHistorico). Lotes sin fecha resoluble cuentan como 0%.
+   */
+  aprovechamientoMercadonaPct: number;
   calidad: CalidadResumenProductor | null;
   /** Desglose de calibre/clase/grupo de destino (Informe LOTE). null si no hay dato para este productor. */
   perfil_destino: PerfilDestino | null;
@@ -153,6 +162,7 @@ const EMPTY_DATA: ProductoresData = {
 
 const CALIDAD_ESTADOS: CalidadEstado[] = ["Excelente", "Bueno", "Regular", "Deficiente", "Pésimo"];
 const SLOW_TPH_THRESHOLD = 12.5;
+const IN_CHUNK_SIZE = 200;
 
 export function normalizeNombre(value: string | null | undefined): string {
   return String(value ?? "")
@@ -206,6 +216,66 @@ type ClasificacionRow = {
   cartons: number | null;
 };
 
+type ProductoDiaRow = {
+  part_id: string;
+  producto: string | null;
+  kg: number | null;
+};
+
+/**
+ * % MDNA por fecha (día), para el aprovechamiento Mercadona de cada
+ * productor. MISMA metodología que pctMdnaPorDia en useMercadonaLotes.ts:
+ * kg de productos MDNA (esProductoMdna, excluye precalibrado) / kg totales
+ * de producto_dia del día, excluyendo siempre la fila TOTAL (producto
+ * null/vacío). Se carga aparte (no se reutiliza pctMdnaPorDia) para evitar un
+ * import circular entre useProductores.ts y useMercadonaLotes.ts (que ya
+ * importa normalizeNombre desde aquí).
+ */
+async function fetchPctMdnaPorDia(desde: string, hasta: string): Promise<Map<string, number>> {
+  const { data: partesRaw, error: partesErr } = await supabase
+    .from("partes_diarios")
+    .select("id, date")
+    .gte("date", desde)
+    .lte("date", hasta);
+  if (partesErr) throw partesErr;
+
+  const partesById = new Map((partesRaw ?? []).map((p) => [p.id as string, p.date as string]));
+  const partIds = Array.from(partesById.keys());
+  if (partIds.length === 0) return new Map();
+
+  const productoDiaRows: ProductoDiaRow[] = [];
+  for (let i = 0; i < partIds.length; i += IN_CHUNK_SIZE) {
+    const chunk = partIds.slice(i, i + IN_CHUNK_SIZE);
+    const { data: prodRaw, error: prodErr } = await supabase
+      .from("producto_dia")
+      .select("part_id, producto, kg")
+      .in("part_id", chunk)
+      .limit(100000);
+    if (prodErr) throw prodErr;
+    productoDiaRows.push(...((prodRaw ?? []) as ProductoDiaRow[]));
+  }
+
+  const porDia = new Map<string, { total: number; mdna: number }>();
+  for (const p of productoDiaRows) {
+    const nombre = (p.producto ?? "").trim();
+    if (!nombre) continue; // fila TOTAL del día
+    const date = partesById.get(p.part_id);
+    if (!date) continue;
+    const entry = porDia.get(date) ?? { total: 0, mdna: 0 };
+    const kg = Number(p.kg) || 0;
+    entry.total += kg;
+    // El precalibrado (PREC) NO cuenta como MDNA en el aprovechamiento.
+    if (esProductoMdna(nombre)) entry.mdna += kg;
+    porDia.set(date, entry);
+  }
+
+  const pctPorDia = new Map<string, number>();
+  for (const [date, v] of porDia.entries()) {
+    pctPorDia.set(date, v.total > 0 ? (v.mdna / v.total) * 100 : 0);
+  }
+  return pctPorDia;
+}
+
 /**
  * Trae y agrega los lotes de producción (lotes_dia) y las notas de calidad
  * (calidad_lotes) del rango [desde, hasta], calculando un "dossier" de
@@ -220,13 +290,19 @@ export function useProductores(desde: string, hasta: string) {
     setLoading(true);
     setError(null);
     try {
-      // ── 1. Lotes de producción en el rango (patrón de la página vieja) ──
-      const { data: lotesRaw, error: lErr } = await supabase
-        .from("lotes_dia")
-        .select("*, partes_diarios!inner(date)")
-        .gte("partes_diarios.date", desde)
-        .lte("partes_diarios.date", hasta)
-        .order("created_at", { ascending: false });
+      // ── 1. Lotes de producción en el rango (patrón de la página vieja),
+      //      en paralelo con el % MDNA por día (producto_dia) para el
+      //      aprovechamiento Mercadona. ────────────────────────────────
+      const [lotesResp, pctMdnaPorDia] = await Promise.all([
+        supabase
+          .from("lotes_dia")
+          .select("*, partes_diarios!inner(date)")
+          .gte("partes_diarios.date", desde)
+          .lte("partes_diarios.date", hasta)
+          .order("created_at", { ascending: false }),
+        fetchPctMdnaPorDia(desde, hasta),
+      ]);
+      const { data: lotesRaw, error: lErr } = lotesResp;
 
       if (lErr) throw lErr;
 
@@ -339,13 +415,19 @@ export function useProductores(desde: string, hasta: string) {
 
           const porDia = new Map<string, number>();
           const fechasSet = new Set<string>();
+          // Aprovechamiento Mercadona estimado: Σ (kg del lote × %MDNA del día
+          // del lote) / Σ kg de sus lotes. Lotes sin fecha resoluble (fecha
+          // "—") cuentan como 0% (no aportan al numerador, sí al denominador).
+          let kgPonderadoMdna = 0;
           for (const l of ls) {
             if (l.fecha && l.fecha !== "—") {
               porDia.set(l.fecha, (porDia.get(l.fecha) ?? 0) + l.kg_peso_total);
               fechasSet.add(l.fecha);
+              kgPonderadoMdna += l.kg_peso_total * ((pctMdnaPorDia.get(l.fecha) ?? 0) / 100);
             }
           }
           const fechasOrdenadas = Array.from(fechasSet).sort();
+          const aprovechamientoMercadonaPct = kg_total > 0 ? (kgPonderadoMdna / kg_total) * 100 : 0;
 
           // Calidad: match por lote_codigo, si no por nombre normalizado.
           const nombreNorm = normalizeNombre(productor);
@@ -518,6 +600,7 @@ export function useProductores(desde: string, hasta: string) {
             peso_fruta_promedio_g,
             kg_industria,
             pct_industria,
+            aprovechamientoMercadonaPct,
             calidad,
             perfil_destino,
             lotes: [...ls].sort((a, b) => b.fecha.localeCompare(a.fecha)),
