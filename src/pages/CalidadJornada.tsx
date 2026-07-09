@@ -47,6 +47,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { toast } from "@/hooks/use-toast";
 import { today } from "@/lib/format";
 import { addDays, format, parseISO } from "date-fns";
+import { campanaStartYear } from "@/lib/consumoPeriodoView";
 import { es } from "date-fns/locale";
 import {
   CALIDAD_OPTIONS,
@@ -528,11 +529,15 @@ export default function CalidadJornadaPage() {
     if (!user) return;
     setHistoricoLoading(true);
     try {
-      const desde = format(addDays(new Date(), -7 * 8), "yyyy-MM-dd");
+      // Calidad es dato de empresa (RLS SELECT = todos los autenticados): se
+      // cargan TODOS los controles desde el inicio de la campaña citrícola
+      // actual (1 sep), sin filtrar por usuario, para poder navegarlos por
+      // semana/mes/campaña en el tab Histórico.
+      const startYear = campanaStartYear(new Date());
+      const desde = `${startYear}-09-01`;
       const { data, error } = await supabase
         .from("calidad_lotes")
         .select("*")
-        .eq("user_id", user.id)
         .gte("fecha", desde)
         .order("fecha", { ascending: true });
       if (error) throw error;
