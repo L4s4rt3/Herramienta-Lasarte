@@ -26,7 +26,7 @@ export interface ReportInsight {
 }
 
 export const REPORT_BRAND = {
-  name: "LASARTE SAT",
+  name: "Lasarte Cítricos S.L.",
   tool: "Herramienta de control operativo",
 };
 

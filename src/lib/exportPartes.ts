@@ -256,7 +256,7 @@ export function buildPartesReportSummary(partes: ParteRow[], from: string, to: s
 
 export function buildPartesWorkbook(partes: ParteRow[], from: string, to: string) {
   const enriched = partes.map((p) => ({ p, c: buildCascade(p) }));
-  const wb = createWorkbook("Lasarte SAT - Informe de partes", "Control de produccion y DJPMN");
+  const wb = createWorkbook("Lasarte Cítricos S.L. - Informe de partes", "Control de produccion y DJPMN");
   const summary = buildPartesReportSummary(partes, from, to);
 
   appendReportCoverSheet(wb, summary.meta, summary.kpis);

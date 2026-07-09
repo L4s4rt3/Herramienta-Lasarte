@@ -149,7 +149,7 @@ describe("exportKit — crearLibroLasarte / añadirHojaTabla (modelo exceljs en 
   it("crea un workbook exceljs con metadatos resueltos (exportId y generadoEn autogenerados)", () => {
     const ctx = crearLibroLasarte({ titulo: "Plantilla de trabajadores" });
     expect(ctx.workbook.title).toBe("Plantilla de trabajadores");
-    expect(ctx.workbook.company).toBe("Lasarte SAT");
+    expect(ctx.workbook.company).toBe("Lasarte Cítricos S.L.");
     expect(ctx.meta.exportId).toMatch(/^LST-/);
     expect(ctx.meta.generadoEn).toBeInstanceOf(Date);
   });

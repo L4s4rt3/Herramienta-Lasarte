@@ -157,7 +157,7 @@ export default function Auth() {
           <div className="mb-5 flex items-center gap-3 form-stagger-1 sm:mb-6">
             <img
               src="/branding/lasarte-logo-horizontal.jpg"
-              alt="Lasarte SAT"
+              alt="Lasarte Cítricos S.L."
               className="h-12 w-auto"
             />
             <div>
@@ -341,7 +341,7 @@ export default function Auth() {
           Producción diaria, DJPMN, stock, consumos y asistencia en una sola herramienta de control para planta.
         </p>
         <div className="flex items-center justify-between gap-6">
-          <span className="text-xs text-white/60">&copy; 2026 Lasarte SAT</span>
+          <span className="text-xs text-white/60">&copy; 2026 Lasarte Cítricos S.L.</span>
           <span className="text-xs text-white/60">Contacto &middot; Documentaci&oacute;n</span>
         </div>
       </div>

@@ -34,7 +34,7 @@ export const PDF_THEME = {
   info: [45, 128, 170] as [number, number, number],
 };
 
-export const EXPORT_FOOTER_TEXT = "Lasarte SAT · Herramienta de control operativo";
+export const EXPORT_FOOTER_TEXT = "Lasarte Cítricos S.L. · CIF B14800304";
 
 // Clasificación del documento (spec §0.4/Campos técnicos). Textos legales por
 // clasificación — mismos que usa el motor Excel (src/lib/exportKit.ts); se
@@ -43,7 +43,7 @@ export const EXPORT_FOOTER_TEXT = "Lasarte SAT · Herramienta de control operati
 export type ExportClasificacion = "Interno" | "Confidencial" | "Dirección" | "RRHH";
 
 export const CLASIFICACION_TEXTO_PDF: Record<ExportClasificacion, string> = {
-  Interno: "Documento de uso interno de Herramienta Lasarte.",
+  Interno: "Documento de uso interno de Lasarte Cítricos S.L.",
   Confidencial: "Documento confidencial. Uso restringido a personal autorizado.",
   Dirección: "Documento interno de dirección. No distribuir sin autorización.",
   RRHH: "Documento confidencial. Contiene datos personales. Uso limitado a personal autorizado conforme RGPD/LOPDGDD.",
@@ -126,8 +126,11 @@ export function drawLogoOrFallback(
   doc.setFont("helvetica", "bold");
   doc.setFontSize(fallback.fontSize);
   doc.setTextColor(...(fallback.color ?? PDF_THEME.primaryDark));
-  doc.text("Lasarte SAT", fallback.x, fallback.yBaseline);
-  return 0;
+  const marca = "Lasarte Cítricos S.L.";
+  doc.text(marca, fallback.x, fallback.yBaseline);
+  // Devuelve el ancho real del texto de marca para que el llamante desplace el
+  // título y NO se solape con la marca cuando no hay logo.
+  return doc.getTextWidth(marca);
 }
 
 export function drawExportHeader(doc: jsPDF, pageIndex: number, title: string, subtitle?: string) {
@@ -143,20 +146,30 @@ export function drawExportHeader(doc: jsPDF, pageIndex: number, title: string, s
   doc.setDrawColor(...PDF_THEME.border);
   doc.line(8, 22, pageWidth - 8, 22);
 
-  const logoWidth = drawLogoOrFallback(doc, 8, 7, 10, { x: 8, yBaseline: 15, fontSize: 10 });
-  const titleX = logoWidth > 0 ? 8 + logoWidth + 4 : 8;
+  const logoWidth = drawLogoOrFallback(doc, 8, 6, 11, { x: 8, yBaseline: 12, fontSize: 9 });
+  const titleX = 8 + logoWidth + (logoWidth > 0 ? 4 : 3);
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(...PDF_THEME.text);
-  doc.text(title, titleX, 17);
+  // Título arriba y subtítulo debajo, ambos alineados a la izquierda tras el
+  // logo/marca; la columna derecha (página + fecha) va aparte. Así ningún texto
+  // se solapa aunque el título o el subtítulo sean largos (bug anterior: título,
+  // subtítulo centrado y fecha compartían la misma línea y=17).
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(...PDF_THEME.primaryDark);
+  doc.text(title, titleX, 12);
+
+  if (subtitle) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(...PDF_THEME.muted);
+    doc.text(subtitle, titleX, 18);
+  }
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   doc.setTextColor(...PDF_THEME.muted);
-  if (subtitle) doc.text(subtitle, pageWidth / 2, 17, { align: "center" });
-  doc.text(`Pag. ${pageIndex}`, pageWidth - 8, 11, { align: "right" });
-  doc.text(new Date().toLocaleDateString("es-ES"), pageWidth - 8, 17, { align: "right" });
+  doc.text(`Pág. ${pageIndex}`, pageWidth - 8, 11, { align: "right" });
+  doc.text(new Date().toLocaleDateString("es-ES"), pageWidth - 8, 16, { align: "right" });
 }
 
 /**

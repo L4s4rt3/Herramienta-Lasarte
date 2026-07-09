@@ -274,7 +274,7 @@ function AppLayoutContent() {
                     <Citrus className="size-5" />
                   </div>
                   <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold text-sidebar-foreground">Lasarte SAT</span>
+                    <span className="truncate font-semibold text-sidebar-foreground">Lasarte Cítricos S.L.</span>
                     <span className="truncate text-xs text-sidebar-foreground/55">Dashboard</span>
                   </div>
                 </NavLink>

@@ -88,8 +88,8 @@ export function MercadonaExportar({ semanas, selectedId, onSelect }: MercadonaEx
       wb.Props = {
         Title: `Ventas Mercadona S${semana.semana} ${semana.anio}`,
         Subject: "Planificacion y ventas semanales Mercadona",
-        Author: "Herramienta Lasarte SAT",
-        Company: "Lasarte SAT",
+        Author: "Lasarte Cítricos S.L.",
+        Company: "Lasarte Cítricos S.L.",
       };
       XLSX.utils.book_append_sheet(wb, ws, `SEMANA ${semana.semana}`);
       const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array", compression: true }) as ArrayBuffer;

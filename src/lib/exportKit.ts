@@ -70,7 +70,7 @@ export const FMT_INT = "#,##0";
 export type ClasificacionExport = "Interno" | "Confidencial" | "Dirección" | "RRHH";
 
 export const CLASIFICACION_TEXTO: Record<ClasificacionExport, string> = {
-  Interno: "Documento de uso interno de Herramienta Lasarte.",
+  Interno: "Documento de uso interno de Lasarte Cítricos S.L.",
   Confidencial: "Documento confidencial. Uso restringido a personal autorizado.",
   Dirección: "Documento interno de dirección. No distribuir sin autorización.",
   RRHH: "Documento confidencial. Contiene datos personales. Uso limitado a personal autorizado conforme RGPD/LOPDGDD.",
@@ -193,9 +193,16 @@ export function construirLineaMetadatos(meta: LasarteExportMetaResuelto): string
 
 /** Líneas de pie (spec §0.4): datos fiscales, id/fecha de exportación y, si aplica, el texto legal de clasificación. */
 export function construirLineasPie(meta: LasarteExportMetaResuelto): string[] {
+  // Solo se incluyen tel/email/web si tienen valor real (no placeholders {{...}}).
+  const contacto = [
+    LASARTE_FISCAL.telefono,
+    LASARTE_FISCAL.email,
+    LASARTE_FISCAL.web,
+  ].filter((v) => v && !v.startsWith("{{")).join(" · ");
+  const lineaFiscal = `${LASARTE_FISCAL.nombre} · CIF: ${LASARTE_FISCAL.cif} · ${LASARTE_FISCAL.direccion}${contacto ? " · " + contacto : ""}`;
   const lineas = [
-    `LASARTE SAT · CIF: ${LASARTE_FISCAL.cif} · ${LASARTE_FISCAL.direccion} · Tel. ${LASARTE_FISCAL.telefono} · ${LASARTE_FISCAL.email} · ${LASARTE_FISCAL.web}`,
-    `Documento generado desde Herramienta Lasarte · Exportación: ${meta.exportId} · ${formatearFechaHoraExportacion(meta.generadoEn)}`,
+    lineaFiscal,
+    `Documento interno de ${LASARTE_FISCAL.nombre} · Exportación: ${meta.exportId} · ${formatearFechaHoraExportacion(meta.generadoEn)}`,
   ];
   if (meta.clasificacion) lineas.push(CLASIFICACION_TEXTO[meta.clasificacion]);
   return lineas;
@@ -227,8 +234,8 @@ export function crearLibroLasarte(meta: LasarteExportMeta): ExcelWorkbookCtx {
   const workbook = new Workbook();
   const generadoEn = meta.generadoEn ?? new Date();
   const exportId = meta.exportId ?? generarExportId(generadoEn);
-  workbook.creator = "Herramienta Lasarte SAT";
-  workbook.company = "Lasarte SAT";
+  workbook.creator = "Lasarte Cítricos S.L.";
+  workbook.company = "Lasarte Cítricos S.L.";
   workbook.title = meta.titulo;
   workbook.created = generadoEn;
   workbook.modified = generadoEn;

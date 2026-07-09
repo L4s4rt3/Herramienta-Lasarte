@@ -28,7 +28,7 @@ describe("reportKit", () => {
       ],
     );
 
-    expect(rows[0]).toEqual(["LASARTE SAT"]);
+    expect(rows[0]).toEqual(["Lasarte Cítricos S.L."]);
     expect(rows[1]).toEqual(["Informe semanal operativo"]);
     expect(rows[3]).toEqual(["Semana 25"]);
     expect(rows[6]).toEqual(["Indicador", "Valor", "Detalle"]);

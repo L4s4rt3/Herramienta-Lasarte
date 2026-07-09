@@ -33,8 +33,8 @@ export function createWorkbook(title: string, subject: string) {
   wb.Props = {
     Title: title,
     Subject: subject,
-    Author: "Herramienta Lasarte SAT",
-    Company: "Lasarte SAT",
+    Author: "Lasarte Cítricos S.L.",
+    Company: "Lasarte Cítricos S.L.",
   };
   return wb;
 }

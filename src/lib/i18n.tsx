@@ -1,7 +1,7 @@
 import { createContext, useContext, ReactNode } from "react";
 
 const dict = {
-  app_name: "Lasarte SAT",
+  app_name: "Lasarte Cítricos S.L.",
   login: "Iniciar sesión",
   logout: "Cerrar sesión",
   signup: "Crear cuenta",
