@@ -993,7 +993,7 @@ export default function CalidadJornadaPage() {
                 <FileText className="h-4 w-4" />
                 PDF oficial
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => jornada && exportCalidadToExcel(jornada, lotes, adjuntos)}>
+              <DropdownMenuItem onClick={() => jornada && exportCalidadToExcel(jornada, lotes, adjuntos).catch((e) => toast({ title: "Error al exportar", description: e instanceof Error ? e.message : String(e), variant: "destructive" }))}>
                 <FileSpreadsheet className="h-4 w-4" />
                 Excel
               </DropdownMenuItem>

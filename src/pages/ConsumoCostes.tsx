@@ -1217,7 +1217,7 @@ export default function ConsumoCostes() {
                 consumosFisicos: consumosFisicos.consumos,
                 basesKg: consumosFisicos.basesKg,
                 periodos: rows,
-              })}>
+              }).catch((e) => toast({ title: "Error al exportar", description: e instanceof Error ? e.message : String(e), variant: "destructive" }))}>
                 <FileSpreadsheet className="h-4 w-4" /> Excel
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => exportConsumoToPDF({

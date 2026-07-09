@@ -3,7 +3,17 @@ import autoTable from "jspdf-autotable";
 import { computeCascade, CascadeInput, CascadeResult } from "./cascade";
 import { formatDate, formatKg } from "./format";
 import { PDF_THEME, drawExportHeader, drawExportFooter, drawKpiCard, finalizeExportPageNumbers, pdfTableTheme } from "./exportTheme";
-import { appendDictionarySheet, appendRowsSheet, createWorkbook, excelText, saveWorkbook, splitExcelText } from "./exportWorkbook";
+import { appendDictionarySheet, appendRowsSheet, createWorkbook, excelText, splitExcelText } from "./exportWorkbook";
+import {
+  añadirHojaTabla,
+  crearLibroLasarte,
+  descargarLibro,
+  FMT_INT,
+  FMT_KG,
+  FMT_PCT,
+  type ColumnaTabla,
+  type ExcelWorkbookCtx,
+} from "./exportKit";
 import {
   appendReportCoverSheet,
   buildLasarteFilename,
@@ -199,6 +209,11 @@ export function buildPartesReportSummary(partes: ParteRow[], from: string, to: s
       value: "El semaforo usa el valor absoluto de DJPMN %: OK hasta 3%, revisar hasta 5% y critico por encima.",
       tone: "info",
     },
+    {
+      label: "Trazabilidad",
+      value: "Documento de control interno asociado a produccion, calidad y trazabilidad agroalimentaria (Reg. 178/2002).",
+      tone: "info",
+    },
   ];
   if (worst) {
     insights.push({
@@ -344,9 +359,168 @@ export function buildPartesWorkbook(partes: ParteRow[], from: string, to: string
   return wb;
 }
 
-export function exportPartesToExcel(partes: ParteRow[], from: string, to: string) {
-  const wb = buildPartesWorkbook(partes, from, to);
-  saveWorkbook(wb, buildLasarteFilename("Partes", "xlsx", { from, to }));
+// ─── Excel con marca (motor exceljs de exportKit.ts) ───────────────────────────
+// buildPartesWorkbook (arriba) usa el motor SheetJS antiguo (exportWorkbook.ts,
+// sin estilos) y se mantiene tal cual únicamente porque exportReports.test.ts
+// verifica su estructura de celdas. El export real de Partes usa desde aquí el
+// motor con marca (crearLibroLasarte / añadirHojaTabla / descargarLibro), según
+// docs/EXPORT_TEMPLATES_SPEC.md §1: hojas Resumen, Partes, Cascada DJPMN,
+// Producto y Palets.
+
+const PARTES_COLUMNAS: ColumnaTabla[] = [
+  { header: "Fecha", key: "fecha", width: 14, align: "center" },
+  { header: "Producción real", key: "produccionReal", width: 18, numFmt: FMT_KG, align: "right" },
+  { header: "Palets ajustados", key: "paletsAjustados", width: 18, numFmt: FMT_KG, align: "right" },
+  { header: "Inventario final", key: "inventarioFinal", width: 18, numFmt: FMT_KG, align: "right" },
+  { header: "Diferencia bruta", key: "diferenciaBruta", width: 18, numFmt: FMT_KG, align: "right" },
+  { header: "Podrido manual", key: "podridoManual", width: 16, numFmt: FMT_KG, align: "right" },
+  { header: "Mermas totales", key: "mermasTotales", width: 16, numFmt: FMT_KG, align: "right" },
+  { header: "Producción vs palets", key: "prodVsPalets", width: 18, numFmt: FMT_KG, align: "right" },
+  { header: "% DJPMN", key: "pctDjpmn", width: 12, numFmt: FMT_PCT, align: "right" },
+  { header: "Notas", key: "notas", width: 45 },
+];
+
+const CASCADA_COLUMNAS: ColumnaTabla[] = [
+  { header: "Fecha", key: "fecha", width: 14, align: "center" },
+  { header: "Bloque", key: "bloque", width: 22 },
+  { header: "Concepto", key: "concepto", width: 28 },
+  { header: "Operación", key: "operacion", width: 10, align: "center" },
+  { header: "Kg", key: "kg", width: 16, numFmt: FMT_KG, align: "right" },
+  { header: "Resultado", key: "resultado", width: 22, numFmt: FMT_KG, align: "right" },
+];
+
+const PRODUCTO_COLUMNAS: ColumnaTabla[] = [
+  { header: "Producto", key: "producto", width: 32 },
+  { header: "Formato caja", key: "formatoCaja", width: 18 },
+  { header: "Grupo destino", key: "grupoDestino", width: 18 },
+  { header: "Kg", key: "kg", width: 14, numFmt: FMT_KG, align: "right" },
+  { header: "Cajas", key: "cajas", width: 12, numFmt: FMT_INT, align: "right" },
+];
+
+const PALETS_COLUMNAS: ColumnaTabla[] = [
+  { header: "Producto", key: "producto", width: 32 },
+  { header: "Cliente", key: "cliente", width: 22 },
+  { header: "Destino", key: "destino", width: 18 },
+  { header: "Kg neto", key: "kgNeto", width: 14, numFmt: FMT_KG, align: "right" },
+  { header: "Cajas", key: "cajas", width: 12, numFmt: FMT_INT, align: "right" },
+  { header: "Situación", key: "situacion", width: 16 },
+];
+
+const RESUMEN_COLUMNAS: ColumnaTabla[] = [
+  { header: "Indicador", key: "indicador", width: 26 },
+  { header: "Valor", key: "valor", width: 20, align: "right" },
+  { header: "Detalle", key: "detalle", width: 40 },
+];
+
+export function buildPartesWorkbookLasarte(partes: ParteRow[], from: string, to: string): ExcelWorkbookCtx {
+  const enriched = partes.map((p) => ({ p, c: buildCascade(p) }));
+  const summary = buildPartesReportSummary(partes, from, to);
+  const { totalProd, totalPalets, totalDsj, totalMermas, dsjPctGlobal } = summary.totals;
+  const totalInventarioFinal = enriched.reduce((s, { c }) => s + c.inventario_final, 0);
+  const totalDiferenciaBruta = enriched.reduce((s, { c }) => s + c.diferencia_bruta, 0);
+  const totalPodridoManual = enriched.reduce((s, { c }) => s + c.podrido_manual, 0);
+
+  const ctx = crearLibroLasarte({
+    titulo: "Partes diarios de producción",
+    periodo: `${reportDate(from)} - ${reportDate(to)}`,
+    filtros: `${partes.length} parte(s)`,
+    clasificacion: "Interno",
+  });
+
+  añadirHojaTabla(ctx, {
+    nombreHoja: "Resumen",
+    titulo: "Resumen ejecutivo del periodo",
+    columnas: RESUMEN_COLUMNAS,
+    filas: [
+      { indicador: "Producción real", valor: formatKg(totalProd, 2), detalle: `${partes.length} parte(s) del rango exportado` },
+      { indicador: "Palets ajustados", valor: formatKg(totalPalets, 2), detalle: "Alta neta de palets" },
+      { indicador: "Diferencia bruta", valor: formatKg(totalDiferenciaBruta, 2), detalle: "Producción real - palets ajustados - inventario final" },
+      {
+        indicador: "% DJPMN",
+        valor: `${dsjPctGlobal >= 0 ? "+" : ""}${dsjPctGlobal.toFixed(2)} %`,
+        detalle: `${totalDsj >= 0 ? "+" : ""}${formatKg(totalDsj, 2)} global · mermas totales ${formatKg(totalMermas, 2)}`,
+      },
+    ],
+    freeze: false,
+    autofilter: false,
+  });
+
+  añadirHojaTabla(ctx, {
+    nombreHoja: "Partes",
+    columnas: PARTES_COLUMNAS,
+    filas: enriched.map(({ p, c }) => ({
+      fecha: formatDate(p.date),
+      produccionReal: kg(c.produccion_real, 2),
+      paletsAjustados: kg(c.palets_ajustados, 2),
+      inventarioFinal: kg(c.inventario_final, 2),
+      diferenciaBruta: kg(c.diferencia_bruta, 2),
+      podridoManual: kg(c.podrido_manual, 2),
+      mermasTotales: kg(c.mermas_totales, 2),
+      prodVsPalets: kg(c.produccion_real - c.palets_ajustados, 2),
+      pctDjpmn: +c.dsj_pct.toFixed(2),
+      notas: p.notas_generales ?? "",
+    })),
+    totales: {
+      fecha: "TOTAL",
+      produccionReal: kg(totalProd, 2),
+      paletsAjustados: kg(totalPalets, 2),
+      inventarioFinal: kg(totalInventarioFinal, 2),
+      diferenciaBruta: kg(totalDiferenciaBruta, 2),
+      podridoManual: kg(totalPodridoManual, 2),
+      mermasTotales: kg(totalMermas, 2),
+      prodVsPalets: kg(totalProd - totalPalets, 2),
+      pctDjpmn: +dsjPctGlobal.toFixed(2),
+      notas: `${partes.length} parte(s)`,
+    },
+  });
+
+  const cascadeRows = enriched.flatMap(({ p, c }) => [
+    { fecha: formatDate(p.date), bloque: "Producción real", concepto: "Calibrador", operacion: "=", kg: kg(c.produccion_calibrador, 2), resultado: "" },
+    { fecha: formatDate(p.date), bloque: "Producción real", concepto: "Mujeres clase L", operacion: "-", kg: kg(c.mujeres, 2), resultado: "" },
+    { fecha: formatDate(p.date), bloque: "Producción real", concepto: "Reciclado malla Z1", operacion: "-", kg: kg(c.reciclado_z1, 2), resultado: "" },
+    { fecha: formatDate(p.date), bloque: "Producción real", concepto: "Reciclado malla Z2", operacion: "-", kg: kg(c.reciclado_z2, 2), resultado: kg(c.produccion_real, 2) },
+    { fecha: formatDate(p.date), bloque: "Palets e inventario", concepto: "Palets alta bruto", operacion: "=", kg: kg(c.palets_brutos, 2), resultado: "" },
+    { fecha: formatDate(p.date), bloque: "Palets e inventario", concepto: "Inventario día anterior", operacion: "-", kg: kg(c.inventario_anterior, 2), resultado: kg(c.palets_ajustados, 2) },
+    { fecha: formatDate(p.date), bloque: "Mermas y DJPMN", concepto: "Producción real", operacion: "=", kg: kg(c.produccion_real, 2), resultado: "" },
+    { fecha: formatDate(p.date), bloque: "Mermas y DJPMN", concepto: "Palets alta ajustados", operacion: "-", kg: kg(c.palets_ajustados, 2), resultado: "" },
+    { fecha: formatDate(p.date), bloque: "Mermas y DJPMN", concepto: "Inventario final sin alta", operacion: "-", kg: kg(c.inventario_final, 2), resultado: kg(c.diferencia_bruta, 2) },
+    { fecha: formatDate(p.date), bloque: "Mermas y DJPMN", concepto: "Podrido manual", operacion: "-", kg: kg(c.podrido_manual, 2), resultado: kg(c.mermas_totales, 2) },
+    {
+      fecha: formatDate(p.date),
+      bloque: "Resultado",
+      concepto: "DJPMN",
+      operacion: "=",
+      kg: kg(c.dsj, 2),
+      resultado: `${c.dsj_pct >= 0 ? "+" : ""}${c.dsj_pct.toFixed(2)} %`,
+    },
+  ]);
+  añadirHojaTabla(ctx, { nombreHoja: "Cascada DJPMN", columnas: CASCADA_COLUMNAS, filas: cascadeRows });
+
+  const productoRows = flattenProducto(partes).map((r) => ({
+    producto: r.Producto,
+    formatoCaja: r["Formato caja"],
+    grupoDestino: r["Grupo destino"],
+    kg: r.Kg,
+    cajas: r.Cajas,
+  }));
+  añadirHojaTabla(ctx, { nombreHoja: "Producto", columnas: PRODUCTO_COLUMNAS, filas: productoRows });
+
+  const paletsRows = flattenPalets(partes).map((r) => ({
+    producto: r.Producto,
+    cliente: r.Cliente,
+    destino: r.Destino,
+    kgNeto: r["Kg neto"],
+    cajas: r.Cajas,
+    situacion: r.Situacion,
+  }));
+  añadirHojaTabla(ctx, { nombreHoja: "Palets", columnas: PALETS_COLUMNAS, filas: paletsRows });
+
+  return ctx;
+}
+
+export async function exportPartesToExcel(partes: ParteRow[], from: string, to: string) {
+  const ctx = buildPartesWorkbookLasarte(partes, from, to);
+  await descargarLibro(ctx, buildLasarteFilename("Partes", "xlsx", { from, to }));
 }
 
 function drawHeader(doc: jsPDF, pageIndex: number, from: string, to: string, title?: string) {
@@ -354,7 +528,7 @@ function drawHeader(doc: jsPDF, pageIndex: number, from: string, to: string, tit
 }
 
 function drawFooter(doc: jsPDF) {
-  drawExportFooter(doc);
+  drawExportFooter(doc, { clasificacion: "Interno" });
 }
 
 const PDF_TABLE_MARGIN = { top: 30, bottom: 18, left: 8, right: 8 };

@@ -4,9 +4,19 @@ import { formatDate, formatNumber } from "./format";
 import { type ConsumoPeriodoRow } from "./consumosFisicos";
 import { SesionConsumoRow, ConsumoMaquinaRow, MaquinaRow, ConsumoFisicoRow, ConsumoBaseKgRow } from "./types";
 import { drawExportHeader, drawExportFooter, finalizeExportPageNumbers, pdfTableTheme } from "./exportTheme";
-import { appendDictionarySheet, appendRowsSheet, createWorkbook, saveWorkbook } from "./exportWorkbook";
 import {
-  appendReportCoverSheet,
+  añadirHojaTabla,
+  crearLibroLasarte,
+  descargarLibro,
+  FMT_KG,
+  FMT_KWH,
+  FMT_L,
+  FMT_LKG,
+  FMT_MLKG,
+  FMT_PCT,
+  type ColumnaTabla,
+} from "./exportKit";
+import {
   buildLasarteFilename,
   drawReportCover,
   drawReportInsights,
@@ -16,6 +26,13 @@ import {
   type ReportKpi,
   type ReportMeta,
 } from "./reportKit";
+
+// Formatos numéricos españoles específicos de este export, no cubiertos por las
+// constantes FMT_* de exportKit.ts (que solo define hasta kWh "a secas").
+const FMT_KWHKG = '#,##0.0000" kWh/kg"';
+const FMT_KWHKG5 = '#,##0.00000" kWh/kg"';
+const FMT_LT = '#,##0.00" L/t"';
+const FMT_RATIO = "#,##0.0000";
 
 export interface ExportData {
   sesiones: SesionConsumoRow[];
@@ -34,8 +51,16 @@ function ratio(num: number, den: number, digits = 3) {
   return den > 0 ? +(num / den).toFixed(digits) : 0;
 }
 
-function periodo(s: SesionConsumoRow) {
-  return s.fecha_inicio === s.fecha_fin ? s.fecha_inicio : `${s.fecha_inicio} - ${s.fecha_fin}`;
+// Fecha "YYYY-MM-DD" anclada al mediodía local (evita el desplazamiento de zona
+// horaria de `new Date("YYYY-MM-DD")`, que en España cae en UTC medianoche).
+// Devuelve `null` para valores que no son una fecha pura (p.ej. etiquetas de
+// periodo tipo "S28" o "2026-2027"), de forma que la celda quede en blanco en
+// vez de mostrar una fecha incorrecta.
+function parseFechaISO(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+  return null;
 }
 
 const confianzaLabel: Record<ConsumoPeriodoRow["confianza"], string> = {
@@ -44,10 +69,6 @@ const confianzaLabel: Record<ConsumoPeriodoRow["confianza"], string> = {
   mixto: "Mixto",
   incompleto: "Incompleto",
 };
-
-function blankIfNull(value: number | null) {
-  return value == null ? "" : value;
-}
 
 export interface ConsumoReportSummary {
   meta: ReportMeta;
@@ -147,7 +168,7 @@ function consumoDateRange(data: ExportData): { from?: string; to?: string } {
   return { from: dates[0], to: dates[dates.length - 1] };
 }
 
-export function exportConsumoToExcel(data: ExportData) {
+export async function exportConsumoToExcel(data: ExportData): Promise<void> {
   const summary = buildConsumoReportSummary(data);
   const { periodos, hasPeriodos } = summary;
   const {
@@ -160,144 +181,353 @@ export function exportConsumoToExcel(data: ExportData) {
     totalElectricidad,
   } = summary.totals;
 
-  const wb = createWorkbook("Lasarte SAT - Consumos fisicos", "Control de recursos por produccion");
-  appendReportCoverSheet(wb, summary.meta, summary.kpis);
+  const range = consumoDateRange(data);
+  const periodoLabel = range.from && range.to ? `${formatDate(range.from)} - ${formatDate(range.to)}` : undefined;
+
+  const ctx = crearLibroLasarte({
+    titulo: "Control de recursos por producción",
+    periodo: periodoLabel,
+    clasificacion: "Interno",
+  });
+
+  // ─── KPIs (portada como tabla) ────────────────────────────────────────────
+  const kpiColumnas: ColumnaTabla[] = [
+    { header: "Kg procesados", key: "kg", tipo: "numero", numFmt: FMT_KG, width: 16 },
+    { header: "Agua L/kg", key: "aguaLkg", tipo: "numero", numFmt: FMT_LKG, width: 14 },
+    { header: "Químicos mL/kg", key: "quimicosMlkg", tipo: "numero", numFmt: FMT_MLKG, width: 16 },
+    { header: "Gasoil mL/kg", key: "gasoilMlkg", tipo: "numero", numFmt: FMT_MLKG, width: 14 },
+    { header: "Electricidad kWh/kg", key: "electricidadKwhkg", tipo: "numero", numFmt: FMT_KWHKG, width: 18 },
+  ];
+  añadirHojaTabla(ctx, {
+    nombreHoja: "KPIs",
+    titulo: "Indicadores clave de recursos",
+    columnas: kpiColumnas,
+    filas: [
+      {
+        kg: totalKg,
+        aguaLkg: ratio(totalAguaFisica, totalKg, 3),
+        quimicosMlkg: totalKg > 0 ? +((totalQuimicos * 1000) / totalKg).toFixed(2) : 0,
+        gasoilMlkg: totalKg > 0 ? +((totalGasoil * 1000) / totalKg).toFixed(2) : 0,
+        electricidadKwhkg: ratio(totalElectricidad, totalKg, 4),
+      },
+    ],
+    freeze: false,
+    autofilter: false,
+  });
+
+  // ─── Sesiones ──────────────────────────────────────────────────────────────
+  const sesionesColumnas: ColumnaTabla[] = [
+    { header: "Fecha inicio", key: "fechaInicio", tipo: "fecha", width: 14 },
+    { header: "Fecha fin", key: "fechaFin", tipo: "fecha", width: 14 },
+    { header: "Kg procesados", key: "kg", tipo: "numero", numFmt: FMT_KG, width: 16 },
+    { header: "Agua línea L", key: "aguaLinea", tipo: "numero", numFmt: FMT_L, width: 14 },
+    { header: "Agua drencher L", key: "aguaDrencher", tipo: "numero", numFmt: FMT_L, width: 16 },
+    { header: "Agua total L", key: "aguaTotal", tipo: "numero", numFmt: FMT_L, width: 14 },
+    { header: "Agua L/kg", key: "aguaLkg", tipo: "numero", numFmt: FMT_LKG, width: 14 },
+    { header: "Químicos L", key: "quimicos", tipo: "numero", numFmt: FMT_L, width: 14 },
+    { header: "Químicos mL/kg", key: "quimicosMlkg", tipo: "numero", numFmt: FMT_MLKG, width: 16 },
+    { header: "Gasoil L", key: "gasoil", tipo: "numero", numFmt: FMT_L, width: 14 },
+    { header: "Gasoil mL/kg", key: "gasoilMlkg", tipo: "numero", numFmt: FMT_MLKG, width: 14 },
+    { header: "Electricidad kWh", key: "electricidad", tipo: "numero", numFmt: FMT_KWH, width: 16 },
+    { header: "kWh/kg", key: "electricidadKwhkg", tipo: "numero", numFmt: FMT_KWHKG, width: 14 },
+    { header: "Notas", key: "notas", width: 40 },
+  ];
 
   const sesionesRows = data.sesiones.map((s) => {
     const kg = n(s.kg_procesados);
-    const aguaTotal = n(s.agua_linea_l) + n(s.agua_drencher_l);
+    const aguaLinea = n(s.agua_linea_l);
+    const aguaDrencher = n(s.agua_drencher_l);
+    const aguaTotal = aguaLinea + aguaDrencher;
+    const quimicos = n(s.quimicos_drencher_l);
+    const gasoil = n(s.gasoil_l);
+    const electricidad = n(s.electricidad_total_kwh);
     return {
-      Periodo: periodo(s),
-      "Fecha inicio": s.fecha_inicio,
-      "Fecha fin": s.fecha_fin,
-      "Kg procesados": kg,
-      "Agua linea L": n(s.agua_linea_l),
-      "Agua drencher L": n(s.agua_drencher_l),
-      "Agua total L": aguaTotal,
-      "Agua L/kg": ratio(aguaTotal, kg, 3),
-      "Quimicos L": n(s.quimicos_drencher_l),
-      "Quimicos mL/kg": kg > 0 ? +((n(s.quimicos_drencher_l) * 1000) / kg).toFixed(2) : 0,
-      "Gasoil L": n(s.gasoil_l),
-      "Gasoil mL/kg": kg > 0 ? +((n(s.gasoil_l) * 1000) / kg).toFixed(2) : 0,
-      "Electricidad kWh": n(s.electricidad_total_kwh),
-      "kWh/kg": ratio(n(s.electricidad_total_kwh), kg, 4),
-      Notas: s.notas ?? "",
+      fechaInicio: parseFechaISO(s.fecha_inicio),
+      fechaFin: parseFechaISO(s.fecha_fin),
+      kg,
+      aguaLinea,
+      aguaDrencher,
+      aguaTotal,
+      aguaLkg: ratio(aguaTotal, kg, 3),
+      quimicos,
+      quimicosMlkg: kg > 0 ? +((quimicos * 1000) / kg).toFixed(2) : 0,
+      gasoil,
+      gasoilMlkg: kg > 0 ? +((gasoil * 1000) / kg).toFixed(2) : 0,
+      electricidad,
+      electricidadKwhkg: ratio(electricidad, kg, 4),
+      notas: s.notas ?? "",
     };
   });
-  appendRowsSheet(wb, "Sesiones", sesionesRows, [22, 14, 14, 14, 14, 16, 14, 12, 12, 15, 12, 15, 16, 12, 40], { freezeHeader: true });
+
+  const sesionesTotales = sesionesRows.length > 0
+    ? {
+      fechaInicio: "TOTAL",
+      kg: sesionesRows.reduce((s, r) => s + r.kg, 0),
+      aguaLinea: sesionesRows.reduce((s, r) => s + r.aguaLinea, 0),
+      aguaDrencher: sesionesRows.reduce((s, r) => s + r.aguaDrencher, 0),
+      aguaTotal: sesionesRows.reduce((s, r) => s + r.aguaTotal, 0),
+      quimicos: sesionesRows.reduce((s, r) => s + r.quimicos, 0),
+      gasoil: sesionesRows.reduce((s, r) => s + r.gasoil, 0),
+      electricidad: sesionesRows.reduce((s, r) => s + r.electricidad, 0),
+    }
+    : undefined;
+
+  añadirHojaTabla(ctx, {
+    nombreHoja: "Sesiones",
+    titulo: "Sesiones de consumo",
+    columnas: sesionesColumnas,
+    filas: sesionesRows,
+    totales: sesionesTotales,
+  });
+
+  // ─── Resumen recursos ──────────────────────────────────────────────────────
+  const recursosColumnas: ColumnaTabla[] = [
+    { header: "Recurso", key: "recurso", width: 20 },
+    { header: "Unidad", key: "unidad", width: 12 },
+    { header: "Total", key: "total", tipo: "numero", numFmt: "#,##0", width: 14 },
+    { header: "Por kg", key: "porKg", tipo: "numero", numFmt: FMT_RATIO, width: 14 },
+    { header: "Unidad ratio", key: "unidadRatio", width: 14 },
+  ];
 
   const recursosRows = hasPeriodos
     ? [
-      { Recurso: "Agua total", Unidad: "L", Total: Math.round(totalAguaFisica), "Por kg": ratio(totalAguaFisica, totalKg, 3), "Unidad ratio": "L/kg" },
-      { Recurso: "Quimicos", Unidad: "L", Total: Math.round(totalQuimicos), "Por kg": totalKg > 0 ? +((totalQuimicos * 1000) / totalKg).toFixed(2) : 0, "Unidad ratio": "mL/kg" },
-      { Recurso: "Gasoil", Unidad: "L", Total: Math.round(totalGasoil), "Por kg": totalKg > 0 ? +((totalGasoil * 1000) / totalKg).toFixed(2) : 0, "Unidad ratio": "mL/kg" },
-      { Recurso: "Electricidad", Unidad: "kWh", Total: Math.round(totalElectricidad), "Por kg": ratio(totalElectricidad, totalKg, 4), "Unidad ratio": "kWh/kg" },
+      { recurso: "Agua total", unidad: "L", total: Math.round(totalAguaFisica), porKg: ratio(totalAguaFisica, totalKg, 3), unidadRatio: "L/kg" },
+      { recurso: "Químicos", unidad: "L", total: Math.round(totalQuimicos), porKg: totalKg > 0 ? +((totalQuimicos * 1000) / totalKg).toFixed(2) : 0, unidadRatio: "mL/kg" },
+      { recurso: "Gasoil", unidad: "L", total: Math.round(totalGasoil), porKg: totalKg > 0 ? +((totalGasoil * 1000) / totalKg).toFixed(2) : 0, unidadRatio: "mL/kg" },
+      { recurso: "Electricidad", unidad: "kWh", total: Math.round(totalElectricidad), porKg: ratio(totalElectricidad, totalKg, 4), unidadRatio: "kWh/kg" },
     ]
     : [
-      { Recurso: "Agua linea", Unidad: "L", Total: Math.round(totalAguaLinea), "Por kg": ratio(totalAguaLinea, totalKg, 3), "Unidad ratio": "L/kg" },
-      { Recurso: "Agua drencher", Unidad: "L", Total: Math.round(totalAguaDrencher), "Por kg": ratio(totalAguaDrencher, totalKg, 3), "Unidad ratio": "L/kg" },
-      { Recurso: "Agua total", Unidad: "L", Total: Math.round(totalAguaFisica), "Por kg": ratio(totalAguaFisica, totalKg, 3), "Unidad ratio": "L/kg" },
-      { Recurso: "Quimicos", Unidad: "L", Total: Math.round(totalQuimicos), "Por kg": totalKg > 0 ? +((totalQuimicos * 1000) / totalKg).toFixed(2) : 0, "Unidad ratio": "mL/kg" },
-      { Recurso: "Gasoil", Unidad: "L", Total: Math.round(totalGasoil), "Por kg": totalKg > 0 ? +((totalGasoil * 1000) / totalKg).toFixed(2) : 0, "Unidad ratio": "mL/kg" },
-      { Recurso: "Electricidad", Unidad: "kWh", Total: Math.round(totalElectricidad), "Por kg": ratio(totalElectricidad, totalKg, 4), "Unidad ratio": "kWh/kg" },
+      { recurso: "Agua línea", unidad: "L", total: Math.round(totalAguaLinea), porKg: ratio(totalAguaLinea, totalKg, 3), unidadRatio: "L/kg" },
+      { recurso: "Agua drencher", unidad: "L", total: Math.round(totalAguaDrencher), porKg: ratio(totalAguaDrencher, totalKg, 3), unidadRatio: "L/kg" },
+      { recurso: "Agua total", unidad: "L", total: Math.round(totalAguaFisica), porKg: ratio(totalAguaFisica, totalKg, 3), unidadRatio: "L/kg" },
+      { recurso: "Químicos", unidad: "L", total: Math.round(totalQuimicos), porKg: totalKg > 0 ? +((totalQuimicos * 1000) / totalKg).toFixed(2) : 0, unidadRatio: "mL/kg" },
+      { recurso: "Gasoil", unidad: "L", total: Math.round(totalGasoil), porKg: totalKg > 0 ? +((totalGasoil * 1000) / totalKg).toFixed(2) : 0, unidadRatio: "mL/kg" },
+      { recurso: "Electricidad", unidad: "kWh", total: Math.round(totalElectricidad), porKg: ratio(totalElectricidad, totalKg, 4), unidadRatio: "kWh/kg" },
     ];
-  appendRowsSheet(wb, "Resumen recursos", recursosRows, [20, 12, 14, 14, 14], { freezeHeader: true });
 
+  añadirHojaTabla(ctx, {
+    nombreHoja: "Resumen recursos",
+    titulo: "Resumen de recursos",
+    columnas: recursosColumnas,
+    filas: recursosRows,
+    autofilter: false,
+  });
+
+  // ─── Consumos por periodo (+ Validacion) ───────────────────────────────────
   if (hasPeriodos) {
-    appendRowsSheet(wb, "Consumos por periodo", periodos.map((row) => ({
-      Periodo: row.periodo,
-      "Fecha inicio": row.fechaInicio,
-      "Fecha fin": row.fechaFin,
-      Confianza: confianzaLabel[row.confianza],
-      "Kg partes": row.kgPartes,
-      "Kg palets": row.kgPalets,
-      "Kg ventas": row.kgVentas,
-      "Kg manual": row.kgManual,
-      "Kg base": row.kgBase,
-      "Agua L": row.aguaL,
-      "Agua L/kg": blankIfNull(row.aguaLKg),
-      "Electricidad kWh": row.electricidadKwh,
-      "kWh/kg": blankIfNull(row.electricidadKwhKg),
-      "Gasoil L": row.gasoilL,
-      "Gasoil mL/kg": blankIfNull(row.gasoilMlKg),
-      "Gasoil L/t": blankIfNull(row.gasoilLT),
-      "Quimicos L": row.quimicosL,
-      "Quimicos mL/kg": blankIfNull(row.quimicosMlKg),
-      Observaciones: row.issues.join(" | "),
-    })), [14, 14, 14, 14, 14, 14, 14, 14, 14, 12, 12, 16, 12, 12, 14, 12, 12, 14, 42], { freezeHeader: true });
+    const periodosColumnas: ColumnaTabla[] = [
+      { header: "Periodo", key: "periodo", width: 16 },
+      { header: "Fecha inicio", key: "fechaInicio", tipo: "fecha", width: 14 },
+      { header: "Fecha fin", key: "fechaFin", tipo: "fecha", width: 14 },
+      { header: "Confianza", key: "confianza", width: 14 },
+      { header: "Kg partes", key: "kgPartes", tipo: "numero", numFmt: FMT_KG, width: 16 },
+      { header: "Kg palets", key: "kgPalets", tipo: "numero", numFmt: FMT_KG, width: 16 },
+      { header: "Kg ventas", key: "kgVentas", tipo: "numero", numFmt: FMT_KG, width: 16 },
+      { header: "Kg manual", key: "kgManual", tipo: "numero", numFmt: FMT_KG, width: 16 },
+      { header: "Kg base", key: "kgBase", tipo: "numero", numFmt: FMT_KG, width: 16 },
+      { header: "Agua total L", key: "aguaL", tipo: "numero", numFmt: FMT_L, width: 14 },
+      { header: "Agua L/kg", key: "aguaLKg", tipo: "numero", numFmt: FMT_LKG, width: 14 },
+      { header: "Electricidad kWh", key: "electricidadKwh", tipo: "numero", numFmt: FMT_KWH, width: 16 },
+      { header: "kWh/kg", key: "electricidadKwhKg", tipo: "numero", numFmt: FMT_KWHKG, width: 14 },
+      { header: "Gasoil L", key: "gasoilL", tipo: "numero", numFmt: FMT_L, width: 14 },
+      { header: "Gasoil mL/kg", key: "gasoilMlKg", tipo: "numero", numFmt: FMT_MLKG, width: 14 },
+      { header: "Gasoil L/t", key: "gasoilLT", tipo: "numero", numFmt: FMT_LT, width: 14 },
+      { header: "Químicos L", key: "quimicosL", tipo: "numero", numFmt: FMT_L, width: 14 },
+      { header: "Químicos mL/kg", key: "quimicosMlKg", tipo: "numero", numFmt: FMT_MLKG, width: 16 },
+      { header: "Observaciones", key: "observaciones", width: 42 },
+    ];
 
-    appendRowsSheet(wb, "Validacion consumos", periodos
-      .filter((row) => row.issues.length > 0)
-      .map((row) => ({
-        Periodo: row.periodo,
-        Confianza: confianzaLabel[row.confianza],
-        Observaciones: row.issues.join(" | "),
-      })), [14, 14, 60], { freezeHeader: true });
+    const periodosRows = periodos.map((row) => ({
+      periodo: row.periodo,
+      fechaInicio: parseFechaISO(row.fechaInicio),
+      fechaFin: parseFechaISO(row.fechaFin),
+      confianza: confianzaLabel[row.confianza],
+      kgPartes: row.kgPartes,
+      kgPalets: row.kgPalets,
+      kgVentas: row.kgVentas,
+      kgManual: row.kgManual,
+      kgBase: row.kgBase,
+      aguaL: row.aguaL,
+      aguaLKg: row.aguaLKg,
+      electricidadKwh: row.electricidadKwh,
+      electricidadKwhKg: row.electricidadKwhKg,
+      gasoilL: row.gasoilL,
+      gasoilMlKg: row.gasoilMlKg,
+      gasoilLT: row.gasoilLT,
+      quimicosL: row.quimicosL,
+      quimicosMlKg: row.quimicosMlKg,
+      observaciones: row.issues.join(" | "),
+    }));
+
+    añadirHojaTabla(ctx, {
+      nombreHoja: "Consumos por periodo",
+      titulo: "Consumos por periodo",
+      columnas: periodosColumnas,
+      filas: periodosRows,
+      totales: {
+        periodo: "TOTAL",
+        kgPartes: periodos.reduce((s, r) => s + n(r.kgPartes), 0),
+        kgPalets: periodos.reduce((s, r) => s + n(r.kgPalets), 0),
+        kgVentas: periodos.reduce((s, r) => s + n(r.kgVentas), 0),
+        kgManual: periodos.reduce((s, r) => s + n(r.kgManual), 0),
+        kgBase: totalKg,
+        aguaL: totalAguaFisica,
+        electricidadKwh: totalElectricidad,
+        gasoilL: totalGasoil,
+        quimicosL: totalQuimicos,
+      },
+    });
+
+    const validacionColumnas: ColumnaTabla[] = [
+      { header: "Periodo", key: "periodo", width: 16 },
+      { header: "Confianza", key: "confianza", width: 14 },
+      { header: "Observaciones", key: "observaciones", width: 60 },
+    ];
+    añadirHojaTabla(ctx, {
+      nombreHoja: "Validacion consumos",
+      titulo: "Validación de consumos",
+      columnas: validacionColumnas,
+      filas: periodos
+        .filter((row) => row.issues.length > 0)
+        .map((row) => ({
+          periodo: row.periodo,
+          confianza: confianzaLabel[row.confianza],
+          observaciones: row.issues.join(" | "),
+        })),
+    });
   }
 
+  // ─── Registros consumo ──────────────────────────────────────────────────────
   if (data.consumosFisicos?.length) {
-    appendRowsSheet(wb, "Registros consumo", data.consumosFisicos.map((row) => ({
-      Recurso: row.recurso,
-      "Fecha inicio": row.fecha_inicio,
-      "Fecha fin": row.fecha_fin,
-      Cantidad: row.cantidad,
-      Unidad: row.unidad,
-      Fuente: row.fuente,
-      Referencia: row.referencia ?? "",
-      Notas: row.notas ?? "",
-    })), [14, 14, 14, 14, 10, 18, 24, 42], { freezeHeader: true });
+    const registrosColumnas: ColumnaTabla[] = [
+      { header: "Recurso", key: "recurso", width: 14 },
+      { header: "Fecha inicio", key: "fechaInicio", tipo: "fecha", width: 14 },
+      { header: "Fecha fin", key: "fechaFin", tipo: "fecha", width: 14 },
+      { header: "Cantidad", key: "cantidad", tipo: "numero", numFmt: "#,##0.00", width: 12 },
+      { header: "Unidad", key: "unidad", width: 10 },
+      { header: "Fuente", key: "fuente", width: 20 },
+      { header: "Referencia", key: "referencia", width: 24 },
+      { header: "Notas", key: "notas", width: 40 },
+    ];
+    añadirHojaTabla(ctx, {
+      nombreHoja: "Registros consumo",
+      titulo: "Registros de consumo físico",
+      columnas: registrosColumnas,
+      filas: data.consumosFisicos.map((row) => ({
+        recurso: row.recurso,
+        fechaInicio: parseFechaISO(row.fecha_inicio),
+        fechaFin: parseFechaISO(row.fecha_fin),
+        cantidad: row.cantidad,
+        unidad: row.unidad,
+        fuente: row.fuente,
+        referencia: row.referencia ?? "",
+        notas: row.notas ?? "",
+      })),
+    });
   }
 
+  // ─── Bases kg ────────────────────────────────────────────────────────────────
   if (data.basesKg?.length) {
-    appendRowsSheet(wb, "Bases kg", data.basesKg.map((row) => ({
-      Tipo: row.tipo_base,
-      "Fecha inicio": row.fecha_inicio,
-      "Fecha fin": row.fecha_fin,
-      Kg: row.kg,
-      Referencia: row.referencia ?? "",
-      Notas: row.notas ?? "",
-    })), [14, 14, 14, 14, 24, 42], { freezeHeader: true });
+    const basesColumnas: ColumnaTabla[] = [
+      { header: "Tipo", key: "tipo", width: 14 },
+      { header: "Fecha inicio", key: "fechaInicio", tipo: "fecha", width: 14 },
+      { header: "Fecha fin", key: "fechaFin", tipo: "fecha", width: 14 },
+      { header: "Kg", key: "kg", tipo: "numero", numFmt: FMT_KG, width: 14 },
+      { header: "Referencia", key: "referencia", width: 24 },
+      { header: "Notas", key: "notas", width: 40 },
+    ];
+    añadirHojaTabla(ctx, {
+      nombreHoja: "Bases kg",
+      titulo: "Bases de kg utilizadas",
+      columnas: basesColumnas,
+      filas: data.basesKg.map((row) => ({
+        tipo: row.tipo_base,
+        fechaInicio: parseFechaISO(row.fecha_inicio),
+        fechaFin: parseFechaISO(row.fecha_fin),
+        kg: row.kg,
+        referencia: row.referencia ?? "",
+        notas: row.notas ?? "",
+      })),
+    });
   }
 
+  // ─── Máquinas ────────────────────────────────────────────────────────────────
   const machineName = new Map(data.maquinas.map((m) => [m.id, m]));
-  const maquinaDetalleRows = data.consumosMaquinas.map((cm) => {
-    const maquina = machineName.get(cm.maquina_id);
-    return {
-      "Sesion ID": cm.sesion_id,
-      Maquina: maquina?.nombre ?? cm.maquina_id,
-      Zona: maquina?.zona ?? "",
-      "kWh": n(cm.kwh),
-      "kWh/kg global": ratio(n(cm.kwh), totalKg, 5),
-    };
+  const detalleColumnas: ColumnaTabla[] = [
+    { header: "Sesión ID", key: "sesionId", width: 34 },
+    { header: "Máquina", key: "maquina", width: 24 },
+    { header: "Zona", key: "zona", width: 16 },
+    { header: "kWh", key: "kwh", tipo: "numero", numFmt: FMT_KWH, width: 12 },
+    { header: "kWh/kg global", key: "kwhKg", tipo: "numero", numFmt: FMT_KWHKG5, width: 16 },
+  ];
+  añadirHojaTabla(ctx, {
+    nombreHoja: "Detalle maquinas",
+    titulo: "Detalle de consumo por máquina",
+    columnas: detalleColumnas,
+    filas: data.consumosMaquinas.map((cm) => {
+      const maquina = machineName.get(cm.maquina_id);
+      return {
+        sesionId: cm.sesion_id,
+        maquina: maquina?.nombre ?? cm.maquina_id,
+        zona: maquina?.zona ?? "",
+        kwh: n(cm.kwh),
+        kwhKg: ratio(n(cm.kwh), totalKg, 5),
+      };
+    }),
   });
-  appendRowsSheet(wb, "Detalle maquinas", maquinaDetalleRows, [34, 24, 18, 12, 14], { freezeHeader: true });
 
-  const maquinaRows = data.maquinas.map((m) => {
-    const totalKwh = data.consumosMaquinas
-      .filter((cm) => cm.maquina_id === m.id)
-      .reduce((s, cm) => s + n(cm.kwh), 0);
-    return {
-      Maquina: m.nombre,
-      Zona: m.zona,
-      "kWh total": +totalKwh.toFixed(2),
-      "% electricidad": totalElectricidad > 0 ? +((totalKwh / totalElectricidad) * 100).toFixed(2) : 0,
-      "kWh/kg global": ratio(totalKwh, totalKg, 5),
-    };
+  const resumenMaquinasColumnas: ColumnaTabla[] = [
+    { header: "Máquina", key: "maquina", width: 24 },
+    { header: "Zona", key: "zona", width: 16 },
+    { header: "kWh total", key: "kwhTotal", tipo: "numero", numFmt: FMT_KWH, width: 14 },
+    { header: "% electricidad", key: "pctElectricidad", tipo: "numero", numFmt: FMT_PCT, width: 16 },
+    { header: "kWh/kg global", key: "kwhKg", tipo: "numero", numFmt: FMT_KWHKG5, width: 16 },
+  ];
+  añadirHojaTabla(ctx, {
+    nombreHoja: "Resumen maquinas",
+    titulo: "Resumen de consumo por máquina",
+    columnas: resumenMaquinasColumnas,
+    filas: data.maquinas.map((m) => {
+      const totalKwh = data.consumosMaquinas
+        .filter((cm) => cm.maquina_id === m.id)
+        .reduce((s, cm) => s + n(cm.kwh), 0);
+      return {
+        maquina: m.nombre,
+        zona: m.zona,
+        kwhTotal: +totalKwh.toFixed(2),
+        pctElectricidad: totalElectricidad > 0 ? +((totalKwh / totalElectricidad) * 100).toFixed(2) : 0,
+        kwhKg: ratio(totalKwh, totalKg, 5),
+      };
+    }),
   });
-  appendRowsSheet(wb, "Resumen maquinas", maquinaRows, [24, 18, 14, 16, 16], { freezeHeader: true });
 
-  appendDictionarySheet(wb, [
-    { Hoja: "Sesiones", Campo: "Una fila por sesion", Descripcion: "Datos completos de cada rango de consumo.", Uso: "Filtrar por fecha y comparar ratios." },
-    { Hoja: "Resumen recursos", Campo: "Por kg", Descripcion: "Consumo normalizado por kg procesado.", Uso: "Comparar eficiencia independientemente del volumen." },
-    { Hoja: "Consumos por periodo", Campo: "Confianza", Descripcion: "Real usa partes, estimado usa ventas/manual, mixto prioriza partes.", Uso: "Auditar la calidad del KPI mensual." },
-    { Hoja: "Validacion consumos", Campo: "Observaciones", Descripcion: "Meses con consumo o kg base incompletos.", Uso: "Completar datos pendientes." },
-    { Hoja: "Registros consumo", Campo: "Fuente", Descripcion: "Origen de cada registro fisico capturado.", Uso: "Trazabilidad de facturas, albaranes o contadores." },
-    { Hoja: "Bases kg", Campo: "Tipo", Descripcion: "Kg de ventas o ajustes manuales usados como proxy.", Uso: "Revisar la base antes de tener partes." },
-    { Hoja: "Detalle maquinas", Campo: "kWh por maquina y sesion", Descripcion: "Consumo electrico granular.", Uso: "Analisis de maquinas." },
-    { Hoja: "Resumen maquinas", Campo: "% electricidad", Descripcion: "Peso de cada maquina sobre el consumo electrico total.", Uso: "Priorizar mejoras." },
-  ]);
+  // ─── Diccionario ─────────────────────────────────────────────────────────────
+  const diccionarioColumnas: ColumnaTabla[] = [
+    { header: "Hoja", key: "hoja", width: 22 },
+    { header: "Campo", key: "campo", width: 28 },
+    { header: "Descripción", key: "descripcion", width: 64 },
+    { header: "Uso", key: "uso", width: 36 },
+  ];
+  añadirHojaTabla(ctx, {
+    nombreHoja: "Diccionario",
+    titulo: "Diccionario de datos",
+    columnas: diccionarioColumnas,
+    filas: [
+      { hoja: "KPIs", campo: "Indicadores por kg", descripcion: "Ratios normalizados de todo el rango exportado.", uso: "Lectura rápida antes de entrar al detalle." },
+      { hoja: "Sesiones", campo: "Una fila por sesión", descripcion: "Datos completos de cada rango de consumo.", uso: "Filtrar por fecha y comparar ratios." },
+      { hoja: "Resumen recursos", campo: "Por kg", descripcion: "Consumo normalizado por kg procesado.", uso: "Comparar eficiencia independientemente del volumen." },
+      { hoja: "Consumos por periodo", campo: "Confianza", descripcion: "Real usa partes, estimado usa ventas/manual, mixto prioriza partes.", uso: "Auditar la calidad del KPI mensual." },
+      { hoja: "Validacion consumos", campo: "Observaciones", descripcion: "Meses con consumo o kg base incompletos.", uso: "Completar datos pendientes." },
+      { hoja: "Registros consumo", campo: "Fuente", descripcion: "Origen de cada registro físico capturado.", uso: "Trazabilidad de facturas, albaranes o contadores." },
+      { hoja: "Bases kg", campo: "Tipo", descripcion: "Kg de ventas o ajustes manuales usados como proxy.", uso: "Revisar la base antes de tener partes." },
+      { hoja: "Detalle maquinas", campo: "kWh por máquina y sesión", descripcion: "Consumo eléctrico granular.", uso: "Análisis de máquinas." },
+      { hoja: "Resumen maquinas", campo: "% electricidad", descripcion: "Peso de cada máquina sobre el consumo eléctrico total.", uso: "Priorizar mejoras." },
+    ],
+    autofilter: false,
+    freeze: false,
+  });
 
-  saveWorkbook(wb, buildLasarteFilename("Consumos", "xlsx", consumoDateRange(data)));
+  await descargarLibro(ctx, buildLasarteFilename("Consumos", "xlsx", range));
 }
 
 function drawHeader(doc: jsPDF, pageIndex: number, subtitle?: string) {
@@ -305,7 +535,7 @@ function drawHeader(doc: jsPDF, pageIndex: number, subtitle?: string) {
 }
 
 function drawFooter(doc: jsPDF) {
-  drawExportFooter(doc);
+  drawExportFooter(doc, { clasificacion: "Interno" });
 }
 
 export async function exportConsumoToPDF(data: ExportData) {

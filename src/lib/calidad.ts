@@ -1,9 +1,16 @@
 import jsPDF from "jspdf";
+import type { Worksheet } from "exceljs";
 import { unzipSync } from "fflate";
-import * as XLSX from "xlsx";
 import { getISOWeek, getISOWeekYear } from "date-fns";
-import { appendAoaSheet, appendDictionarySheet, appendRowsSheet, createWorkbook, saveWorkbook } from "@/lib/exportWorkbook";
-import { drawLogoOrFallback, EXPORT_FOOTER_TEXT, finalizeExportPageNumbers, PDF_THEME } from "@/lib/exportTheme";
+import {
+  añadirHojaTabla,
+  crearLibroLasarte,
+  descargarLibro,
+  FMT_INT,
+  LASARTE_COLORS,
+  type ColumnaTabla,
+} from "@/lib/exportKit";
+import { drawExportFooter, drawExportHeader, finalizeExportPageNumbers, PDF_THEME } from "@/lib/exportTheme";
 import { buildLasarteFilename, ensureExportLogoLoaded } from "@/lib/reportKit";
 import { formatDate } from "@/lib/format";
 
@@ -562,20 +569,6 @@ function percentageLabel(value: number, total: number) {
   return total > 0 ? `${Math.round((value / total) * 100)}%` : "0%";
 }
 
-function setCellStyle(ws: XLSX.WorkSheet, address: string, style: Record<string, unknown>) {
-  const cell = ws[address];
-  if (cell) (cell as XLSX.CellObject & { s?: Record<string, unknown> }).s = style;
-}
-
-function styleRange(ws: XLSX.WorkSheet, range: string, style: Record<string, unknown>) {
-  const decoded = XLSX.utils.decode_range(range);
-  for (let row = decoded.s.r; row <= decoded.e.r; row += 1) {
-    for (let col = decoded.s.c; col <= decoded.e.c; col += 1) {
-      setCellStyle(ws, XLSX.utils.encode_cell({ r: row, c: col }), style);
-    }
-  }
-}
-
 function drawQualityPill(doc: jsPDF, x: number, y: number, label: string, color: [number, number, number], fill: [number, number, number], width = 24) {
   doc.setFillColor(...fill);
   doc.setDrawColor(...color);
@@ -587,36 +580,35 @@ function drawQualityPill(doc: jsPDF, x: number, y: number, label: string, color:
   doc.text(safePdf(label), x + width / 2, y + 4.8, { align: "center" });
 }
 
-function drawCalidadFooter(doc: jsPDF, pageIndex: number) {
+// Nota de trazabilidad de calidad (spec §0.4 "Calidad/trazabilidad"): sustituye
+// al texto legal generico de clasificacion "Interno" en el pie de cada pagina,
+// porque este informe es control de produccion/trazabilidad agroalimentaria,
+// no un documento interno cualquiera.
+const CALIDAD_TRAZABILIDAD_NOTE =
+  "Documento de control interno asociado a produccion, calidad y trazabilidad agroalimentaria.";
+
+function drawCalidadFooterLegend(doc: jsPDF) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  doc.setDrawColor(...PDF_THEME.border);
-  doc.line(10, pageHeight - 10, pageWidth - 10, pageHeight - 10);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(6.5);
-  doc.setTextColor(...PDF_THEME.muted);
-  doc.text(EXPORT_FOOTER_TEXT, 10, pageHeight - 5.8);
-  doc.text(`Pag. ${pageIndex}`, pageWidth - 10, pageHeight - 5.8, { align: "right" });
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(5.5);
+  doc.setTextColor(...PDF_THEME.destructive);
+  doc.text(CALIDAD_TRAZABILIDAD_NOTE, pageWidth / 2, pageHeight - 4, { align: "center", maxWidth: pageWidth - 16 });
 }
 
+// Cabecera/pie con marca comun LASARTE (spec §0.3/§0.4): usa el mismo motor que
+// el resto de exports PDF ya migrados (drawExportHeader/drawExportFooter de
+// exportTheme.ts) en vez de dibujar una banda propia; el pie legal usa la nota
+// de trazabilidad de calidad en vez del texto generico de "Interno".
 function drawCalidadHeader(doc: jsPDF, jornada: CalidadJornada, summary: CalidadSummary, pageIndex: number) {
-  const pageWidth = doc.internal.pageSize.getWidth();
-  doc.setFillColor(...PDF_THEME.forest);
-  doc.rect(0, 0, pageWidth, 18, "F");
-  doc.setFillColor(...PDF_THEME.primary);
-  doc.rect(0, 0, pageWidth, 3, "F");
-  drawLogoOrFallback(doc, 10, 5, 8, { x: 10, yBaseline: 10, fontSize: 10, color: PDF_THEME.white });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7);
-  doc.setTextColor(...PDF_THEME.white);
-  doc.text("Departamento de Calidad", 10, 14.5);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7.5);
-  doc.setTextColor(...PDF_THEME.white);
-  doc.text(safePdf(formatCalidadDate(jornada.fecha)), pageWidth - 10, 10, { align: "right" });
-  doc.setFont("helvetica", "normal");
-  doc.text(safePdf(`${summary.total} lotes anotados`), pageWidth - 10, 14.5, { align: "right" });
-  drawCalidadFooter(doc, pageIndex);
+  drawExportHeader(
+    doc,
+    pageIndex,
+    "Departamento de Calidad",
+    safePdf(`${formatCalidadDate(jornada.fecha)} - ${summary.total} lotes anotados`),
+  );
+  drawExportFooter(doc);
+  drawCalidadFooterLegend(doc);
 }
 
 function drawMetricTile(doc: jsPDF, x: number, y: number, w: number, label: string, value: string, sub: string, accent: [number, number, number]) {
@@ -652,13 +644,24 @@ function ensurePdfSpace(doc: jsPDF, y: number, needed: number, jornada: CalidadJ
   return 25;
 }
 
+// Calcula el layout de texto de la ficha de un lote (observacion/accion, alto de
+// tarjeta) una sola vez, compartido entre el calculo previo de espacio en pagina
+// (ensurePdfSpace) y el dibujado real (drawLoteCard), para que ambos coincidan
+// siempre. La accion recomendada solo se reserva/dibuja si tiene contenido
+// (coherente con CalidadInformeDialog: sin placeholder "Sin accion..." en el PDF).
+function computeLoteCardLayout(doc: jsPDF, lote: CalidadLote) {
+  const hasAccion = !!(lote.accion_recomendada ?? "").trim();
+  const observations = doc.splitTextToSize(safePdf(lote.observacion || "Sin observacion registrada."), hasAccion ? 128 : 258).slice(0, 4);
+  const action = hasAccion ? doc.splitTextToSize(safePdf(lote.accion_recomendada), 118).slice(0, 4) : [];
+  const detailHeight = Math.max(14, observations.length * 4.2 + 3, hasAccion ? action.length * 4.2 + 3 : 0);
+  const cardHeight = 31 + detailHeight + (lote.defectos.length > 0 ? 9 : 0);
+  return { hasAccion, observations, action, cardHeight };
+}
+
 function drawLoteCard(doc: jsPDF, lote: CalidadLote, index: number, photoCount: number, x: number, y: number, w: number) {
   const qualityColor = QUALITY_PDF_COLORS[lote.calidad];
   const softColor = QUALITY_SOFT_COLORS[lote.calidad];
-  const observations = doc.splitTextToSize(safePdf(lote.observacion || "Sin observacion registrada."), 128).slice(0, 4);
-  const action = doc.splitTextToSize(safePdf(lote.accion_recomendada || "Sin accion recomendada."), 118).slice(0, 4);
-  const detailHeight = Math.max(14, observations.length * 4.2 + 3, action.length * 4.2 + 3);
-  const cardHeight = 31 + detailHeight + (lote.defectos.length > 0 ? 9 : 0);
+  const { hasAccion, observations, action, cardHeight } = computeLoteCardLayout(doc, lote);
 
   doc.setFillColor(...PDF_THEME.white);
   doc.setDrawColor(...PDF_THEME.border);
@@ -692,12 +695,12 @@ function drawLoteCard(doc: jsPDF, lote: CalidadLote, index: number, photoCount: 
   doc.setFontSize(6.5);
   doc.setTextColor(...PDF_THEME.primaryDark);
   doc.text("OBSERVACION", x + 9, detailTop);
-  doc.text("ACCION RECOMENDADA", x + 150, detailTop);
+  if (hasAccion) doc.text("ACCION RECOMENDADA", x + 150, detailTop);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   doc.setTextColor(...PDF_THEME.text);
   doc.text(observations, x + 9, detailTop + 5);
-  doc.text(action, x + 150, detailTop + 5);
+  if (hasAccion) doc.text(action, x + 150, detailTop + 5);
 
   if ((lote.defectos ?? []).length > 0) {
     doc.setFont("helvetica", "bold");
@@ -712,73 +715,96 @@ function drawLoteCard(doc: jsPDF, lote: CalidadLote, index: number, photoCount: 
   return cardHeight;
 }
 
-export function exportCalidadToExcel(jornada: CalidadJornada, lotes: CalidadLote[], adjuntos: CalidadAdjunto[]) {
+// Columnas de la hoja "Informe calidad" (spec §6 de docs/EXPORT_TEMPLATES_SPEC.md):
+// una fila por lote, 20 columnas. Las claves coinciden EXACTAMENTE con las que ya
+// devuelve buildCalidadExcelRows (no se toca esa funcion, solo se proyecta).
+const COLUMNAS_INFORME_CALIDAD: ColumnaTabla[] = [
+  { header: "Fecha", key: "Fecha", width: 13, align: "center" },
+  { header: "Lote", key: "Lote", width: 16 },
+  { header: "Productor/Finca", key: "Productor/Finca", width: 26 },
+  { header: "Producto", key: "Producto", width: 16 },
+  { header: "Variedad", key: "Variedad", width: 20 },
+  { header: "Box", key: "Box", width: 14, align: "center" },
+  { header: "Hora", key: "Hora", width: 9, align: "center" },
+  { header: "Aerobotics realizado", key: "Aerobotics realizado", width: 16, align: "center" },
+  { header: "Calidad", key: "Calidad", width: 14 },
+  { header: "Defectos", key: "Defectos", width: 30 },
+  { header: "Otro defecto", key: "Otro defecto", width: 22 },
+  { header: "Estado informe", key: "Estado informe", width: 16 },
+  { header: "Informe generado", key: "Informe generado", width: 50 },
+  { header: "IA calidad", key: "IA calidad", width: 16 },
+  { header: "IA defectos", key: "IA defectos", width: 26 },
+  { header: "Observación", key: "Observacion", width: 44 },
+  { header: "Acción recomendada", key: "Accion recomendada", width: 40 },
+  { header: "Validado", key: "Validado", width: 26 },
+  { header: "Reabierto", key: "Reabierto", width: 26 },
+  { header: "Fotos", key: "Fotos", numFmt: FMT_INT, align: "right", width: 10 },
+];
+
+// Columnas de la hoja "Incidencias" (spec §7): subconjunto priorizado, misma
+// fuente de filas (buildCalidadIncidentRows) que ya trae mas claves de las que
+// se muestran aqui; añadirHojaTabla proyecta solo las columnas declaradas.
+const COLUMNAS_INCIDENCIAS_CALIDAD: ColumnaTabla[] = [
+  { header: "Prioridad", key: "Prioridad", width: 14 },
+  { header: "Fecha", key: "Fecha", width: 13, align: "center" },
+  { header: "Lote", key: "Lote", width: 16 },
+  { header: "Productor/Finca", key: "Productor/Finca", width: 26 },
+  { header: "Producto", key: "Producto", width: 16 },
+  { header: "Variedad", key: "Variedad", width: 20 },
+  { header: "Box", key: "Box", width: 14, align: "center" },
+  { header: "Hora", key: "Hora", width: 9, align: "center" },
+  { header: "Calidad", key: "Calidad", width: 14 },
+  { header: "Defectos", key: "Defectos", width: 30 },
+  { header: "Estado informe", key: "Estado informe", width: 16 },
+  { header: "Observación", key: "Observacion", width: 46 },
+  { header: "Acción recomendada", key: "Accion recomendada", width: 42 },
+];
+
+// Nota de trazabilidad de calidad (spec §0.4 "Calidad/trazabilidad"): se añade
+// como linea de pie adicional bajo el pie legal generico que ya escribe
+// añadirHojaTabla para clasificacion "Interno", porque calidad es control de
+// produccion/trazabilidad agroalimentaria, no un documento interno generico.
+const NOTA_TRAZABILIDAD_CALIDAD_XLSX =
+  "Documento de control interno asociado a producción, calidad y trazabilidad agroalimentaria.";
+
+function añadirNotaTrazabilidadCalidad(ws: Worksheet, totalCols: number) {
+  const rowIndex = ws.rowCount + 1;
+  const cols = Math.max(totalCols, 1);
+  ws.mergeCells(rowIndex, 1, rowIndex, cols);
+  const cell = ws.getRow(rowIndex).getCell(1);
+  cell.value = NOTA_TRAZABILIDAD_CALIDAD_XLSX;
+  cell.font = { name: "Calibri", size: 7.5, italic: true, color: { argb: `FF${LASARTE_COLORS.grisMedio}` } };
+  cell.alignment = { vertical: "middle", horizontal: "left", wrapText: true };
+}
+
+export async function exportCalidadToExcel(jornada: CalidadJornada, lotes: CalidadLote[], adjuntos: CalidadAdjunto[]) {
   const counts = attachmentCountMap(adjuntos);
-  const summary = calidadSummary(lotes, counts);
-  const wb = createWorkbook("Lasarte SAT - Jornada de Calidad", "Notas de lotes y control de calidad");
+  const filasInforme = buildCalidadExcelRows(lotes, counts);
+  const filasIncidencias = buildCalidadIncidentRows(lotes, counts);
 
-  const resumen = appendAoaSheet(
-    wb,
-    "Resumen",
-    [
-      ["", "", "", "", ""],
-      ["Jornada de Calidad", "", "", "", ""],
-      ["Indicador", "Valor", "Lectura", "Calidad", "Lotes"],
-      ["Fecha", formatCalidadDate(jornada.fecha), `Responsable: ${jornada.responsable || "-"}`, "Generado", new Date().toLocaleString("es-ES")],
-      ["Lotes anotados", summary.total, "Total de entradas revisadas", "Bueno", summary.byQuality.Bueno],
-      ["Aerobotics realizados", summary.aerobotics, percentageLabel(summary.aerobotics, summary.total), "Regular", summary.byQuality.Regular],
-      ["Fotos adjuntas", summary.fotos, "Evidencias guardadas", "Deficiente", summary.byQuality.Deficiente],
-      ["Lotes con incidencia", buildCalidadIncidentRows(lotes, counts).length, "Regular, deficiente, pesimo o con notas", "Pésimo", summary.byQuality.Pésimo],
-      [],
-      ["Uso del informe", "Abrir Lotes para filtrar todos los registros. Abrir Incidencias para revisar solo lo que necesita seguimiento.", "", "", ""],
-    ],
-    [24, 12, 48, 18, 12],
-  );
-  resumen["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
-    { s: { r: 1, c: 0 }, e: { r: 1, c: 4 } },
-    { s: { r: 9, c: 1 }, e: { r: 9, c: 4 } },
-  ];
-  styleRange(resumen, "A1:E2", {
-    font: { bold: true, color: { rgb: "FFFFFF" } },
-    fill: { fgColor: { rgb: "1F5039" } },
-    alignment: { horizontal: "center", vertical: "center" },
-  });
-  styleRange(resumen, "A3:E3", {
-    font: { bold: true, color: { rgb: "FFFFFF" } },
-    fill: { fgColor: { rgb: "C96B21" } },
-    alignment: { horizontal: "center" },
-  });
-  resumen["!rows"] = [{ hpt: 72 }, { hpt: 24 }, { hpt: 19 }];
-
-  appendRowsSheet(wb, "Lotes", buildCalidadExcelRows(lotes, counts), [14, 16, 30, 18, 22, 16, 12, 20, 14, 34, 22, 16, 34, 22, 58, 50, 28, 28, 10], {
-    freezeHeader: true,
+  const ctx = crearLibroLasarte({
+    titulo: "Informe de calidad",
+    periodo: formatCalidadDate(jornada.fecha),
+    usuario: jornada.responsable || undefined,
+    clasificacion: "Interno",
   });
 
-  appendRowsSheet(
-    wb,
-    "Incidencias",
-    buildCalidadIncidentRows(lotes, counts),
-    [16, 14, 16, 30, 18, 22, 16, 12, 14, 34, 22, 16, 34, 58, 50, 28, 28, 10],
-    { freezeHeader: true },
-  );
+  const hojaInforme = añadirHojaTabla(ctx, {
+    nombreHoja: "Informe calidad",
+    columnas: COLUMNAS_INFORME_CALIDAD,
+    filas: filasInforme,
+  });
+  añadirNotaTrazabilidadCalidad(hojaInforme, COLUMNAS_INFORME_CALIDAD.length);
 
-  appendRowsSheet(
-    wb,
-    "Adjuntos",
-    buildCalidadAttachmentRows(jornada, lotes, adjuntos),
-    [14, 16, 30, 14, 36, 22, 80],
-    { freezeHeader: true },
-  );
+  const hojaIncidencias = añadirHojaTabla(ctx, {
+    nombreHoja: "Incidencias",
+    titulo: "Incidencias de calidad",
+    columnas: COLUMNAS_INCIDENCIAS_CALIDAD,
+    filas: filasIncidencias,
+  });
+  añadirNotaTrazabilidadCalidad(hojaIncidencias, COLUMNAS_INCIDENCIAS_CALIDAD.length);
 
-  appendDictionarySheet(wb, [
-    { Hoja: "Resumen", Campo: "Indicador", Descripcion: "Lectura rapida del dia de calidad con KPIs y distribucion por estado.", Uso: "Informe diario." },
-    { Hoja: "Lotes", Campo: "Una fila por lote", Descripcion: "Datos separados por columnas para filtrar y cruzar.", Uso: "Trabajo en Excel." },
-    { Hoja: "Incidencias", Campo: "Prioridad", Descripcion: "Lotes que requieren seguimiento por calidad, defectos, observacion o accion.", Uso: "Revision de Calidad." },
-    { Hoja: "Adjuntos", Campo: "Ruta storage", Descripcion: "Referencia de fotos y documentos guardados.", Uso: "Trazabilidad." },
-  ]);
-
-  saveWorkbook(wb, buildLasarteFilename("Calidad", "xlsx", { from: jornada.fecha }));
+  await descargarLibro(ctx, buildLasarteFilename("Calidad", "xlsx", { from: jornada.fecha }));
 }
 
 export async function exportCalidadToPDF(
@@ -848,9 +874,7 @@ export async function exportCalidadToPDF(
   let y = 124;
   filteredLotes.forEach((lote, index) => {
     const photoCount = counts[lote.id] ?? 0;
-    const previewObs = doc.splitTextToSize(safePdf(lote.observacion || "Sin observacion registrada."), 128).slice(0, 4);
-    const previewAction = doc.splitTextToSize(safePdf(lote.accion_recomendada || "Sin accion recomendada."), 118).slice(0, 4);
-    const needed = 31 + Math.max(14, previewObs.length * 4.2 + 3, previewAction.length * 4.2 + 3) + (lote.defectos.length > 0 ? 9 : 0);
+    const { cardHeight: needed } = computeLoteCardLayout(doc, lote);
     y = ensurePdfSpace(doc, y, needed + 6, jornada, summary, pageRef);
     const height = drawLoteCard(doc, lote, index, photoCount, 10, y, 277);
     y += height + 6;
