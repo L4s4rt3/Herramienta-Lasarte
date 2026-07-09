@@ -6,7 +6,7 @@
 // una errata (ver comentario de cabecera de useEconomico.ts).
 import { useMemo, useState } from "react";
 import {
-  AlertTriangle, ChevronDown, History, Pencil, Plus, ShieldAlert, Trash2,
+  AlertTriangle, ChevronDown, Download, History, Pencil, Plus, ShieldAlert, Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthProvider";
 import {
   usePreciosRecursos,
   type EconomicoPrecioRow,
@@ -37,12 +38,23 @@ import {
 } from "@/hooks/useEconomico";
 import {
   useMallasConfig,
+  type EconomicoMallaConfigRow,
   type NuevaMallaConfigInput,
 } from "@/hooks/useCosteMallas";
 import type { ZonaMalla } from "@/lib/costeMallas";
 import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatNumber, today } from "@/lib/format";
+import {
+  añadirHojaTabla, crearLibroLasarte, descargarLibro, type ColumnaTabla,
+} from "@/lib/exportKit";
+import { buildLasarteFilename } from "@/lib/reportKit";
 import { cn } from "@/lib/utils";
+
+// Formato numérico específico de este export (€/unidad variable, no siempre /kg
+// como FMT_EUR_KG de exportKit.ts).
+const FMT_EUR_UNIDAD = '#,##0.0000" €"';
+const FMT_KG_MALLA = '#,##0.00" kg"';
+const FMT_EUR_MALLA = '#,##0.00" €/malla"';
 
 const RECURSOS_CONOCIDOS = ["agua", "electricidad", "gasoil", "quimicos"];
 
@@ -61,9 +73,90 @@ function formatPrecio(precio: number, unidad: string): string {
   return `${formatNumber(precio, 4)} €/${unidad}`;
 }
 
+// Fecha "YYYY-MM-DD" anclada al mediodía local (evita el desplazamiento de zona
+// horaria de `new Date("YYYY-MM-DD")`), igual que el resto de exports Lasarte.
+function parseFechaISO(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+  return null;
+}
+
+// ─── Export Excel (marca Lasarte, clasificación Dirección) ──────────────────
+
+const TARIFAS_COLUMNAS: ColumnaTabla[] = [
+  { header: "Recurso", key: "recurso", width: 20 },
+  { header: "Unidad", key: "unidad", width: 12 },
+  { header: "€/unidad", key: "precio", tipo: "numero", numFmt: FMT_EUR_UNIDAD, width: 14 },
+  { header: "Vigente desde", key: "vigenteDesde", tipo: "fecha", width: 16 },
+  { header: "Estado", key: "estado", width: 14 },
+];
+
+const MALLAS_PRECIOS_COLUMNAS: ColumnaTabla[] = [
+  { header: "Zona", key: "zona", width: 16 },
+  { header: "Tipo malla", key: "tipoMalla", width: 22 },
+  { header: "Kg/malla", key: "kgPorMalla", tipo: "numero", numFmt: FMT_KG_MALLA, width: 14 },
+  { header: "Precio/malla", key: "precioMalla", tipo: "numero", numFmt: FMT_EUR_MALLA, width: 16 },
+  { header: "Vigente desde", key: "vigenteDesde", tipo: "fecha", width: 16 },
+];
+
+async function exportarPrecios(
+  precios: EconomicoPrecioRow[],
+  vigentesPorRecurso: Map<string, EconomicoPrecioRow>,
+  mallasConfigs: EconomicoMallaConfigRow[],
+  usuario: string | undefined,
+) {
+  try {
+    const ctx = crearLibroLasarte({
+      titulo: "Tarifas y precios",
+      usuario,
+      clasificacion: "Dirección",
+    });
+
+    const preciosOrdenados = [...precios].sort(
+      (a, b) => a.recurso.localeCompare(b.recurso, "es") || b.vigente_desde.localeCompare(a.vigente_desde),
+    );
+    añadirHojaTabla(ctx, {
+      nombreHoja: "Tarifas",
+      columnas: TARIFAS_COLUMNAS,
+      filas: preciosOrdenados.map((fila) => ({
+        recurso: recursoLabel(fila.recurso),
+        unidad: fila.unidad,
+        precio: fila.precio_por_unidad,
+        vigenteDesde: parseFechaISO(fila.vigente_desde),
+        estado: vigentesPorRecurso.get(fila.recurso)?.id === fila.id ? "Vigente" : "Histórico",
+      })),
+      autofilter: preciosOrdenados.length > 0,
+    });
+
+    const zonaLabelExport: Record<string, string> = { z1: "Zona 1 (Z1)", z2: "Zona 2 (Z2)" };
+    const mallasOrdenadas = [...mallasConfigs].sort(
+      (a, b) => a.zona.localeCompare(b.zona, "es") || b.vigente_desde.localeCompare(a.vigente_desde),
+    );
+    añadirHojaTabla(ctx, {
+      nombreHoja: "Mallas",
+      columnas: MALLAS_PRECIOS_COLUMNAS,
+      filas: mallasOrdenadas.map((fila) => ({
+        zona: zonaLabelExport[fila.zona] ?? fila.zona,
+        tipoMalla: fila.tipo_malla ?? "—",
+        kgPorMalla: fila.kg_por_malla,
+        precioMalla: fila.precio_malla,
+        vigenteDesde: parseFechaISO(fila.vigente_desde),
+      })),
+      autofilter: mallasOrdenadas.length > 0,
+    });
+
+    await descargarLibro(ctx, buildLasarteFilename("Precios", "xlsx"));
+    toast({ title: "Precios exportados" });
+  } catch (err) {
+    toast({ title: "Error al exportar los precios", description: errorMessage(err), variant: "destructive" });
+  }
+}
+
 export default function EconomicoPrecios() {
+  const { user } = useAuth();
   const {
-    recursos, vigentesPorRecurso, historicoPorRecurso, hayPrecioCero,
+    precios, recursos, vigentesPorRecurso, historicoPorRecurso, hayPrecioCero,
     isLoading, sinPermiso, crear, editar, borrar,
   } = usePreciosRecursos();
 
@@ -136,9 +229,18 @@ export default function EconomicoPrecios() {
           <h1 className="page-title">Tarifas de recursos</h1>
           <p className="page-subtitle">Precio por unidad de agua, electricidad, gasoil y químicos.</p>
         </div>
-        <Button className="gap-2" onClick={() => { setEditingRow(null); setDialogOpen(true); }}>
-          <Plus className="h-4 w-4" /> Nueva tarifa
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            className="glass glass-hover gap-1.5"
+            onClick={() => exportarPrecios(precios, vigentesPorRecurso, mallas.configs, user?.email ?? undefined)}
+          >
+            <Download className="h-4 w-4" /> Descargar Excel
+          </Button>
+          <Button className="gap-2" onClick={() => { setEditingRow(null); setDialogOpen(true); }}>
+            <Plus className="h-4 w-4" /> Nueva tarifa
+          </Button>
+        </div>
       </header>
 
       {hayPrecioCero && (

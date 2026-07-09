@@ -5,11 +5,12 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  AlertTriangle, ChevronDown, ChevronsUpDown, ChevronUp, Droplet, Euro, Fuel, FlaskConical,
+  AlertTriangle, ChevronDown, ChevronsUpDown, ChevronUp, Download, Droplet, Euro, Fuel, FlaskConical,
   Package, Scale, ShieldAlert, Users, Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -20,19 +21,36 @@ import {
 } from "recharts";
 import { KPICard } from "@/components/KPICard";
 import { ConsumoPeriodoSelector } from "@/components/consumos/ConsumoPeriodoSelector";
+import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthProvider";
 import { useCostesPeriodo } from "@/hooks/useEconomico";
 import { useCostePersonal } from "@/hooks/useCostePersonal";
 import { useCosteMallas } from "@/hooks/useCosteMallas";
-import type { CostePersonaRow } from "@/lib/costePersonal";
+import type { CostePersonaRow, CosteZonaRow } from "@/lib/costePersonal";
+import type { CostePorRecurso } from "@/lib/economico";
+import type { ZonaMallaResultado } from "@/lib/costeMallas";
 import {
   buildPeriodoRange,
   type ConsumoPeriodoTipo,
+  type PeriodoRange,
 } from "@/lib/consumoPeriodoView";
 import {
   C, GRID, GlassTooltip, MARGIN, XAXIS, YAXIS, barFill, CHART_PANEL_CLASS, CHART_CURSOR,
 } from "@/lib/chartTheme";
+import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatKg, formatNumber, today } from "@/lib/format";
+import {
+  añadirHojaTabla, crearLibroLasarte, descargarLibro, FMT_EUR, FMT_EUR_KG, FMT_INT, FMT_KG, FMT_PCT,
+  type ColumnaTabla,
+} from "@/lib/exportKit";
+import { buildLasarteFilename } from "@/lib/reportKit";
 import { cn } from "@/lib/utils";
+
+// Formatos numéricos españoles específicos de este export, no cubiertos por las
+// constantes FMT_* de exportKit.ts.
+const FMT_HORAS = '#,##0" h"';
+const FMT_KG_MALLA = '#,##0.00" kg"';
+const FMT_MALLAS = '#,##0.0';
 
 const RECURSO_LABEL: Record<string, string> = {
   agua: "Agua",
@@ -97,7 +115,180 @@ function ordenarPorPersona(filas: CostePersonaRow[], sortKey: PersonaSortKey, so
   });
 }
 
+// ─── Export Excel (marca Lasarte, clasificación Dirección) ──────────────────
+// 4 hojas: consumos, personal por zona, personal por persona y mallas rotas —
+// separadas porque añadirHojaTabla renderiza una tabla por hoja (zona/persona
+// tienen columnas distintas, no se pueden fusionar en una sola tabla).
+
+const CONSUMOS_COLUMNAS: ColumnaTabla[] = [
+  { header: "Recurso", key: "recurso", width: 18 },
+  { header: "Consumo", key: "consumo", width: 20 },
+  { header: "Tarifa vigente", key: "tarifa", width: 20 },
+  { header: "Coste", key: "coste", tipo: "numero", numFmt: FMT_EUR, width: 14 },
+  { header: "Kg producidos", key: "kgProducidos", tipo: "numero", numFmt: FMT_KG, width: 16 },
+  { header: "Coste/kg", key: "costePorKg", tipo: "numero", numFmt: FMT_EUR_KG, width: 14 },
+];
+
+const PERSONAL_ZONA_COLUMNAS: ColumnaTabla[] = [
+  { header: "Zona", key: "zona", width: 20 },
+  { header: "Personas", key: "personas", tipo: "numero", numFmt: FMT_INT, width: 12 },
+  { header: "Horas", key: "horas", tipo: "numero", numFmt: FMT_HORAS, width: 14 },
+  { header: "Coste", key: "coste", tipo: "numero", numFmt: FMT_EUR, width: 14 },
+  { header: "% del total", key: "pct", tipo: "numero", numFmt: FMT_PCT, width: 14 },
+];
+
+const PERSONAL_PERSONA_COLUMNAS: ColumnaTabla[] = [
+  { header: "Nombre", key: "nombre", width: 26 },
+  { header: "Zona", key: "zona", width: 20 },
+  { header: "Coste/hora", key: "costeHora", width: 16 },
+  { header: "Horas", key: "horas", tipo: "numero", numFmt: FMT_HORAS, width: 14 },
+  { header: "Coste", key: "coste", tipo: "numero", numFmt: FMT_EUR, width: 14 },
+];
+
+const MALLAS_COLUMNAS: ColumnaTabla[] = [
+  { header: "Zona", key: "zona", width: 16 },
+  { header: "Kg reciclado", key: "kg", tipo: "numero", numFmt: FMT_KG_MALLA, width: 16 },
+  { header: "Kg/malla", key: "kgPorMalla", width: 14 },
+  { header: "Mallas rotas", key: "mallas", tipo: "numero", numFmt: FMT_MALLAS, width: 14 },
+  { header: "Precio/malla", key: "precioMalla", width: 16 },
+  { header: "Gasto", key: "gasto", tipo: "numero", numFmt: FMT_EUR, width: 14 },
+];
+
+interface ExportarCostesInput {
+  periodoRange: PeriodoRange;
+  porRecurso: CostePorRecurso[];
+  costeTotal: number;
+  kgProducidos: number;
+  costePorKg: number | null;
+  personalPorZona: CosteZonaRow[];
+  personalPorPersona: CostePersonaRow[];
+  personalTotal: number;
+  mallasZ1: ZonaMallaResultado;
+  mallasZ2: ZonaMallaResultado;
+  totalMallas: number;
+  gastoMallasTotal: number;
+  usuario: string | undefined;
+}
+
+async function exportarCostes(input: ExportarCostesInput) {
+  const {
+    periodoRange, porRecurso, costeTotal, kgProducidos, costePorKg,
+    personalPorZona, personalPorPersona, personalTotal,
+    mallasZ1, mallasZ2, totalMallas, gastoMallasTotal, usuario,
+  } = input;
+
+  try {
+    const ctx = crearLibroLasarte({
+      titulo: "Costes del periodo",
+      periodo: `${periodoRange.label} (${periodoRange.detail})`,
+      usuario,
+      clasificacion: "Dirección",
+    });
+
+    añadirHojaTabla(ctx, {
+      nombreHoja: "Costes de consumos",
+      columnas: CONSUMOS_COLUMNAS,
+      filas: porRecurso.map((fila) => ({
+        recurso: recursoLabel(fila.recurso),
+        consumo: `${formatNumber(fila.cantidad, 2)} ${fila.unidad}`,
+        tarifa: fila.unidadPrecio && fila.precioMedio != null
+          ? `${formatNumber(fila.precioMedio, 4)} €/${fila.unidadPrecio}`
+          : "Sin tarifa",
+        coste: fila.coste,
+        kgProducidos,
+        costePorKg: kgProducidos > 0 ? fila.coste / kgProducidos : null,
+      })),
+      totales: {
+        recurso: "TOTAL",
+        consumo: "",
+        tarifa: "",
+        coste: costeTotal,
+        kgProducidos,
+        costePorKg,
+      },
+    });
+
+    añadirHojaTabla(ctx, {
+      nombreHoja: "Coste personal (zona)",
+      titulo: "Coste de personal por zona",
+      columnas: PERSONAL_ZONA_COLUMNAS,
+      filas: personalPorZona.map((fila) => ({
+        zona: fila.zona,
+        personas: fila.personas,
+        horas: fila.horas,
+        coste: fila.coste,
+        pct: personalTotal > 0 ? (fila.coste / personalTotal) * 100 : 0,
+      })),
+      totales: {
+        zona: "TOTAL",
+        personas: personalPorZona.reduce((s, f) => s + f.personas, 0),
+        horas: personalPorZona.reduce((s, f) => s + f.horas, 0),
+        coste: personalTotal,
+        pct: personalTotal > 0 ? 100 : 0,
+      },
+    });
+
+    añadirHojaTabla(ctx, {
+      nombreHoja: "Coste personal (persona)",
+      titulo: "Coste de personal por persona",
+      columnas: PERSONAL_PERSONA_COLUMNAS,
+      filas: personalPorPersona.map((fila) => ({
+        nombre: fila.nombre,
+        zona: fila.zona,
+        costeHora: fila.costeHora != null ? `${formatNumber(fila.costeHora, 2)} €/h` : "Sin coste",
+        horas: fila.horas,
+        coste: fila.coste,
+      })),
+      totales: {
+        nombre: "TOTAL",
+        zona: "",
+        costeHora: "",
+        horas: personalPorPersona.reduce((s, f) => s + f.horas, 0),
+        coste: personalTotal,
+      },
+    });
+
+    añadirHojaTabla(ctx, {
+      nombreHoja: "Coste de mallas",
+      columnas: MALLAS_COLUMNAS,
+      filas: [
+        {
+          zona: "Zona 1 (Z1)",
+          kg: mallasZ1.kg,
+          kgPorMalla: mallasZ1.kgPorMalla != null ? `${formatNumber(mallasZ1.kgPorMalla, 1)} kg/malla` : "—",
+          mallas: mallasZ1.mallas,
+          precioMalla: mallasZ1.precioMalla != null ? `${formatNumber(mallasZ1.precioMalla, 2)} €/malla` : "—",
+          gasto: mallasZ1.gasto,
+        },
+        {
+          zona: "Zona 2 (Z2)",
+          kg: mallasZ2.kg,
+          kgPorMalla: mallasZ2.kgPorMalla != null ? `${formatNumber(mallasZ2.kgPorMalla, 1)} kg/malla` : "—",
+          mallas: mallasZ2.mallas,
+          precioMalla: mallasZ2.precioMalla != null ? `${formatNumber(mallasZ2.precioMalla, 2)} €/malla` : "—",
+          gasto: mallasZ2.gasto,
+        },
+      ],
+      totales: {
+        zona: "TOTAL",
+        kg: mallasZ1.kg + mallasZ2.kg,
+        kgPorMalla: "",
+        mallas: totalMallas,
+        precioMalla: "",
+        gasto: gastoMallasTotal,
+      },
+      autofilter: false,
+    });
+
+    await descargarLibro(ctx, buildLasarteFilename("Costes", "xlsx", { from: periodoRange.start, to: periodoRange.end }));
+    toast({ title: "Costes exportados" });
+  } catch (err) {
+    toast({ title: "Error al exportar los costes", description: errorMessage(err), variant: "destructive" });
+  }
+}
+
 export default function EconomicoCostes() {
+  const { user } = useAuth();
   const [periodoTipo, setPeriodoTipo] = useState<ConsumoPeriodoTipo>("semana");
   const [periodoOffset, setPeriodoOffset] = useState(0);
 
@@ -177,6 +368,27 @@ export default function EconomicoCostes() {
           <h1 className="page-title">Costes del periodo</h1>
           <p className="page-subtitle">Coste total y por kg producido, según las tarifas vigentes.</p>
         </div>
+        <Button
+          variant="outline"
+          className="glass glass-hover gap-1.5"
+          onClick={() => exportarCostes({
+            periodoRange,
+            porRecurso,
+            costeTotal,
+            kgProducidos,
+            costePorKg,
+            personalPorZona,
+            personalPorPersona,
+            personalTotal,
+            mallasZ1,
+            mallasZ2,
+            totalMallas,
+            gastoMallasTotal,
+            usuario: user?.email ?? undefined,
+          })}
+        >
+          <Download className="h-4 w-4" /> Descargar Excel
+        </Button>
       </header>
 
       <ConsumoPeriodoSelector

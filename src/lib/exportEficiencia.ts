@@ -1,15 +1,22 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { drawExportHeader, drawExportFooter, finalizeExportPageNumbers, pdfTableTheme } from "./exportTheme";
-import { appendDictionarySheet, appendRowsSheet, createWorkbook, saveWorkbook } from "./exportWorkbook";
+import { formatDate } from "./format";
 import {
-  appendReportCoverSheet,
+  añadirHojaTabla,
+  crearLibroLasarte,
+  descargarLibro,
+  FMT_INT,
+  FMT_KG,
+  FMT_PCT,
+  type ColumnaTabla,
+} from "./exportKit";
+import {
   buildLasarteFilename,
   drawReportCover,
   drawReportInsights,
   drawReportSectionTitle,
   ensureExportLogoLoaded,
-  type ReportKpi,
   type ReportMeta,
 } from "./reportKit";
 
@@ -51,22 +58,71 @@ function weekStats(sem: SemanaData) {
   };
 }
 
-export function exportEficienciaToExcel(data: SemanaData[], _optimo: string) {
-  const resumenRows = data.map((sem) => {
+/** Última fecha con datos de la semana (para "Fin semana"); si no hay días, cae al inicio. */
+function finSemanaDesdeDias(sem: SemanaData): string {
+  const fechas = Object.values(sem.days).map((d) => d.date).sort();
+  return fechas.length > 0 ? fechas[fechas.length - 1] : sem.weekStart;
+}
+
+// ─── Columnas (RRHH · Informe semanal asistencia/operativo, spec §11) ─────────
+
+const RESUMEN_COLUMNAS: ColumnaTabla[] = [
+  { header: "Indicador", key: "indicador", width: 26 },
+  { header: "Valor", key: "valor", width: 20, align: "right" },
+  { header: "Detalle", key: "detalle", width: 40 },
+];
+
+const RESUMEN_SEMANAL_COLUMNAS: ColumnaTabla[] = [
+  { header: "Semana", key: "semana", width: 22 },
+  { header: "Inicio semana", key: "inicioSemana", width: 14, align: "center" },
+  { header: "Fin semana", key: "finSemana", width: 14, align: "center" },
+  { header: "Kg total", key: "kgTotal", numFmt: FMT_KG, align: "right", width: 16 },
+  { header: "Media personas/día", key: "mediaPersonasDia", numFmt: "0.0", align: "right", width: 17 },
+  { header: "Días con datos", key: "diasConDatos", numFmt: FMT_INT, align: "right", width: 14 },
+  { header: "Kg/día", key: "kgDia", numFmt: FMT_KG, align: "right", width: 14 },
+  ...DAYS.map((dia): ColumnaTabla => ({ header: dia, key: dia, numFmt: FMT_KG, align: "right", width: 11 })),
+  { header: "Kg/persona semana", key: "kgPersonaSemana", numFmt: FMT_KG, align: "right", width: 18 },
+];
+
+const COMPARATIVA_COLUMNAS: ColumnaTabla[] = [
+  { header: "Semana", key: "semana", width: 22 },
+  { header: "Kg/persona", key: "kgPersona", numFmt: FMT_KG, align: "right", width: 14 },
+  { header: "Kg/persona semana previa", key: "kgPersonaPrevia", numFmt: FMT_KG, align: "right", width: 20 },
+  { header: "Diferencia", key: "diferencia", numFmt: FMT_KG, align: "right", width: 14 },
+  { header: "Diferencia %", key: "diferenciaPct", numFmt: FMT_PCT, align: "right", width: 14 },
+  { header: "Kg total", key: "kgTotal", numFmt: FMT_KG, align: "right", width: 16 },
+  { header: "Dif kg total", key: "difKgTotal", numFmt: FMT_KG, align: "right", width: 16 },
+  { header: "Personas/día", key: "personasDia", numFmt: "0.0", align: "right", width: 12 },
+  { header: "Días con datos", key: "diasConDatos", numFmt: FMT_INT, align: "right", width: 14 },
+];
+
+const DETALLE_DIARIO_COLUMNAS: ColumnaTabla[] = [
+  { header: "Semana", key: "semana", width: 22 },
+  { header: "Inicio semana", key: "inicioSemana", width: 14, align: "center" },
+  { header: "Día", key: "dia", width: 10, align: "center" },
+  { header: "Fecha", key: "fecha", width: 13, align: "center" },
+  { header: "Kg producidos", key: "kgProducidos", numFmt: FMT_KG, align: "right", width: 16 },
+  { header: "Personas", key: "personas", numFmt: FMT_INT, align: "right", width: 12 },
+  { header: "Kg/persona", key: "kgPersona", numFmt: FMT_KG, align: "right", width: 14 },
+];
+
+export async function exportEficienciaToExcel(data: SemanaData[], _optimo: string) {
+  const resumenSemanalRows = data.map((sem) => {
     const stats = weekStats(sem);
     const row: Record<string, ExportCell> = {
-      Semana: `Semana del ${sem.label}`,
-      "Inicio semana": sem.weekStart,
-      "Kg total": Math.round(stats.kg),
-      "Media personas/dia": +stats.personasDia.toFixed(1),
-      "Dias con datos": stats.dias,
-      "Kg/dia": Math.round(stats.kgDia),
+      semana: `Semana del ${sem.label}`,
+      inicioSemana: formatDate(sem.weekStart),
+      finSemana: formatDate(finSemanaDesdeDias(sem)),
+      kgTotal: Math.round(stats.kg),
+      mediaPersonasDia: +stats.personasDia.toFixed(1),
+      diasConDatos: stats.dias,
+      kgDia: Math.round(stats.kgDia),
+      kgPersonaSemana: Math.round(stats.kgPersona),
     };
     for (let i = 0; i < DAY_KEYS.length; i++) {
       const dia = sem.days[DAY_KEYS[i]];
       row[DAYS[i]] = dia ? Math.round(dia.kgPorPersona) : "";
     }
-    row["Kg/persona semana"] = Math.round(stats.kgPersona);
     return row;
   });
 
@@ -75,13 +131,13 @@ export function exportEficienciaToExcel(data: SemanaData[], _optimo: string) {
       const dia = sem.days[key];
       if (!dia) return null;
       return {
-        Semana: `Semana del ${sem.label}`,
-        "Inicio semana": sem.weekStart,
-        Dia: DAYS[i],
-        Fecha: dia.date,
-        "Kg producidos": Math.round(dia.kg),
-        Personas: dia.workers,
-        "Kg/persona": Math.round(dia.kgPorPersona),
+        semana: `Semana del ${sem.label}`,
+        inicioSemana: formatDate(sem.weekStart),
+        dia: DAYS[i],
+        fecha: formatDate(dia.date),
+        kgProducidos: Math.round(dia.kg),
+        personas: dia.workers,
+        kgPersona: Math.round(dia.kgPorPersona),
       };
     }).filter(Boolean) as Record<string, ExportCell>[]
   );
@@ -93,47 +149,67 @@ export function exportEficienciaToExcel(data: SemanaData[], _optimo: string) {
   const mediaKgDia = allDias.length > 0 ? totalKg / allDias.length : 0;
   const kgPersonaGlobal = kgPersonaDesdeMedias(mediaKgDia, mediaPersonasDia);
   const bestDay = allDias.reduce<DiaData | null>((best, d) => (!best || d.kgPorPersona > best.kgPorPersona ? d : best), null);
-  const reportMeta: ReportMeta = {
-    title: "Informe semanal operativo",
-    subtitle: "Produccion y asistencia",
-    periodLabel: `${data.length} semana(s) · ${allDias.length} dia(s) con datos`,
-  };
-  const coverKpis: ReportKpi[] = [
-    { label: "Kg producidos", value: Math.round(totalKg).toLocaleString("es-ES"), sub: "total periodo", tone: "info" },
-    { label: "Media personas/dia", value: mediaPersonasDia.toLocaleString("es-ES", { maximumFractionDigits: 1, minimumFractionDigits: 1 }), sub: "asistencia media", tone: "neutral" },
-    { label: "Kg/persona", value: Math.round(kgPersonaGlobal).toLocaleString("es-ES"), sub: "media global", tone: "success" },
-    { label: "Mejor dia", value: bestDay ? Math.round(bestDay.kgPorPersona).toLocaleString("es-ES") : "-", sub: bestDay?.date ?? "", tone: "success" },
+  const periodLabel = `${data.length} semana(s) · ${allDias.length} dia(s) con datos`;
+
+  const resumenRows: Record<string, ExportCell>[] = [
+    {
+      indicador: "Kg producidos",
+      valor: `${Math.round(totalKg).toLocaleString("es-ES")} kg`,
+      detalle: periodLabel,
+    },
+    {
+      indicador: "Media personas/día",
+      valor: mediaPersonasDia.toLocaleString("es-ES", { maximumFractionDigits: 1, minimumFractionDigits: 1 }),
+      detalle: "Asistencia media diaria del periodo",
+    },
+    {
+      indicador: "Kg/persona global",
+      valor: `${Math.round(kgPersonaGlobal).toLocaleString("es-ES")} kg`,
+      detalle: "Media global del periodo",
+    },
+    {
+      indicador: "Mejor día",
+      valor: bestDay ? `${Math.round(bestDay.kgPorPersona).toLocaleString("es-ES")} kg` : "Sin datos suficientes",
+      detalle: bestDay?.date ?? "",
+    },
   ];
-  const comparativaRows = data.map((sem, index) => {
+
+  const ctx = crearLibroLasarte({
+    titulo: "Informe semanal operativo",
+    periodo: periodLabel,
+    clasificacion: "RRHH",
+  });
+
+  añadirHojaTabla(ctx, {
+    nombreHoja: "Resumen",
+    columnas: RESUMEN_COLUMNAS,
+    filas: resumenRows,
+    freeze: false,
+    autofilter: false,
+  });
+  añadirHojaTabla(ctx, { nombreHoja: "Resumen semanal", columnas: RESUMEN_SEMANAL_COLUMNAS, filas: resumenSemanalRows });
+  añadirHojaTabla(ctx, { nombreHoja: "Comparativa", columnas: COMPARATIVA_COLUMNAS, filas: comparativaRowsOf(data) });
+  añadirHojaTabla(ctx, { nombreHoja: "Detalle diario", columnas: DETALLE_DIARIO_COLUMNAS, filas: detalleRows });
+
+  await descargarLibro(ctx, buildLasarteFilename("Eficiencia", "xlsx", eficienciaDateRange(data)));
+}
+
+function comparativaRowsOf(data: SemanaData[]): Record<string, ExportCell>[] {
+  return data.map((sem, index) => {
     const current = weekStats(sem);
     const prev = index > 0 ? weekStats(data[index - 1]) : null;
     return {
-      Semana: `Semana del ${sem.label}`,
-      "Kg/persona": Math.round(current.kgPersona),
-      "Kg/persona semana previa": prev ? Math.round(prev.kgPersona) : "",
-      "Dif kg/persona": prev ? Math.round(current.kgPersona - prev.kgPersona) : "",
-      "Dif kg/persona %": prev && prev.kgPersona > 0 ? +(((current.kgPersona - prev.kgPersona) / prev.kgPersona) * 100).toFixed(2) : "",
-      "Kg total": Math.round(current.kg),
-      "Dif kg total": prev ? Math.round(current.kg - prev.kg) : "",
-      "Personas/dia": +current.personasDia.toFixed(1),
-      "Dias con datos": current.dias,
+      semana: `Semana del ${sem.label}`,
+      kgPersona: Math.round(current.kgPersona),
+      kgPersonaPrevia: prev ? Math.round(prev.kgPersona) : "",
+      diferencia: prev ? Math.round(current.kgPersona - prev.kgPersona) : "",
+      diferenciaPct: prev && prev.kgPersona > 0 ? +(((current.kgPersona - prev.kgPersona) / prev.kgPersona) * 100).toFixed(2) : "",
+      kgTotal: Math.round(current.kg),
+      difKgTotal: prev ? Math.round(current.kg - prev.kg) : "",
+      personasDia: +current.personasDia.toFixed(1),
+      diasConDatos: current.dias,
     };
   });
-
-  const wb = createWorkbook("Lasarte SAT - Comparativa semanal", "Rendimiento de produccion por asistencia");
-  appendReportCoverSheet(wb, reportMeta, coverKpis);
-
-  appendRowsSheet(wb, "Resumen semanal", resumenRows, [22, 14, 14, 20, 14, 14, ...DAYS.map(() => 10), 18], { freezeHeader: true });
-  appendRowsSheet(wb, "Comparativa", comparativaRows, [22, 14, 24, 16, 16, 14, 14, 14, 14], { freezeHeader: true });
-  appendRowsSheet(wb, "Detalle diario", detalleRows, [22, 14, 10, 12, 14, 12, 14], { freezeHeader: true });
-  appendDictionarySheet(wb, [
-    { Hoja: "Resumen semanal", Campo: "Media personas/dia", Descripcion: "Promedio de asistencias diarias con datos en la semana.", Uso: "Dimensionar la asistencia sin usar acumulados." },
-    { Hoja: "Resumen semanal", Campo: "Kg/persona semana", Descripcion: "Kg medio/dia dividido entre media personas/dia de la semana.", Uso: "KPI principal de rendimiento coherente con la asistencia media." },
-    { Hoja: "Comparativa", Campo: "Dif kg/persona", Descripcion: "Diferencia contra la semana anterior.", Uso: "Detectar mejora o caida semanal." },
-    { Hoja: "Detalle diario", Campo: "Kg/persona", Descripcion: "Kg producidos en el dia entre trabajadores presentes.", Uso: "Analisis por dia de la semana." },
-  ]);
-
-  saveWorkbook(wb, buildLasarteFilename("Eficiencia", "xlsx", eficienciaDateRange(data)));
 }
 
 function eficienciaDateRange(data: SemanaData[]): { from?: string; to?: string } {
@@ -148,7 +224,7 @@ function drawHeader(doc: jsPDF, pageIndex: number) {
 }
 
 function drawFooter(doc: jsPDF) {
-  drawExportFooter(doc);
+  drawExportFooter(doc, { clasificacion: "RRHH" });
 }
 
 export async function exportEficienciaToPDF(data: SemanaData[], _optimo: string) {

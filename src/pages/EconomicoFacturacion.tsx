@@ -4,23 +4,33 @@
 // disponible hoy. Solo las semanas importadas con el formato semanal real traen
 // base_iva por método + ajustes/abonos; las semanas históricas no lo incluían.
 import { useMemo } from "react";
-import { AlertTriangle, Euro, Percent, Scale } from "lucide-react";
+import type { Worksheet } from "exceljs";
+import { AlertTriangle, Download, Euro, Percent, Scale } from "lucide-react";
 import {
   Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { KPICard } from "@/components/KPICard";
+import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthProvider";
 import { useMercadonaVentas, type MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
-import { formatMercadonaWeekRangeLabel } from "@/lib/mercadonaVentas";
+import { formatMercadonaWeekRangeLabel, mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
 import { metodoLabel, METODOS_ORDEN } from "@/components/mercadona/mercadonaAnalisis.helpers";
 import {
   C, GRID, GlassTooltip, MARGIN, XAXIS, YAXIS, barFill, CHART_PANEL_CLASS, CHART_CURSOR,
 } from "@/lib/chartTheme";
-import { formatKg, formatNumber, formatPct } from "@/lib/format";
+import { errorMessage } from "@/lib/errorMessage";
+import { formatDate, formatKg, formatNumber, formatPct } from "@/lib/format";
+import {
+  añadirHojaTabla, crearLibroLasarte, descargarLibro, FMT_EUR, FMT_EUR_KG, FMT_KG, LASARTE_COLORS,
+  type ColumnaTabla,
+} from "@/lib/exportKit";
+import { buildLasarteFilename } from "@/lib/reportKit";
 
 function formatEuro(value: number | null | undefined, digits = 2): string {
   if (value == null || !Number.isFinite(value)) return "—";
@@ -95,7 +105,128 @@ function buildFilasMetodo(semanasConBaseIva: MercadonaSemanaConMetodos[]): FilaM
   });
 }
 
+// ─── Export Excel (marca Lasarte, clasificación Dirección) ──────────────────
+// Una fila por semana + método con base IVA (kg/€/kg/base imponible propios del
+// método), con los ajustes/abonos y el neto de la semana repetidos en cada fila
+// de esa semana (son un dato semanal, no por método): así la hoja queda plana y
+// filtrable sin duplicar el total al sumar columnas — los totales de la fila
+// TOTAL se calculan aparte, no sumando las filas mostradas.
+const FACTURACION_COLUMNAS: ColumnaTabla[] = [
+  { header: "Semana", key: "semana", width: 20 },
+  { header: "Método", key: "metodo", width: 26 },
+  { header: "Kg facturados", key: "kg", tipo: "numero", numFmt: FMT_KG, width: 16 },
+  { header: "€/kg", key: "eurosPorKg", tipo: "numero", numFmt: FMT_EUR_KG, width: 14 },
+  { header: "Base imponible", key: "baseImponible", tipo: "numero", numFmt: FMT_EUR, width: 16 },
+  { header: "Ajustes/abonos", key: "ajustes", tipo: "numero", numFmt: FMT_EUR, width: 16 },
+  { header: "Neto", key: "neto", tipo: "numero", numFmt: FMT_EUR, width: 16 },
+];
+
+// Nota fiscal (spec §17 "Requisitos AEAT de factura"): además del aviso de
+// clasificación "Dirección" que ya imprime añadirHojaTabla, se añade esta línea
+// de pie adicional porque este informe puede usarse como soporte económico.
+const NOTA_FISCAL_FACTURACION =
+  "Uso como soporte fiscal: cruzar siempre con la numeración de factura, la base imponible y el IVA del documento oficial de Mercadona antes de presentarlo ante la AEAT.";
+
+function añadirNotaFiscal(ws: Worksheet, totalCols: number) {
+  const rowIndex = ws.rowCount + 1;
+  const cols = Math.max(totalCols, 1);
+  ws.mergeCells(rowIndex, 1, rowIndex, cols);
+  const cell = ws.getRow(rowIndex).getCell(1);
+  cell.value = NOTA_FISCAL_FACTURACION;
+  cell.font = { name: "Calibri", size: 7.5, italic: true, color: { argb: `FF${LASARTE_COLORS.grisMedio}` } };
+  cell.alignment = { vertical: "middle", horizontal: "left", wrapText: true };
+}
+
+interface TotalesFacturacion {
+  vendidoKgTotal: number;
+  eurosPorKgMedio: number | null;
+  facturacionBruta: number;
+  totalAjustes: number;
+  facturacionNeta: number;
+}
+
+async function exportarFacturacion(
+  semanasConBaseIva: MercadonaSemanaConMetodos[],
+  filasSemana: FilaSemana[],
+  totales: TotalesFacturacion,
+  usuario: string | undefined,
+) {
+  try {
+    const semanasOrdenadas = [...semanasConBaseIva].sort((a, b) => (a.anio - b.anio) || (a.semana - b.semana));
+    const filasPorId = new Map(filasSemana.map((f) => [f.id, f]));
+
+    const filas: Record<string, unknown>[] = [];
+    for (const semana of semanasOrdenadas) {
+      const fila = filasPorId.get(semana.id);
+      const ajustes = semana.ajustes_base_iva ?? 0;
+      const neto = fila?.neto ?? 0;
+      const semanaLabel = `S${semana.semana} · ${semana.anio}`;
+      const metodosConBase = semana.metodos.filter((m) => m.base_iva != null);
+
+      if (metodosConBase.length === 0) {
+        filas.push({ semana: semanaLabel, metodo: "—", kg: 0, eurosPorKg: null, baseImponible: 0, ajustes, neto });
+        continue;
+      }
+
+      for (const m of metodosConBase) {
+        const kg = m.kilos ?? 0;
+        const baseIva = m.base_iva as number;
+        filas.push({
+          semana: semanaLabel,
+          metodo: metodoLabel(m.metodo),
+          kg,
+          eurosPorKg: kg > 0 ? baseIva / kg : null,
+          baseImponible: baseIva,
+          ajustes,
+          neto,
+        });
+      }
+    }
+
+    let desde: string | undefined;
+    let hasta: string | undefined;
+    for (const semana of semanasOrdenadas) {
+      const rango = mercadonaWeekDateRange(semana.anio, semana.semana);
+      if (!desde || rango.desde < desde) desde = rango.desde;
+      if (!hasta || rango.hasta > hasta) hasta = rango.hasta;
+    }
+
+    const ctx = crearLibroLasarte({
+      titulo: "Facturación Mercadona",
+      periodo: desde && hasta ? `${formatDate(desde)} - ${formatDate(hasta)}` : undefined,
+      usuario,
+      filtros: `${semanasOrdenadas.length} semana(s) con base IVA`,
+      clasificacion: "Dirección",
+    });
+
+    const ws = añadirHojaTabla(ctx, {
+      nombreHoja: "Facturación Mercadona",
+      columnas: FACTURACION_COLUMNAS,
+      filas,
+      totales: {
+        semana: "TOTAL",
+        metodo: "",
+        kg: totales.vendidoKgTotal,
+        eurosPorKg: totales.eurosPorKgMedio,
+        baseImponible: totales.facturacionBruta,
+        ajustes: totales.totalAjustes,
+        neto: totales.facturacionNeta,
+      },
+    });
+    añadirNotaFiscal(ws, FACTURACION_COLUMNAS.length);
+
+    await descargarLibro(
+      ctx,
+      buildLasarteFilename("Facturacion_Mercadona", "xlsx", desde && hasta ? { from: desde, to: hasta } : undefined),
+    );
+    toast({ title: "Facturación exportada" });
+  } catch (err) {
+    toast({ title: "Error al exportar la facturación", description: errorMessage(err), variant: "destructive" });
+  }
+}
+
 export default function EconomicoFacturacion() {
+  const { user } = useAuth();
   const { semanas, isLoading, tablesMissing } = useMercadonaVentas();
 
   const semanasConBaseIva = useMemo(() => semanas.filter(tieneBaseIva), [semanas]);
@@ -151,6 +282,19 @@ export default function EconomicoFacturacion() {
             Facturación de Mercadona por semana y por método — la única fuente de € de venta hoy.
           </p>
         </div>
+        <Button
+          variant="outline"
+          className="glass glass-hover gap-1.5"
+          disabled={filasSemana.length === 0}
+          onClick={() => exportarFacturacion(
+            semanasConBaseIva,
+            filasSemana,
+            { vendidoKgTotal, eurosPorKgMedio, facturacionBruta, totalAjustes, facturacionNeta },
+            user?.email ?? undefined,
+          )}
+        >
+          <Download className="h-4 w-4" /> Descargar Excel
+        </Button>
       </header>
 
       {isLoading ? (

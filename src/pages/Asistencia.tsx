@@ -29,6 +29,15 @@ import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import * as XLSX from "xlsx";
 import { appendRowsSheet, createWorkbook, saveWorkbook } from "@/lib/exportWorkbook";
+import {
+  añadirHojaTabla,
+  crearLibroLasarte,
+  descargarLibro,
+  FMT_INT,
+  FMT_KG,
+  FMT_PCT,
+  type ColumnaTabla,
+} from "@/lib/exportKit";
 import type { AsistenciaBajaLaboralRow, TrabajadorRow } from "@/lib/types";
 import {
   buildAttendanceRecords,
@@ -99,10 +108,6 @@ function formatoEntero(value: number) {
   return new Intl.NumberFormat("es-ES").format(Math.round(value));
 }
 
-function formatoPorcentaje(value: number) {
-  return `${new Intl.NumberFormat("es-ES", { maximumFractionDigits: 1 }).format(value)}%`;
-}
-
 function kgProductoInforme(item: ProductoConfeccionDia) {
   return Number(item.kg ?? item.kg_neto) || 0;
 }
@@ -133,6 +138,83 @@ function appendJsonSheet(workbook: XLSX.WorkBook, sheetName: string, rows: Recor
   const safeRows = rows.length > 0 ? rows : [{ Sin_datos: "" }];
   return appendRowsSheet(workbook, sheetName, safeRows, inferExportColumnWidths(safeRows), { freezeHeader: true });
 }
+
+// ─── Columnas Lasarte (RRHH · Asistencia diaria/semanal, spec §10/§11 de
+// docs/EXPORT_TEMPLATES_SPEC.md) para exportarParteDiarioAsistencia y
+// exportarSemanaExcel. Tabla genérica Campo/Valor para las hojas "Resumen".
+const RESUMEN_ASISTENCIA_COLUMNAS: ColumnaTabla[] = [
+  { header: "Campo", key: "Campo", width: 28 },
+  { header: "Valor", key: "Valor", width: 20, align: "right" },
+];
+
+const RENDIMIENTO_ZONAS_DIA_COLUMNAS: ColumnaTabla[] = [
+  { header: "Zona", key: "Zona", width: 20 },
+  { header: "Kg", key: "Kg", numFmt: FMT_KG, align: "right", width: 16 },
+  { header: "Porcentaje kg", key: "Porcentaje kg", numFmt: FMT_PCT, align: "right", width: 14 },
+  { header: "Personas presentes", key: "Personas presentes", numFmt: FMT_INT, align: "right", width: 16 },
+  { header: "Personas plantilla", key: "Personas plantilla", numFmt: FMT_INT, align: "right", width: 16 },
+  { header: "Kg/persona", key: "Kg/persona", numFmt: FMT_KG, align: "right", width: 14 },
+];
+
+const FALTAS_DIA_COLUMNAS: ColumnaTabla[] = [
+  { header: "Tipo", key: "Tipo", width: 14 },
+  { header: "Trabajador", key: "Nombre", width: 26 },
+  { header: "Puesto/Zona", key: "Zona", width: 18 },
+];
+
+// Spec §10: Fecha, Trabajador, Puesto/Zona, Estado asistencia, Motivo ausencia
+// (DNI y hora entrada/salida no se incluyen: el modelo de datos de esta vista
+// no los recoge; ver src/lib/types.ts TrabajadorRow).
+const TRABAJADORES_DIA_COLUMNAS: ColumnaTabla[] = [
+  { header: "Fecha", key: "Fecha", width: 13, align: "center" },
+  { header: "Trabajador", key: "Nombre", width: 26 },
+  { header: "Puesto/Zona", key: "Zona", width: 18 },
+  { header: "Estado asistencia", key: "Estado", width: 18 },
+  { header: "Motivo ausencia", key: "Motivo ausencia", width: 22 },
+  { header: "Coste", key: "Coste", width: 16 },
+  { header: "Cálculo", key: "Calculo", width: 26 },
+  { header: "Kg/persona general", key: "Kg/persona general", numFmt: FMT_KG, align: "right", width: 18 },
+];
+
+const PRODUCTOS_CLASIFICADOS_DIA_COLUMNAS: ColumnaTabla[] = [
+  { header: "Producto", key: "Producto", width: 28 },
+  { header: "Empaque", key: "Empaque", width: 16 },
+  { header: "Zona", key: "Zona", width: 16 },
+  { header: "Computa kg zona", key: "Computa kg zona", width: 16, align: "center" },
+  { header: "Kg", key: "Kg", numFmt: FMT_KG, align: "right", width: 14 },
+];
+
+const RENDIMIENTO_ZONAS_SEMANA_COLUMNAS: ColumnaTabla[] = [
+  { header: "Zona", key: "Zona", width: 20 },
+  { header: "Kg totales", key: "Kg totales", numFmt: FMT_KG, align: "right", width: 16 },
+  { header: "Personas-día", key: "Personas-dia", numFmt: FMT_INT, align: "right", width: 14 },
+  { header: "Media pers/día", key: "Media pers/dia", numFmt: "0.0", align: "right", width: 14 },
+  { header: "Kg/persona", key: "Kg/persona", numFmt: FMT_KG, align: "right", width: 14 },
+  { header: "%", key: "%", numFmt: FMT_PCT, align: "right", width: 10 },
+];
+
+const KG_SECCION_SEMANA_COLUMNAS: ColumnaTabla[] = [
+  { header: "Sección", key: "Seccion", width: 20 },
+  { header: "Kg", key: "Kg", numFmt: FMT_KG, align: "right", width: 14 },
+  { header: "Computa", key: "Computa", width: 12, align: "center" },
+];
+
+const FALTAS_SEMANA_COLUMNAS: ColumnaTabla[] = [
+  { header: "Trabajador", key: "Trabajador", width: 26 },
+  { header: "Puesto/Zona", key: "Zona", width: 18 },
+  { header: "Faltas", key: "Faltas", numFmt: FMT_INT, align: "right", width: 10 },
+  { header: "Bajas laborales", key: "Bajas laborales", width: 14, align: "center" },
+  { header: "Días de baja", key: "Días de baja", numFmt: FMT_INT, align: "right", width: 12 },
+  { header: "Presentes", key: "Presentes", numFmt: FMT_INT, align: "right", width: 10 },
+];
+
+const PRODUCTOS_CLASIFICADOS_SEMANA_COLUMNAS: ColumnaTabla[] = [
+  { header: "Producto", key: "Producto", width: 28 },
+  { header: "Empaque", key: "Empaque", width: 16 },
+  { header: "Kg", key: "Kg", numFmt: FMT_KG, align: "right", width: 14 },
+  { header: "Zona", key: "Zona", width: 16 },
+  { header: "Computa", key: "Computa", width: 12, align: "center" },
+];
 
 function inicialesTrabajador(nombre: string) {
   const partes = nombre.trim().split(/\s+/).filter(Boolean);
@@ -587,7 +669,7 @@ export default function Asistencia() {
   function exportarListaTrabajadores() {
     setExportingAsistencia("lista");
     try {
-      const workbook = createWorkbook("Lasarte SAT - Lista de trabajadores", "Plantilla operativa de trabajadores");
+      const workbook = createWorkbook("Lasarte Cítricos S.L. - Lista de trabajadores", "Plantilla operativa de trabajadores");
       const rows = [...trabajadores]
         .sort((a, b) => (a.zona ?? "").localeCompare(b.zona ?? "", "es") || a.nombre.localeCompare(b.nombre, "es"))
         .map((trabajador) => ({
@@ -617,57 +699,96 @@ export default function Asistencia() {
     }
   }
 
-  function exportarParteDiarioAsistencia() {
+  async function exportarParteDiarioAsistencia() {
     setExportingAsistencia("parte");
     try {
-      const workbook = createWorkbook("Lasarte SAT - Parte diario asistencia", "Informe de ausencias y rendimiento");
-      appendJsonSheet(workbook, "Resumen", [
-        { Campo: "Fecha", Valor: selectedDate },
-        { Campo: "Trabajadores activos", Valor: totalActivos },
-        { Campo: "Presentes", Valor: presentesCount },
-        { Campo: "Ausentes", Valor: ausentesSinBajaTrabajadores.length },
-        { Campo: "Baja laboral", Valor: bajaLaboralTrabajadores.length },
-        { Campo: "Sin marcar", Valor: sinRegistro },
-        { Campo: "Presentes kg/persona", Valor: presentesComputables },
-        { Campo: "Kg produccion", Valor: Math.round(kgProduccionDia) },
-        { Campo: "Kg/persona general", Valor: Math.round(kgPersonaLista) },
-      ]);
-      appendJsonSheet(workbook, "Rendimiento zonas", kgPorConfeccion.map((zona) => ({
-        ...buildRendimientoZonaExportRow(zona, formatoPorcentaje(zona.porcentajeKg)),
-      })));
-      appendJsonSheet(workbook, "Faltas", [
-        ...ausentesSinBajaTrabajadores.map((trabajador) => ({
-          Tipo: "Ausente",
-          Nombre: trabajador.nombre,
-          Zona: normalizeAsistenciaExportZona(trabajador.zona),
+      const ctx = crearLibroLasarte({
+        titulo: "Parte diario de asistencia",
+        periodo: selectedDate,
+        clasificacion: "RRHH",
+      });
+
+      añadirHojaTabla(ctx, {
+        nombreHoja: "Resumen",
+        columnas: RESUMEN_ASISTENCIA_COLUMNAS,
+        filas: [
+          { Campo: "Fecha", Valor: selectedDate },
+          { Campo: "Trabajadores activos", Valor: totalActivos },
+          { Campo: "Presentes", Valor: presentesCount },
+          { Campo: "Ausentes", Valor: ausentesSinBajaTrabajadores.length },
+          { Campo: "Baja laboral", Valor: bajaLaboralTrabajadores.length },
+          { Campo: "Sin marcar", Valor: sinRegistro },
+          { Campo: "Presentes kg/persona", Valor: presentesComputables },
+          { Campo: "Kg produccion", Valor: Math.round(kgProduccionDia) },
+          { Campo: "Kg/persona general", Valor: Math.round(kgPersonaLista) },
+        ],
+        freeze: false,
+        autofilter: false,
+      });
+
+      añadirHojaTabla(ctx, {
+        nombreHoja: "Rendimiento zonas",
+        columnas: RENDIMIENTO_ZONAS_DIA_COLUMNAS,
+        filas: kgPorConfeccion.map((zona) => ({
+          ...buildRendimientoZonaExportRow(zona, ""),
+          "Porcentaje kg": zona.porcentajeKg,
         })),
-        ...bajaLaboralTrabajadores.map((trabajador) => ({
-          Tipo: "Baja laboral",
-          Nombre: trabajador.nombre,
-          Zona: normalizeAsistenciaExportZona(trabajador.zona),
-        })),
-        ...sinRegistroTrabajadores.map((trabajador) => ({
-          Tipo: "Sin marcar",
-          Nombre: trabajador.nombre,
-          Zona: normalizeAsistenciaExportZona(trabajador.zona),
-        })),
-      ]);
-      appendJsonSheet(workbook, "Trabajadores dia", activos
-        .slice()
-        .sort((a, b) => (a.zona ?? "").localeCompare(b.zona ?? "", "es") || a.nombre.localeCompare(b.nombre, "es"))
-        .map((trabajador) => {
-          const metric = listaKgPersonaById.get(trabajador.id);
-          return buildTrabajadorDiaExportRow({
-            nombre: trabajador.nombre,
-            zona: trabajador.zona,
-            estado: estadoTrabajadorExport(trabajador),
-            coste: metric?.coste ?? "",
-            calculo: metric?.calculo ?? "",
-            kgRef: metric?.kgRef,
-          });
-        }));
-      appendJsonSheet(workbook, "Productos clasificados", productosInformeClasificados.map(buildProductoClasificadoExportRow));
-      saveWorkbook(workbook, `parte_asistencia_${selectedDate}.xlsx`);
+      });
+
+      añadirHojaTabla(ctx, {
+        nombreHoja: "Faltas",
+        columnas: FALTAS_DIA_COLUMNAS,
+        filas: [
+          ...ausentesSinBajaTrabajadores.map((trabajador) => ({
+            Tipo: "Ausente",
+            Nombre: trabajador.nombre,
+            Zona: normalizeAsistenciaExportZona(trabajador.zona),
+          })),
+          ...bajaLaboralTrabajadores.map((trabajador) => ({
+            Tipo: "Baja laboral",
+            Nombre: trabajador.nombre,
+            Zona: normalizeAsistenciaExportZona(trabajador.zona),
+          })),
+          ...sinRegistroTrabajadores.map((trabajador) => ({
+            Tipo: "Sin marcar",
+            Nombre: trabajador.nombre,
+            Zona: normalizeAsistenciaExportZona(trabajador.zona),
+          })),
+        ],
+      });
+
+      añadirHojaTabla(ctx, {
+        nombreHoja: "Trabajadores dia",
+        columnas: TRABAJADORES_DIA_COLUMNAS,
+        filas: activos
+          .slice()
+          .sort((a, b) => (a.zona ?? "").localeCompare(b.zona ?? "", "es") || a.nombre.localeCompare(b.nombre, "es"))
+          .map((trabajador) => {
+            const metric = listaKgPersonaById.get(trabajador.id);
+            const estado = estadoTrabajadorExport(trabajador);
+            const base = buildTrabajadorDiaExportRow({
+              nombre: trabajador.nombre,
+              zona: trabajador.zona,
+              estado,
+              coste: metric?.coste ?? "",
+              calculo: metric?.calculo ?? "",
+              kgRef: metric?.kgRef,
+            });
+            return {
+              Fecha: selectedDate,
+              ...base,
+              "Motivo ausencia": estado === "Ausente" ? asistenciaMotivos[trabajador.id] ?? "" : "",
+            };
+          }),
+      });
+
+      añadirHojaTabla(ctx, {
+        nombreHoja: "Productos clasificados",
+        columnas: PRODUCTOS_CLASIFICADOS_DIA_COLUMNAS,
+        filas: productosInformeClasificados.map(buildProductoClasificadoExportRow),
+      });
+
+      await descargarLibro(ctx, `parte_asistencia_${selectedDate}.xlsx`);
       toast({ title: "Parte diario descargado", description: selectedDate });
     } catch (err) {
       toast({ title: "Error al exportar parte diario", description: errorMessage(err), variant: "destructive" });
@@ -726,7 +847,7 @@ export default function Asistencia() {
     setLoadingSemana(false);
   }
 
-  function exportarSemanaExcel() {
+  async function exportarSemanaExcel() {
     if (!semanaData) {
       toast({ title: "Sin datos", description: "No hay datos semanales para exportar.", variant: "destructive" });
       return;
@@ -740,47 +861,79 @@ export default function Asistencia() {
       const productos = productosClasificadosSemanales(semanaData, incluirSabado);
       const weekLabel = getWeekLabel(semanaData.days);
 
-      const workbook = createWorkbook(`Lasarte SAT - Informe semanal ${weekLabel}`, "Resumen semanal de asistencia y rendimiento");
-      appendJsonSheet(workbook, "Resumen", [
-        { Campo: "Semana", Valor: weekLabel },
-        { Campo: "Dias laborables", Valor: incluirSabado ? "Lun a Sab" : "Lun a Vie" },
-        { Campo: "Dias con datos", Valor: kgP.diasConDatos },
-        { Campo: "Kg totales", Valor: Math.round(kgP.totalKg) },
-        { Campo: "Media personas/dia total", Valor: +kgP.mediaPersonasTotales.toFixed(1) },
-        { Campo: "Media personas/dia computables", Valor: +kgP.mediaPersonasComputables.toFixed(1) },
-        { Campo: "Kg/persona semanal", Valor: Math.round(kgP.kgPersona) },
-        { Campo: "Total ausencias", Valor: faltas.reduce((s: number, r: { totalFaltas: number }) => s + r.totalFaltas, 0) },
-        { Campo: "Bajas laborales distintas", Valor: faltas.filter((r: { totalBajas: number }) => r.totalBajas > 0).length },
-      ]);
-      appendJsonSheet(workbook, "Rendimiento zonas", grupos.map((g: { label: string; totalKg: number; totalPersonasDia: number; mediaPersonasDia: number; kgPersona: number; porcentajeKg: number }) => ({
-        Zona: normalizeAsistenciaExportZona(g.label),
-        "Kg totales": Math.round(g.totalKg),
-        "Personas-dia": g.totalPersonasDia,
-        "Media pers/dia": +g.mediaPersonasDia.toFixed(1),
-        "Kg/persona": Math.round(g.kgPersona),
-        "%": +g.porcentajeKg.toFixed(1),
-      })));
-      appendJsonSheet(workbook, "Kg por seccion", secciones.map((s: { zona: string; kg: number; computa: boolean }) => ({
-        Seccion: s.zona,
-        Kg: Math.round(s.kg),
-        Computa: s.computa ? "Si" : "No",
-      })));
-      appendJsonSheet(workbook, "Faltas semanales", faltas.map((r: { nombre: string; zona: string | null; totalFaltas: number; totalBajas: number; totalPresentes: number; totalSinRegistrar: number }) => ({
-        Trabajador: r.nombre,
-        Zona: normalizeAsistenciaExportZona(r.zona),
-        Faltas: r.totalFaltas,
-        "Bajas laborales": r.totalBajas > 0 ? "Sí" : "No",
-        "Días de baja": r.totalBajas,
-        Presentes: r.totalPresentes,
-      })));
-      appendJsonSheet(workbook, "Productos clasificados", productos.map((p: { producto: string; empaque: string; kg: number; zona: string; computa: boolean }) => ({
-        Producto: p.producto,
-        Empaque: p.empaque,
-        Kg: Math.round(p.kg),
-        Zona: p.zona,
-        Computa: p.computa ? "Si" : "No",
-      })));
-      saveWorkbook(workbook, `informe_semanal_${weekStart}.xlsx`);
+      const ctx = crearLibroLasarte({
+        titulo: `Informe semanal ${weekLabel}`,
+        periodo: weekLabel,
+        clasificacion: "RRHH",
+      });
+
+      añadirHojaTabla(ctx, {
+        nombreHoja: "Resumen",
+        columnas: RESUMEN_ASISTENCIA_COLUMNAS,
+        filas: [
+          { Campo: "Semana", Valor: weekLabel },
+          { Campo: "Dias laborables", Valor: incluirSabado ? "Lun a Sab" : "Lun a Vie" },
+          { Campo: "Dias con datos", Valor: kgP.diasConDatos },
+          { Campo: "Kg totales", Valor: Math.round(kgP.totalKg) },
+          { Campo: "Media personas/dia total", Valor: +kgP.mediaPersonasTotales.toFixed(1) },
+          { Campo: "Media personas/dia computables", Valor: +kgP.mediaPersonasComputables.toFixed(1) },
+          { Campo: "Kg/persona semanal", Valor: Math.round(kgP.kgPersona) },
+          { Campo: "Total ausencias", Valor: faltas.reduce((s: number, r: { totalFaltas: number }) => s + r.totalFaltas, 0) },
+          { Campo: "Bajas laborales distintas", Valor: faltas.filter((r: { totalBajas: number }) => r.totalBajas > 0).length },
+        ],
+        freeze: false,
+        autofilter: false,
+      });
+
+      añadirHojaTabla(ctx, {
+        nombreHoja: "Rendimiento zonas",
+        columnas: RENDIMIENTO_ZONAS_SEMANA_COLUMNAS,
+        filas: grupos.map((g: { label: string; totalKg: number; totalPersonasDia: number; mediaPersonasDia: number; kgPersona: number; porcentajeKg: number }) => ({
+          Zona: normalizeAsistenciaExportZona(g.label),
+          "Kg totales": Math.round(g.totalKg),
+          "Personas-dia": g.totalPersonasDia,
+          "Media pers/dia": +g.mediaPersonasDia.toFixed(1),
+          "Kg/persona": Math.round(g.kgPersona),
+          "%": g.porcentajeKg,
+        })),
+      });
+
+      añadirHojaTabla(ctx, {
+        nombreHoja: "Kg por seccion",
+        columnas: KG_SECCION_SEMANA_COLUMNAS,
+        filas: secciones.map((s: { zona: string; kg: number; computa: boolean }) => ({
+          Seccion: s.zona,
+          Kg: Math.round(s.kg),
+          Computa: s.computa ? "Si" : "No",
+        })),
+      });
+
+      añadirHojaTabla(ctx, {
+        nombreHoja: "Faltas semanales",
+        columnas: FALTAS_SEMANA_COLUMNAS,
+        filas: faltas.map((r: { nombre: string; zona: string | null; totalFaltas: number; totalBajas: number; totalPresentes: number; totalSinRegistrar: number }) => ({
+          Trabajador: r.nombre,
+          Zona: normalizeAsistenciaExportZona(r.zona),
+          Faltas: r.totalFaltas,
+          "Bajas laborales": r.totalBajas > 0 ? "Sí" : "No",
+          "Días de baja": r.totalBajas,
+          Presentes: r.totalPresentes,
+        })),
+      });
+
+      añadirHojaTabla(ctx, {
+        nombreHoja: "Productos clasificados",
+        columnas: PRODUCTOS_CLASIFICADOS_SEMANA_COLUMNAS,
+        filas: productos.map((p: { producto: string; empaque: string; kg: number; zona: string; computa: boolean }) => ({
+          Producto: p.producto,
+          Empaque: p.empaque,
+          Kg: Math.round(p.kg),
+          Zona: p.zona,
+          Computa: p.computa ? "Si" : "No",
+        })),
+      });
+
+      await descargarLibro(ctx, `informe_semanal_${weekStart}.xlsx`);
       toast({ title: "Informe semanal descargado", description: weekLabel });
     } catch (err) {
       toast({ title: "Error al exportar", description: errorMessage(err), variant: "destructive" });
@@ -1618,13 +1771,13 @@ export default function Asistencia() {
               </DropdownMenuItem>
               {viewMode === "daily" ? (
                 <>
-                  <DropdownMenuItem disabled={exportingAsistencia !== null} onSelect={exportarParteDiarioAsistencia}>
+                  <DropdownMenuItem disabled={exportingAsistencia !== null} onSelect={() => void exportarParteDiarioAsistencia()}>
                     <FileText className="mr-2 h-4 w-4" />
                     Parte diario Excel
                   </DropdownMenuItem>
                 </>
               ) : (
-                <DropdownMenuItem disabled={exportingAsistencia !== null || !semanaData} onSelect={exportarSemanaExcel}>
+                <DropdownMenuItem disabled={exportingAsistencia !== null || !semanaData} onSelect={() => void exportarSemanaExcel()}>
                   <FileText className="mr-2 h-4 w-4" />
                   Informe semanal Excel
                 </DropdownMenuItem>
