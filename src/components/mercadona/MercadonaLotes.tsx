@@ -153,59 +153,115 @@ function ResumenCompacto({ mercadona }: { mercadona: ReturnType<typeof useMercad
 
 // ─── 1. Ranking histórico de productores ─────────────────────────────────────
 
+/** Presets de umbral de kg mínimos para no dejar que productores de poco volumen distorsionen el ranking. */
+const KG_THRESHOLD_PRESETS: Array<{ label: string; value: number }> = [
+  { label: "Todos", value: 0 },
+  { label: "≥ 10.000 kg", value: 10_000 },
+  { label: "≥ 50.000 kg", value: 50_000 },
+];
+
+const DEFAULT_MIN_KG = 10_000;
+
 function RankingHistoricoProductores({
   productores, isLoading,
 }: {
   productores: Array<{ productor: string; kg: number; nLotes: number; pctMdnaEstimado: number }>;
   isLoading: boolean;
 }) {
-  const top = productores.slice(0, 10);
-  const maxPct = Math.max(1, ...top.map((p) => p.pctMdnaEstimado));
+  const [minKg, setMinKg] = useState<number>(DEFAULT_MIN_KG);
+
+  const filtrados = useMemo(
+    () => productores.filter((p) => minKg <= 0 || p.kg >= minKg),
+    [productores, minKg],
+  );
+  const maxPct = Math.max(1, ...filtrados.map((p) => p.pctMdnaEstimado));
 
   return (
     <Card className="glass-accented overflow-hidden">
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Trophy className="h-4 w-4 text-warning" /> Ranking histórico de productores para Mercadona
-          <InfoTooltip>
-            Aprovechamiento estimado por reparto diario: no existe trazabilidad lote → formato exacta, así que a
-            cada lote se le asigna el % de kg MDNA que tuvo su día de producción (kg de productos MDNA / kg
-            totales del día) y se pondera por los kg del lote. Solo aparecen productores con 3 lotes o más.
-          </InfoTooltip>
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">Toda la campaña · % MDNA estimado por reparto diario.</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Trophy className="h-4 w-4 text-warning" /> Aprovechamiento Mercadona por productor
+            <InfoTooltip>
+              Estimación por reparto diario: no existe trazabilidad lote → formato exacta, así que a cada lote se le
+              asigna el % de kg MDNA que tuvo su día de producción (kg de productos MDNA / kg totales del día,
+              excluye precalibrado) y se pondera por los kg del lote. Usa el umbral de kg mínimos para que los
+              productores de poco volumen no distorsionen la comparación.
+            </InfoTooltip>
+          </CardTitle>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-muted-foreground">Umbral de kg</span>
+            {KG_THRESHOLD_PRESETS.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                onClick={() => setMinKg(preset.value)}
+                className={cn(
+                  "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                  minKg === preset.value
+                    ? "border-primary/40 bg-primary/10 text-primary"
+                    : "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Toda la campaña · % MDNA estimado por reparto diario · ordenado de mayor a menor aprovechamiento ·{" "}
+          {filtrados.length} productor{filtrados.length === 1 ? "" : "es"} mostrado{filtrados.length === 1 ? "" : "s"}
+          {productores.length !== filtrados.length ? ` de ${productores.length}` : ""}
+        </p>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-0">
         {isLoading ? (
           <p className="py-6 text-center text-sm text-muted-foreground">Cargando…</p>
-        ) : top.length === 0 ? (
+        ) : productores.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            Todavía no hay productores con al menos 3 lotes registrados.
+            Todavía no hay productores registrados.
+          </p>
+        ) : filtrados.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            Ningún productor supera el umbral de kg seleccionado. Prueba con un umbral menor.
           </p>
         ) : (
-          <ol className="space-y-2.5">
-            {top.map((p, i) => (
-              <li key={p.productor} className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2.5">
-                <div className="flex items-center justify-between gap-3 text-xs">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-warning/10 text-[10px] font-semibold text-warning">{i + 1}</span>
-                    <span className="truncate font-medium">{p.productor}</span>
-                  </span>
-                  <span className="shrink-0 tabular-nums font-semibold text-primary">{formatPct(p.pctMdnaEstimado)}</span>
-                </div>
-                <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
-                  <div
-                    className="h-full rounded-full bg-primary"
-                    style={{ width: `${Math.min(100, (p.pctMdnaEstimado / maxPct) * 100)}%` }}
-                  />
-                </div>
-                <div className="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span>{formatKg(p.kg)}</span>
-                  <span>{p.nLotes} lote{p.nLotes === 1 ? "" : "s"}</span>
-                </div>
-              </li>
-            ))}
-          </ol>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">#</TableHead>
+                  <TableHead>Productor</TableHead>
+                  <TableHead className="text-right">Kg</TableHead>
+                  <TableHead className="text-right">Nº lotes</TableHead>
+                  <TableHead className="text-right">Aprovechamiento Mercadona %</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtrados.map((p, i) => (
+                  <TableRow key={p.productor}>
+                    <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
+                    <TableCell className="max-w-[240px] truncate text-xs font-medium">{p.productor}</TableCell>
+                    <TableCell className="text-right tabular-nums text-xs">{formatKg(p.kg)}</TableCell>
+                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">{p.nLotes}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                          <div
+                            className="h-full rounded-full bg-primary"
+                            style={{ width: `${Math.min(100, (p.pctMdnaEstimado / maxPct) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="w-14 shrink-0 tabular-nums font-semibold text-primary">
+                          {formatPct(p.pctMdnaEstimado)}
+                        </span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </CardContent>
     </Card>

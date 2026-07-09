@@ -64,13 +64,28 @@ describe("computeProductoresHistorico", () => {
     expect(result[0].pctMdnaEstimado).toBeCloseTo(50, 5);
   });
 
-  it("excluye productores con menos de 3 lotes", () => {
+  it("incluye productores aunque tengan menos de 3 lotes (ya no se corta por nº de lotes)", () => {
     const lotes = [
       { part_id: "p1", productor: "Finca B", lote_codigo: "L1", producto: "Naranja", kg_peso_total: 500, toneladas_hora: 14, duracion_min: 60, peso_fruta_promedio_g: 150 },
       { part_id: "p1", productor: "Finca B", lote_codigo: "L2", producto: "Naranja", kg_peso_total: 500, toneladas_hora: 14, duracion_min: 60, peso_fruta_promedio_g: 150 },
     ];
     const result = computeProductoresHistorico(lotes, pctPorDia, partesById);
-    expect(result).toHaveLength(0);
+    expect(result).toHaveLength(1);
+    expect(result[0].productor).toBe("Finca B");
+    expect(result[0].nLotes).toBe(2);
+  });
+
+  it("aplica el filtro minKg: excluye productores por debajo del umbral de kg", () => {
+    const lotes = [
+      { part_id: "p1", productor: "Finca Grande", lote_codigo: "L1", producto: "Naranja", kg_peso_total: 3000, toneladas_hora: 14, duracion_min: 60, peso_fruta_promedio_g: 150 },
+      { part_id: "p2", productor: "Finca Pequena", lote_codigo: "L2", producto: "Naranja", kg_peso_total: 500, toneladas_hora: 14, duracion_min: 60, peso_fruta_promedio_g: 150 },
+    ];
+    const sinFiltro = computeProductoresHistorico(lotes, pctPorDia, partesById);
+    expect(sinFiltro.map((p) => p.productor).sort()).toEqual(["Finca Grande", "Finca Pequena"]);
+
+    const conFiltro = computeProductoresHistorico(lotes, pctPorDia, partesById, 1000);
+    expect(conFiltro).toHaveLength(1);
+    expect(conFiltro[0].productor).toBe("Finca Grande");
   });
 
   it("ordena de mayor a menor aprovechamiento estimado", () => {

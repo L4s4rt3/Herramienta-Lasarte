@@ -33,7 +33,6 @@ import type { CalidadEstado, CalidadInformeEstado } from "@/lib/calidad";
 import type { CalidadInformeLote } from "@/components/CalidadInformeDialog";
 
 const IN_CHUNK_SIZE = 200;
-const MIN_LOTES_RANKING = 3;
 
 type LoteDiaRow = Pick<
   Tables<"lotes_dia">,
@@ -232,15 +231,20 @@ function useMercadonaLotesSemana(desde: string | null, hasta: string | null) {
 
 /**
  * Agrega lotes por productor y calcula el aprovechamiento MDNA estimado de
- * cada uno: Σ (kg del lote × % MDNA de su día) / Σ kg de sus lotes. Excluye
- * productores con menos de MIN_LOTES_RANKING lotes. Función pura (testable
- * sin red/React Query): recibe ya resueltos los lotes, el % MDNA por día y
- * el mapa part_id → fecha.
+ * cada uno: Σ (kg del lote × % MDNA de su día) / Σ kg de sus lotes. Función
+ * pura (testable sin red/React Query): recibe ya resueltos los lotes, el %
+ * MDNA por día y el mapa part_id → fecha.
+ *
+ * Devuelve TODOS los productores con kg > 0 (sin cortar por nº de lotes),
+ * ordenados de mayor a menor aprovechamiento. `minKg` (opcional, por
+ * defecto 0) permite quedarse solo con productores de un volumen mínimo de
+ * kg, para que los de poco volumen no distorsionen la lectura del ranking.
  */
 export function computeProductoresHistorico(
   lotes: LoteDiaRow[],
   pctPorDia: Map<string, number>,
   partesById: Map<string, string>,
+  minKg = 0,
 ): MercadonaProductorHistorico[] {
   const porProductor = new Map<string, { kg: number; nLotes: number; kgPonderadoMdna: number }>();
   for (const l of lotes) {
@@ -263,13 +267,14 @@ export function computeProductoresHistorico(
       nLotes: v.nLotes,
       pctMdnaEstimado: v.kg > 0 ? (v.kgPonderadoMdna / v.kg) * 100 : 0,
     }))
-    .filter((p) => p.nLotes >= MIN_LOTES_RANKING)
+    .filter((p) => p.kg > 0 && (minKg <= 0 || p.kg >= minKg))
     .sort((a, b) => b.pctMdnaEstimado - a.pctMdnaEstimado);
 }
 
 /**
  * Ranking histórico de productores (toda la campaña, todos los partes) por
- * aprovechamiento MDNA estimado. Mínimo 3 lotes para aparecer en el ranking.
+ * aprovechamiento MDNA estimado. Devuelve todos los productores con kg > 0;
+ * el filtrado por volumen mínimo (minKg) se aplica en la UI.
  */
 function useMercadonaProductoresHistorico() {
   const query = useQuery({
