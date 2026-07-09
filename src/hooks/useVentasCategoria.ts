@@ -259,26 +259,38 @@ export function useVentasCategoria(categoriaNombre: string = "Categoria segunda"
       if (parsed.lineas.length === 0) throw new Error("El Excel no contiene lineas diarias importables.");
       if (parsed.catalogo.length === 0) throw new Error("El Excel no contiene catalogo de productos importable.");
 
-      const { error: deleteLineasError } = await supabase
-        .from("ventas_categoria_lineas")
-        .delete()
-        .eq("categoria_id", categoriaId as string);
-      if (deleteLineasError) throw toError(deleteLineasError);
+      // Importación NO destructiva: se reemplazan SOLO los periodos (campaña +
+      // mes) que trae el Excel, dejando intactos los demás meses ya importados.
+      // El catálogo se upsertea y los ajustes por cliente NUNCA se sobreescriben
+      // (solo se dan de alta clientes nuevos), para no perder comisiones ni
+      // transportes guardados a mano.
+      const periodos = Array.from(
+        new Set(parsed.lineas.map((row) => `${row.campana} ${row.mes}`)),
+      ).map((key) => {
+        const [campana, mes] = key.split(" ");
+        return { campana, mes };
+      });
 
-      const { error: deleteProductosError } = await supabase
-        .from("ventas_categoria_productos")
-        .delete()
-        .eq("categoria_id", categoriaId as string);
-      if (deleteProductosError) throw toError(deleteProductosError);
+      for (const { campana, mes } of periodos) {
+        const { error: deletePeriodoError } = await supabase
+          .from("ventas_categoria_lineas")
+          .delete()
+          .eq("categoria_id", categoriaId as string)
+          .eq("campana", campana)
+          .eq("mes", mes);
+        if (deletePeriodoError) throw toError(deletePeriodoError);
+      }
 
-      await insertInChunks("ventas_categoria_productos", parsed.catalogo.map((row) => ({
+      // Catálogo de productos: upsert por (categoria_id, metodo). Actualiza los
+      // métodos presentes y añade nuevos, sin borrar el resto.
+      await upsertInChunks("ventas_categoria_productos", parsed.catalogo.map((row) => ({
         categoria_id: categoriaId,
         metodo: row.metodo,
         descripcion: row.descripcion,
         lineas: row.lineas,
         kilos: row.kilos,
         base_iva: row.base_iva,
-      })));
+      })), "categoria_id,metodo");
 
       await insertInChunks("ventas_categoria_lineas", parsed.lineas.map((row) => toLineaInsert(categoriaId, row)));
 
@@ -295,7 +307,9 @@ export function useVentasCategoria(categoriaNombre: string = "Categoria segunda"
         },
       ])).values());
 
-      await upsertInChunks("ventas_categoria_clientes_ajustes", clientes, "categoria_id,cliente_codigo");
+      // ignoreDuplicates: alta de clientes nuevos con valores por defecto (0),
+      // pero SIN tocar los ajustes de los clientes que ya existían.
+      await upsertInChunks("ventas_categoria_clientes_ajustes", clientes, "categoria_id,cliente_codigo", true);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: baseKey });
@@ -383,10 +397,15 @@ async function insertInChunks(table: "ventas_categoria_productos" | "ventas_cate
   }
 }
 
-async function upsertInChunks(table: "ventas_categoria_clientes_ajustes", rows: Record<string, unknown>[], onConflict: string) {
+async function upsertInChunks(
+  table: "ventas_categoria_clientes_ajustes" | "ventas_categoria_productos",
+  rows: Record<string, unknown>[],
+  onConflict: string,
+  ignoreDuplicates = false,
+) {
   for (let index = 0; index < rows.length; index += 500) {
     const chunk = rows.slice(index, index + 500);
-    const { error } = await supabase.from(table).upsert(chunk as never[], { onConflict });
+    const { error } = await supabase.from(table).upsert(chunk as never[], { onConflict, ignoreDuplicates });
     if (error) throw toError(error);
   }
 }
