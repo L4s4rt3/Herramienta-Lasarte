@@ -39,6 +39,7 @@ const RrhhComunicaciones = lazy(pageLoaders.rrhhComunicaciones);
 const ComercialDashboard = lazy(pageLoaders.comercialDashboard);
 const DireccionDashboard = lazy(pageLoaders.direccionDashboard);
 const MercadonaProduccion = lazy(pageLoaders.mercadonaProduccion);
+const VentasMensualImport = lazy(pageLoaders.ventasMensualImport);
 const EconomicoPanel = lazy(pageLoaders.economicoPanel);
 const EconomicoFacturacion = lazy(pageLoaders.economicoFacturacion);
 const EconomicoCostes = lazy(pageLoaders.economicoCostes);
@@ -88,6 +89,7 @@ const App = () => (
                       <Route path="/ventas/categoria-primera" element={<VentasCategoriaPrimera />} />
                       <Route path="/direccion" element={<DireccionDashboard />} />
                       <Route path="/comercial" element={<ComercialDashboard />} />
+                      <Route path="/comercial/ventas-mes" element={<VentasMensualImport />} />
                       {/* Producción: Mercadona enfocada a fruta (productores, lotes, calidad, aprovechamiento). */}
                       <Route path="/mercadona" element={<MercadonaProduccion />} />
                       <Route path="/comercial/mercadona" element={<Mercadona />} />

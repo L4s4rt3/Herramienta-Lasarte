@@ -84,6 +84,12 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/",
     parentLabel: "Comercial",
   },
+  "/comercial/ventas-mes": {
+    label: "Ventas del mes",
+    subtitle: "Importa los ficheros del mes y reparte a Categoría primera/segunda",
+    parent: "/comercial",
+    parentLabel: "Comercial",
+  },
   "/comercial/mercadona": {
     label: "Mercadona",
     subtitle: "Aprovechamiento, ventas semanales, facturación y planificación del cliente principal",

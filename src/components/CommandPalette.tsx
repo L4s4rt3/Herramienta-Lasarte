@@ -34,12 +34,13 @@ import { useAuth } from "@/contexts/AuthProvider";
 import { useVentasCategoriaAccess } from "@/hooks/useVentasCategoria";
 
 // Rutas del espacio Comercial: solo visibles para "ventas" y "admin".
-const VENTAS_Y_ADMIN_ONLY = new Set(["/comercial", "/ventas/categoria-primera", "/comercial/mercadona", "/cmr"]);
+const VENTAS_Y_ADMIN_ONLY = new Set(["/comercial", "/comercial/ventas-mes", "/ventas/categoria-primera", "/comercial/mercadona", "/cmr"]);
 
 // Las 5 secciones que puede ver el rol "ventas" (ver RoleRoute.tsx). Para ese
 // rol la paleta solo debe ofrecer estas, ni el resto de la operativa interna.
 const VENTAS_ALLOWED = new Set([
   "/comercial",
+  "/comercial/ventas-mes",
   "/ventas/categoria-segunda",
   "/ventas/categoria-primera",
   "/comercial/mercadona",

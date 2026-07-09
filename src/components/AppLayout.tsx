@@ -23,6 +23,7 @@ import {
   Tags,
   Mail,
   Building2,
+  Upload,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
 
@@ -169,6 +170,7 @@ const navGroups: Array<{ label: string; workspace: WorkspaceId; items: NavItem[]
     items: [
       { to: "/comercial", label: "Panel comercial", icon: LayoutDashboard, match: (path) => path === "/comercial" },
       { to: "/comercial/mercadona", label: "Mercadona", icon: ShoppingCart },
+      { to: "/comercial/ventas-mes", label: "Ventas del mes", icon: Upload },
       { to: "/ventas/categoria-segunda", label: "Categoria segunda", icon: FileSpreadsheet },
       { to: "/ventas/categoria-primera", label: "Categoria primera", icon: FileSpreadsheet },
       { to: "/cmr", label: "CMR y Hojas de ruta", icon: Truck },
