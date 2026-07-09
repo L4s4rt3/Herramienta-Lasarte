@@ -11,7 +11,7 @@ import { CalidadInformeDialog, type CalidadInformeLote } from "@/components/Cali
 import { InfoTooltip } from "@/components/InfoTooltip";
 import { normalizeNombre } from "@/hooks/useProductores";
 import type { CalidadControlProductor, CalidadPorProductor } from "@/hooks/useCalidadProductores";
-import { CALIDAD_OPTIONS, type CalidadEstado } from "@/lib/calidad";
+import { CALIDAD_OPTIONS, isoWeekKey, type CalidadEstado } from "@/lib/calidad";
 import { formatDate, formatPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -26,10 +26,41 @@ const CALIDAD_BADGE_CLASS: Record<string, string> = {
 const badgeClass = (calidad: string) =>
   CALIDAD_BADGE_CLASS[calidad] ?? "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground";
 
-interface DiaResumen {
-  fecha: string;
-  pctMdna: number | null;
+type Granularidad = "dia" | "semana" | "mes";
+
+const GRANULARIDAD_OPTIONS: Array<{ value: Granularidad; label: string }> = [
+  { value: "dia", label: "Día" },
+  { value: "semana", label: "Semana" },
+  { value: "mes", label: "Mes" },
+];
+
+const MONTH_LABELS = [
+  "enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+];
+
+interface GrupoResumen {
+  key: string;
+  label: string;
+  detail: string;
+  pctMedio: number | null;
   controles: CalidadControlProductor[];
+  byQuality: Record<CalidadEstado, number>;
+}
+
+/** Clave y etiqueta del grupo temporal de un control según la granularidad. */
+function claveGrupo(fecha: string, gran: Granularidad): { key: string; label: string; detail: string } {
+  if (gran === "dia") {
+    return { key: fecha, label: formatDate(fecha), detail: "" };
+  }
+  if (gran === "semana") {
+    const wk = isoWeekKey(fecha); // "2026-W27"
+    const [anio, sem] = wk.split("-W");
+    return { key: wk, label: `Semana ${Number(sem)}`, detail: anio };
+  }
+  const mes = fecha.slice(0, 7); // "2026-07"
+  const [anio, m] = mes.split("-");
+  return { key: mes, label: `${MONTH_LABELS[Number(m) - 1] ?? m}`, detail: anio };
 }
 
 export function MercadonaProductorCalidadDialog({
@@ -47,39 +78,60 @@ export function MercadonaProductorCalidadDialog({
 }) {
   const [informeSeleccionado, setInformeSeleccionado] = useState<CalidadInformeLote | null>(null);
   const [informeAbierto, setInformeAbierto] = useState(false);
+  const [granularidad, setGranularidad] = useState<Granularidad>("dia");
 
   const controles = useMemo(
     () => (productor ? porProductor.get(normalizeNombre(productor)) ?? [] : []),
     [productor, porProductor],
   );
 
-  // Agrupa por día (desc) y adjunta el % MDNA estimado de ese día.
-  const dias = useMemo<DiaResumen[]>(() => {
-    const porDia = new Map<string, CalidadControlProductor[]>();
+  // Agrupa los controles por la granularidad elegida (día/semana/mes), desc.
+  // El aprovechamiento del grupo es la media del %MDNA de sus días distintos.
+  const grupos = useMemo<GrupoResumen[]>(() => {
+    const map = new Map<string, { label: string; detail: string; controles: CalidadControlProductor[]; fechas: Set<string> }>();
     for (const c of controles) {
-      const list = porDia.get(c.fecha) ?? [];
-      list.push(c);
-      porDia.set(c.fecha, list);
+      const { key, label, detail } = claveGrupo(c.fecha, granularidad);
+      const entry = map.get(key) ?? { label, detail, controles: [], fechas: new Set<string>() };
+      entry.controles.push(c);
+      entry.fechas.add(c.fecha);
+      map.set(key, entry);
     }
-    return Array.from(porDia.entries())
-      .map(([fecha, cs]) => ({
-        fecha,
-        pctMdna: pctPorDia.has(fecha) ? (pctPorDia.get(fecha) ?? null) : null,
-        controles: cs.slice().sort((a, b) => a.numeroLote.localeCompare(b.numeroLote)),
-      }))
-      .sort((a, b) => b.fecha.localeCompare(a.fecha));
-  }, [controles, pctPorDia]);
+    return Array.from(map.entries())
+      .map(([key, e]): GrupoResumen => {
+        const byQuality = Object.fromEntries(CALIDAD_OPTIONS.map((q) => [q, 0])) as Record<CalidadEstado, number>;
+        for (const c of e.controles) {
+          if (c.calidad in byQuality) byQuality[c.calidad as CalidadEstado] += 1;
+        }
+        const pcts = Array.from(e.fechas)
+          .map((f) => (pctPorDia.has(f) ? pctPorDia.get(f) ?? null : null))
+          .filter((v): v is number => v != null);
+        return {
+          key,
+          label: e.label,
+          detail: e.detail,
+          pctMedio: pcts.length > 0 ? pcts.reduce((a, b) => a + b, 0) / pcts.length : null,
+          controles: e.controles.slice().sort((a, b) => b.fecha.localeCompare(a.fecha) || a.numeroLote.localeCompare(b.numeroLote)),
+          byQuality,
+        };
+      })
+      .sort((a, b) => b.key.localeCompare(a.key));
+  }, [controles, granularidad, pctPorDia]);
 
-  // Distribución de calidad + aprovechamiento medio de los días con control.
+  // Resumen global (independiente de la granularidad): distribución de calidad
+  // y aprovechamiento medio de todos los días distintos con control.
   const resumen = useMemo(() => {
     const byQuality = Object.fromEntries(CALIDAD_OPTIONS.map((q) => [q, 0])) as Record<CalidadEstado, number>;
+    const fechas = new Set<string>();
     for (const c of controles) {
       if (c.calidad in byQuality) byQuality[c.calidad as CalidadEstado] += 1;
+      fechas.add(c.fecha);
     }
-    const pcts = dias.map((d) => d.pctMdna).filter((v): v is number => v != null);
+    const pcts = Array.from(fechas)
+      .map((f) => (pctPorDia.has(f) ? pctPorDia.get(f) ?? null : null))
+      .filter((v): v is number => v != null);
     const pctMedio = pcts.length > 0 ? pcts.reduce((a, b) => a + b, 0) / pcts.length : null;
-    return { byQuality, pctMedio, totalInformes: controles.length, totalDias: dias.length };
-  }, [controles, dias]);
+    return { byQuality, pctMedio, totalInformes: controles.length, totalDias: fechas.size };
+  }, [controles, pctPorDia]);
 
   const abrirInforme = (informe: CalidadInformeLote) => {
     setInformeSeleccionado(informe);
@@ -141,22 +193,60 @@ export function MercadonaProductorCalidadDialog({
                 </div>
               </div>
 
-              {/* Por día: calidad vs aprovechamiento */}
+              {/* Selector de granularidad: Día · Semana · Mes */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-muted-foreground">Ver por</span>
+                <div className="flex items-center gap-1 rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg)] p-0.5">
+                  {GRANULARIDAD_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setGranularidad(option.value)}
+                      className={cn(
+                        "rounded-md px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+                        granularidad === option.value
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Grupos (día/semana/mes): calidad vs aprovechamiento */}
               <div className="space-y-2">
-                {dias.map((d) => (
-                  <div key={d.fecha} className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
+                {grupos.map((g) => (
+                  <div key={g.key} className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-sm font-semibold">{formatDate(d.fecha)}</span>
+                      <span className="flex items-baseline gap-1.5">
+                        <span className="text-sm font-semibold">{g.label}</span>
+                        {g.detail && <span className="text-[11px] text-muted-foreground">{g.detail}</span>}
+                        <span className="text-[11px] text-muted-foreground">· {g.controles.length} lote{g.controles.length === 1 ? "" : "s"}</span>
+                      </span>
                       <span className="flex items-center gap-1.5 text-xs">
                         <Percent className="h-3 w-3 text-primary" />
-                        <span className="text-muted-foreground">Aprovech. MDNA del día:</span>
+                        <span className="text-muted-foreground">
+                          {granularidad === "dia" ? "Aprovech. MDNA del día:" : "Aprovech. MDNA medio:"}
+                        </span>
                         <span className="tabular-nums font-semibold text-primary">
-                          {d.pctMdna != null ? formatPct(d.pctMdna) : "sin dato"}
+                          {g.pctMedio != null ? formatPct(g.pctMedio) : "sin dato"}
                         </span>
                       </span>
                     </div>
+                    {/* Distribución de calidad del grupo (útil al agrupar por semana/mes) */}
+                    {granularidad !== "dia" && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {CALIDAD_OPTIONS.filter((q) => g.byQuality[q] > 0).map((q) => (
+                          <Badge key={q} variant="outline" className={cn("text-[11px]", badgeClass(q))}>
+                            {q}: {g.byQuality[q]}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                     <ul className="mt-2 space-y-1.5">
-                      {d.controles.map((c) => (
+                      {g.controles.map((c) => (
                         <li
                           key={c.id}
                           role="button"
@@ -171,6 +261,9 @@ export function MercadonaProductorCalidadDialog({
                           className="flex cursor-pointer flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] px-2.5 py-1.5 text-xs transition-colors hover:border-primary/40"
                         >
                           <span className="flex min-w-0 items-center gap-2">
+                            {granularidad !== "dia" && (
+                              <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{formatDate(c.fecha)}</span>
+                            )}
                             <span className="font-medium">{c.numeroLote}</span>
                             <span className="truncate text-muted-foreground">
                               {c.producto}{c.variedad ? ` · ${c.variedad}` : ""}
