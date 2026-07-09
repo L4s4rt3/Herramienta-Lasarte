@@ -22,6 +22,7 @@ import {
   Receipt,
   Tags,
   Mail,
+  Building2,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
 
@@ -63,7 +64,7 @@ type NavItem = {
 // La herramienta se organiza en 4 grandes secciones; cada rol ve las suyas y
 // los admins navegan entre todas con el conmutador "Secciones" de la sidebar.
 // El espacio activo se deduce de la ruta; la sidebar solo pinta sus grupos.
-export type WorkspaceId = "produccion" | "comercial" | "rrhh" | "economico";
+export type WorkspaceId = "direccion" | "produccion" | "comercial" | "rrhh" | "economico";
 
 export const WORKSPACES: Array<{
   id: WorkspaceId;
@@ -73,6 +74,15 @@ export const WORKSPACES: Array<{
   matches: (path: string) => boolean;
   allowedFor: (role: string | null) => boolean;
 }> = [
+  {
+    // Panel de direccion: vista global de todas las areas, solo para el jefe (admin).
+    id: "direccion",
+    label: "Dirección",
+    icon: Building2,
+    home: "/direccion",
+    matches: (p) => p.startsWith("/direccion"),
+    allowedFor: (role) => role === "admin",
+  },
   {
     id: "comercial",
     label: "Comercial",
@@ -114,6 +124,13 @@ export function workspaceDeRuta(path: string): WorkspaceId {
 }
 
 const navGroups: Array<{ label: string; workspace: WorkspaceId; items: NavItem[] }> = [
+  {
+    label: "Dirección",
+    workspace: "direccion",
+    items: [
+      { to: "/direccion", label: "Panel de dirección", icon: LayoutDashboard, match: (path) => path === "/direccion" },
+    ],
+  },
   {
     label: "Dashboard",
     workspace: "produccion",

@@ -26,7 +26,7 @@ import {
  * de src/components/AppLayout.tsx. No se importa desde allí para evitar un
  * ciclo de imports (AppLayout importa este archivo).
  */
-export type TourWorkspaceId = "produccion" | "comercial" | "rrhh" | "economico";
+export type TourWorkspaceId = "direccion" | "produccion" | "comercial" | "rrhh" | "economico";
 
 export interface TourStep {
   /** Identificador estable del paso (independiente de la ruta, por si se repite). */

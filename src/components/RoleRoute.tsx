@@ -55,8 +55,9 @@ export default function RoleRoute() {
     return <Navigate to={RRHH_HOME} replace />;
   }
 
-  // El modo economico (precios, facturacion, margen) es exclusivo de admins.
-  if (location.pathname.startsWith("/economico") && role !== "admin") {
+  // El modo economico (precios, facturacion, margen) y el panel de direccion
+  // son exclusivos de admins.
+  if ((location.pathname.startsWith("/economico") || location.pathname.startsWith("/direccion")) && role !== "admin") {
     return <Navigate to="/" replace />;
   }
 

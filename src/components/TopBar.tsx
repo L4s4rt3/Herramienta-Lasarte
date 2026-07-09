@@ -72,6 +72,12 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/",
     parentLabel: "Producción",
   },
+  "/direccion": {
+    label: "Panel de dirección",
+    subtitle: "Resumen global de Producción, Comercial, RRHH y Económico",
+    parent: "/",
+    parentLabel: "Dirección",
+  },
   "/comercial": {
     label: "Panel comercial",
     subtitle: "Resumen de ventas: Mercadona, categorías y clientes",

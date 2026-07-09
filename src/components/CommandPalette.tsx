@@ -52,6 +52,7 @@ const PAGES = [
   { to: "/partes", label: "Partes diarios", icon: FileText, keywords: "partes produccion diario" },
   { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3, keywords: "analisis diario lotes calibres" },
   { to: "/productores", label: "Productores", icon: Sprout, keywords: "productores proveedores origen eficiencia" },
+  { to: "/direccion", label: "Panel de dirección", icon: LayoutDashboard, keywords: "direccion jefe global resumen produccion comercial rrhh economico" },
   { to: "/comercial", label: "Panel comercial", icon: ShoppingCart, keywords: "comercial panel dashboard ventas resumen" },
   { to: "/mercadona", label: "Mercadona (Producción)", icon: ShoppingCart, keywords: "mercadona produccion aprovechamiento cliente principal" },
   { to: "/comercial/mercadona", label: "Mercadona (Comercial)", icon: ShoppingCart, keywords: "mercadona ventas comercial facturacion cliente principal" },
@@ -76,6 +77,7 @@ const PAGES = [
 
 // Modo economico: exclusivo de admins.
 const ECONOMICO_ADMIN_ONLY = new Set([
+  "/direccion",
   "/economico",
   "/economico/facturacion",
   "/economico/costes",
