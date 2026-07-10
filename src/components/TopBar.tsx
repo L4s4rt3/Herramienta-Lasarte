@@ -10,79 +10,82 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, GraduationCap } from "lucide-react";
+import { Sparkles, GraduationCap, Search } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { WORKSPACES, workspaceDeRuta } from "@/lib/workspaces";
 
+// Migas de pan: cada página cuelga del panel de su gran sección (el parent es
+// clicable y te lleva a ese panel). Las 5 home de sección no tienen parent.
 const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: string; parentLabel?: string }> = {
   "/": {
-    label: "Dashboard",
+    label: "Inicio",
+    subtitle: "Cada rol entra directo en su panel",
+  },
+  "/produccion": {
+    label: "Panel de producción",
     subtitle: "Visión estratégica de producción, alertas y tendencias",
   },
   "/partes": {
     label: "Partes",
     subtitle: "Reconciliación diaria y seguimiento de descuadres",
-    parent: "/",
-    parentLabel: "Operaciones diarias",
+    parent: "/produccion",
+    parentLabel: "Producción",
   },
   "/calidad": {
     label: "Calidad",
     subtitle: "Notas diarias de lotes y control de calidad",
-    parent: "/",
-    parentLabel: "Operaciones diarias",
+    parent: "/produccion",
+    parentLabel: "Producción",
   },
   "/analisis/diario": {
     label: "Análisis diario",
     subtitle: "Revisión detallada de lotes, calibres y destinos por día",
-    parent: "/",
+    parent: "/produccion",
     parentLabel: "Producción",
   },
   "/productores": {
     label: "Productores",
     subtitle: "Análisis de origen, rendimiento y comportamiento",
-    parent: "/",
+    parent: "/produccion",
     parentLabel: "Producción",
   },
   "/costes/consumos": {
     label: "Consumos",
     subtitle: "Control operativo de recursos y consumos físicos",
-    parent: "/",
-    parentLabel: "Operaciones",
+    parent: "/produccion",
+    parentLabel: "Producción",
   },
   "/costes/asistencia": {
     label: "Asistencia diaria",
     subtitle: "Pase de lista, importaciones y rendimiento por zonas (RRHH)",
-    parent: "/",
+    parent: "/rrhh",
     parentLabel: "RRHH",
   },
   "/ventas/categoria-segunda": {
     label: "Categoría segunda",
     subtitle: "Ventas por cliente, producto, artículo, precio medio y ajustes reales de comisión/transporte.",
-    parent: "/",
+    parent: "/comercial",
     parentLabel: "Comercial",
   },
   "/ventas/categoria-primera": {
     label: "Categoría primera",
     subtitle: "Ventas del resto de productos y clientes (primera categoría).",
-    parent: "/",
+    parent: "/comercial",
     parentLabel: "Comercial",
   },
   "/mercadona": {
-    label: "Mercadona",
-    subtitle: "Aprovechamiento y planificación del cliente principal (sin facturación)",
-    parent: "/",
+    label: "Mercadona (planta)",
+    subtitle: "Aprovechamiento y planificación del cliente principal, vista de planta (sin facturación)",
+    parent: "/produccion",
     parentLabel: "Producción",
   },
   "/direccion": {
     label: "Panel de dirección",
     subtitle: "Resumen global de Producción, Comercial, RRHH y Económico",
-    parent: "/",
-    parentLabel: "Dirección",
   },
   "/comercial": {
     label: "Panel comercial",
     subtitle: "Resumen de ventas: Mercadona, categorías y clientes",
-    parent: "/",
-    parentLabel: "Comercial",
   },
   "/comercial/ventas-mes": {
     label: "Ventas del mes",
@@ -91,34 +94,32 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parentLabel: "Comercial",
   },
   "/comercial/mercadona": {
-    label: "Mercadona",
+    label: "Mercadona (ventas)",
     subtitle: "Aprovechamiento, ventas semanales, facturación y planificación del cliente principal",
-    parent: "/",
+    parent: "/comercial",
     parentLabel: "Comercial",
   },
   // Edeka desconectada temporalmente (jul 2026); se reenganchara mas adelante.
   "/edeka-desactivado": {
     label: "Edeka",
     subtitle: "Resumen de lo enviado al cliente Edeka a partir de los palets de los partes diarios",
-    parent: "/",
+    parent: "/comercial",
     parentLabel: "Comercial",
   },
   "/cmr": {
     label: "CMR y Hojas de ruta",
     subtitle: "Archivo e histórico de CMR y hojas de ruta, y generación de nuevos documentos",
-    parent: "/",
+    parent: "/comercial",
     parentLabel: "Comercial",
   },
   "/rrhh": {
     label: "Panel de RRHH",
     subtitle: "Resumen de plantilla, asistencia, rendimiento por grupo y comparativa semanal",
-    parent: "/",
-    parentLabel: "RRHH",
   },
   "/rrhh/personas": {
     label: "Plantilla",
     subtitle: "Fichas de trabajadores: categoría, antigüedad e historial individual completo",
-    parent: "/",
+    parent: "/rrhh",
     parentLabel: "RRHH",
   },
   "/rrhh/comunicaciones": {
@@ -128,7 +129,7 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parentLabel: "RRHH",
   },
   "/rrhh/mercadona": {
-    label: "Mercadona",
+    label: "Mercadona (facturas)",
     subtitle: "Kg, facturación y precios del cliente principal (vista RRHH)",
     parent: "/rrhh",
     parentLabel: "RRHH",
@@ -136,32 +137,30 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
   "/rrhh/ausencias": {
     label: "Ausencias y bajas",
     subtitle: "Seguimiento de faltas con justificantes y bajas laborales",
-    parent: "/",
+    parent: "/rrhh",
     parentLabel: "RRHH",
   },
   "/rrhh/amonestaciones": {
     label: "Amonestaciones",
     subtitle: "Registro de amonestaciones con el documento firmado",
-    parent: "/",
+    parent: "/rrhh",
     parentLabel: "RRHH",
   },
   "/rrhh/vacaciones": {
     label: "Vacaciones y horas",
     subtitle: "Devengo y saldo de vacaciones y bolsa de horas por trabajador",
-    parent: "/",
+    parent: "/rrhh",
     parentLabel: "RRHH",
   },
   "/rrhh/nominas": {
     label: "Nóminas",
     subtitle: "Archivo mensual de nóminas por persona (solo RRHH y administración)",
-    parent: "/",
+    parent: "/rrhh",
     parentLabel: "RRHH",
   },
   "/economico": {
     label: "Panel económico",
     subtitle: "Facturación, costes y margen bruto estimado (solo administración)",
-    parent: "/",
-    parentLabel: "Económico",
   },
   "/economico/facturacion": {
     label: "Facturación",
@@ -191,6 +190,8 @@ function TopBar() {
     .sort((a, b) => b.length - a.length)[0];
 
   const meta = baseRoute ? ROUTE_META[baseRoute] : null;
+  // Chip de orientación: en qué gran sección estás (según la ruta actual).
+  const seccion = WORKSPACES.find((w) => w.id === workspaceDeRuta(location.pathname));
 
   return (
     <header className="sticky top-0 z-20 flex min-h-14 shrink-0 items-center gap-2 border-b border-primary/10 bg-[var(--glass-bg-solid)] px-3 py-2.5 shadow-[var(--glass-shadow)] backdrop-blur-2xl sm:min-h-16 sm:gap-3 sm:px-5 sm:py-3 lg:px-8">
@@ -224,8 +225,26 @@ function TopBar() {
       </div>
 
       <Badge variant="outline" className="hidden rounded-xl border-primary/20 bg-[var(--glass-bg-strong)] px-2.5 py-1 font-medium text-primary backdrop-blur-sm md:inline-flex">
-        Producción
+        {seccion?.label ?? "Producción"}
       </Badge>
+
+      {/* Buscador global (abre la paleta Ctrl+K) */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("lasarte:open-search"))}
+            aria-label="Buscar una sección de la herramienta"
+            className="flex h-8 items-center gap-1.5 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 text-muted-foreground shadow-[var(--glass-shadow)] backdrop-blur-sm transition-all hover:border-[var(--glass-border-accent)] hover:bg-primary/10 hover:text-primary active:scale-95"
+          >
+            <Search className="h-4 w-4 shrink-0" />
+            <span className="hidden text-xs font-medium lg:inline">Buscar</span>
+            <kbd className="hidden rounded border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] px-1 py-0.5 text-[10px] font-semibold lg:inline">
+              Ctrl K
+            </kbd>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Buscar cualquier sección (Ctrl+K)</TooltipContent>
+      </Tooltip>
 
       {/* Botón guía / tour */}
       <Tooltip>

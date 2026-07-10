@@ -5,7 +5,7 @@ import {
   FileText,
   ClipboardCheck,
   LogOut,
-  Citrus,
+  ChevronDown,
   Droplet,
   FileSpreadsheet,
   Users,
@@ -22,10 +22,11 @@ import {
   Receipt,
   Tags,
   Mail,
-  Building2,
   Upload,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
+import { WORKSPACES, WORKSPACE_DISPLAY_ORDER, workspaceDeRuta, type WorkspaceId } from "@/lib/workspaces";
+import { cn } from "@/lib/utils";
 
 
 import { Button } from "@/components/ui/button";
@@ -62,67 +63,11 @@ type NavItem = {
 };
 
 // ─── Espacios de trabajo ─────────────────────────────────────────────────────
-// La herramienta se organiza en 4 grandes secciones; cada rol ve las suyas y
-// los admins navegan entre todas con el conmutador "Secciones" de la sidebar.
-// El espacio activo se deduce de la ruta; la sidebar solo pinta sus grupos.
-export type WorkspaceId = "direccion" | "produccion" | "comercial" | "rrhh" | "economico";
-
-export const WORKSPACES: Array<{
-  id: WorkspaceId;
-  label: string;
-  icon: typeof LayoutDashboard;
-  home: string;
-  matches: (path: string) => boolean;
-  allowedFor: (role: string | null) => boolean;
-}> = [
-  {
-    // Panel de direccion: vista global de todas las areas, solo para el jefe (admin).
-    id: "direccion",
-    label: "Dirección",
-    icon: Building2,
-    home: "/direccion",
-    matches: (p) => p.startsWith("/direccion"),
-    allowedFor: (role) => role === "admin",
-  },
-  {
-    id: "comercial",
-    label: "Comercial",
-    icon: ShoppingCart,
-    home: "/comercial",
-    matches: (p) => p.startsWith("/comercial") || p.startsWith("/ventas") || p.startsWith("/cmr"),
-    allowedFor: (role) => role === "admin" || role === "ventas",
-  },
-  {
-    id: "rrhh",
-    label: "RRHH",
-    icon: UserRound,
-    home: "/rrhh",
-    matches: (p) => p.startsWith("/rrhh") || p.startsWith("/costes/asistencia"),
-    allowedFor: (role) => role === "admin" || role === "rrhh",
-  },
-  {
-    id: "economico",
-    label: "Económico",
-    icon: Euro,
-    home: "/economico",
-    matches: (p) => p.startsWith("/economico"),
-    allowedFor: (role) => role === "admin",
-  },
-  {
-    // Produccion va la ultima: es el espacio por defecto (matches comodin).
-    // Es el espacio del rol basico (operario); rrhh vive solo en su espacio.
-    id: "produccion",
-    label: "Producción",
-    icon: Citrus,
-    home: "/produccion",
-    matches: () => true,
-    allowedFor: (role) => role === "admin" || role === "operario",
-  },
-];
-
-export function workspaceDeRuta(path: string): WorkspaceId {
-  return (WORKSPACES.find((w) => w.matches(path)) ?? WORKSPACES[WORKSPACES.length - 1]).id;
-}
+// Las 5 grandes secciones viven en src/lib/workspaces.ts (las comparte el
+// TopBar). Con varias secciones permitidas (admin), la sidebar pinta el ÁRBOL
+// COMPLETO: cada sección es un bloque desplegable con todas sus páginas — nada
+// queda escondido detrás de un conmutador. La sección de la ruta actual se
+// abre sola; las demás se pliegan/despliegan a mano.
 
 const navGroups: Array<{ label: string; workspace: WorkspaceId; items: NavItem[] }> = [
   {
@@ -154,7 +99,7 @@ const navGroups: Array<{ label: string; workspace: WorkspaceId; items: NavItem[]
       { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3 },
       { to: "/productores", label: "Productores", icon: Sprout },
       // Variante de produccion: sin facturacion (la completa vive en Comercial).
-      { to: "/mercadona", label: "Mercadona", icon: ShoppingCart },
+      { to: "/mercadona", label: "Mercadona (planta)", icon: ShoppingCart },
     ],
   },
   {
@@ -169,7 +114,7 @@ const navGroups: Array<{ label: string; workspace: WorkspaceId; items: NavItem[]
     workspace: "comercial",
     items: [
       { to: "/comercial", label: "Panel comercial", icon: LayoutDashboard, match: (path) => path === "/comercial" },
-      { to: "/comercial/mercadona", label: "Mercadona", icon: ShoppingCart },
+      { to: "/comercial/mercadona", label: "Mercadona (ventas)", icon: ShoppingCart },
       { to: "/comercial/ventas-mes", label: "Ventas del mes", icon: Upload },
       { to: "/ventas/categoria-segunda", label: "Categoría segunda", icon: FileSpreadsheet },
       { to: "/ventas/categoria-primera", label: "Categoría primera", icon: FileSpreadsheet },
@@ -191,7 +136,7 @@ const navGroups: Array<{ label: string; workspace: WorkspaceId; items: NavItem[]
       { to: "/rrhh/vacaciones", label: "Vacaciones y horas", icon: Plane },
       { to: "/rrhh/nominas", label: "Nóminas", icon: Banknote },
       { to: "/rrhh/comunicaciones", label: "Comunicaciones", icon: Mail },
-      { to: "/rrhh/mercadona", label: "Mercadona", icon: ShoppingCart },
+      { to: "/rrhh/mercadona", label: "Mercadona (facturas)", icon: ShoppingCart },
     ],
   },
   {
@@ -225,6 +170,15 @@ function AppLayoutContent() {
   // Espacio de trabajo activo (deducido de la ruta) y espacios permitidos al rol.
   const workspaceActual = workspaceDeRuta(location.pathname);
   const workspacesPermitidos = WORKSPACES.filter((w) => w.allowedFor(role));
+
+  // Árbol completo (admin): qué secciones están desplegadas. La de la ruta
+  // actual se abre sola al navegar; las demás se pliegan/despliegan a mano.
+  const [seccionesAbiertas, setSeccionesAbiertas] = useState<Partial<Record<WorkspaceId, boolean>>>(
+    { [workspaceActual]: true },
+  );
+  useEffect(() => {
+    setSeccionesAbiertas((prev) => (prev[workspaceActual] ? prev : { ...prev, [workspaceActual]: true }));
+  }, [workspaceActual]);
 
   const cmd = useCommandPalette();
 
@@ -286,83 +240,121 @@ function AppLayoutContent() {
         </SidebarHeader>
 
         <SidebarContent>
-          {/* Conmutador de grandes secciones (si el rol tiene más de una). */}
           {workspacesPermitidos.length > 1 ? (
-            <SidebarGroup>
-              <SidebarGroupLabel>Secciones</SidebarGroupLabel>
-              <SidebarMenu>
-                {workspacesPermitidos.map((ws) => {
-                  const WsIcon = ws.icon;
-                  const activo = ws.id === workspaceActual;
-                  return (
-                    <SidebarMenuItem key={ws.id}>
-                      <SidebarMenuButton asChild isActive={activo} tooltip={ws.label}>
-                        <NavLink
-                          to={ws.home}
-                          onClick={closeMobileSidebar}
-                          onMouseEnter={() => preloadRoute(ws.home)}
-                          className={activo ? "font-semibold" : undefined}
-                        >
-                          <WsIcon />
-                          <span>{ws.label}</span>
-                        </NavLink>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarGroup>
-          ) : null}
+            // ── Árbol completo (admin): una sección desplegable por espacio. ──
+            WORKSPACE_DISPLAY_ORDER
+              .map((id) => workspacesPermitidos.find((w) => w.id === id))
+              .filter((ws): ws is NonNullable<typeof ws> => Boolean(ws))
+              .map((ws) => {
+                const WsIcon = ws.icon;
+                const activo = ws.id === workspaceActual;
+                const abierta = Boolean(seccionesAbiertas[ws.id]);
+                const items = navGroups
+                  .filter((group) => group.workspace === ws.id)
+                  .flatMap((group) => group.items)
+                  .filter((item) => (item.to === "/ventas/categoria-segunda" ? ventasCategoriaAccess.hasAccess : true));
+                if (items.length === 0) return null;
+                return (
+                  <SidebarGroup key={ws.id} className="py-1">
+                    <button
+                      type="button"
+                      onClick={() => setSeccionesAbiertas((prev) => ({ ...prev, [ws.id]: !abierta }))}
+                      aria-expanded={abierta}
+                      title={ws.label}
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+                        activo
+                          ? "text-sidebar-primary"
+                          : "text-sidebar-foreground/60 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground",
+                      )}
+                    >
+                      <WsIcon className="h-4 w-4 shrink-0" />
+                      <span className="flex-1 truncate text-left group-data-[collapsible=icon]:hidden">{ws.label}</span>
+                      <ChevronDown
+                        className={cn(
+                          "h-3.5 w-3.5 shrink-0 transition-transform duration-200 group-data-[collapsible=icon]:hidden",
+                          abierta ? "" : "-rotate-90",
+                        )}
+                      />
+                    </button>
+                    {abierta && (
+                      <SidebarMenu>
+                        {items.map((item) => {
+                          const Icon = item.icon;
+                          const active = item.match
+                            ? item.match(location.pathname)
+                            : location.pathname === item.to;
+                          return (
+                            <SidebarMenuItem key={item.to}>
+                              <SidebarMenuButton asChild isActive={active} tooltip={item.label}>
+                                <NavLink
+                                  to={item.to}
+                                  data-tour={item.to}
+                                  onClick={closeMobileSidebar}
+                                  onFocus={() => preloadRoute(item.to)}
+                                  onMouseEnter={() => preloadRoute(item.to)}
+                                >
+                                  <Icon />
+                                  <span>{item.label}</span>
+                                </NavLink>
+                              </SidebarMenuButton>
+                            </SidebarMenuItem>
+                          );
+                        })}
+                      </SidebarMenu>
+                    )}
+                  </SidebarGroup>
+                );
+              })
+          ) : (
+            // ── Un solo espacio (operario/ventas/rrhh): grupos planos de siempre. ──
+            navGroups
+              .filter((group) => {
+                if (group.workspace !== workspaceActual) return false;
+                const ws = WORKSPACES.find((w) => w.id === group.workspace);
+                return ws ? ws.allowedFor(role) : false;
+              })
+              .map((group) => {
+                // El acceso por espacio ya se resolvió arriba; a nivel de item solo
+                // queda el mecanismo histórico de Categoría segunda (allowlist/rol).
+                const visibleItems = group.items.filter((item) => {
+                  if (item.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
+                  return true;
+                });
+                // Un grupo sin items visibles (p.ej. "Comercial" sin acceso) no pinta ni su etiqueta.
+                if (visibleItems.length === 0) return null;
+                return (
+                  <SidebarGroup key={group.label}>
+                    <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+                    <SidebarMenu>
+                      {visibleItems.map((item) => {
+                        const Icon = item.icon;
+                        const active = item.match
+                          ? item.match(location.pathname)
+                          : location.pathname === item.to;
 
-          {navGroups
-            // Solo se pintan los grupos del espacio activo, y solo si el rol
-            // puede estar en ese espacio (la URL ya la vigila RoleRoute).
-            .filter((group) => {
-              if (group.workspace !== workspaceActual) return false;
-              const ws = WORKSPACES.find((w) => w.id === group.workspace);
-              return ws ? ws.allowedFor(role) : false;
-            })
-            .map((group) => {
-            // El acceso por espacio ya se resolvió arriba; a nivel de item solo
-            // queda el mecanismo histórico de Categoría segunda (allowlist/rol).
-            const visibleItems = group.items.filter((item) => {
-              if (item.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
-              return true;
-            });
-            // Un grupo sin items visibles (p.ej. "Comercial" sin acceso) no pinta ni su etiqueta.
-            if (visibleItems.length === 0) return null;
-            return (
-            <SidebarGroup key={group.label}>
-              <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-              <SidebarMenu>
-                {visibleItems.map((item) => {
-                  const Icon = item.icon;
-                  const active = item.match
-                    ? item.match(location.pathname)
-                    : location.pathname === item.to;
-
-                  return (
-                    <SidebarMenuItem key={item.to}>
-                      <SidebarMenuButton asChild isActive={active} tooltip={item.label}>
-                        <NavLink
-                          to={item.to}
-                          end={item.to === "/"}
-                          data-tour={item.to}
-                          onClick={closeMobileSidebar}
-                          onFocus={() => preloadRoute(item.to)}
-                          onMouseEnter={() => preloadRoute(item.to)}
-                        >
-                          <Icon />
-                          <span>{item.label}</span>
-                        </NavLink>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarGroup>
-            );
-          })}
+                        return (
+                          <SidebarMenuItem key={item.to}>
+                            <SidebarMenuButton asChild isActive={active} tooltip={item.label}>
+                              <NavLink
+                                to={item.to}
+                                data-tour={item.to}
+                                onClick={closeMobileSidebar}
+                                onFocus={() => preloadRoute(item.to)}
+                                onMouseEnter={() => preloadRoute(item.to)}
+                              >
+                                <Icon />
+                                <span>{item.label}</span>
+                              </NavLink>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        );
+                      })}
+                    </SidebarMenu>
+                  </SidebarGroup>
+                );
+              })
+          )}
 
         </SidebarContent>
 

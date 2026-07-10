@@ -55,8 +55,8 @@ const PAGES = [
   { to: "/productores", label: "Productores", icon: Sprout, keywords: "productores proveedores origen eficiencia" },
   { to: "/direccion", label: "Panel de dirección", icon: LayoutDashboard, keywords: "direccion jefe global resumen produccion comercial rrhh economico" },
   { to: "/comercial", label: "Panel comercial", icon: ShoppingCart, keywords: "comercial panel dashboard ventas resumen" },
-  { to: "/mercadona", label: "Mercadona (Producción)", icon: ShoppingCart, keywords: "mercadona produccion aprovechamiento cliente principal" },
-  { to: "/comercial/mercadona", label: "Mercadona (Comercial)", icon: ShoppingCart, keywords: "mercadona ventas comercial facturacion cliente principal" },
+  { to: "/mercadona", label: "Mercadona (planta)", icon: ShoppingCart, keywords: "mercadona produccion planta aprovechamiento cliente principal" },
+  { to: "/comercial/mercadona", label: "Mercadona (ventas)", icon: ShoppingCart, keywords: "mercadona ventas comercial facturacion cliente principal" },
   { to: "/ventas/categoria-segunda", label: "Categoría segunda", icon: FileSpreadsheet, keywords: "ventas comercial categoria segunda clientes productos precios" },
   { to: "/ventas/categoria-primera", label: "Categoría primera", icon: FileSpreadsheet, keywords: "ventas comercial categoria primera clientes productos precios" },
   { to: "/cmr", label: "CMR y Hojas de ruta", icon: Truck, keywords: "cmr hojas de ruta transporte logistica" },
@@ -69,7 +69,7 @@ const PAGES = [
   { to: "/rrhh/vacaciones", label: "Vacaciones y horas (RRHH)", icon: Plane, keywords: "rrhh vacaciones dias horas bolsa saldo" },
   { to: "/rrhh/nominas", label: "Nóminas (RRHH)", icon: Banknote, keywords: "rrhh nominas salario mensual" },
   { to: "/rrhh/comunicaciones", label: "Comunicaciones (RRHH)", icon: Mail, keywords: "rrhh comunicaciones correos emails avisos horas vacaciones" },
-  { to: "/rrhh/mercadona", label: "Mercadona (RRHH)", icon: ShoppingCart, keywords: "rrhh mercadona facturas precios kg" },
+  { to: "/rrhh/mercadona", label: "Mercadona (facturas)", icon: ShoppingCart, keywords: "rrhh mercadona facturas precios kg" },
   { to: "/economico", label: "Panel económico", icon: Banknote, keywords: "economico euros facturacion costes margen admin" },
   { to: "/economico/facturacion", label: "Facturación (Económico)", icon: Banknote, keywords: "economico facturacion base iva mercadona euros" },
   { to: "/economico/costes", label: "Costes (Económico)", icon: Banknote, keywords: "economico costes consumos coste por kg euros" },
@@ -226,8 +226,14 @@ export function useCommandPalette() {
         setOpen((prev) => !prev);
       }
     };
+    // El botón "Buscar" del TopBar abre la paleta con este evento.
+    const openFromButton = () => setOpen(true);
     document.addEventListener("keydown", down);
-    return () => document.removeEventListener("keydown", down);
+    window.addEventListener("lasarte:open-search", openFromButton);
+    return () => {
+      document.removeEventListener("keydown", down);
+      window.removeEventListener("lasarte:open-search", openFromButton);
+    };
   }, []);
 
   return { open, setOpen };
