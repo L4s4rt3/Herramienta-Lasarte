@@ -25,7 +25,7 @@ import { useMemo } from "react";
 import { useAuth } from "@/contexts/AuthProvider";
 import { usePartesDashboard } from "@/hooks/usePartes";
 import { useMercadona } from "@/hooks/useMercadona";
-import { useComercialDashboard } from "@/hooks/useComercialDashboard";
+import { useComercialDashboard, type ComercialMesAnterior } from "@/hooks/useComercialDashboard";
 import { useRrhhDashboard } from "@/hooks/useRrhhDashboard";
 import { useCostesPeriodo, usePreciosRecursos } from "@/hooks/useEconomico";
 import { useMercadonaVentas, type MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
@@ -93,6 +93,9 @@ export interface DireccionProduccion {
   hayDatos: boolean;
   produccionSemanaKg: number;
   semanaLabel: string;
+  mermasPct: number;
+  mermasKg: number;
+  mermaTotalConDsjPct: number;
   dsjPct: number;
   semaforo: SemaforoState;
   velocidadMedia: number | null;
@@ -122,9 +125,16 @@ function useDireccionProduccion(): DireccionProduccion {
     const weekPartes = partes.filter((p) => p.date >= currentWeek.start && p.date <= currentWeek.end);
     const produccion = weekPartes.reduce((s, p) => s + p.cascade.produccion_real, 0);
     const dsj = weekPartes.reduce((s, p) => s + p.cascade.dsj, 0);
+    // Merma real: podrido manual + podrido calibrador, mismo criterio que el
+    // KPI "Mermas" de src/pages/Dashboard.tsx (no incluye el DSJ).
+    const mermas = weekPartes.reduce((s, p) => s + p.cascade.podrido_manual + p.cascade.podrido_calibrador, 0);
     return {
       produccion,
       dsjPct: produccion > 0 ? (dsj / produccion) * 100 : 0,
+      mermasKg: mermas,
+      mermasPct: produccion > 0 ? (mermas / produccion) * 100 : 0,
+      // Merma total ampliada: podridos + DSJ (con signo), como en el Dashboard.
+      mermaTotalConDsjPct: produccion > 0 ? ((mermas + dsj) / produccion) * 100 : 0,
       nDias: weekPartes.length,
     };
   }, [partes, currentWeek]);
@@ -136,6 +146,9 @@ function useDireccionProduccion(): DireccionProduccion {
     hayDatos: currentWeekData.nDias > 0,
     produccionSemanaKg: currentWeekData.produccion,
     semanaLabel: currentWeek.label,
+    mermasPct: currentWeekData.mermasPct,
+    mermasKg: currentWeekData.mermasKg,
+    mermaTotalConDsjPct: currentWeekData.mermaTotalConDsjPct,
     dsjPct: currentWeekData.dsjPct,
     semaforo: getSemaforo(currentWeekData.dsjPct),
     velocidadMedia,
@@ -158,6 +171,8 @@ export interface DireccionComercial {
   eurosPorKg: number;
   kgCategorias: number;
   hasAccessCategorias: boolean;
+  /** Ventas por categoría (1ª+2ª) del mes natural anterior (importador mensual). */
+  mesAnterior: ComercialMesAnterior;
   evolucion: { label: string; vendido: number; planificado: number }[];
 }
 
@@ -174,6 +189,7 @@ function useDireccionComercial(): DireccionComercial {
     eurosPorKg: d.eurosPorKg,
     kgCategorias: d.categoriaSegunda.kg + d.categoriaPrimera.kg,
     hasAccessCategorias: d.categoriaSegunda.hasAccess || d.categoriaPrimera.hasAccess,
+    mesAnterior: d.mesAnterior,
     evolucion: d.evolucionSemanal,
   };
 }

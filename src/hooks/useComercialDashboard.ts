@@ -54,6 +54,17 @@ export interface ComercialCategoriaResumen {
   baseIva: number;
 }
 
+export interface ComercialMesAnterior {
+  /** "YYYY-MM" del mes natural anterior (mismo formato que ventas_categoria_mensual_cliente.mes). */
+  key: string;
+  /** Nombre del mes en minúsculas ("junio"). */
+  label: string;
+  isLoading: boolean;
+  hayDatos: boolean;
+  kg: number;
+  baseIva: number;
+}
+
 async function fetchPartIdsEnRango(desde: string, hasta: string): Promise<string[]> {
   const { data, error } = await supabase
     .from("partes_diarios")
@@ -123,6 +134,32 @@ export function useComercialDashboard() {
     baseIva: categoriaPrimeraHook.resumenQuery.data?.base_iva ?? 0,
   };
 
+  // ─── Ventas por categoría del mes natural anterior (importador mensual) ──
+  const mesAnteriorInfo = useMemo(() => {
+    const hoy = new Date();
+    const prev = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+    return {
+      key: `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`,
+      label: prev.toLocaleDateString("es-ES", { month: "long" }),
+    };
+  }, []);
+
+  const mesAnterior: ComercialMesAnterior = useMemo(() => {
+    const rows = [
+      ...(categoriaSegundaHook.mensualClienteQuery.data ?? []),
+      ...(categoriaPrimeraHook.mensualClienteQuery.data ?? []),
+    ].filter((r) => r.mes === mesAnteriorInfo.key);
+    return {
+      ...mesAnteriorInfo,
+      isLoading:
+        categoriaSegundaHook.mensualClienteQuery.isLoading ||
+        categoriaPrimeraHook.mensualClienteQuery.isLoading,
+      hayDatos: rows.length > 0,
+      kg: rows.reduce((s, r) => s + (r.kilos ?? 0), 0),
+      baseIva: rows.reduce((s, r) => s + (r.base_iva ?? 0), 0),
+    };
+  }, [categoriaSegundaHook.mensualClienteQuery, categoriaPrimeraHook.mensualClienteQuery, mesAnteriorInfo]);
+
   // ─── Top clientes por kg (palets_dia, último mes) — una sola query al rango ─
   const hasta = today();
   const desde = useMemo(
@@ -178,6 +215,7 @@ export function useComercialDashboard() {
     // Ventas por categoría
     categoriaSegunda,
     categoriaPrimera,
+    mesAnterior,
 
     // Clientes
     topClientes,

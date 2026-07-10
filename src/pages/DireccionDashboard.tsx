@@ -19,6 +19,7 @@ import {
   Scale,
   ShieldAlert,
   ShoppingCart,
+  Trash2,
   TrendingDown,
   TrendingUp,
   Truck,
@@ -101,9 +102,9 @@ export default function DireccionDashboard() {
       <section className="space-y-3">
         <AreaHeader icon={Factory} title="Producción" subtitle={`Semana ${produccion.semanaLabel} · cascada DJPMN`} to="/" />
 
-        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
           {produccion.isLoading ? (
-            Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32" />)
+            Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-32" />)
           ) : (
             <>
               <KPICard
@@ -114,6 +115,21 @@ export default function DireccionDashboard() {
                 icon={Truck}
                 to="/"
               />
+              <KPICard
+                className="glass-accented"
+                label="Mermas (podrido)"
+                value={`${produccion.mermasPct.toFixed(2)}%`}
+                hint={produccion.hayDatos ? `${formatKg(produccion.mermasKg)} · manual + calibrador` : "Sin partes esta semana"}
+                icon={Trash2}
+                to="/"
+              >
+                <div className="mt-2.5 flex items-center justify-between gap-2 rounded-md border-l-[3px] border-warning bg-warning/10 px-2.5 py-1.5">
+                  <p className="min-w-0 text-xs font-medium leading-tight">Merma + DSJ</p>
+                  <span className="shrink-0 text-base font-bold tabular-nums">
+                    {produccion.mermaTotalConDsjPct.toFixed(2)}%
+                  </span>
+                </div>
+              </KPICard>
               <KPICard
                 className="glass-accented"
                 label="DJPMN medio"
@@ -204,9 +220,21 @@ export default function DireccionDashboard() {
               />
               <KPICard
                 className="glass-accented"
-                label="Kg categoría 1ª + 2ª"
-                value={comercial.hasAccessCategorias ? formatKg(comercial.kgCategorias) : "Sin acceso"}
-                hint="Suma del periodo, ambas categorías"
+                label={`Ventas ${comercial.mesAnterior.label} (1ª + 2ª)`}
+                value={
+                  !comercial.hasAccessCategorias
+                    ? "Sin acceso"
+                    : comercial.mesAnterior.isLoading
+                      ? "…"
+                      : comercial.mesAnterior.hayDatos
+                        ? formatKg(comercial.mesAnterior.kg)
+                        : "Sin datos"
+                }
+                hint={
+                  comercial.hasAccessCategorias && comercial.mesAnterior.hayDatos
+                    ? `${formatEuro(comercial.mesAnterior.baseIva)} base IVA · mes pasado`
+                    : `Mes pasado sin importar (${comercial.mesAnterior.label})`
+                }
                 icon={Layers}
                 to="/comercial"
               />
