@@ -20,13 +20,14 @@
 // resto en null/vacio (no existe una fila en mercadona_semanas para esta
 // semana "de produccion", y no hace falta: nunca se leen).
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, PackageSearch, Percent, Scale } from "lucide-react";
+import { BadgeCheck, ChevronLeft, ChevronRight, PackageSearch, Percent, Scale, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KPICard } from "@/components/KPICard";
 import { MercadonaLotes, MercadonaProductoresRanking } from "@/components/mercadona/MercadonaLotes";
 import { useMercadona } from "@/hooks/useMercadona";
+import { useMercadonaAprovechamiento } from "@/hooks/useMercadonaAprovechamiento";
 import {
   shiftSemanaMercadona,
   useSemanaProduccionEfectiva,
@@ -44,6 +45,7 @@ export default function MercadonaProduccion() {
   const rango = mercadonaWeekDateRange(efectiva.anio, efectiva.semana);
   const rangoLabel = formatMercadonaWeekRangeLabel(efectiva.anio, efectiva.semana);
   const mercadona = useMercadona(rango.desde, rango.hasta);
+  const aprovechamiento = useMercadonaAprovechamiento(efectiva.anio, efectiva.semana);
 
   // Objeto minimo compatible con lo que MercadonaLotes/useMercadonaLotes leen
   // de verdad (anio + semana, para el rango de fechas): no hay una fila real
@@ -118,11 +120,47 @@ export default function MercadonaProduccion() {
             </Card>
           ) : (
             <div className="space-y-4">
-              <section className="grid grid-cols-2 gap-3 xl:grid-cols-3">
+              <section className="grid grid-cols-2 gap-3 xl:grid-cols-5">
                 <KPICard
                   className="glass-accented"
-                  label="Aprovechamiento MDNA"
+                  label="Aprovechamiento real"
+                  value={
+                    aprovechamiento.isLoading
+                      ? "…"
+                      : aprovechamiento.realPct != null
+                        ? formatPct(aprovechamiento.realPct)
+                        : "—"
+                  }
+                  accent={aprovechamiento.realPct != null ? "success" : "primary"}
+                  labelInfo="Kg vendidos según el informe semanal de ventas de Mercadona entre los kg de entrada al calibrador de la misma semana (L–S). Es la cifra exacta y contractual; solo existe cuando la semana tiene informe importado en Comercial."
+                  hint={
+                    aprovechamiento.isLoading
+                      ? undefined
+                      : aprovechamiento.vendidoKg != null
+                        ? `${formatKg(aprovechamiento.vendidoKg)} vendidos · informe semanal`
+                        : "Aún sin informe semanal de ventas"
+                  }
+                  icon={BadgeCheck}
+                />
+                <KPICard
+                  className="glass-accented"
+                  label="Estimado en curso"
+                  value={aprovechamiento.isLoading ? "…" : formatPct(aprovechamiento.estimadoPct)}
+                  labelInfo="Estimación diaria mientras no llega el informe: palets dados de alta a Mercadona más los palets sin cliente con perfil Mercadona (menos de 500 kg/palet, sin categoría II, precalibrado ni CITRICAS), sobre los kg del calibrador. Error histórico del ±3% frente al vendido real."
+                  hint={
+                    aprovechamiento.isLoading
+                      ? undefined
+                      : aprovechamiento.fiabilidadPct != null
+                        ? `${formatKg(aprovechamiento.estimadoKg)} · ${formatPct(aprovechamiento.fiabilidadPct, 1)} del vendido real`
+                        : `${formatKg(aprovechamiento.estimadoKg)} en palets Mercadona`
+                  }
+                  icon={Timer}
+                />
+                <KPICard
+                  className="glass-accented"
+                  label="Confección MDNA"
                   value={cargandoResumen ? "…" : formatPct(mercadona.pct_kg)}
+                  labelInfo="Kg confeccionados en formatos MDNA sobre el total confeccionado de la semana. Mide confección en fábrica, NO venta: parte se queda en cámara, se reprocesa o va a otro destino, así que suele quedar ~15% por encima del vendido real."
                   hint="Kg confeccionados MDNA sobre el total de la semana"
                   icon={Percent}
                 />
