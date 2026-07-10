@@ -24,7 +24,7 @@
 import { useMemo } from "react";
 import { useAuth } from "@/contexts/AuthProvider";
 import { usePartesDashboard } from "@/hooks/usePartes";
-import { useMercadona } from "@/hooks/useMercadona";
+import { useMercadonaAprovechamiento } from "@/hooks/useMercadonaAprovechamiento";
 import { useComercialDashboard, type ComercialMesAnterior } from "@/hooks/useComercialDashboard";
 import { useRrhhDashboard } from "@/hooks/useRrhhDashboard";
 import { useCostesPeriodo, usePreciosRecursos } from "@/hooks/useEconomico";
@@ -100,6 +100,8 @@ export interface DireccionProduccion {
   semaforo: SemaforoState;
   velocidadMedia: number | null;
   aprovechamientoMercadonaPct: number;
+  /** true si el % es el vendido real del informe semanal; false si es el estimado por palets. */
+  aprovechamientoEsReal: boolean;
   aprovechamientoIsLoading: boolean;
   evolucion: DireccionProduccionEvolucion[];
 }
@@ -110,7 +112,14 @@ function useDireccionProduccion(): DireccionProduccion {
   // Suficientes días para cubrir el panel de semanas ISO completo.
   const dashboardDays = WEEKS_IN_PANEL * 7 + 7;
   const { partes, loading } = usePartesDashboard(dashboardDays);
-  const mercadona = useMercadona(currentWeek.start, currentWeek.end);
+  // Aprovechamiento real (informe semanal) o estimado por palets. Año ISO de la
+  // semana = año del jueves (start + 3 días).
+  const anioIso = useMemo(() => {
+    const jueves = new Date(`${currentWeek.start}T12:00:00`);
+    jueves.setDate(jueves.getDate() + 3);
+    return jueves.getFullYear();
+  }, [currentWeek.start]);
+  const aprovechamiento = useMercadonaAprovechamiento(anioIso, currentWeek.weekNumber);
 
   const evolucion = useMemo<DireccionProduccionEvolucion[]>(
     () => semanas.map((s) => {
@@ -135,11 +144,12 @@ function useDireccionProduccion(): DireccionProduccion {
       mermasPct: produccion > 0 ? (mermas / produccion) * 100 : 0,
       // Merma total ampliada: podridos + DSJ (con signo), como en el Dashboard.
       mermaTotalConDsjPct: produccion > 0 ? ((mermas + dsj) / produccion) * 100 : 0,
+      fechas: weekPartes.map((p) => p.date),
       nDias: weekPartes.length,
     };
   }, [partes, currentWeek]);
 
-  const velocidadMedia = calcularTphOperativa(currentWeekData.produccion, currentWeekData.nDias);
+  const velocidadMedia = calcularTphOperativa(currentWeekData.produccion, currentWeekData.fechas);
 
   return {
     isLoading: loading,
@@ -152,8 +162,9 @@ function useDireccionProduccion(): DireccionProduccion {
     dsjPct: currentWeekData.dsjPct,
     semaforo: getSemaforo(currentWeekData.dsjPct),
     velocidadMedia,
-    aprovechamientoMercadonaPct: mercadona.pct_kg,
-    aprovechamientoIsLoading: mercadona.isLoading,
+    aprovechamientoMercadonaPct: aprovechamiento.realPct ?? aprovechamiento.estimadoPct,
+    aprovechamientoEsReal: aprovechamiento.realPct != null,
+    aprovechamientoIsLoading: aprovechamiento.isLoading,
     evolucion,
   };
 }

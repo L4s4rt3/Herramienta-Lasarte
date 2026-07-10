@@ -21,6 +21,7 @@ import { MercadonaExpediciones } from "@/components/mercadona/MercadonaExpedicio
 import { MercadonaLotes } from "@/components/mercadona/MercadonaLotes";
 import { MercadonaPrevision } from "@/components/mercadona/MercadonaPrevision";
 import { useMercadona } from "@/hooks/useMercadona";
+import { useMercadonaAprovechamiento } from "@/hooks/useMercadonaAprovechamiento";
 import { useMercadonaVentas, type MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
 import { formatMercadonaWeekRangeLabel, mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
 import { formatKg, formatNumber, formatPct } from "@/lib/format";
@@ -286,6 +287,7 @@ function ResumenSemana({
   mercadona: ReturnType<typeof useMercadona>;
   conFacturacion: boolean;
 }) {
+  const aprovechamiento = useMercadonaAprovechamiento(semana.anio, semana.semana);
   const vendido = semana.vendido_kg ?? 0;
   const planificado = semana.planificado_semana_kg ?? 0;
   const pctCumplimiento = planificado > 0 ? (vendido / planificado) * 100 : 0;
@@ -351,31 +353,53 @@ function ResumenSemana({
       <section className="grid gap-4 xl:grid-cols-2">
         <Card className="glass-accented overflow-hidden">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Aprovechamiento MDNA (Mercadona)</CardTitle>
-            <p className="text-xs text-muted-foreground">Kg confeccionados MDNA vs total, en los días de esta semana.</p>
+            <CardTitle className="text-base">Aprovechamiento Mercadona</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Vendido real sobre los kg del calibrador (L–S); la confección MDNA queda como referencia de fábrica.
+            </p>
           </CardHeader>
           <CardContent className="space-y-3">
-            {mercadona.isLoading ? (
+            {aprovechamiento.isLoading || mercadona.isLoading ? (
               <p className="py-6 text-center text-sm text-muted-foreground">Cargando…</p>
-            ) : mercadona.kg_total === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">Sin producción registrada esta semana.</p>
             ) : (
               <>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-2xl font-semibold tabular-nums">{formatPct(mercadona.pct_kg)}</span>
-                  <span className="text-xs text-muted-foreground">{formatKg(mercadona.kg_mercadona)} / {formatKg(mercadona.kg_total)}</span>
+                  <span className="text-2xl font-semibold tabular-nums">
+                    {aprovechamiento.realPct != null ? formatPct(aprovechamiento.realPct) : formatPct(aprovechamiento.estimadoPct)}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {aprovechamiento.realPct != null
+                      ? `${formatKg(aprovechamiento.vendidoKg ?? 0)} vendidos / ${formatKg(aprovechamiento.kgCalibrador)} calibrador`
+                      : "estimado por palets · semana sin kg vendidos"}
+                  </span>
                 </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
-                  <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, mercadona.pct_kg)}%` }} />
-                </div>
-                <div className="space-y-1.5 pt-1">
-                  {mercadona.por_formato.slice(0, 5).map((f) => (
-                    <div key={f.formato} className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">{f.formato}</span>
-                      <span className="tabular-nums font-medium">{formatKg(f.kg)} · {formatPct(f.pct)}</span>
+                {aprovechamiento.fiabilidadPct != null && (
+                  <p className="text-xs text-muted-foreground">
+                    Estimador por palets: {formatKg(aprovechamiento.estimadoKg)} · {formatPct(aprovechamiento.fiabilidadPct)} del vendido real
+                  </p>
+                )}
+                {mercadona.kg_total > 0 && (
+                  <div className="space-y-1.5 border-t border-[var(--glass-border)] pt-3">
+                    <div className="flex items-baseline justify-between">
+                      <span className="panel-kicker">Confección MDNA (fábrica)</span>
+                      <span className="text-xs text-muted-foreground">
+                        <span className="font-semibold text-foreground">{formatPct(mercadona.pct_kg)}</span>
+                        {" "}· {formatKg(mercadona.kg_mercadona)} / {formatKg(mercadona.kg_total)}
+                      </span>
                     </div>
-                  ))}
-                </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, mercadona.pct_kg)}%` }} />
+                    </div>
+                    <div className="space-y-1.5 pt-1">
+                      {mercadona.por_formato.slice(0, 5).map((f) => (
+                        <div key={f.formato} className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">{f.formato}</span>
+                          <span className="tabular-nums font-medium">{formatKg(f.kg)} · {formatPct(f.pct)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </CardContent>

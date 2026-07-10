@@ -612,9 +612,10 @@ export function useAnalisisDiario(desde: string, hasta: string) {
 
       // Calcular producción real total desde los partes
       const kg_produccion_real = calcularProduccionRealPartesAnalisis(partes ?? []);
-      // Usar producción real / 8 horas para T/h promedio, o kg_lotes si no hay datos
+      // T/h promedio con la jornada de cada día (8 h hasta 1 jul 2026, 7 h después),
+      // usando producción real, o kg_lotes si no hay datos.
       const kgParaCalculo = kg_produccion_real > 0 ? kg_produccion_real : kg_lotes;
-      const avgTph = calcularTphOperativa(kgParaCalculo, diasSet.size);
+      const avgTph = calcularTphOperativa(kgParaCalculo, Array.from(diasSet));
 
       setData({
         totals: {

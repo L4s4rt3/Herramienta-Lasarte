@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { usePartesDashboard, computeRecicladoAgg, RecicladoAgg } from "@/hooks/usePartes";
 import { useMercadona } from "@/hooks/useMercadona";
+import { useMercadonaAprovechamiento } from "@/hooks/useMercadonaAprovechamiento";
 import { KPICard } from "@/components/KPICard";
 import { SemaforoPill } from "@/components/SemaforoPill";
 import { InfoTooltip } from "@/components/InfoTooltip";
@@ -225,6 +226,7 @@ export default function Dashboard() {
         ...week,
         produccion,
         palets,
+        fechas: weekPartes.map((p) => p.date),
         dsj,
         dsj_pct: produccion > 0 ? (dsj / produccion) * 100 : 0,
         mermas,
@@ -326,9 +328,17 @@ export default function Dashboard() {
   // Aprovechamiento Mercadona (mismo rango que la distribución por destino)
   const mercadona = useMercadona(currentWeek.start, currentWeek.end);
   const mercadonaFormatos = useMemo(() => mercadona.por_formato.slice(0, 6), [mercadona.por_formato]);
+  // Aprovechamiento real/estimado (vendido del informe semanal o regla de palets).
+  // Año ISO de la semana: el año del jueves (start + 3 días).
+  const mercadonaAnioIso = useMemo(() => {
+    const jueves = new Date(`${currentWeek.start}T12:00:00`);
+    jueves.setDate(jueves.getDate() + 3);
+    return jueves.getFullYear();
+  }, [currentWeek.start]);
+  const aprovechamiento = useMercadonaAprovechamiento(mercadonaAnioIso, currentWeek.weekNumber);
 
-  // T/h usando exactamente 8 horas por día
-  const avgTph = calcularTphOperativa(currentWeekData.produccion, currentWeekData.partes);
+  // T/h con la jornada operativa de cada día (8 h hasta 1 jul 2026, 7 h después).
+  const avgTph = calcularTphOperativa(currentWeekData.produccion, currentWeekData.fechas);
 
   return (
     <div className="page-shell">
@@ -473,7 +483,7 @@ export default function Dashboard() {
               label="Velocidad media"
               value={avgTph !== null ? `${avgTph.toFixed(1)} T/h` : "—"}
               icon={Gauge}
-              labelInfo="T/h = kg producidos entre horas trabajadas, usando 8 h/día como base fija. Objetivo de referencia: 14,5 T/h."
+              labelInfo="T/h = kg producidos entre las horas de jornada de cada día: 8 h/día hasta el 1 jul 2026 y 7 h/día desde el 2 jul (hasta nuevo aviso). Objetivo de referencia: 14,5 T/h."
               delta={avgTph !== null ? `${avgTph - 14.5 >= 0 ? "+" : ""}${(avgTph - 14.5).toFixed(1)} T/h` : undefined}
               deltaTrend={avgTph !== null ? (avgTph >= 14.5 ? "up" : avgTph >= 12.5 ? "neutral" : "down") : "neutral"}
               trend={avgTph !== null ? (avgTph >= 14.5 ? "up" : avgTph >= 12.5 ? "neutral" : "down") : "neutral"}
@@ -492,7 +502,9 @@ export default function Dashboard() {
               <div className="flex items-center gap-1.5">
                 <CardTitle className="text-lg font-semibold">Aprovechamiento Mercadona</CardTitle>
                 <InfoTooltip>
-                  % de los kg confeccionados (informe de producto) del período en formatos Mercadona (MDNA).
+                  Aprovechamiento real: kg vendidos según el informe semanal de Mercadona sobre los kg de entrada al
+                  calibrador (L–S). Si la semana aún no tiene informe, se muestra el estimado por palets (error histórico
+                  ±3%). La confección (kg en formatos MDNA) es métrica de fábrica: sobrestima la venta real ~15%.
                 </InfoTooltip>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -514,19 +526,32 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="space-y-5">
-              {/* KPI grande */}
+              {/* KPI grande: real (informe semanal) o, si aún no hay informe, estimado por palets */}
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-3xl font-semibold tabular-nums leading-tight sm:text-4xl">
-                    {mercadona.pct_kg.toFixed(1)}%
+                    {aprovechamiento.isLoading
+                      ? "…"
+                      : aprovechamiento.realPct != null
+                        ? `${aprovechamiento.realPct.toFixed(1)}%`
+                        : `${aprovechamiento.estimadoPct.toFixed(1)}%`}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    de los kg confeccionados de la semana fueron para Mercadona
+                    {aprovechamiento.isLoading
+                      ? "calculando…"
+                      : aprovechamiento.realPct != null
+                        ? `vendido real (${formatKg(aprovechamiento.vendidoKg ?? 0)}, informe semanal) sobre los kg del calibrador`
+                        : `estimado por palets (${formatKg(aprovechamiento.estimadoKg)}) sobre los kg del calibrador · aún sin informe semanal`}
                   </p>
                 </div>
                 <div className="flex items-center gap-4 rounded-xl bg-[var(--glass-bg)] px-4 py-2.5 text-sm">
                   <div>
-                    <p className="text-xs text-muted-foreground">Kg Mercadona</p>
+                    <p className="text-xs text-muted-foreground">Confección MDNA</p>
+                    <p className="font-semibold tabular-nums">{mercadona.pct_kg.toFixed(1)}%</p>
+                  </div>
+                  <div className="h-8 w-px bg-[var(--glass-border)]" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Kg confeccionados</p>
                     <p className="font-semibold tabular-nums">{formatKg(mercadona.kg_mercadona)}</p>
                   </div>
                   <div className="h-8 w-px bg-[var(--glass-border)]" />

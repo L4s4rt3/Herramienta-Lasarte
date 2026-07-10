@@ -1,4 +1,5 @@
 import type { LoteResumen } from "@/hooks/useAnalisisDiario";
+import { calcularTphOperativa } from "@/lib/velocidadOperativa";
 
 export const SLOW_TPH_THRESHOLD = 12.5;
 
@@ -52,8 +53,8 @@ export function calcularSubtotalesDia(lotes: LoteResumen[]): DiaSubtotales {
   const kg = lotes.reduce((s, l) => s + l.kg_peso_total, 0);
   // Usar producción real del parte si disponible, sino usar suma de lotes
   const produccionReal = lotes[0]?.produccion_real_part ?? kg;
-  // Nuevo cálculo: T/h del día = producción real / 8 horas
-  const avgTph = produccionReal > 0 ? (produccionReal / 1000) / 8 : null;
+  // T/h del día = producción real / horas de jornada del día (8 h; 7 h desde el 2 jul 2026).
+  const avgTph = calcularTphOperativa(produccionReal, lotes[0]?.fecha ?? null);
   const lotesConPeso = lotes.filter((l) => l.peso_fruta_promedio_g !== null && l.peso_fruta_promedio_g > 0);
   const avgPesoFruta = lotesConPeso.length > 0
     ? lotesConPeso.reduce((s, l) => s + l.peso_fruta_promedio_g!, 0) / lotesConPeso.length

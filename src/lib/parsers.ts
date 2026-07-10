@@ -575,8 +575,8 @@ export function parseInformeProduccion(wb: XLSX.WorkBook): ParsedProduccion {
 
   const kg_total = lotes.reduce((s, l) => s + l.kg_peso_total, 0);
 
-  // Velocidad general: kg del dia / 8 horas fijas por día.
-  // Cada informe de producción cubre un único día.
+  // Ruta legacy sin fecha: kg del día / 8 h fijas. Cada informe cubre un único
+  // día; las vistas vivas usan la jornada real del día (velocidadOperativa.ts).
   const tph_promedio = calcularTphOperativa(kg_total, 1);
 
   return {

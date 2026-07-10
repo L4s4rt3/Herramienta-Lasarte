@@ -143,7 +143,7 @@ export default function DireccionDashboard() {
                 className="glass-accented"
                 label="Velocidad media"
                 value={produccion.velocidadMedia != null ? `${produccion.velocidadMedia.toFixed(1)} T/h` : "—"}
-                hint="Meta 14,5 T/h"
+                hint="Meta 14,5 T/h · 7 h/día desde el 2 jul"
                 icon={Gauge}
                 to="/produccion"
               />
@@ -151,9 +151,15 @@ export default function DireccionDashboard() {
                 className="glass-accented"
                 label="Aprovechamiento Mercadona"
                 value={produccion.aprovechamientoIsLoading ? "…" : formatPct(produccion.aprovechamientoMercadonaPct, 1)}
-                hint="Kg confeccionados de la semana"
+                hint={
+                  produccion.aprovechamientoIsLoading
+                    ? undefined
+                    : produccion.aprovechamientoEsReal
+                      ? "Vendido real (informe) / kg calibrador"
+                      : "Estimado por palets · sin informe aún"
+                }
                 icon={ShoppingCart}
-                to="/produccion"
+                to="/mercadona"
               />
             </>
           )}

@@ -270,6 +270,7 @@ function RankingHistoricoProductores({
           <CardTitle className="flex items-center gap-2 text-base">
             <Trophy className="h-4 w-4 text-warning" /> Aprovechamiento Mercadona por productor
             <InfoTooltip>
+              Se basa en la CONFECCIÓN MDNA (métrica de fábrica), no en el vendido real del informe semanal.
               Estimación por reparto diario: no existe trazabilidad lote → formato exacta, así que a cada lote se le
               asigna el % de kg MDNA que tuvo su día de producción (kg de productos MDNA / kg totales del día,
               excluye precalibrado) y se pondera por los kg del lote. Usa el umbral de kg mínimos para que los

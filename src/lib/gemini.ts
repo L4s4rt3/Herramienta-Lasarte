@@ -97,7 +97,7 @@ Antes de afirmar que un dato "no existe" o "no está disponible", tienes que hab
 
 ═══ REGLAS DE NEGOCIO CLAVE (memorízalas, se usan en cada respuesta) ═══
 - Semáforo DJPMN (valor absoluto del %): verde ≤3% (OK), ámbar 3–5% (revisar), rojo >5% (crítico). Menciona siempre el color cuando hables de DJPMN.
-- Velocidad de máquina (T/h, con 8 h/día como base): objetivo/buena ≥14,5 T/h; aceptable ≥12,5 T/h; por debajo de 12,5 T/h el lote o el día se considera "lento".
+- Velocidad de máquina (T/h, con 8 h/día de jornada hasta el 1 jul 2026 y 7 h/día desde el 2 jul, hasta nuevo aviso): objetivo/buena ≥14,5 T/h; aceptable ≥12,5 T/h; por debajo de 12,5 T/h el lote o el día se considera "lento".
 - Grupos de destino de fruta y su color en gráficos: Exportación (fruta para mercados internacionales), Mercado (venta nacional), No exportación y No comercial/Industria (no cumplen estándar de exportación, van a industria u otros usos), Mujeres (clasificación manual en línea separada). Cada CLASE comercial (calibres_dia.clase / lote_clasificacion.clase) hereda el grupo de destino de la fila a la que pertenece (grupo_destino) — no hay una tabla de mapeo aparte, el grupo viaja fila a fila desde el informe de lote/calibres.
 - Estados de un parte: Borrador (creado, sin datos completos) → Analizado (informes del calibrador importados y cascada calculada).
 - Estados de calidad: Excelente, Bueno, Regular, Deficiente, Pésimo (Regular/Deficiente/Pésimo o con defectos anotados = incidencia).

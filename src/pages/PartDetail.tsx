@@ -22,7 +22,7 @@ import { computeCascade } from "@/lib/cascade";
 import { formatDate, formatKg } from "@/lib/format";
 import { getSemaforo } from "@/lib/semaforo";
 import { detectarTipoClasificacion, GRUPO_COLORS } from "@/lib/destinoClasificacion";
-import { calcularTphOperativa } from "@/lib/velocidadOperativa";
+import { calcularTphOperativa, horasOperativasDia } from "@/lib/velocidadOperativa";
 import {
   calcularRendimientoGrupos, calcularResumenKgPersonaOperacion, RENDIMIENTO_GRUPOS,
 } from "@/lib/asistenciaRendimiento";
@@ -210,8 +210,9 @@ export default function PartDetail() {
       kg_podrido_bolsa_basura: Number(parte.kg_podrido_bolsa_basura),
       kg_inventario_anterior_sin_alta: Number(parte.kg_inventario_anterior_sin_alta),
     });
-    // T/h operativo de este parte: kg de producción real entre 8h (1 día).
-    return { ...base, tph_promedio: calcularTphOperativa(base.produccion_real, 1) };
+    // T/h operativo de este parte: kg de producción real entre las horas de
+    // jornada del día (8 h hasta 1 jul 2026, 7 h después).
+    return { ...base, tph_promedio: calcularTphOperativa(base.produccion_real, parte.date) };
   }, [parte]);
 
   // Las secciones de lectura del parte muestran datos que se escriben FUERA
@@ -710,8 +711,8 @@ export default function PartDetail() {
           label="Velocidad día"
           value={cascade.tph_promedio !== null ? `${cascade.tph_promedio.toFixed(1)} T/h` : "—"}
           icon={Gauge}
-          labelInfo="Producción real entre 8 horas trabajadas."
-          hint="kg del día ÷ 8h"
+          labelInfo="Producción real entre las horas de jornada del día: 8 h hasta el 1 jul 2026 y 7 h desde el 2 jul (hasta nuevo aviso)."
+          hint={`kg del día ÷ ${horasOperativasDia(parte?.date)} h`}
         />
         <KPICard
           label="Velocidad calibrador"

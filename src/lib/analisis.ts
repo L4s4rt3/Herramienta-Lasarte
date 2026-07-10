@@ -181,7 +181,8 @@ export function computeAnalisis(
   const lotes = produccion?.lotes ?? [];
   const lotesConTph = lotes.filter((l) => l.toneladas_hora && l.toneladas_hora > 0);
 
-  // Usar exactamente 8 horas por día como base fija (el análisis es de un solo día)
+  // Ruta legacy sin fecha: 8 h fijas (el análisis es de un solo día). Las vistas
+  // vivas calculan el T/h con la jornada real del día (ver velocidadOperativa.ts).
   const tph_promedio = calcularTphOperativa(kg_calibrador, 1);
   let tph_min: number | null = null;
   let tph_max: number | null = null;
