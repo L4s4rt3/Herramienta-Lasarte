@@ -100,7 +100,7 @@ export default function DireccionDashboard() {
 
       {/* ═══ Producción ═══════════════════════════════════════════════════ */}
       <section className="space-y-3">
-        <AreaHeader icon={Factory} title="Producción" subtitle={`Semana ${produccion.semanaLabel} · cascada DJPMN`} to="/" />
+        <AreaHeader icon={Factory} title="Producción" subtitle={`Semana ${produccion.semanaLabel} · cascada DJPMN`} to="/produccion" />
 
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
           {produccion.isLoading ? (
@@ -113,7 +113,7 @@ export default function DireccionDashboard() {
                 value={formatKg(produccion.produccionSemanaKg)}
                 hint={produccion.hayDatos ? `Semana ${produccion.semanaLabel}` : "Sin partes esta semana"}
                 icon={Truck}
-                to="/"
+                to="/produccion"
               />
               <KPICard
                 className="glass-accented"
@@ -121,7 +121,7 @@ export default function DireccionDashboard() {
                 value={`${produccion.mermasPct.toFixed(2)}%`}
                 hint={produccion.hayDatos ? `${formatKg(produccion.mermasKg)} · manual + calibrador` : "Sin partes esta semana"}
                 icon={Trash2}
-                to="/"
+                to="/produccion"
               >
                 <div className="mt-2.5 flex items-center justify-between gap-2 rounded-md border-l-[3px] border-warning bg-warning/10 px-2.5 py-1.5">
                   <p className="min-w-0 text-xs font-medium leading-tight">Merma + DSJ</p>
@@ -137,7 +137,7 @@ export default function DireccionDashboard() {
                 hint={produccion.semaforo.label}
                 accent={produccion.semaforo.accent}
                 icon={TrendingDown}
-                to="/"
+                to="/produccion"
               />
               <KPICard
                 className="glass-accented"
@@ -145,7 +145,7 @@ export default function DireccionDashboard() {
                 value={produccion.velocidadMedia != null ? `${produccion.velocidadMedia.toFixed(1)} T/h` : "—"}
                 hint="Meta 14,5 T/h"
                 icon={Gauge}
-                to="/"
+                to="/produccion"
               />
               <KPICard
                 className="glass-accented"
@@ -153,7 +153,7 @@ export default function DireccionDashboard() {
                 value={produccion.aprovechamientoIsLoading ? "…" : formatPct(produccion.aprovechamientoMercadonaPct, 1)}
                 hint="Kg confeccionados de la semana"
                 icon={ShoppingCart}
-                to="/"
+                to="/produccion"
               />
             </>
           )}

@@ -8,7 +8,7 @@ import { AuthProvider } from "@/contexts/AuthProvider";
 import { ThemeProvider } from "@/contexts/ThemeProvider";
 import { I18nProvider } from "@/lib/i18n";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import RoleRoute from "@/components/RoleRoute";
+import RoleRoute, { RoleHome } from "@/components/RoleRoute";
 import AppLayout from "@/components/AppLayout";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/queryClient";
@@ -76,7 +76,9 @@ const App = () => (
                     }
                   >
                     <Route element={<RoleRoute />}>
-                      <Route path="/" element={<Dashboard />} />
+                      {/* "/" es la home por rol: cada rol aterriza en su dashboard. */}
+                      <Route path="/" element={<RoleHome />} />
+                      <Route path="/produccion" element={<Dashboard />} />
                       <Route path="/calidad" element={<CalidadJornada />} />
                       <Route path="/partes" element={<PartesList />} />
                       <Route path="/partes/:id" element={<PartDetail />} />
@@ -122,8 +124,7 @@ const App = () => (
                       debe poder ver el 404 sin que se le fuerce antes por /auth, y esto
                       mantiene el comportamiento previo para todos los roles. Un "ventas"
                       autenticado que llegue aquí ve el mismo 404 que cualquier otro rol;
-                      su enlace "Volver al panel" apunta a "/", que RoleRoute ya redirige
-                      a /ventas/categoria-segunda. */}
+                      su enlace "Volver al panel" apunta a "/", la home por rol (RoleHome). */}
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </Suspense>

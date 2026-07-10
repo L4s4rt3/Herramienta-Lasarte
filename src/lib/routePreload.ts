@@ -34,7 +34,7 @@ export const pageLoaders = {
 };
 
 const preloadByPath: Record<string, () => Promise<unknown>> = {
-  "/": pageLoaders.dashboard,
+  "/produccion": pageLoaders.dashboard,
   "/calidad": pageLoaders.calidad,
   "/partes": pageLoaders.partesList,
   "/costes/consumos": pageLoaders.consumoCostes,

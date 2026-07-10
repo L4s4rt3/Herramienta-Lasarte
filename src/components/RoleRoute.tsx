@@ -1,21 +1,38 @@
 // src/components/RoleRoute.tsx
 // Guard de rol para el árbol de rutas protegidas: el rol "ventas" (Juanvi)
-// solo debe poder llegar a sus 5 secciones comerciales. Cualquier otra ruta
-// (incluida "/") lo manda a /ventas/categoria-segunda, su home. Admin y
-// operario no están restringidos aquí (operario ya se filtra en la propia
-// página/hook, p.ej. useVentasCategoriaAccess).
+// solo debe poder llegar a su espacio comercial. Cualquier otra ruta lo manda
+// a /comercial (el panel comercial, su dashboard). Admin y operario no están
+// restringidos aquí (operario ya se filtra en la propia página/hook,
+// p.ej. useVentasCategoriaAccess).
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthProvider";
+import type { Role } from "@/contexts/AuthProvider";
 
-export const VENTAS_HOME = "/ventas/categoria-segunda";
+export const VENTAS_HOME = "/comercial";
 export const RRHH_HOME = "/rrhh";
 
 export const VENTAS_ALLOWED_PATHS = [
   VENTAS_HOME,
+  "/ventas/categoria-segunda",
   "/ventas/categoria-primera",
   "/comercial/mercadona",
   "/cmr",
 ] as const;
+
+/** Home de cada rol: su dashboard. "/" redirige aquí (ver RoleHome). */
+export function homeForRole(role: Role): string {
+  switch (role) {
+    case "admin":
+      return "/direccion";
+    case "ventas":
+      return VENTAS_HOME;
+    case "rrhh":
+      return RRHH_HOME;
+    default:
+      // operario / rol básico: el panel de producción.
+      return "/produccion";
+  }
+}
 
 function isAllowedForVentas(pathname: string): boolean {
   return VENTAS_ALLOWED_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
@@ -73,4 +90,24 @@ export default function RoleRoute() {
   }
 
   return <Outlet />;
+}
+
+/**
+ * Elemento de la ruta "/": la home de cada rol es su dashboard
+ * (admin → dirección, ventas → comercial, rrhh → RRHH, operario → producción).
+ * Los roles ventas/rrhh normalmente ya llegan redirigidos por RoleRoute antes
+ * de montar esto; se cubren igualmente por si el guard cambia.
+ */
+export function RoleHome() {
+  const { role, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  return <Navigate to={homeForRole(role)} replace />;
 }

@@ -48,7 +48,7 @@ const VENTAS_ALLOWED = new Set([
 ]);
 
 const PAGES = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, keywords: "panel inicio dashboard" },
+  { to: "/produccion", label: "Panel de producción", icon: LayoutDashboard, keywords: "panel inicio dashboard produccion" },
   { to: "/calidad", label: "Jornada de Calidad", icon: ClipboardCheck, keywords: "calidad lotes notas aerobotics finca productor" },
   { to: "/partes", label: "Partes diarios", icon: FileText, keywords: "partes produccion diario" },
   { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3, keywords: "analisis diario lotes calibres" },

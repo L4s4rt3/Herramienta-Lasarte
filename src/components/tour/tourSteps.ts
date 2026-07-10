@@ -53,7 +53,7 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: "dashboard",
     workspace: "produccion",
-    to: "/",
+    to: "/produccion",
     icon: LayoutDashboard,
     title: "Panel de producción",
     description:
@@ -116,7 +116,7 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: "trucos-produccion",
     workspace: "produccion",
-    to: "/",
+    to: "/produccion",
     icon: Sparkles,
     title: "Trucos rápidos",
     description:

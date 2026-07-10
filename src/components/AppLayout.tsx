@@ -114,7 +114,7 @@ export const WORKSPACES: Array<{
     id: "produccion",
     label: "Producción",
     icon: Citrus,
-    home: "/",
+    home: "/produccion",
     matches: () => true,
     allowedFor: (role) => role === "admin" || role === "operario",
   },
@@ -136,7 +136,7 @@ const navGroups: Array<{ label: string; workspace: WorkspaceId; items: NavItem[]
     label: "Dashboard",
     workspace: "produccion",
     items: [
-      { to: "/", label: "Panel de producción", icon: LayoutDashboard, match: (path) => path === "/" },
+      { to: "/produccion", label: "Panel de producción", icon: LayoutDashboard, match: (path) => path === "/produccion" },
     ],
   },
   {
@@ -270,12 +270,14 @@ function AppLayoutContent() {
             <SidebarMenuItem>
               <SidebarMenuButton size="lg" asChild className="h-14">
                 <NavLink to="/" onClick={closeMobileSidebar}>
-                  <div className="flex aspect-square size-10 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground shadow-[var(--glass-shadow-lg)]">
-                    <Citrus className="size-5" />
-                  </div>
+                  <img
+                    src="/logo.jpg"
+                    alt="Herramienta Lasarte Cítricos S.L."
+                    className="aspect-square size-10 shrink-0 object-contain"
+                  />
                   <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold text-sidebar-foreground">Lasarte Cítricos S.L.</span>
-                    <span className="truncate text-xs text-sidebar-foreground/55">Dashboard</span>
+                    <span className="truncate font-semibold text-sidebar-foreground">Herramienta Lasarte</span>
+                    <span className="truncate text-xs text-sidebar-foreground/55">Cítricos S.L.</span>
                   </div>
                 </NavLink>
               </SidebarMenuButton>
