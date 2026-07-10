@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { usePartesDashboard, computeRecicladoAgg, RecicladoAgg } from "@/hooks/usePartes";
 import { useMercadona } from "@/hooks/useMercadona";
 import { useMercadonaAprovechamiento } from "@/hooks/useMercadonaAprovechamiento";
+import { ConfeccionZonas } from "@/components/ConfeccionZonas";
 import { KPICard } from "@/components/KPICard";
 import { SemaforoPill } from "@/components/SemaforoPill";
 import { InfoTooltip } from "@/components/InfoTooltip";
@@ -698,6 +699,14 @@ export default function Dashboard() {
           )}
         </CardContent>
       </Card>
+
+      {/* ─── Confección por zona (mallas / granel / envasado / industria) ── */}
+      <ConfeccionZonas
+        semanaStart={currentWeek.start}
+        semanaEnd={currentWeek.end}
+        semanaTitle={`Semana ${currentWeek.weekNumber}`}
+        semanaSubtitle={currentWeek.rangeLabel}
+      />
 
       {/* ─── Evolución semanal ────────────────────────────────────────────── */}
       <Card className="overflow-hidden glass-accented">
