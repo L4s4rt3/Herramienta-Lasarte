@@ -56,7 +56,7 @@ export function DailyGroupTable({ lines, pageSize = 5 }: DailyGroupTableProps) {
   if (dayGroups.length === 0) {
     return (
       <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-        No hay lineas con estos filtros.
+        No hay líneas con estos filtros.
       </div>
     );
   }
@@ -74,7 +74,7 @@ export function DailyGroupTable({ lines, pageSize = 5 }: DailyGroupTableProps) {
               {isExpanded ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
               <div className="min-w-0 flex-1">
                 <span className="font-semibold">{formatDate(`${day.fecha}T12:00:00`)}</span>
-                <span className="ml-2 text-xs text-muted-foreground">{day.lines.length} lineas</span>
+                <span className="ml-2 text-xs text-muted-foreground">{day.lines.length} líneas</span>
               </div>
               <div className="flex items-center gap-4 text-sm tabular-nums">
                 <span className="font-medium">{formatKg(day.totalKilos)}</span>
@@ -87,8 +87,8 @@ export function DailyGroupTable({ lines, pageSize = 5 }: DailyGroupTableProps) {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="sticky left-0 z-10 bg-[var(--glass-bg-solid)]">Cliente</TableHead>
-                      <TableHead className="sticky left-[180px] z-10 bg-[var(--glass-bg-solid)] min-w-[280px]">Articulo</TableHead>
-                      <TableHead>Metodo</TableHead>
+                      <TableHead className="sticky left-[180px] z-10 bg-[var(--glass-bg-solid)] min-w-[280px]">Artículo</TableHead>
+                      <TableHead>Método</TableHead>
                       <TableHead className="text-right">Kilos</TableHead>
                       <TableHead className="text-right">PM</TableHead>
                       <TableHead className="text-right">Base</TableHead>

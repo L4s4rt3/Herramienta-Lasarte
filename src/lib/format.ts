@@ -31,4 +31,13 @@ export const formatDate = (d: string | Date) => {
   return _df.format(date);
 };
 
+// Fecha y hora legibles; devuelve "" si el valor no es una fecha válida
+// (evita imprimir "Invalid Date" en pantalla o en reportes).
+export const formatDateTime = (d: string | Date | null | undefined) => {
+  if (!d) return "";
+  const date = typeof d === "string" ? new Date(d) : d;
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("es-ES");
+};
+
 export const today = () => toISODateLocal(new Date());

@@ -60,7 +60,7 @@ export async function searchCode(
     const embedding = await generateEmbedding(query);
 
     const { data, error } = await supabase.rpc('search_code', {
-      query_embedding: embedding,
+      query_embedding: JSON.stringify(embedding),
       match_threshold: matchThreshold,
       match_count: matchCount,
     });
@@ -86,14 +86,14 @@ export async function searchConversations(
     const embedding = await generateEmbedding(query);
 
     const { data, error } = await supabase.rpc('search_conversations', {
-      query_embedding: embedding,
+      query_embedding: JSON.stringify(embedding),
       user_uuid: userId,
       match_threshold: matchThreshold,
       match_count: matchCount,
     });
 
     if (error) throw error;
-    return data || [];
+    return (data || []) as ConversationChunk[];
   } catch (error) {
     console.error('Error buscando conversaciones:', error);
     return [];
@@ -112,7 +112,7 @@ export async function searchKnowledge(
     const embedding = await generateEmbedding(query);
 
     const { data, error } = await supabase.rpc('search_knowledge', {
-      query_embedding: embedding,
+      query_embedding: JSON.stringify(embedding),
       match_threshold: matchThreshold,
       match_count: matchCount,
     });
@@ -141,7 +141,7 @@ export async function saveConversation(
       user_id: userId,
       role,
       content,
-      embedding,
+      embedding: JSON.stringify(embedding),
       metadata,
     });
 
@@ -168,7 +168,7 @@ export async function saveKnowledge(
       user_id: userId,
       question,
       answer,
-      embedding,
+      embedding: JSON.stringify(embedding),
       feedback_score: feedbackScore,
       metadata,
     });

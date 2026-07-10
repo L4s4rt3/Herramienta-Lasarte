@@ -55,14 +55,14 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parentLabel: "RRHH",
   },
   "/ventas/categoria-segunda": {
-    label: "Categoria segunda",
-    subtitle: "Ventas por cliente, producto, articulo, precio medio y ajustes reales de comision/transporte.",
+    label: "Categoría segunda",
+    subtitle: "Ventas por cliente, producto, artículo, precio medio y ajustes reales de comisión/transporte.",
     parent: "/",
     parentLabel: "Comercial",
   },
   "/ventas/categoria-primera": {
-    label: "Categoria primera",
-    subtitle: "Ventas del resto de productos y clientes (primera categoria).",
+    label: "Categoría primera",
+    subtitle: "Ventas del resto de productos y clientes (primera categoría).",
     parent: "/",
     parentLabel: "Comercial",
   },

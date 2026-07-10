@@ -168,7 +168,7 @@ export function parseConsumoNumber(value: string): number {
 }
 
 export function kgProducidosParte(parte: ParteKgInput): number {
-  return produccionRealParte(parte);
+  return produccionRealParte(parte as unknown as Record<string, unknown>);
 }
 
 export function buildDailyWaterMeterConsumo(input: DailyWaterMeterInput): DailyWaterMeterConsumo {
@@ -567,9 +567,7 @@ function totalConsumosForPeriod(consumos: ConsumoFisicoInput[], period: Consumpt
       const normalized = normalizeConsumoCantidad(consumo);
       const cantidad = normalized.cantidadBase * factor;
 
-      if (consumo.recurso === "agua") {
-        acc.aguaL += cantidad;
-      } else if (consumo.recurso === "electricidad") {
+      if (consumo.recurso === "electricidad") {
         acc.electricidadKwh += cantidad;
       } else {
         acc.quimicosL += cantidad;
@@ -933,7 +931,7 @@ function sameDateRange(fechaInicio: string, fechaFin: string, period: Consumptio
 }
 
 function finiteOrZero(value: number | null | undefined): number {
-  return Number.isFinite(value) ? value : 0;
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function buildMonthPeriods(rangeStart: string, rangeEnd: string): ConsumptionPeriod[] {

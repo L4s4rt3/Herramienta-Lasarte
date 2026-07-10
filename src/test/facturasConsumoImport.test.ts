@@ -94,33 +94,23 @@ describe("facturas consumo import", () => {
 
     expect(isDuplicateFacturaConsumo(consumo, [
       {
-        id: "saved-1",
-        user_id: "user-1",
-        created_at: "2026-06-12",
         recurso: "gasoil",
         fecha_inicio: "2024-11-07",
         fecha_fin: "2024-11-07",
         cantidad: 801,
         unidad: "l",
-        fuente: "factura_detallada",
         referencia: "24 1923 / 03 91827",
-        notas: "Importado antes",
       },
     ])).toBe(true);
 
     expect(isDuplicateFacturaConsumo(consumo, [
       {
-        id: "saved-2",
-        user_id: "user-1",
-        created_at: "2026-06-12",
         recurso: "gasoil",
         fecha_inicio: "2024-11-08",
         fecha_fin: "2024-11-08",
         cantidad: 801,
         unidad: "l",
-        fuente: "factura_detallada",
         referencia: "24 1923 / 03 91827",
-        notas: "Otro dia",
       },
     ])).toBe(false);
   });

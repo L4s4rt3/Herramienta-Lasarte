@@ -14,12 +14,14 @@
  */
 import { Suspense, lazy, useState } from "react";
 import { type AnalisisDia, type Alerta } from "@/lib/analisis";
-import { formatKg, formatNumber } from "@/lib/format";
+import { formatKg, formatNumber, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ReporteOperativo } from "@/components/ReporteOperativo";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+// Bar y Pie son componentes de clase de recharts con props obligatorias que no
+// encajan con la firma de lazy(); el cast es solo para el tipado, no cambia nada.
 const BarChart = lazy(() => import("recharts").then(m => ({ default: m.BarChart })));
-const Bar = lazy(() => import("recharts").then(m => ({ default: m.Bar })));
+const Bar = lazy(() => import("recharts").then(m => ({ default: m.Bar as unknown as React.ComponentType<Record<string, unknown>> })));
 const XAxis = lazy(() => import("recharts").then(m => ({ default: m.XAxis })));
 const YAxis = lazy(() => import("recharts").then(m => ({ default: m.YAxis })));
 const CartesianGrid = lazy(() => import("recharts").then(m => ({ default: m.CartesianGrid })));
@@ -27,13 +29,13 @@ const Tooltip = lazy(() => import("recharts").then(m => ({ default: m.Tooltip })
 const Legend = lazy(() => import("recharts").then(m => ({ default: m.Legend })));
 const ResponsiveContainer = lazy(() => import("recharts").then(m => ({ default: m.ResponsiveContainer })));
 const PieChart = lazy(() => import("recharts").then(m => ({ default: m.PieChart })));
-const Pie = lazy(() => import("recharts").then(m => ({ default: m.Pie })));
+const Pie = lazy(() => import("recharts").then(m => ({ default: m.Pie as unknown as React.ComponentType<Record<string, unknown>> })));
 const Cell = lazy(() => import("recharts").then(m => ({ default: m.Cell })));
-import { AlertTriangle, Info, XCircle, Globe, Gauge, Package, Warehouse, TrendingUp, Users, BarChart3, FileText } from "lucide-react";
+import { AlertTriangle, Info, XCircle, Globe, Gauge, Warehouse, TrendingUp, BarChart3, FileText } from "lucide-react";
 import {
-  GlassTooltip, C, DEST_COLORS, GRID, XAXIS, YAXIS, MARGIN,
+  GlassTooltip, DEST_COLORS, GRID, XAXIS, YAXIS, MARGIN,
   BAR_STYLE, BAR_STYLE_STACKED, CHART_CURSOR, CHART_LINE_CURSOR,
-  CHART_PANEL_CLASS, PIE_STYLE, tphColor, barFill,
+  CHART_PANEL_CLASS, PIE_STYLE, tphColor, barFill, legendStyle,
 } from "@/lib/chartTheme";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -107,7 +109,7 @@ function CalibreTooltip({ active, payload, label }: ChartTooltipProps) {
   const total = payload.reduce((s, p) => s + Number(p.value ?? 0), 0);
   const items = payload.map((p) => ({ name: String(p.name ?? ""), value: formatKg(Number(p.value ?? 0)), color: p.fill }));
   items.push({ name: "Total", value: formatKg(total), color: "#888" });
-  return <GlassTooltip active label={label} payload={items} />;
+  return <GlassTooltip active label={label != null ? String(label) : undefined} payload={items} />;
 }
 
 function PieTooltip({ active, payload }: ChartTooltipProps<{ color?: string }>) {
@@ -147,7 +149,7 @@ type Vista = "dashboard" | "reporte";
 
 export function AnalisisDashboard({ analisis, fechaParte }: Props) {
   const [vista, setVista] = useState<Vista>("dashboard");
-  const { kpis, alertas, calibres, clientes, top_productos, productores,
+  const { kpis, alertas, productores,
           serie_calibres, serie_destinos, serie_tph_por_lote } = analisis;
 
   const dangerCount  = alertas.filter(a => a.severidad === "danger").length;
@@ -317,9 +319,9 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
                 <CartesianGrid {...GRID} />
                 <XAxis dataKey="lote" {...XAXIS} fontSize={9} />
                 <YAxis {...YAXIS} tickFormatter={v => `${v}T`} width={30} domain={["auto", "auto"]} />
-                <Tooltip cursor={CHART_CURSOR} content={(props: ChartTooltipProps<TphTooltipPoint>) => {
+                <Tooltip cursor={CHART_CURSOR} content={(props) => {
                   if (!props.active || !props.payload?.length) return null;
-                  const d = props.payload[0].payload;
+                  const d = props.payload[0].payload as TphTooltipPoint;
                   const c = tphColor(d.tph);
                   const items = [
                     { name: "Productor", value: d.productor, color: c },
@@ -423,7 +425,7 @@ export function AnalisisDashboard({ analisis, fechaParte }: Props) {
       )}
 
       <p className="text-[10px] text-muted-foreground text-right">
-        Análisis generado · {new Date(analisis.fecha_analisis).toLocaleString("es-ES")}
+        Análisis generado · {formatDateTime(analisis.fecha_analisis)}
       </p>
 
         </Suspense>

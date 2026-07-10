@@ -31,6 +31,15 @@ interface ExcelViewerDialogProps {
 
 type SheetData = { name: string; headers: string[]; rows: string[][] };
 
+// Trazas de diagnóstico del parseo/reparación de Excel. Silenciosas por defecto;
+// se activan añadiendo ?debug a la URL (mismo mecanismo que src/lib/parsers.ts).
+const DEBUG = typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).has("debug");
+
+function dlog(...args: unknown[]) {
+  if (DEBUG) console.log(...args);
+}
+
 export function formatSize(bytes: number | null): string {
   if (!bytes) return "";
   if (bytes < 1024) return `${bytes} B`;
@@ -91,9 +100,9 @@ const MODULE_VARIANT_HEADERS: Record<string, string[]> = {
 
 function detectModuleVariant(filename: string, firstRow?: string[]): keyof typeof MODULE_VARIANT_HEADERS | null {
   const f = filename.toLowerCase();
-  console.log(`[DEBUG] detectModuleVariant: filename="${f}"`);
+  dlog(`[DEBUG] detectModuleVariant: filename="${f}"`);
   if (/(palets?|palet)\b/.test(f)) {
-    console.log(`[DEBUG] detectModuleVariant: matched "palets" in filename`);
+    dlog(`[DEBUG] detectModuleVariant: matched "palets" in filename`);
     return "palets";
   }
   if (/(producci[oó]n|partes?)\b/.test(f)) return "produccion";
@@ -103,7 +112,7 @@ function detectModuleVariant(filename: string, firstRow?: string[]): keyof typeo
     const c0 = firstRow[0].toLowerCase();
     if (c0.startsWith("palet ")) return "palets";
   }
-  console.log(`[DEBUG] detectModuleVariant: no variant matched, returning null`);
+  dlog(`[DEBUG] detectModuleVariant: no variant matched, returning null`);
   return null;
 }
 
@@ -235,10 +244,10 @@ export function parseSheetToStructured(sheet: SheetData, filename: string): Pars
   if (clean.length === 0) return result;
 
   // DEBUG: Dump de las primeras 20 filas para diagnosticar estructura del archivo
-  console.log(`[DEBUG] First 20 rows of ${filename}:`);
+  dlog(`[DEBUG] First 20 rows of ${filename}:`);
   for (let i = 0; i < Math.min(20, clean.length); i++) {
     const cells = clean[i].filter((c) => c.length > 0);
-    console.log(`  row ${i}: [${cells.slice(0, 8).map((c) => `"${c.slice(0, 30)}${c.length > 30 ? "..." : ""}"`).join(", ")}]${cells.length > 8 ? ` (+${cells.length - 8} more)` : ""}`);
+    dlog(`  row ${i}: [${cells.slice(0, 8).map((c) => `"${c.slice(0, 30)}${c.length > 30 ? "..." : ""}"`).join(", ")}]${cells.length > 8 ? ` (+${cells.length - 8} more)` : ""}`);
   }
 
   // 2) Detectar columnas con datos y recortar
@@ -278,23 +287,23 @@ export function parseSheetToStructured(sheet: SheetData, filename: string): Pars
     const row = rows[i];
     const cells = row.filter((c) => c.length > 0);
     if (cells.length < 2) {
-      if (i < 20) console.log(`[DEBUG] row ${i} SKIPPED: <2 cells (${cells.length})`);
+      if (i < 20) dlog(`[DEBUG] row ${i} SKIPPED: <2 cells (${cells.length})`);
       continue;
     }
     // Saltar controles de UI de Excel (filtros, fecha de lote...)
     if (row.some((c) => UI_CONTROL_RE.test(c))) {
-      if (i < 20) console.log(`[DEBUG] row ${i} SKIPPED: UI control (cells: [${cells.slice(0, 4).join(", ")}])`);
+      if (i < 20) dlog(`[DEBUG] row ${i} SKIPPED: UI control (cells: [${cells.slice(0, 4).join(", ")}])`);
       continue;
     }
     // Una fila NO es header si tiene ":" (sería "Label: Value" de métrica)
     if (row.some((c) => c.includes(":"))) {
-      if (i < 20) console.log(`[DEBUG] row ${i} SKIPPED: has ":" (cells: [${cells.slice(0, 4).map((c) => c.slice(0, 25)).join(", ")}])`);
+      if (i < 20) dlog(`[DEBUG] row ${i} SKIPPED: has ":" (cells: [${cells.slice(0, 4).map((c) => c.slice(0, 25)).join(", ")}])`);
       continue;
     }
     // La mayoría de celdas deben ser texto, no números
     const numericCount = cells.filter((c) => /^-?\d+([.,]\d+)?%?$/.test(c)).length;
     if (numericCount >= cells.length / 2) {
-      if (i < 20) console.log(`[DEBUG] row ${i} SKIPPED: ≥50% numeric (${numericCount}/${cells.length}) (cells: [${cells.slice(0, 4).join(", ")}])`);
+      if (i < 20) dlog(`[DEBUG] row ${i} SKIPPED: ≥50% numeric (${numericCount}/${cells.length}) (cells: [${cells.slice(0, 4).join(", ")}])`);
       continue;
     }
     // No es cabecera si es exactamente un par "label | value" de 2 celdas Y
@@ -302,19 +311,19 @@ export function parseSheetToStructured(sheet: SheetData, filename: string): Pars
     // es un bloque clave-valor (p.ej. "NARANJAS TOTALES | 18 May - 31 May",
     // "ANTEQUERA VERDURA | 400.879"), no la fila de cabecera de una tabla.
     if (cells.length === 2 && isTwoCellKvRow(row) && followingKvRatio(i + 1, 4) >= 0.5) {
-      if (i < 20) console.log(`[DEBUG] row ${i} SKIPPED: looks like kv-block row (followed by more kv rows)`);
+      if (i < 20) dlog(`[DEBUG] row ${i} SKIPPED: looks like kv-block row (followed by more kv rows)`);
       continue;
     }
     // Fila con DOS pares etiqueta→valor lado a lado (informes GSTOCK tipo
     // "Commodity | VALENCIA DELTA | Fecha y Hora de Comienzo | 02/07/2026").
     if (cells.length === 4 && extractFourCellKvPairs(row)) {
-      if (i < 20) console.log(`[DEBUG] row ${i} SKIPPED: looks like double kv row`);
+      if (i < 20) dlog(`[DEBUG] row ${i} SKIPPED: looks like double kv row`);
       continue;
     }
     // TODAS las celdas deben ser cortas (cabeceras reales son cortas: "Producto", "Fecha"...)
     const longCells = cells.filter((c) => c.length > MAX_HEADER_CELL_LEN).length;
     if (longCells > 0) {
-      if (i < 20) console.log(`[DEBUG] row ${i} SKIPPED: ${longCells} cell(s) >30 chars (longest: "${cells.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 40)}...")`);
+      if (i < 20) dlog(`[DEBUG] row ${i} SKIPPED: ${longCells} cell(s) >30 chars (longest: "${cells.reduce((a, b) => (a.length > b.length ? a : b), "").slice(0, 40)}...")`);
       // Si es en las primeras 50 filas, guardar como fallback
       if (i < MAX_FALLBACK_SCAN) {
         const textCount = cells.length - numericCount;
@@ -328,16 +337,16 @@ export function parseSheetToStructured(sheet: SheetData, filename: string): Pars
     }
     // Cabecera válida encontrada
     headerIdx = i;
-    console.log(`[DEBUG] header found at row ${i}: [${cells.slice(0, 6).join(", ")}${cells.length > 6 ? "..." : ""}]`);
+    dlog(`[DEBUG] header found at row ${i}: [${cells.slice(0, 6).join(", ")}${cells.length > 6 ? "..." : ""}]`);
     break;
   }
   if (headerIdx === -1 && fallbackIdx >= 0) {
     const fallbackRow = rows[fallbackIdx];
     const fallbackCells = fallbackRow.filter((c) => c.length > 0);
-    console.log(`[DEBUG] fallback header at row ${fallbackIdx}: [${fallbackCells.slice(0, 6).join(", ")}${fallbackCells.length > 6 ? "..." : ""}]`);
+    dlog(`[DEBUG] fallback header at row ${fallbackIdx}: [${fallbackCells.slice(0, 6).join(", ")}${fallbackCells.length > 6 ? "..." : ""}]`);
     headerIdx = fallbackIdx;
   } else if (headerIdx === -1) {
-    console.log(`[DEBUG] no header found, will use generic headers`);
+    dlog(`[DEBUG] no header found, will use generic headers`);
   }
 
   // 4) Clasificar filas previas al header en título/subtítulo, bloques
@@ -456,15 +465,15 @@ export function parseSheetToStructured(sheet: SheetData, filename: string): Pars
     if (firstDataRowIdx < 0) return result;
     const maxColsInData = Math.max(...rows.slice(firstDataRowIdx).map((r) => r.length));
     const variant = detectModuleVariant(filename, rows[firstDataRowIdx]);
-    console.log(`[DEBUG] maxColsInData=${maxColsInData}, variant=${variant}, variantHeaders.length=${variant ? MODULE_VARIANT_HEADERS[variant].length : 0}, condition=${variant && MODULE_VARIANT_HEADERS[variant].length >= maxColsInData - 1}`);
+    dlog(`[DEBUG] maxColsInData=${maxColsInData}, variant=${variant}, variantHeaders.length=${variant ? MODULE_VARIANT_HEADERS[variant].length : 0}, condition=${variant && MODULE_VARIANT_HEADERS[variant].length >= maxColsInData - 1}`);
     if (variant) {
       // Usar cabeceras del variant, ajustando al número de columnas real
       const variantHeaders = MODULE_VARIANT_HEADERS[variant];
       headers = Array.from({ length: maxColsInData }, (_, i) => variantHeaders[i] ?? `Col ${i + 1}`);
-      console.log(`[DEBUG] using module variant headers (${variant}): [${headers.slice(0, 5).join(", ")}${headers.length > 5 ? "..." : ""}] starting at row ${firstDataRowIdx}`);
+      dlog(`[DEBUG] using module variant headers (${variant}): [${headers.slice(0, 5).join(", ")}${headers.length > 5 ? "..." : ""}] starting at row ${firstDataRowIdx}`);
     } else {
       headers = Array.from({ length: maxColsInData }, (_, i) => `Col ${i + 1}`);
-      console.log(`[DEBUG] using generic headers: [${headers.slice(0, 5).join(", ")}${headers.length > 5 ? "..." : ""}] starting at row ${firstDataRowIdx}`);
+      dlog(`[DEBUG] using generic headers: [${headers.slice(0, 5).join(", ")}${headers.length > 5 ? "..." : ""}] starting at row ${firstDataRowIdx}`);
     }
     actualDataStartIdx = firstDataRowIdx;
   }
@@ -593,7 +602,7 @@ export function repairXlsx(bytes: Uint8Array): Uint8Array {
     }
   }
   if (start > 0) {
-    console.log(`repairXlsx: stripped ${start} garbage prefix bytes`);
+    dlog(`repairXlsx: stripped ${start} garbage prefix bytes`);
     bytes = bytes.subarray(start);
   }
 
@@ -663,7 +672,7 @@ function findNextZipSignature(bytes: Uint8Array, start: number): number {
 // Reconstruye el Central Directory y el EOCD a partir de los local headers.
 // Si el EOCD ya existe, devuelve los bytes sin tocar.
 function reconstructMissingEocd(bytes: Uint8Array): Uint8Array | null {
-  console.log(`reconstructMissingEocd: buf.length=${bytes.length}`);
+  dlog(`reconstructMissingEocd: buf.length=${bytes.length}`);
 
   // 1. ¿Ya tiene EOCD? Buscar la firma PK\x05\x06. Validación ESTRICTA:
   // además de la firma y el commentLen, el número de entradas del CD debe
@@ -699,10 +708,10 @@ function reconstructMissingEocd(bytes: Uint8Array): Uint8Array | null {
     }
   }
   if (eocdStart >= 0) {
-    console.log(`reconstructMissingEocd: EOCD válido en offset ${eocdStart}, nada que hacer`);
+    dlog(`reconstructMissingEocd: EOCD válido en offset ${eocdStart}, nada que hacer`);
     return bytes;
   }
-  console.log(`reconstructMissingEocd: no se encontró EOCD válido, reconstruyendo...`);
+  dlog(`reconstructMissingEocd: no se encontró EOCD válido, reconstruyendo...`);
 
   // 2. Recoger todos los local file headers (PK\x03\x04)
   type LH = {
@@ -827,7 +836,7 @@ function reconstructMissingEocd(bytes: Uint8Array): Uint8Array | null {
   }
   result.set(eocd, pos);
 
-  console.log(
+  dlog(
     `reconstructMissingEocd: ${headers.length} archivos, CD en ${cdOffset}, EOCD reconstruido`
   );
   for (let idx = 0; idx < headers.length; idx++) {
@@ -835,13 +844,13 @@ function reconstructMissingEocd(bytes: Uint8Array): Uint8Array | null {
     const name = new TextDecoder("utf-8", { fatal: false }).decode(
       bytes.subarray(h.offset + 30, h.offset + 30 + h.filenameLen)
     );
-    console.log(
+    dlog(
       `  [${idx}] offset=${h.offset} name="${name}" method=${h.method} ` +
       `compSize=${h.compSize} uncompSize=${h.uncompSize} ` +
       `flags=${h.flags} dataStart=${h.dataStart} dataSize=${h.dataSize}`
     );
   }
-  console.log(`  CD total bytes: ${cdSize}, archivo nuevo: ${totalSize} bytes`);
+  dlog(`  CD total bytes: ${cdSize}, archivo nuevo: ${totalSize} bytes`);
   return result;
 }
 
@@ -920,13 +929,13 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
       // fiable que forzarlo por el camino de reparacion de ZIP binario.
       if (looksLikeCsvFile) {
         try {
-          console.log("Intento 0: CSV directo con XLSX.read");
+          dlog("Intento 0: CSV directo con XLSX.read");
           const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
           const wb = XLSX.read(text, { type: "string", raw: true });
           const csvParsed = parseWorkbook(wb);
           if (isValidContent(csvParsed)) {
             parsed = csvParsed;
-            console.log("Intento 0 exitoso: CSV parseado directamente");
+            dlog("Intento 0 exitoso: CSV parseado directamente");
           }
         } catch (e) {
           console.warn("Error en intento 0 (CSV directo):", e);
@@ -939,10 +948,10 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
       // Intento 1: Parsear normalmente
       if (!isValidContent(parsed)) {
         try {
-          console.log("Intento 1: Parseo normal");
+          dlog("Intento 1: Parseo normal");
           const wb = XLSX.read(cleanBytes, { type: "array" });
           parsed = parseWorkbook(wb);
-          console.log("Intento 1 exitoso, hojas:", parsed.length);
+          dlog("Intento 1 exitoso, hojas:", parsed.length);
         } catch (e) {
           console.warn("Error en primer intento de parseo:", e);
         }
@@ -950,14 +959,14 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
 
       // Intento 2: Si el contenido no es válido, intentar con reparación
       if (!isValidContent(parsed)) {
-        console.log("Intento 2: Contenido inválido, intentando reparación DEFLATE64...");
+        dlog("Intento 2: Contenido inválido, intentando reparación DEFLATE64...");
         try {
           const wb = XLSX.read(cleanBytes, { type: "array" });
           const repairedParsed = parseWorkbook(wb);
 
           if (isValidContent(repairedParsed)) {
             parsed = repairedParsed;
-            console.log("Intento 2 exitoso: Reparación DEFLATE64 funcionó");
+            dlog("Intento 2 exitoso: Reparación DEFLATE64 funcionó");
           }
         } catch (e) {
           console.warn("Error en segundo intento de parseo:", e);
@@ -966,14 +975,14 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
 
       // Intento 3: Si sigue sin funcionar, intentar con diferentes opciones de XLSX
       if (!isValidContent(parsed)) {
-        console.log("Intento 3: Opciones alternativas (cellDates, cellNF)...");
+        dlog("Intento 3: Opciones alternativas (cellDates, cellNF)...");
         try {
           const wb = XLSX.read(cleanBytes, { type: "array", cellDates: true, cellNF: false });
           const altParsed = parseWorkbook(wb);
 
           if (isValidContent(altParsed)) {
             parsed = altParsed;
-            console.log("Intento 3 exitoso: Opciones alternativas funcionaron");
+            dlog("Intento 3 exitoso: Opciones alternativas funcionaron");
           }
         } catch (e) {
           console.warn("Error en tercer intento de parseo:", e);
@@ -982,14 +991,14 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
 
       // Intento 4: Último recurso - parsear con raw: true para obtener valores crudos
       if (!isValidContent(parsed)) {
-        console.log("Intento 4: Último recurso con raw: true...");
+        dlog("Intento 4: Último recurso con raw: true...");
         try {
           const wb = XLSX.read(cleanBytes, { type: "array", raw: true });
           const rawParsed = parseWorkbook(wb);
 
           if (isValidContent(rawParsed)) {
             parsed = rawParsed;
-            console.log("Intento 4 exitoso: Parseo crudo funcionó");
+            dlog("Intento 4 exitoso: Parseo crudo funcionó");
           }
         } catch (e) {
           console.warn("Error en cuarto intento de parseo:", e);
@@ -998,14 +1007,14 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
 
       // Intento 5: dense mode para hojas con muchas celdas vacías
       if (!isValidContent(parsed)) {
-        console.log("Intento 5: dense mode...");
+        dlog("Intento 5: dense mode...");
         try {
           const wb = XLSX.read(cleanBytes, { type: "array", dense: true, cellDates: true, raw: true });
           const denseParsed = parseWorkbook(wb);
 
           if (isValidContent(denseParsed)) {
             parsed = denseParsed;
-            console.log("Intento 5 exitoso: dense mode funcionó");
+            dlog("Intento 5 exitoso: dense mode funcionó");
           }
         } catch (e) {
           console.warn("Error en quinto intento de parseo:", e);
@@ -1014,7 +1023,7 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
 
       // Intento 6: Si todo falló, intentar como CSV (archivos mal etiquetados)
       if (!isValidContent(parsed)) {
-        console.log("Intento 6: Probando como CSV...");
+        dlog("Intento 6: Probando como CSV...");
         try {
           const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
           if (!text.trim().startsWith("<") && (text.includes(",") || text.includes(";") || text.includes("\t"))) {
@@ -1026,7 +1035,7 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
               const csvParsed: SheetData[] = [{ name: "CSV", headers, rows }];
               if (isValidContent(csvParsed)) {
                 parsed = csvParsed;
-                console.log("Intento 6 exitoso: parseado como CSV");
+                dlog("Intento 6 exitoso: parseado como CSV");
               }
             }
           }
@@ -1037,7 +1046,7 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
 
       // Intento 7: Si todo falló, intentar como tabla HTML
       if (!isValidContent(parsed)) {
-        console.log("Intento 7: Probando como tabla HTML...");
+        dlog("Intento 7: Probando como tabla HTML...");
         try {
           const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
           if (text.includes("<table")) {
@@ -1059,7 +1068,7 @@ export function ExcelViewerDialog({ open, onOpenChange, archivo }: ExcelViewerDi
               });
               if (isValidContent(htmlParsed)) {
                 parsed = htmlParsed;
-                console.log("Intento 7 exitoso: parseado como HTML");
+                dlog("Intento 7 exitoso: parseado como HTML");
               }
             }
           }

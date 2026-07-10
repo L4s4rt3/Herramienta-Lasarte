@@ -21,15 +21,47 @@ import {
   type CalidadLote,
 } from "@/lib/calidad";
 
-const lotes: CalidadLote[] = [
-  {
-    id: "1",
+function makeLote(overrides: Partial<CalidadLote>): CalidadLote {
+  return {
+    id: "",
     jornada_id: "j1",
+    user_id: "u1",
     fecha: "2026-06-03",
-    numero_lote: "26041704",
+    numero_lote: "",
     productor_finca_id: null,
-    productor_finca_nombre: "Los Corrales",
+    productor_finca_nombre: "",
     producto: "Naranja",
+    variedad: "",
+    cantidad: "",
+    hora: null,
+    aerobotics_realizado: false,
+    calidad: "Bueno",
+    defectos: [],
+    defecto_otro: "",
+    observacion: "",
+    accion_recomendada: "",
+    informe_estado: "borrador",
+    informe_generado: "",
+    ia_calidad: null,
+    ia_defectos: [],
+    ia_resumen: "",
+    ia_accion_recomendada: "",
+    validado_at: null,
+    validado_by: null,
+    reabierto_at: null,
+    reabierto_by: null,
+    motivo_reapertura: "",
+    created_at: "2026-06-03T06:00:00Z",
+    updated_at: "2026-06-03T06:00:00Z",
+    ...overrides,
+  };
+}
+
+const lotes: CalidadLote[] = [
+  makeLote({
+    id: "1",
+    numero_lote: "26041704",
+    productor_finca_nombre: "Los Corrales",
     variedad: "Navel Powell",
     cantidad: "64 Box",
     hora: "06:00",
@@ -38,28 +70,16 @@ const lotes: CalidadLote[] = [
     defectos: ["Rameado"],
     observacion: "Entrada regular, revisar calibre.",
     accion_recomendada: "Separar para seguimiento.",
-    created_at: "2026-06-03T06:00:00Z",
-    updated_at: "2026-06-03T06:00:00Z",
-  },
-  {
+  }),
+  makeLote({
     id: "2",
-    jornada_id: "j1",
-    fecha: "2026-06-03",
     numero_lote: "26041705",
-    productor_finca_id: null,
     productor_finca_nombre: "La Torrecilla",
-    producto: "Naranja",
     variedad: "Navel Lane Late",
     cantidad: "42 Box",
-    hora: null,
-    aerobotics_realizado: false,
-    calidad: "Bueno",
-    defectos: [],
-    observacion: "",
-    accion_recomendada: "",
     created_at: "2026-06-03T07:00:00Z",
     updated_at: "2026-06-03T07:00:00Z",
-  },
+  }),
 ];
 
 describe("calidad helpers", () => {

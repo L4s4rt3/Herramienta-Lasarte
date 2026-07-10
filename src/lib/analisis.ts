@@ -13,9 +13,6 @@ import type {
   ParsedProducto,
   ParsedCalibres,
   LoteProduccion,
-  PaletRow,
-  ProductoEmpacado,
-  CalibreRow,
 } from "./parsers";
 import { calcularTphOperativa } from "./velocidadOperativa";
 
@@ -123,8 +120,6 @@ export interface AnalisisDia {
 // Helpers internos
 // ─────────────────────────────────────────────────────────────────────────────
 
-const n = (v: unknown): number => Number(v) || 0;
-
 function normGrupo(g: string | null): "exportacion" | "mercado" | "industria" | "otro" {
   if (!g) return "otro";
   const s = g.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -185,12 +180,9 @@ export function computeAnalisis(
 
   const lotes = produccion?.lotes ?? [];
   const lotesConTph = lotes.filter((l) => l.toneladas_hora && l.toneladas_hora > 0);
-  const totalMin = lotesConTph.reduce((s, l) => s + (l.duracion_min ?? 0), 0);
-  const totalHoras = totalMin / 60;
 
-  // Usar exactamente 8 horas por día como base fija
-  const nDiasEstimados = lotes.length > 0 ? new Set(lotes.map(l => l.fecha)).size : 1;
-  const tph_promedio = calcularTphOperativa(kg_calibrador, nDiasEstimados);
+  // Usar exactamente 8 horas por día como base fija (el análisis es de un solo día)
+  const tph_promedio = calcularTphOperativa(kg_calibrador, 1);
   let tph_min: number | null = null;
   let tph_max: number | null = null;
 

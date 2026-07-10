@@ -315,7 +315,7 @@ export default function AsistenciaSemanalPanel({
           </CardHeader>
           <CardContent className="p-0">
             {productos.length === 0 ? (
-              <p className="px-4 py-4 text-sm text-muted-foreground">Sin lineas de producto cargadas.</p>
+              <p className="px-4 py-4 text-sm text-muted-foreground">Sin líneas de producto cargadas.</p>
             ) : (
               <div className="max-h-[280px] overflow-y-auto">
                 {productos.map((item, i) => (

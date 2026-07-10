@@ -1,20 +1,20 @@
 /**
- * AnalisisDiarioSummary.tsx — Panel resumen del análisis diario para Dashboard
+ * AnalisisDiarioSummary.tsx — Panel resumen del análisis diario.
  *
- * Muestra:
- * - KPIs de producción, palets, productos
- * - Top proveedores, productos, clientes
- * - Se actualiza en tiempo real
+ * Nota: actualmente no se monta en ninguna página (el Dashboard usa sus propios
+ * paneles), pero se mantiene alineado con useAnalisisDiario por si se recupera.
+ *
+ * Muestra KPIs de producción y el top de productores del periodo, con
+ * actualización en tiempo real al cambiar partes_diarios.
  */
 
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, TrendingUp, Package, Users, RefreshCw } from "lucide-react";
+import { Loader2, TrendingUp, Package, Users, RefreshCw, Gauge } from "lucide-react";
 import { useAnalisisDiario } from "@/hooks/useAnalisisDiario";
 import { supabase } from "@/integrations/supabase/client";
-import { formatKg, today, toISODateLocal } from "@/lib/format";
+import { formatKg, formatNumber, today, toISODateLocal } from "@/lib/format";
 
 interface Props {
   days?: number; // Últimos N días (default 30)
@@ -49,10 +49,12 @@ export function AnalisisDiarioSummary({ days = 30 }: Props) {
       )
       .subscribe();
 
-    return () => supabase.removeChannel(channel);
+    return () => {
+      void supabase.removeChannel(channel);
+    };
   }, [desde, refetch]);
 
-  const hayDatos = data.totals.n_lotes > 0 || data.totals.n_palets > 0;
+  const hayDatos = data.totals.n_lotes > 0;
 
   return (
     <div className="space-y-4">
@@ -75,13 +77,13 @@ export function AnalisisDiarioSummary({ days = 30 }: Props) {
       {!loading && hayDatos && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           <KpiCard
-            label="Días"
+            label="Días con datos"
             value={data.totals.n_dias}
             icon={<TrendingUp className="h-4 w-4" />}
           />
           <KpiCard
-            label="Proveedores"
-            value={data.totals.n_proveedores}
+            label="Productores"
+            value={data.productores.length}
             sub={formatKg(data.totals.kg_lotes)}
             icon={<Users className="h-4 w-4" />}
           />
@@ -91,115 +93,43 @@ export function AnalisisDiarioSummary({ days = 30 }: Props) {
             icon={<Package className="h-4 w-4" />}
           />
           <KpiCard
-            label="Palets"
-            value={data.totals.n_palets}
-            sub={formatKg(data.totals.kg_palets)}
-            icon={<Package className="h-4 w-4" />}
+            label="T/h media"
+            value={data.totals.avg_tph != null ? formatNumber(data.totals.avg_tph, 1) : "—"}
+            sub={formatKg(data.totals.kg_produccion_real)}
+            icon={<Gauge className="h-4 w-4" />}
           />
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Top Proveedores */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Top Proveedores</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {loading ? (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              </div>
-            ) : data.proveedores.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Sin datos</p>
-            ) : (
-              data.proveedores.slice(0, 5).map((p) => (
-                <div key={p.productor} className="flex items-center justify-between text-sm">
-                  <div className="truncate">
-                    <p className="font-medium text-xs">{p.productor}</p>
-                    <p className="text-[10px] text-muted-foreground">
-                      {p.n_lotes} lote{p.n_lotes !== 1 ? "s" : ""} · T/h: {p.tph_avg?.toFixed(1) ?? "—"}
-                    </p>
-                  </div>
-                  <span className="text-xs font-mono text-right shrink-0 ml-2">
-                    {formatKg(p.kg_total)}
-                  </span>
+      {/* Top Productores */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Top Productores</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {loading ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : data.productores.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Sin datos</p>
+          ) : (
+            data.productores.slice(0, 5).map((p) => (
+              <div key={p.productor} className="flex items-center justify-between text-sm">
+                <div className="truncate">
+                  <p className="font-medium text-xs">{p.productor}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {p.n_lotes} lote{p.n_lotes !== 1 ? "s" : ""} · T/h: {p.tph_promedio?.toFixed(1) ?? "—"}
+                  </p>
                 </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Top Productos */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Top Productos</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {loading ? (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <span className="text-xs font-mono text-right shrink-0 ml-2">
+                  {formatKg(p.kg_total)}
+                </span>
               </div>
-            ) : data.productos.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Sin datos</p>
-            ) : (
-              data.productos.slice(0, 5).map((p) => (
-                <div key={p.producto} className="flex items-center justify-between text-sm gap-2">
-                  <div className="truncate min-w-0">
-                    <p className="font-medium text-xs truncate">{p.producto}</p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      {p.grupo_destino && (
-                        <Badge variant="secondary" className="text-[10px]">
-                          {p.grupo_destino}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                  <span className="text-xs font-mono text-right shrink-0">
-                    {formatKg(p.kg_total)}
-                  </span>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Top Clientes */}
-        <Card className="md:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Top Clientes</CardTitle>
-            <CardDescription className="text-xs">
-              {data.totals.n_clientes} cliente{data.totals.n_clientes !== 1 ? "s" : ""}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              </div>
-            ) : data.clientes.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Sin datos</p>
-            ) : (
-              <div className="grid grid-cols-2 gap-3">
-                {data.clientes.slice(0, 6).map((c) => (
-                  <div key={c.cliente} className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-2">
-                    <p className="font-medium text-xs truncate">{c.cliente}</p>
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="text-[10px] text-muted-foreground">
-                        {c.n_palets} palets
-                      </span>
-                      <span className="text-[10px] font-mono text-foreground">
-                        {formatKg(c.kg_total)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

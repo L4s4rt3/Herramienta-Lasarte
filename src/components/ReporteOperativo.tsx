@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/table";
 import type { AnalisisDia, Alerta } from "@/lib/analisis";
 import { generarReporteOperativo, buscarLoteContexto } from "@/lib/reporteOperativo";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 function gKg(v: number): string {
@@ -333,7 +333,7 @@ export function ReporteOperativo({ analisis, fechaParte }: Props) {
       </div>
 
       <p className="text-[10px] text-muted-foreground text-right">
-        Reporte generado automáticamente · {new Date(analisis.fecha_analisis).toLocaleString("es-ES")}
+        Reporte generado automáticamente · {formatDateTime(analisis.fecha_analisis)}
       </p>
     </div>
   );

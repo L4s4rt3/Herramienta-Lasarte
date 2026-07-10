@@ -212,7 +212,7 @@ function contarFilas(wb: XLSX.WorkBook): number {
   }, 0);
 }
 
-async function parseWorkbookRemoto(dataBase64: string, fileName: string): Promise<XLSX.WorkBook> {
+async function parseWorkbookRemoto(dataBase64: string, _fileName: string): Promise<XLSX.WorkBook> {
   const env = (typeof import.meta !== "undefined" ? (import.meta as any).env : typeof process !== "undefined" ? process.env : {}) || {};
   const supabaseUrl = env.VITE_SUPABASE_URL || "";
   const anonKey = env.VITE_SUPABASE_ANON_KEY || "";
@@ -574,12 +574,10 @@ export function parseInformeProduccion(wb: XLSX.WorkBook): ParsedProduccion {
   }
 
   const kg_total = lotes.reduce((s, l) => s + l.kg_peso_total, 0);
-  const totalMin = lotes.reduce((s, l) => s + (l.duracion_min ?? 0), 0);
-  const totalHoras = totalMin / 60;
 
-  // Velocidad general: kg del dia / 8 horas fijas por día
-  const nDias = lotes.length > 0 ? new Set(lotes.map(l => l.fecha)).size : 1;
-  const tph_promedio = calcularTphOperativa(kg_total, nDias);
+  // Velocidad general: kg del dia / 8 horas fijas por día.
+  // Cada informe de producción cubre un único día.
+  const tph_promedio = calcularTphOperativa(kg_total, 1);
 
   return {
     tipo: "produccion",

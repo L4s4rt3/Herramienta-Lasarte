@@ -108,7 +108,7 @@ export function VentasCategoriaClienteDetail({ clienteCodigo, clienteNombre, all
             <table className="w-full text-[13px]">
               <thead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>tr>th]:px-3 [&>tr>th]:py-1.5">
                 <tr className="border-b border-[var(--glass-border)]">
-                  <th>Metodo</th>
+                  <th>Método</th>
                   <th className="text-right">Kilos</th>
                   <th className="text-right">%</th>
                 </tr>
@@ -128,12 +128,12 @@ export function VentasCategoriaClienteDetail({ clienteCodigo, clienteNombre, all
         <Card className="glass-accented overflow-hidden">
           <CardContent className="p-0">
             <div className="border-b border-[var(--glass-border)] px-3 py-2">
-              <p className="text-sm font-semibold">Articulos top</p>
+              <p className="text-sm font-semibold">Artículos top</p>
             </div>
             <table className="w-full text-[13px]">
               <thead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>tr>th]:px-3 [&>tr>th]:py-1.5">
                 <tr className="border-b border-[var(--glass-border)]">
-                  <th>Articulo</th>
+                  <th>Artículo</th>
                   <th className="text-right">Kilos</th>
                 </tr>
               </thead>

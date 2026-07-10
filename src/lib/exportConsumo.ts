@@ -541,7 +541,7 @@ function drawFooter(doc: jsPDF) {
 export async function exportConsumoToPDF(data: ExportData) {
   await ensureExportLogoLoaded();
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  let pageIndex = 1;
+  const pageIndex = 1;
   const summary = buildConsumoReportSummary(data);
   const { periodos, hasPeriodos } = summary;
   const { totalKg } = summary.totals;

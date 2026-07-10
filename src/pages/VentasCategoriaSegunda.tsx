@@ -66,8 +66,8 @@ export default function VentasCategoriaSegunda() {
   return (
     <VentasCategoriaPage
       categoriaNombre="Categoria segunda"
-      titulo="Categoria segunda"
-      subtitulo="Sin categoria"
+      titulo="Categoría segunda"
+      subtitulo="Sin categoría"
     />
   );
 }
@@ -381,9 +381,9 @@ export function VentasCategoriaPage({ categoriaNombre, titulo, subtitulo }: Vent
             />
             <KPICard
               className="glass-accented"
-              label="Articulos"
+              label="Artículos"
               value={formatNumber(dashboardKpis.articulos)}
-              hint={`${formatNumber(dashboardKpis.productos)} productos catalogo`}
+              hint={`${formatNumber(dashboardKpis.productos)} productos catálogo`}
               icon={BarChart3}
             />
             <KPICard
@@ -448,7 +448,7 @@ export function VentasCategoriaPage({ categoriaNombre, titulo, subtitulo }: Vent
               </ResponsiveContainer>
             </ChartCard>
 
-            <SummaryCard title="Top articulos por kg" onSeeAll={() => goToTab("articulos")}>
+            <SummaryCard title="Top artículos por kg" onSeeAll={() => goToTab("articulos")}>
               <RankBars
                 rows={topArticulosKg.map((row) => ({
                   key: `${row.referencia ?? ""}|${row.articulo}`,
@@ -642,7 +642,7 @@ export function VentasCategoriaPage({ categoriaNombre, titulo, subtitulo }: Vent
             </div>
           ) : (
             <>
-              <ChartCard title="Productos catalogo por mes" subtitle="Kilos apilados por metodo">
+              <ChartCard title="Productos catálogo por mes" subtitle="Kilos apilados por método">
                 <ResponsiveContainer width="100%" height={340}>
                   <BarChart data={productMonthlyChart} margin={MARGIN}>
                     <CartesianGrid {...GRID} />
@@ -659,15 +659,15 @@ export function VentasCategoriaPage({ categoriaNombre, titulo, subtitulo }: Vent
 
               <Card className="glass-accented overflow-hidden">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Catalogo de productos</CardTitle>
+                  <CardTitle className="text-base">Catálogo de productos</CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
                     <table className="w-full text-[13px]">
                       <thead className="sticky top-0 z-10 bg-[var(--glass-bg-solid)] backdrop-blur-xl text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>th]:px-3 [&>th]:py-1.5">
                         <tr className="border-b border-[var(--glass-border)]">
-                          <th className="whitespace-nowrap">Metodo</th>
-                          <th className="whitespace-nowrap">Descripcion</th>
+                          <th className="whitespace-nowrap">Método</th>
+                          <th className="whitespace-nowrap">Descripción</th>
                           <ColHead label="Kilos" sk="kilos" sortState={productoSort} onToggle={toggleProductoSort} right />
                           <ColHead label="PM" sk="pm" sortState={productoSort} onToggle={toggleProductoSort} right />
                           <ColHead label="Base IVA" sk="base" sortState={productoSort} onToggle={toggleProductoSort} right />
@@ -696,7 +696,7 @@ export function VentasCategoriaPage({ categoriaNombre, titulo, subtitulo }: Vent
                 </CardContent>
               </Card>
 
-              <ChartCard title="Precio medio por producto" subtitle="€/kg por mes y metodo">
+              <ChartCard title="Precio medio por producto" subtitle="€/kg por mes y método">
                 <ResponsiveContainer width="100%" height={280}>
                   <LineChart data={productMonthlyChart} margin={MARGIN}>
                     <CartesianGrid {...GRID} />
@@ -713,17 +713,17 @@ export function VentasCategoriaPage({ categoriaNombre, titulo, subtitulo }: Vent
 
               <Card className="glass-accented overflow-hidden">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Validacion catalogo vs lineas</CardTitle>
-                  <p className="text-xs text-muted-foreground">Diferencia entre el catalogo importado y la suma de lineas diarias.</p>
+                  <CardTitle className="text-base">Validación catálogo vs líneas</CardTitle>
+                  <p className="text-xs text-muted-foreground">Diferencia entre el catálogo importado y la suma de líneas diarias.</p>
                 </CardHeader>
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
                     <table className="w-full text-[13px]">
                       <thead className="border-b border-[var(--glass-border)] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>th]:px-3 [&>th]:py-1.5">
                         <tr>
-                          <th>Metodo</th>
-                          <th className="text-right">Kg catalogo</th>
-                          <th className="text-right">Kg lineas</th>
+                          <th>Método</th>
+                          <th className="text-right">Kg catálogo</th>
+                          <th className="text-right">Kg líneas</th>
                           <th className="text-right">Dif.</th>
                           <th>Estado</th>
                         </tr>
@@ -796,7 +796,7 @@ export function VentasCategoriaPage({ categoriaNombre, titulo, subtitulo }: Vent
                 <div className="grid gap-3 md:grid-cols-5">
                   <Kpi title="Lineas" value={formatNumber(parsedImport.validation.lineasDetectadas)} />
                   <Kpi title="Kilos lineas" value={formatKg(parsedImport.validation.kilosLineas)} />
-                  <Kpi title="Kilos catalogo" value={formatKg(parsedImport.validation.kilosCatalogo)} />
+                  <Kpi title="Kilos catálogo" value={formatKg(parsedImport.validation.kilosCatalogo)} />
                   <Kpi title="Clientes" value={formatNumber(parsedImport.validation.clientesUnicos)} />
                   <Kpi title="Estado" value={parsedImport.validation.status === "ok" ? "OK" : "Revisar"} />
                 </div>
@@ -1152,7 +1152,7 @@ function ArticulosTab({
   return (
     <div className="space-y-4">
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Kpi title="Articulos" value={formatNumber(totalArticulos)} />
+        <Kpi title="Artículos" value={formatNumber(totalArticulos)} />
         <Kpi title="Referencias" value={formatNumber(totalRefs)} />
         <Kpi title="Kilos total" value={formatKg(totalKilos)} />
         <Kpi title="PM medio" value={`${formatNumber(pmMedio, 3)} €/kg`} />
@@ -1161,7 +1161,7 @@ function ArticulosTab({
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           className="pl-9"
-          placeholder="Buscar articulo..."
+          placeholder="Buscar artículo..."
           value={articuloSearch}
           onChange={(e) => { setArticuloSearch(e.target.value); setArticuloLimit(10); }}
         />
@@ -1195,10 +1195,10 @@ function ArticulosTab({
                   <table className="w-full text-[13px]">
                     <thead className="border-b border-[var(--glass-border)] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>th]:px-3 [&>th]:py-1.5">
                       <tr>
-                        <th>Articulo</th>
+                        <th>Artículo</th>
                         <th className="text-right">Kilos</th>
                         <th className="text-right">PM</th>
-                        <th className="text-right">Lineas</th>
+                        <th className="text-right">Líneas</th>
                       </tr>
                     </thead>
                     <tbody>

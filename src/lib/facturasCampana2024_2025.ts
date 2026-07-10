@@ -364,7 +364,7 @@ export function buildFacturasCampana2024_2025Rows(userId: string): ConsumoFisico
     referencia: `${row.factura} / ${row.albaran}`,
     notas: `Campana 2024/2025. Importado de 2024-2025-GASOIL.xls. Articulo: ${row.articulo}. Precio: ${row.precio.toFixed(3)}. Importe: ${row.importe.toFixed(2)}.`,
     created_at: "2026-06-12T00:00:00.000Z",
-  }));
+  } satisfies ConsumoFisicoRow));
   const aguaRows = FACTURAS_CAMPANA_2024_2025_AGUA_CONSUMOS.map((row) => {
     const periodoFacturado = facturacionToRange(row.facturacion);
 

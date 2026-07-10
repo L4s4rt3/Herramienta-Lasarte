@@ -92,7 +92,7 @@ export function VentasCategoriaFilterBar({ filters, filterOptions, onChange, onC
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Articulo</Label>
+          <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Artículo</Label>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input

@@ -30,8 +30,8 @@ describe("computeAnalisis", () => {
       kg_total: 80000,
       tph_promedio: 20,
       lotes: [
-        lote({ productor: "Productor A", kg_peso_total: 40000, toneladas_hora: 20, duracion_min: 30, fecha: "2024-01-01" }),
-        lote({ productor: "Productor B", kg_peso_total: 40000, toneladas_hora: 5, duracion_min: 30, fecha: "2024-01-01" }),
+        lote({ productor: "Productor A", kg_peso_total: 40000, toneladas_hora: 20, duracion_min: 30 }),
+        lote({ productor: "Productor B", kg_peso_total: 40000, toneladas_hora: 5, duracion_min: 30 }),
       ],
     };
 

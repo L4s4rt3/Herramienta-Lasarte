@@ -178,7 +178,7 @@ export default function VentasMensualImport() {
           <p className="panel-kicker">Comercial</p>
           <h1 className="page-title">Ventas del mes</h1>
           <p className="page-subtitle">
-            Sube de una vez los ficheros del mes y repartelos entre Categoria primera, Categoria segunda y Mercadona.
+            Sube de una vez los ficheros del mes y repártelos entre Categoría primera, Categoría segunda y Mercadona.
           </p>
         </div>
       </header>
@@ -205,12 +205,12 @@ export default function VentasMensualImport() {
           <div className="grid gap-2 text-sm sm:grid-cols-2">
             <FicheroEstado
               ok={tieneLineas}
-              label="Lineas detallado"
+              label="Líneas detallado"
               detail={ficheros.lineasFileName ?? "No detectado"}
             />
             <FicheroEstado
               ok={tieneMetodosCatalogo}
-              label="Metodos de confeccion"
+              label="Métodos de confección"
               detail={ficheros.metodosFileName ?? "No detectado"}
             />
           </div>
@@ -218,7 +218,7 @@ export default function VentasMensualImport() {
           {ficheros.metodoArchivos.length > 0 ? (
             <div>
               <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
-                Ficheros de metodo detectados ({formatNumber(ficheros.metodoArchivos.length)})
+                Ficheros de método detectados ({formatNumber(ficheros.metodoArchivos.length)})
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {ficheros.metodoArchivos.map((archivo) => (
@@ -244,7 +244,7 @@ export default function VentasMensualImport() {
           {!puedeAnalizar && (ficheros.lineasFileName || ficheros.metodosFileName || ficheros.metodoArchivos.length > 0) ? (
             <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              Falta el fichero de {!tieneLineas && !tieneMetodosCatalogo ? "lineas detallado y de metodos de confeccion" : !tieneLineas ? "lineas detallado" : "metodos de confeccion"} para poder analizar.
+              Falta el fichero de {!tieneLineas && !tieneMetodosCatalogo ? "líneas detallado y de métodos de confección" : !tieneLineas ? "líneas detallado" : "métodos de confección"} para poder analizar.
             </div>
           ) : null}
         </CardContent>
@@ -254,11 +254,11 @@ export default function VentasMensualImport() {
       <Card className="glass-accented overflow-hidden">
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
-            <CardTitle className="text-base">2. Codigos de categoria segunda</CardTitle>
+            <CardTitle className="text-base">2. Códigos de categoría segunda</CardTitle>
             <InfoTooltip iconClassName="h-3.5 w-3.5">
-              Metodos de confeccion fijos de categoria segunda. Se recuerdan de un mes al siguiente; edita la lista
-              solo si el dueño del proceso decide cambiarla. Los metodos que empiezan por "MA" son siempre Mercadona,
-              y el resto va a Categoria primera.
+              Métodos de confección fijos de categoría segunda. Se recuerdan de un mes al siguiente; edita la lista
+              solo si el dueño del proceso decide cambiarla. Los métodos que empiezan por "MA" son siempre Mercadona,
+              y el resto va a Categoría primera.
             </InfoTooltip>
           </div>
         </CardHeader>
@@ -270,7 +270,7 @@ export default function VentasMensualImport() {
             className="min-h-[60px] font-mono text-sm"
           />
           <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">Separados por comas. Se guardan para el proximo mes.</p>
+            <p className="text-xs text-muted-foreground">Separados por comas. Se guardan para el próximo mes.</p>
             <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={resetSegundaCodigos}>
               <RotateCcw className="h-3 w-3" /> Restablecer por defecto
             </Button>
@@ -290,14 +290,14 @@ export default function VentasMensualImport() {
           <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
             <BucketCard
               icon={Layers}
-              label="Categoria primera"
+              label="Categoría primera"
               lineas={resultado.totales.primera.lineas}
               kilos={resultado.totales.primera.kilos}
               accent="primary"
             />
             <BucketCard
               icon={Layers}
-              label="Categoria segunda"
+              label="Categoría segunda"
               lineas={resultado.totales.segunda.lineas}
               kilos={resultado.totales.segunda.kilos}
               accent="success"
@@ -374,7 +374,7 @@ export default function VentasMensualImport() {
                   <table className="w-full text-[13px]">
                     <thead className="border-b border-[var(--glass-border)] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>th]:px-3 [&>th]:py-1.5">
                       <tr>
-                        <th>Articulo</th>
+                        <th>Artículo</th>
                         <th>Referencia</th>
                         <th className="text-right">Kilos</th>
                         <th>Motivo</th>
@@ -411,12 +411,12 @@ export default function VentasMensualImport() {
             <CardContent className="space-y-3">
               <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                Importar REEMPLAZA todos los datos ya guardados en Categoria primera y Categoria segunda (se borran e
-                insertan de nuevo). Mercadona y los excluidos no se tocan desde aqui.
+                Importar reemplaza solo los meses incluidos en los ficheros; el resto de meses ya importados y los
+                ajustes por cliente se conservan. Mercadona y los excluidos no se tocan desde aquí.
               </div>
               {!hasAccess ? (
                 <p className="text-xs text-destructive">
-                  Tu usuario no tiene acceso de importacion a Categoria primera y/o Categoria segunda.
+                  Tu usuario no tiene acceso de importación a Categoría primera y/o Categoría segunda.
                 </p>
               ) : null}
               <Button
@@ -425,7 +425,7 @@ export default function VentasMensualImport() {
                 onClick={handleImportar}
               >
                 <Database className="h-4 w-4" />
-                {importando ? "Importando..." : "Importar Categoria primera + Categoria segunda"}
+                {importando ? "Importando..." : "Importar Categoría primera + Categoría segunda"}
               </Button>
             </CardContent>
           </Card>

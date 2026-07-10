@@ -24,10 +24,6 @@ import {
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 const DAY_KEYS = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"];
 
-const DAY_MAP: Record<number, string> = {
-  1: "Lun", 2: "Mar", 3: "Mie", 4: "Jue", 5: "Vie", 6: "Sab", 0: "Dom",
-};
-
 function formatDateShort(dateStr: string) {
   const d = new Date(dateStr + "T12:00:00");
   return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
@@ -293,7 +289,7 @@ export default function AsistenciaComparativa() {
                   {DAY_KEYS.map((dk, i) => {
                     const c = WEEK_PALETTE[i];
                     return (
-                      <Bar key={dk} dataKey={dk} name={DAYS[i]} fill={barFill(c, 0.28)} stroke={c} {...BAR_STYLE} maxBarSize={20} connectNulls={false} />
+                      <Bar key={dk} dataKey={dk} name={DAYS[i]} fill={barFill(c, 0.28)} stroke={c} {...BAR_STYLE} maxBarSize={20} />
                     );
                   })}
                 </BarChart>
@@ -317,8 +313,8 @@ export default function AsistenciaComparativa() {
                         <th key={d} className="text-center px-3 py-3 font-bold text-xs uppercase text-muted-foreground">{d}</th>
                       ))}
                       <th className="text-right px-4 py-3 font-bold text-xs uppercase text-muted-foreground">Kg total</th>
-                      <th className="text-right px-4 py-3 font-bold text-xs uppercase text-muted-foreground">Pers/dia</th>
-                      <th className="text-right px-4 py-3 font-bold text-xs uppercase text-muted-foreground">Dias</th>
+                      <th className="text-right px-4 py-3 font-bold text-xs uppercase text-muted-foreground">Pers/día</th>
+                      <th className="text-right px-4 py-3 font-bold text-xs uppercase text-muted-foreground">Días</th>
                       <th className="text-right px-4 py-3 font-bold text-xs uppercase text-muted-foreground">Kg/persona</th>
                     </tr>
                   </thead>

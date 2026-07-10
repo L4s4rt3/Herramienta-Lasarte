@@ -15,6 +15,7 @@
  *   - Formato ejecutivo, directo y con jerarquía visual Markdown
  */
 import type { AnalisisDia } from "./analisis";
+import { formatDateTime } from "./format";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -256,7 +257,7 @@ export function generarReporteOperativo(analisis: AnalisisDia, fechaParte?: stri
   // PIE
   // ══════════════════════════════════════════════════════════════════════════
   lines.push("---");
-  lines.push(`_Reporte generado automaticamente · ${new Date(analisis.fecha_analisis).toLocaleString("es-ES")}_`);
+  lines.push(`_Reporte generado automáticamente · ${formatDateTime(analisis.fecha_analisis)}_`);
 
   return lines.join("\n");
 }

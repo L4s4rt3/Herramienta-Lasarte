@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Suspense, lazy } from "react";
-import type { ResponsiveContainer as RContainerType, Tooltip as TooltipType, LegendProps } from "recharts";
+import type { LegendProps, TooltipProps } from "recharts";
+import type { NameType, ValueType } from "recharts/types/component/DefaultTooltipContent";
 
 const ResponsiveContainer = lazy(() => import("recharts").then(m => ({ default: m.ResponsiveContainer })));
 const Tooltip = lazy(() => import("recharts").then(m => ({ default: m.Tooltip })));
@@ -38,7 +39,7 @@ const ChartContainer = React.forwardRef<
   HTMLDivElement,
   React.ComponentProps<"div"> & {
     config: ChartConfig;
-    children: React.ComponentProps<RContainerType>["children"];
+    children: React.ComponentProps<typeof ResponsiveContainer>["children"];
   }
 >(({ id, className, children, config, ...props }, ref) => {
   const uniqueId = React.useId();
@@ -98,7 +99,7 @@ const ChartTooltip = Tooltip;
 
 const ChartTooltipContent = React.forwardRef<
   HTMLDivElement,
-  React.ComponentProps<TooltipType> &
+  TooltipProps<ValueType, NameType> &
     React.ComponentProps<"div"> & {
       hideLabel?: boolean;
       hideIndicator?: boolean;

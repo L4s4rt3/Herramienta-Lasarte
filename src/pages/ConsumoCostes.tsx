@@ -1652,7 +1652,7 @@ export default function ConsumoCostes() {
                 <div className="glass p-4">
                   <p className="text-xs font-semibold uppercase tracking-wider text-primary">Gasoil</p>
                   <p className="mt-2 text-2xl font-bold">{formatNumber(facturasIntegradasResumen.gasoilL)} <span className="text-sm font-normal text-muted-foreground">L</span></p>
-                  <p className="mt-1 text-xs text-muted-foreground">{facturasIntegradasResumen.gasoilLineas} lineas fisicas de {facturasIntegradasResumen.gasoilFuente}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{facturasIntegradasResumen.gasoilLineas} líneas físicas de {facturasIntegradasResumen.gasoilFuente}</p>
                 </div>
               </CardContent>
             </Card>
@@ -2171,7 +2171,7 @@ export default function ConsumoCostes() {
             ) : (
               <Card className="glass-accented">
                 <CardHeader>
-                  <p className="panel-kicker">Validacion de consumos</p>
+                  <p className="panel-kicker">Validación de consumos</p>
                   <CardTitle>Periodos con incidencias ({issueRows.length})</CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">

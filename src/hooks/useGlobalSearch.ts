@@ -22,9 +22,9 @@ export function useGlobalSearch(query: string) {
       const results: SearchResult[] = [];
 
       const { data: productores } = await supabase
-        .from("productores")
-        .select("id, nombre, apellidos")
-        .or(`nombre.ilike.%${debounced}%,apellidos.ilike.%${debounced}%`)
+        .from("calidad_productores")
+        .select("id, nombre")
+        .ilike("nombre", `%${debounced}%`)
         .limit(5);
 
       if (productores) {
@@ -32,7 +32,7 @@ export function useGlobalSearch(query: string) {
           results.push({
             id: p.id,
             type: "productor",
-            label: `${p.nombre} ${p.apellidos}`,
+            label: p.nombre,
             subtitle: "Productor",
             // No existe ruta de detalle /productores/:id; se enlaza al listado.
             to: `/productores`,

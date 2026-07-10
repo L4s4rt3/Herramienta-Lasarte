@@ -8,8 +8,8 @@ export default function VentasCategoriaPrimera() {
   return (
     <VentasCategoriaPage
       categoriaNombre="Categoria primera"
-      titulo="Categoria primera"
-      subtitulo="Ventas del resto de productos y clientes (primera categoria)."
+      titulo="Categoría primera"
+      subtitulo="Ventas del resto de productos y clientes (primera categoría)."
     />
   );
 }

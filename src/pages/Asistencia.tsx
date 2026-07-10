@@ -872,8 +872,8 @@ export default function Asistencia() {
         columnas: RESUMEN_ASISTENCIA_COLUMNAS,
         filas: [
           { Campo: "Semana", Valor: weekLabel },
-          { Campo: "Dias laborables", Valor: incluirSabado ? "Lun a Sab" : "Lun a Vie" },
-          { Campo: "Dias con datos", Valor: kgP.diasConDatos },
+          { Campo: "Días laborables", Valor: incluirSabado ? "Lun a Sáb" : "Lun a Vie" },
+          { Campo: "Días con datos", Valor: kgP.diasConDatos },
           { Campo: "Kg totales", Valor: Math.round(kgP.totalKg) },
           { Campo: "Media personas/dia total", Valor: +kgP.mediaPersonasTotales.toFixed(1) },
           { Campo: "Media personas/dia computables", Valor: +kgP.mediaPersonasComputables.toFixed(1) },
