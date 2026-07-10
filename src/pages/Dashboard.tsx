@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 import {
   Truck, Package, TrendingDown, BarChart3,
   Gauge, Droplet, Plus, ShoppingCart,
-  ChevronLeft, ChevronRight, Recycle,
+  ChevronLeft, ChevronRight, Recycle, Trash2,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -215,12 +215,24 @@ export default function Dashboard() {
       const produccion = weekPartes.reduce((s, p) => s + p.cascade.produccion_real, 0);
       const palets = weekPartes.reduce((s, p) => s + p.cascade.palets_ajustados, 0);
       const dsj = weekPartes.reduce((s, p) => s + p.cascade.dsj, 0);
+      // Merma "real" del dashboard: podrido manual (bolsa basura) + podrido del calibrador.
+      // Ojo: distinto de cascade.mermas_totales (que solo cuenta el podrido manual).
+      const mermas = weekPartes.reduce((s, p) => s + p.cascade.podrido_manual + p.cascade.podrido_calibrador, 0);
+      // Merma total ampliada: además de los podridos, suma la diferencia sin justificar
+      // (el DSJ puede ser negativo si sobra fruta, se suma tal cual, con signo).
+      const mermaTotalConDsj = mermas + dsj;
       return {
         ...week,
         produccion,
         palets,
         dsj,
         dsj_pct: produccion > 0 ? (dsj / produccion) * 100 : 0,
+        mermas,
+        // % ponderado de la semana: total de mermas (podrido manual + calibrador)
+        // entre producción real total de la semana.
+        mermas_pct: produccion > 0 ? (mermas / produccion) * 100 : 0,
+        mermaTotalConDsj,
+        mermaTotalConDsjPct: produccion > 0 ? (mermaTotalConDsj / produccion) * 100 : 0,
         partes: weekPartes.length,
       };
     });
@@ -266,6 +278,8 @@ export default function Dashboard() {
     ? ((currentWeekData.palets - previousWeekData.palets) / previousWeekData.palets) * 100
     : 0;
   const dsjTrend = previousWeekData ? currentWeekData.dsj_pct - previousWeekData.dsj_pct : 0;
+  const mermasTrend = previousWeekData ? currentWeekData.mermas_pct - previousWeekData.mermas_pct : 0;
+  const mermaTotalTrend = previousWeekData ? currentWeekData.mermaTotalConDsjPct - previousWeekData.mermaTotalConDsjPct : 0;
   const chartDisplayData = weeklyRows;
   const sem = getSemaforo(currentWeekData.dsj_pct);
 
@@ -394,9 +408,9 @@ export default function Dashboard() {
       )}
 
       {/* ─── KPIs principales ─────────────────────────────────────────────── */}
-      <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-5">
         {loading ? (
-          Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32" />)
+          Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-32" />)
         ) : (
           <>
             <KPICard
@@ -430,6 +444,30 @@ export default function Dashboard() {
               hint={previousWeek ? `${dsjTrend >= 0 ? "+" : ""}${dsjTrend.toFixed(2)} pp vs S${previousWeek.weekNumber}` : undefined}
             >
               <DsjScale dsjPct={currentWeekData.dsj_pct} />
+            </KPICard>
+            <KPICard
+              label={`Mermas S${currentWeek.weekNumber}`}
+              value={`${currentWeekData.mermas_pct.toFixed(2)}%`}
+              icon={Trash2}
+              labelInfo="Merma real de la semana: podrido manual (bolsa basura) + podrido del calibrador, sobre la producción real del calibrador. La línea '+ DSJ' de abajo añade además la diferencia sin justificar (con su signo: si sobra fruta puede bajar del valor principal) para ver toda la fruta perdida como merma."
+              delta={previousWeek ? `${mermasTrend >= 0 ? "+" : ""}${mermasTrend.toFixed(2)} pp` : undefined}
+              deltaTrend={mermasTrend > 0 ? "down" : mermasTrend < 0 ? "up" : "neutral"}
+              hint={previousWeek ? `${formatKg(currentWeekData.mermas)} · vs S${previousWeek.weekNumber}` : formatKg(currentWeekData.mermas)}
+            >
+              <div className="mt-2.5 flex items-center justify-between gap-2 rounded-md border-l-[3px] border-warning bg-warning/10 px-2.5 py-1.5">
+                <div className="min-w-0 leading-tight">
+                  <p className="text-xs font-medium">Merma + DSJ</p>
+                  {previousWeek && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {mermaTotalTrend >= 0 ? "+" : ""}{mermaTotalTrend.toFixed(2)} pp vs S{previousWeek.weekNumber}
+                    </p>
+                  )}
+                </div>
+                <span className="shrink-0 text-base font-bold tabular-nums">
+                  {currentWeekData.mermaTotalConDsjPct.toFixed(2)}%
+                </span>
+              </div>
+              <Sparkline values={weeklyRows.map((w) => w.mermas_pct)} />
             </KPICard>
             <KPICard
               label="Velocidad media"
