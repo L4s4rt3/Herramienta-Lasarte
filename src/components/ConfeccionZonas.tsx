@@ -49,8 +49,20 @@ function ZonaColumn({ title, subtitle, agg }: { title: string; subtitle: string;
           </div>
         );
       })}
+      <div className="flex items-center justify-between text-sm text-muted-foreground">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/40" />
+          Otros (podrido, precal., muestras…)
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
+          <span className="tabular-nums text-xs">{formatKg(agg.otros)}</span>
+          <span className="min-w-[48px] text-right font-semibold tabular-nums">
+            {formatPct(agg.total > 0 ? (agg.otros / agg.total) * 100 : 0, 0)}
+          </span>
+        </span>
+      </div>
       <div className="flex items-center justify-between border-t border-[var(--glass-border)] pt-2.5 text-sm">
-        <span className="font-medium">Total confeccionado</span>
+        <span className="font-medium">Total informe</span>
         <span className="font-bold tabular-nums">{formatKg(agg.total)}</span>
       </div>
       <p className="text-[11px] text-muted-foreground">
@@ -89,9 +101,11 @@ export function ConfeccionZonas({ semanaStart, semanaEnd, semanaTitle, semanaSub
               <CardTitle className="text-lg font-semibold">Confección por zona</CardTitle>
               <InfoTooltip>
                 Kg del informe de producto repartidos por zona de trabajo: Mallas (girsac, D-Pack, MDNA…), Granel
-                (graneleras), Envasado (mesas) e Industria. Mismo criterio de clasificación que el rendimiento por
-                zonas de RRHH; los totales, el podrido, las muestras y el precalibrado quedan fuera. El % es el peso
-                de cada zona sobre el total confeccionado del período.
+                (graneleras), Envasado (mesas) e Industria, con el mismo criterio de clasificación que el rendimiento
+                por zonas de RRHH. La fila "Otros" recoge los kg reales fuera de zona (podrido, precalibrado,
+                muestras y descartes), de modo que el Total informe cuadra con los kg del calibrador del período
+                (solo se descartan las filas TOTAL del informe, que duplicarían el día). El % es el peso de cada
+                fila sobre ese total.
               </InfoTooltip>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">

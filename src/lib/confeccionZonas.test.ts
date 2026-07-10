@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agregarConfeccionZonas, zonaConfeccionDe } from "./confeccionZonas";
+import { agregarConfeccionZonas, clasificarFilaConfeccion, zonaConfeccionDe } from "./confeccionZonas";
 
 describe("zonaConfeccionDe", () => {
   it("clasifica los productos reales del informe en su zona", () => {
@@ -12,10 +12,23 @@ describe("zonaConfeccionDe", () => {
     expect(zonaConfeccionDe({ date: "2026-07-01", producto: "INDUSTRIA GENERADA PRODUCCION LST", kg: 100 })).toBe("Industria");
   });
 
-  it("excluye podrido, precalibrado y filas sin producto", () => {
+  it("excluye podrido, precalibrado y filas sin producto de las zonas", () => {
     expect(zonaConfeccionDe({ date: "2026-07-01", producto: "PODRIDO", kg: 100 })).toBeNull();
     expect(zonaConfeccionDe({ date: "2026-07-01", producto: "PREC 1", kg: 100 })).toBeNull();
     expect(zonaConfeccionDe({ date: "2026-07-01", producto: null, kg: 100 })).toBeNull();
+  });
+});
+
+describe("clasificarFilaConfeccion", () => {
+  it("los kg reales fuera de zona computan como Otros (para cuadrar con el calibrador)", () => {
+    expect(clasificarFilaConfeccion({ date: "2026-07-01", producto: "PODRIDO", kg: 100 })).toBe("Otros");
+    expect(clasificarFilaConfeccion({ date: "2026-07-01", producto: "PREC 1 MDNA 3K", kg: 100 })).toBe("Otros");
+    expect(clasificarFilaConfeccion({ date: "2026-07-01", producto: "-MUESTRA-", kg: 100 })).toBe("Otros");
+  });
+
+  it("las filas TOTAL / sin producto no computan (duplicarían el día)", () => {
+    expect(clasificarFilaConfeccion({ date: "2026-07-01", producto: null, kg: 100 })).toBeNull();
+    expect(clasificarFilaConfeccion({ date: "2026-07-01", producto: "  ", kg: 100 })).toBeNull();
   });
 });
 
@@ -29,19 +42,21 @@ describe("agregarConfeccionZonas", () => {
     { date: "2026-07-05", producto: "LA FEA GRANEL CAL 7/8", kg: 400 },
   ];
 
-  it("suma por zona dentro del rango y cuenta los días", () => {
+  it("suma por zona dentro del rango, con el podrido en Otros y el total cuadrando", () => {
     const agg = agregarConfeccionZonas(rows, "2026-07-01", "2026-07-02");
     expect(agg.kg.Mallas).toBe(100);
     expect(agg.kg.Graneleras).toBe(200);
     expect(agg.kg.Envasado).toBe(300);
     expect(agg.kg.Industria).toBe(50);
-    expect(agg.total).toBe(650);
+    expect(agg.otros).toBe(999);
+    expect(agg.total).toBe(650 + 999);
     expect(agg.nDias).toBe(2);
   });
 
-  it("ignora lo excluido y lo que cae fuera del rango", () => {
+  it("ignora lo que cae fuera del rango", () => {
     const agg = agregarConfeccionZonas(rows, "2026-07-05", "2026-07-05");
     expect(agg.kg.Graneleras).toBe(400);
+    expect(agg.otros).toBe(0);
     expect(agg.total).toBe(400);
     expect(agg.nDias).toBe(1);
   });
