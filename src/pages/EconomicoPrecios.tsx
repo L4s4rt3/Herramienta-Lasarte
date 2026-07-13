@@ -6,7 +6,7 @@
 // una errata (ver comentario de cabecera de useEconomico.ts).
 import { useMemo, useState } from "react";
 import {
-  AlertTriangle, ChevronDown, Download, History, Pencil, Plus, ShieldAlert, Trash2,
+  AlertTriangle, ChevronDown, Download, History, Package, Pencil, Plus, ShieldAlert, Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,17 @@ import {
   type NuevaMallaConfigInput,
 } from "@/hooks/useCosteMallas";
 import type { ZonaMalla } from "@/lib/costeMallas";
+import {
+  useEmpaquePrecios,
+  type NuevoEmpaquePrecioInput,
+} from "@/hooks/useEmpaquePrecios";
+import {
+  COMPONENTES_EMPAQUE,
+  COMPONENTE_LABEL,
+  TIPO_MALLA_LABEL,
+  type EmpaqueComponente,
+  type TipoMalla,
+} from "@/lib/costeEmpaque";
 import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatNumber, today } from "@/lib/format";
 import {
@@ -72,6 +83,10 @@ function recursoLabel(recurso: string): string {
 
 function formatPrecio(precio: number, unidad: string): string {
   return `${formatNumber(precio, 4)} €/${unidad}`;
+}
+
+function formatPrecioEmpaque(precio: number | null): string {
+  return precio != null ? `${formatNumber(precio, 4)} €/malla` : "—";
 }
 
 // Fecha "YYYY-MM-DD" anclada al mediodía local (evita el desplazamiento de zona
@@ -162,6 +177,7 @@ export default function EconomicoPrecios() {
   } = usePreciosRecursos();
 
   const mallas = useMallasConfig();
+  const empaque = useEmpaquePrecios();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<EconomicoPrecioRow | null>(null);
@@ -381,6 +397,7 @@ export default function EconomicoPrecios() {
       </Card>
 
       <MallasRotasSection mallas={mallas} />
+      <EmpaqueSection empaque={empaque} />
 
       <TarifaDialog
         open={dialogOpen}
@@ -882,7 +899,254 @@ function MallaConfigDialog({
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancelar</Button>
           <Button onClick={handleSubmit} disabled={saving}>
-            {saving ? "Guardando…" : "Registrar vigencia"}
+             {saving ? "Guardando…" : "Registrar vigencia"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Sección "Costes de envasado" ─────────────────────────────────────────────
+// Precios de materiales de packaging (etiqueta, caja, palet, malla, banda,
+// fleje, asa) por tipo de malla (3kg/5kg), con desglose y alta de vigencia
+// (mismo patrón que MallasRotasSection).
+
+function EmpaqueSection({ empaque }: { empaque: ReturnType<typeof useEmpaquePrecios> }) {
+  const {
+    vigentePorTipo, hayPrecioCero, isLoading, costesVigentes, crear,
+  } = empaque;
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [tipoDialog, setTipoDialog] = useState<TipoMalla>("3kg");
+  const [componenteDialog, setComponenteDialog] = useState<EmpaqueComponente>("etiqueta");
+  const [expandidos, setExpandidos] = useState<Set<TipoMalla>>(new Set());
+
+  const toggleExpandido = (tipo: TipoMalla) => {
+    setExpandidos((prev) => {
+      const next = new Set(prev);
+      if (next.has(tipo)) next.delete(tipo);
+      else next.add(tipo);
+      return next;
+    });
+  };
+
+  return (
+    <>
+      <div className="flex items-center gap-3 pt-2">
+        <div className="h-7 w-1 rounded-full bg-primary" />
+        <div>
+          <p className="panel-kicker">Económico</p>
+          <h2 className="text-xl font-semibold tracking-tight">Costes de envasado</h2>
+          <p className="text-sm text-muted-foreground">
+            Precios de materiales de packaging (etiqueta, caja, palet, malla, banda, fleje, asa) por tipo de malla.
+          </p>
+        </div>
+      </div>
+
+      {hayPrecioCero && (
+        <Card className="glass border-warning/30 bg-warning/6">
+          <CardContent className="flex items-center gap-3 pt-6">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-warning" />
+            <p className="text-sm">
+              <span className="font-semibold">Faltan precios de envasado:</span> algunos componentes tienen precio 0.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className="glass-accented overflow-hidden">
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="space-y-2 py-4">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ) : (
+            <ul className="divide-y divide-[var(--glass-border)]">
+              {(["3kg", "5kg"] as TipoMalla[]).map((tipoMalla) => {
+                const coste = costesVigentes.find((c) => c.tipoMalla === tipoMalla);
+                const vigentes = vigentePorTipo.get(tipoMalla) ?? new Map();
+                const expandido = expandidos.has(tipoMalla);
+                const total = coste?.totalPorMalla ?? 0;
+                const incompleto = coste?.incompleto ?? false;
+
+                return (
+                  <li key={tipoMalla}>
+                    <Collapsible open={expandido} onOpenChange={() => toggleExpandido(tipoMalla)}>
+                      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5">
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                          <CollapsibleTrigger asChild>
+                            <button
+                              type="button"
+                              className="flex items-center gap-2 text-left"
+                              aria-label={expandido ? "Ocultar desglose" : "Ver desglose"}
+                            >
+                              <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200", expandido && "rotate-180")} />
+                              <span className="font-semibold">{TIPO_MALLA_LABEL[tipoMalla]}</span>
+                            </button>
+                          </CollapsibleTrigger>
+                          {incompleto && (
+                            <Badge variant="outline" className="border-warning/40 bg-warning/10 text-[10px] text-warning">
+                              Incompleto
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <p className="text-sm font-semibold tabular-nums text-success">
+                              {formatPrecioEmpaque(total)}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {COMPONENTES_EMPAQUE.length} componente(s)
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      <CollapsibleContent>
+                        <div className="border-t border-[var(--glass-border)] bg-[var(--glass-bg-strong)]/40 px-4 py-3">
+                          <p className="mb-2 text-[11px] uppercase tracking-wider text-muted-foreground">Desglose por componente</p>
+                          <ul className="space-y-1.5">
+                            {COMPONENTES_EMPAQUE.map((comp) => {
+                              const vigente = vigentes.get(comp) ?? null;
+                              const precio = coste?.desglose.find((d) => d.componente === comp)?.precioMalla ?? 0;
+                              return (
+                                <li key={comp} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                                  <div className="min-w-0">
+                                    <span className="font-medium">{COMPONENTE_LABEL[comp]}</span>
+                                    <span className="ml-2 tabular-nums">{formatPrecioEmpaque(precio > 0 ? precio : null)}</span>
+                                    {vigente && (
+                                      <span className="ml-2 text-xs text-muted-foreground">
+                                        desde {formatDate(vigente.vigente_desde)}
+                                      </span>
+                                    )}
+                                    {vigente?.notas ? (
+                                      <span className="ml-2 text-xs text-muted-foreground">· {vigente.notas}</span>
+                                    ) : null}
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 text-xs"
+                                      onClick={() => {
+                                        setTipoDialog(tipoMalla);
+                                        setComponenteDialog(comp);
+                                        setDialogOpen(true);
+                                      }}
+                                    >
+                                      <Plus className="mr-1 h-3 w-3" /> Nueva vigencia
+                                    </Button>
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <EmpaquePrecioDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        tipoMalla={tipoDialog}
+        componente={componenteDialog}
+        crear={crear}
+      />
+    </>
+  );
+}
+
+function EmpaquePrecioDialog({
+  open, onOpenChange, tipoMalla, componente, crear,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  tipoMalla: TipoMalla;
+  componente: EmpaqueComponente;
+  crear: ReturnType<typeof useEmpaquePrecios>["crear"];
+}) {
+  const [precio, setPrecio] = useState("");
+  const [vigenteDesde, setVigenteDesde] = useState(today());
+  const [notas, setNotas] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const resetForm = () => {
+    setPrecio("");
+    setVigenteDesde(today());
+    setNotas("");
+  };
+
+  const handleSubmit = async () => {
+    const precioNumerico = Number(precio.replace(",", "."));
+    if (!Number.isFinite(precioNumerico) || precioNumerico < 0) {
+      toast({ title: "Precio no válido", description: "Introduce un precio válido.", variant: "destructive" });
+      return;
+    }
+    if (!vigenteDesde) {
+      toast({ title: "Fecha requerida", variant: "destructive" });
+      return;
+    }
+
+    const payload: NuevoEmpaquePrecioInput = {
+      tipo_malla: tipoMalla,
+      componente,
+      precio_malla: precioNumerico,
+      vigente_desde: vigenteDesde,
+      notas: notas.trim() || null,
+    };
+
+    setSaving(true);
+    try {
+      await crear.mutateAsync(payload);
+      toast({ title: "Precio registrado" });
+      resetForm();
+      onOpenChange(false);
+    } catch (error) {
+      toast({ title: "Error al guardar", description: errorMessage(error), variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { if (!next) resetForm(); onOpenChange(next); }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            Nuevo precio — {TIPO_MALLA_LABEL[tipoMalla]} · {COMPONENTE_LABEL[componente]}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Precio por malla (€)</Label>
+            <Input
+              inputMode="decimal"
+              value={precio}
+              onChange={(e) => setPrecio(e.target.value)}
+              placeholder="0,0000"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Vigente desde</Label>
+            <GlassDatePicker value={vigenteDesde} onChange={setVigenteDesde} className="w-full" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Notas (opcional)</Label>
+            <Textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={2} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancelar</Button>
+          <Button onClick={handleSubmit} disabled={saving}>
+            {saving ? "Guardando…" : "Registrar precio"}
           </Button>
         </DialogFooter>
       </DialogContent>
