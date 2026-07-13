@@ -27,12 +27,20 @@ import {
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
 } from "recharts";
+import { Input } from "@/components/ui/input";
 import {
-  Loader2, RefreshCw, AlertCircle,
-  ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ArrowLeft, Sprout, Ruler, StickyNote,
+  Loader2, RefreshCw, AlertCircle, BarChart3, Search, X,
+  ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, ArrowLeft, Sprout, Ruler, StickyNote,
 } from "lucide-react";
 
 const nf = new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 });
+
+function normalizeText(value: string | null | undefined): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+}
 
 // ─── Umbrales / helpers visuales ─────────────────────────────────────────────
 
@@ -126,7 +134,7 @@ const MINI_KPI_TONE: Record<string, string> = {
 };
 
 function MiniKpi({
-  label, value, sub, tone = "neutral", last = false, labelInfo,
+  label, value, sub, tone = "neutral", last = false, labelInfo, onClick,
 }: {
   label: string;
   value: string;
@@ -134,12 +142,18 @@ function MiniKpi({
   tone?: "success" | "warning" | "destructive" | "neutral";
   last?: boolean;
   labelInfo?: string;
+  /** Si se pasa, el KPI es clicable (p.ej. abrir el dossier del productor). */
+  onClick?: () => void;
 }) {
+  const Wrapper = onClick ? "button" : "div";
   return (
-    <div
+    <Wrapper
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
       className={cn(
-        "min-w-0 px-3 py-1.5 sm:flex-1 sm:border-r sm:border-[var(--glass-border)]",
-        last && "sm:border-r-0"
+        "min-w-0 px-3 py-1.5 text-left sm:flex-1 sm:border-r sm:border-[var(--glass-border)]",
+        last && "sm:border-r-0",
+        onClick && "rounded-lg transition-colors hover:bg-[var(--glass-bg-strong)]"
       )}
       title={labelInfo}
     >
@@ -148,7 +162,7 @@ function MiniKpi({
         {value}
         {sub && <span className="ml-1 text-xs font-medium text-muted-foreground">({sub})</span>}
       </p>
-    </div>
+    </Wrapper>
   );
 }
 
@@ -198,6 +212,7 @@ export default function Productores() {
   const [selected, setSelected] = useState<string | null>(queryProductor);
   const [sortKey, setSortKey] = useState<SortKey>("kg");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [search, setSearch] = useState("");
 
   const weekRange = useMemo(
     () => buildWeekRange(periodo, customDesde, customHasta),
@@ -263,9 +278,26 @@ export default function Productores() {
     });
   }, [data.productores, sortKey, sortDir]);
 
+  // Búsqueda sobre el ranking (nombre de productor o producto).
+  const searchLower = normalizeText(search).trim();
+  const filtered = useMemo(() => {
+    if (!searchLower) return sorted;
+    return sorted.filter(
+      (p) =>
+        normalizeText(p.productor).includes(searchLower) ||
+        p.productos.some((prod) => normalizeText(prod).includes(searchLower)),
+    );
+  }, [sorted, searchLower]);
+
   const selectedDossier = useMemo(
     () => (selected ? data.productores.find((p) => p.productor === selected) ?? null : null),
     [selected, data.productores]
+  );
+
+  // Posición del productor abierto dentro del ranking visible (para ◀ ▶).
+  const selectedIndex = useMemo(
+    () => (selected ? filtered.findIndex((p) => p.productor === selected) : -1),
+    [selected, filtered],
   );
 
   const kgTotalPeriodo = useMemo(() => data.productores.reduce((s, p) => s + p.kg_total, 0), [data.productores]);
@@ -324,37 +356,63 @@ export default function Productores() {
         </Card>
       )}
 
-      {/* ─── Toolbar única: siempre visible tras cargar (incluso sin datos)
-           para poder navegar a un periodo que sí tenga información ───── */}
+      {/* ─── Toolbar única sticky: siempre visible tras cargar (incluso sin
+           datos) para poder navegar a un periodo que sí tenga información ── */}
       {!loading && !error && (
-        <div className="glass-accented rounded-xl p-3 space-y-3">
-          <WeekSelector
-            periodo={periodo}
-            onPeriodoChange={setPeriodo}
-            customDesde={customDesde}
-            customHasta={customHasta}
-            onCustomDesdeChange={setCustomDesde}
-            onCustomHastaChange={setCustomHasta}
-            onNavigateWeek={handleNavigateWeek}
-            canNavigateNext={periodo === "todo" ? true : weekRange.end < today()}
-            showTodo
-          />
+        <div className="sticky top-[calc(3.5rem+1rem)] z-10 glass-overlay rounded-xl p-3 space-y-3 sm:top-[calc(4rem+1.25rem)]">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <WeekSelector
+              periodo={periodo}
+              onPeriodoChange={setPeriodo}
+              customDesde={customDesde}
+              customHasta={customHasta}
+              onCustomDesdeChange={setCustomDesde}
+              onCustomHastaChange={setCustomHasta}
+              onNavigateWeek={handleNavigateWeek}
+              canNavigateNext={periodo === "todo" ? true : weekRange.end < today()}
+              showTodo
+            />
+            {hayDatos && !selectedDossier && (
+              <>
+                <div className="relative w-full sm:ml-auto sm:w-auto">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar productor o producto..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="pl-8 w-full sm:w-64 h-9"
+                  />
+                </div>
+                {searchLower && (
+                  <Button variant="ghost" size="sm" className="h-9 text-muted-foreground" onClick={() => setSearch("")}>
+                    <X className="h-3.5 w-3.5" /> Limpiar
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
           {hayDatos && (
             <div className="grid grid-cols-2 gap-x-2 gap-y-2 border-t border-[var(--glass-border)] pt-2.5 sm:flex sm:flex-nowrap sm:items-stretch sm:gap-0">
-              <MiniKpi label="Productores" value={String(data.productores.length)} />
+              <MiniKpi
+                label="Productores"
+                value={searchLower ? `${filtered.length} de ${data.productores.length}` : String(data.productores.length)}
+              />
               <MiniKpi label="Kg totales" value={formatKg(kgTotalPeriodo)} />
               <MiniKpi
                 label="Mejor T/h"
                 value={mejorTph?.tph_promedio ? `${mejorTph.tph_promedio.toFixed(1)}` : "—"}
                 sub={mejorTph?.productor}
                 tone="success"
+                onClick={mejorTph ? () => handleSelect(mejorTph.productor) : undefined}
+                labelInfo="Clic para abrir el dossier de este productor."
               />
               <MiniKpi
                 label="Mayor % industria"
                 value={peorIndustria ? `${peorIndustria.pct_industria.toFixed(1)}%` : "—"}
                 sub={peorIndustria?.productor}
                 tone={peorIndustria && peorIndustria.pct_industria > 5 ? "warning" : "neutral"}
-                labelInfo="Porcentaje de los kg del productor apuntados como industria: cuanto más alto, menos aprovechable viene su fruta."
+                labelInfo="Porcentaje de los kg del productor apuntados como industria: cuanto más alto, menos aprovechable viene su fruta. Clic para abrir su dossier."
+                onClick={peorIndustria ? () => handleSelect(peorIndustria.productor) : undefined}
                 last
               />
             </div>
@@ -367,7 +425,7 @@ export default function Productores() {
         <>
           {!selectedDossier ? (
             <RankingTable
-              productores={sorted}
+              productores={filtered}
               kgTotalPeriodo={kgTotalPeriodo}
               sortKey={sortKey}
               sortDir={sortDir}
@@ -384,6 +442,18 @@ export default function Productores() {
               onTabChange={handleTabChange}
               onBack={() => handleSelect(null)}
               onLoteClick={(partId) => navigate(`/partes/${partId}`)}
+              posicion={selectedIndex >= 0 ? { actual: selectedIndex + 1, total: filtered.length } : null}
+              onPrev={selectedIndex > 0 ? () => handleSelect(filtered[selectedIndex - 1].productor) : undefined}
+              onNext={
+                selectedIndex >= 0 && selectedIndex < filtered.length - 1
+                  ? () => handleSelect(filtered[selectedIndex + 1].productor)
+                  : undefined
+              }
+              onVerAnalisis={() =>
+                navigate(
+                  `/analisis/diario?desde=${weekRange.start}&hasta=${weekRange.end}&productor=${encodeURIComponent(selectedDossier.productor)}&tab=lotes`,
+                )
+              }
             />
           )}
         </>
@@ -433,6 +503,7 @@ function RankingTable({ productores, kgTotalPeriodo, sortKey, sortDir, onToggleS
               <tr className="border-b border-[var(--glass-border)] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>th]:px-3 [&>th]:py-1.5">
                 <ColHead label="Productor"  sk="productor"     sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
                 <ColHead label="Kg"         sk="kg"            sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} right />
+                <ColHead label="% periodo"  sk="kg"            sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} right />
                 <ColHead label="Lotes"      sk="lotes"         sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} right />
                 <ColHead label="T/h"        sk="tph"           sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} right />
                 <ColHead label="% lentos"   sk="lentos"        sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} right />
@@ -463,6 +534,7 @@ function RankingTable({ productores, kgTotalPeriodo, sortKey, sortDir, onToggleS
             <tbody>
               {productores.map((p, i) => {
                 const dominante = calidadDominante(p.calidad);
+                const pctPeriodo = kgTotalPeriodo > 0 ? (p.kg_total / kgTotalPeriodo) * 100 : 0;
                 return (
                   <tr
                     key={p.productor}
@@ -486,6 +558,14 @@ function RankingTable({ productores, kgTotalPeriodo, sortKey, sortDir, onToggleS
                       )}
                     </td>
                     <td className="px-3 py-1.5 text-right tabular-nums font-medium">{formatKg(p.kg_total)}</td>
+                    <td className="px-3 py-1.5">
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="h-1.5 w-14 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                          <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, pctPeriodo)}%` }} />
+                        </div>
+                        <span className="w-10 shrink-0 text-right tabular-nums text-xs text-muted-foreground">{pctPeriodo.toFixed(1)}%</span>
+                      </div>
+                    </td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{p.n_lotes}</td>
                     <td className={cn("px-3 py-1.5 text-right tabular-nums font-semibold", tphClass(p.tph_promedio))}>
                       {p.tph_promedio !== null ? `${p.tph_promedio.toFixed(1)}` : "—"}
@@ -573,7 +653,10 @@ function MobileField({ label, value, valueClass, muted }: { label: string; value
 
 // ─── Detalle del productor ───────────────────────────────────────────────
 
-function ProductorDetalle({ dossier, medias, days, kgTotalPeriodo, activeTab, onTabChange, onBack, onLoteClick }: {
+function ProductorDetalle({
+  dossier, medias, days, kgTotalPeriodo, activeTab, onTabChange, onBack, onLoteClick,
+  posicion, onPrev, onNext, onVerAnalisis,
+}: {
   dossier: ProductorDossier;
   medias: MediasPlanta;
   days: string[];
@@ -582,6 +665,11 @@ function ProductorDetalle({ dossier, medias, days, kgTotalPeriodo, activeTab, on
   onTabChange: (tab: DetailTab) => void;
   onBack: () => void;
   onLoteClick: (partId: string) => void;
+  /** Posición dentro del ranking visible ("3 de 24") para orientarse al hojear. */
+  posicion: { actual: number; total: number } | null;
+  onPrev?: () => void;
+  onNext?: () => void;
+  onVerAnalisis: () => void;
 }) {
   const chartData = useMemo(() => {
     const porDiaTph = new Map<string, { sumTph: number; nTph: number }>();
@@ -620,12 +708,25 @@ function ProductorDetalle({ dossier, medias, days, kgTotalPeriodo, activeTab, on
 
   return (
     <div className="space-y-3">
-      {/* Cabecera compacta: nombre + chips de metadatos en una línea */}
+      {/* Cabecera compacta: volver + hojear productores + metadatos + salto a Análisis */}
       <div className="glass-accented rounded-xl px-4 py-2.5">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <Button variant="ghost" size="sm" className="-ml-2 h-7 px-2" onClick={onBack}>
             <ArrowLeft className="h-3.5 w-3.5" /> Ranking
           </Button>
+          <div className="flex items-center gap-0.5">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onPrev} disabled={!onPrev} title="Productor anterior del ranking">
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onNext} disabled={!onNext} title="Productor siguiente del ranking">
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            {posicion && (
+              <span className="ml-1 text-[11px] tabular-nums text-muted-foreground whitespace-nowrap">
+                {posicion.actual} de {posicion.total}
+              </span>
+            )}
+          </div>
           <h2 className="text-base font-bold truncate">{dossier.productor}</h2>
           <span className="text-xs text-muted-foreground whitespace-nowrap">
             {dossier.n_lotes} lote{dossier.n_lotes === 1 ? "" : "s"} · {dossier.n_dias} día{dossier.n_dias === 1 ? "" : "s"}
@@ -635,6 +736,9 @@ function ProductorDetalle({ dossier, medias, days, kgTotalPeriodo, activeTab, on
           {dossier.productos.map((prod) => (
             <Badge key={prod} variant="secondary" className="text-[10px] px-1.5 py-0">{prod}</Badge>
           ))}
+          <Button variant="outline" size="sm" className="ml-auto h-7 gap-1.5 text-xs" onClick={onVerAnalisis}>
+            <BarChart3 className="h-3.5 w-3.5" /> Ver sus lotes en Análisis diario
+          </Button>
         </div>
       </div>
 

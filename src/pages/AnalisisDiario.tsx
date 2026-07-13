@@ -1,6 +1,6 @@
 // src/pages/AnalisisDiario.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
@@ -71,12 +71,14 @@ export default function AnalisisDiario() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryDesde = searchParams.get("desde");
   const queryHasta = searchParams.get("hasta");
+  // ?productor= permite llegar desde el dossier de Productores con el filtro puesto.
+  const queryProductor = searchParams.get("productor");
   const hasQueryRange = Boolean(queryDesde && queryHasta);
   const [periodo, setPeriodo] = useState<Periodo>(() => (hasQueryRange ? "custom" : "esta_semana"));
   const [customDesde, setCustomDesde] = useState(() => queryDesde ?? daysAgo(30));
   const [customHasta, setCustomHasta] = useState(() => queryHasta ?? today());
   const [search, setSearch] = useState("");
-  const [productorFiltro, setProductorFiltro] = useState<string>("todos");
+  const [productorFiltro, setProductorFiltro] = useState<string>(() => queryProductor ?? "todos");
   const [productoFiltro, setProductoFiltro] = useState<string>("todos");
   const [activeTab, setActiveTab] = useState<TabValue>(() => {
     const t = searchParams.get("tab");
@@ -91,6 +93,10 @@ export default function AnalisisDiario() {
     setCustomDesde(queryDesde);
     setCustomHasta(queryHasta);
   }, [queryDesde, queryHasta]);
+
+  useEffect(() => {
+    if (queryProductor) setProductorFiltro(queryProductor);
+  }, [queryProductor]);
 
   const handleTabChange = (v: string) => {
     if (!isTabValue(v)) return;
@@ -835,6 +841,7 @@ function ResumenTopBarras({
 }
 
 function ResumenTopProductores({ productores }: { productores: ProductorResumen[] }) {
+  const navigate = useNavigate();
   if (productores.length === 0) {
     return <p className="text-sm text-muted-foreground py-6 text-center">Sin productores</p>;
   }
@@ -853,7 +860,12 @@ function ResumenTopProductores({ productores }: { productores: ProductorResumen[
           {productores.map((p) => {
             const tphTone = p.tph_promedio === null ? "neutral" : p.tph_promedio >= 14.5 ? "success" : p.tph_promedio >= 12.5 ? "warning" : "destructive";
             return (
-              <tr key={p.productor} className="border-b border-[var(--glass-border)] last:border-b-0">
+              <tr
+                key={p.productor}
+                className="cursor-pointer border-b border-[var(--glass-border)] transition-colors last:border-b-0 hover:bg-[var(--glass-bg-strong)]"
+                onClick={() => navigate(`/productores?productor=${encodeURIComponent(p.productor)}`)}
+                title="Abrir el dossier del productor"
+              >
                 <td className="max-w-[160px] truncate py-2 font-medium">{p.productor}</td>
                 <td className="py-2 text-right tabular-nums font-semibold">{formatKg(p.kg_total)}</td>
                 <td className="py-2 text-right tabular-nums text-muted-foreground">{p.n_lotes}</td>
