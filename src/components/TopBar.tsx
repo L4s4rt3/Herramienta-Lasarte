@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Breadcrumb,
@@ -192,6 +193,13 @@ function TopBar() {
   const meta = baseRoute ? ROUTE_META[baseRoute] : null;
   // Chip de orientación: en qué gran sección estás (según la ruta actual).
   const seccion = WORKSPACES.find((w) => w.id === workspaceDeRuta(location.pathname));
+
+  // Título de la pestaña del navegador por página (historial y pestañas legibles).
+  useEffect(() => {
+    document.title = meta?.label
+      ? `${meta.label} · Herramienta Lasarte`
+      : "Herramienta Lasarte Cítricos S.L.";
+  }, [meta?.label]);
 
   return (
     <header className="sticky top-0 z-20 flex min-h-14 shrink-0 items-center gap-2 border-b border-primary/10 bg-[var(--glass-bg-solid)] px-3 py-2.5 shadow-[var(--glass-shadow)] backdrop-blur-2xl sm:min-h-16 sm:gap-3 sm:px-5 sm:py-3 lg:px-8">

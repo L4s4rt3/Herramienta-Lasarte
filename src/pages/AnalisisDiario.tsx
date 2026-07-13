@@ -294,7 +294,7 @@ export default function AnalisisDiario() {
         <div>
           <h1 className="page-title">Análisis diario</h1>
           <p className="page-subtitle">
-            {formatFechaLarga(weekRange.start)} — {formatFechaLarga(weekRange.end)}
+            {periodo === "todo" ? weekRange.label : <>{formatFechaLarga(weekRange.start)} — {formatFechaLarga(weekRange.end)}</>}
             {!loading && hayDatos && <> · {data.totals.n_dias} día{data.totals.n_dias === 1 ? "" : "s"} con datos</>}
           </p>
         </div>
@@ -344,7 +344,8 @@ export default function AnalisisDiario() {
               onCustomDesdeChange={setCustomDesde}
               onCustomHastaChange={setCustomHasta}
               onNavigateWeek={handleManualNavigateWeek}
-              canNavigateNext={weekRange.end < today()}
+              canNavigateNext={periodo === "todo" ? true : weekRange.end < today()}
+              showTodo
             />
           </div>
           {hayDatos && (
