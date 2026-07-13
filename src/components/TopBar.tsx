@@ -36,6 +36,12 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/produccion",
     parentLabel: "Producción",
   },
+  "/entradas": {
+    label: "Entradas de fruta",
+    subtitle: "Entradas por báscula, stock de fruta sin procesar y trazabilidad por lote",
+    parent: "/produccion",
+    parentLabel: "Producción",
+  },
   "/calidad": {
     label: "Calidad",
     subtitle: "Notas diarias de lotes y control de calidad",

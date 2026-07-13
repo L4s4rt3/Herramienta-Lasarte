@@ -751,6 +751,84 @@ export type Database = {
         }
         Relationships: []
       }
+      entradas_bascula: {
+        Row: {
+          agricultor: string | null
+          articulo: string | null
+          certificada: boolean
+          certificado_ggn: string | null
+          comision_kg: number | null
+          coste_recoleccion: number | null
+          created_at: string
+          envases: number | null
+          fecha: string
+          finca: string | null
+          id: string
+          importe_compra: number | null
+          importe_comision: number | null
+          importe_total: number | null
+          importe_transporte: number | null
+          kg_entrada: number
+          lote: string
+          num_entrada: string | null
+          parcela: string | null
+          precio_compra_kg: number | null
+          recol_kg: number | null
+          tipo_envase: string | null
+          user_id: string
+        }
+        Insert: {
+          agricultor?: string | null
+          articulo?: string | null
+          certificada?: boolean
+          certificado_ggn?: string | null
+          comision_kg?: number | null
+          coste_recoleccion?: number | null
+          created_at?: string
+          envases?: number | null
+          fecha: string
+          finca?: string | null
+          id?: string
+          importe_compra?: number | null
+          importe_comision?: number | null
+          importe_total?: number | null
+          importe_transporte?: number | null
+          kg_entrada?: number
+          lote: string
+          num_entrada?: string | null
+          parcela?: string | null
+          precio_compra_kg?: number | null
+          recol_kg?: number | null
+          tipo_envase?: string | null
+          user_id: string
+        }
+        Update: {
+          agricultor?: string | null
+          articulo?: string | null
+          certificada?: boolean
+          certificado_ggn?: string | null
+          comision_kg?: number | null
+          coste_recoleccion?: number | null
+          created_at?: string
+          envases?: number | null
+          fecha?: string
+          finca?: string | null
+          id?: string
+          importe_compra?: number | null
+          importe_comision?: number | null
+          importe_total?: number | null
+          importe_transporte?: number | null
+          kg_entrada?: number
+          lote?: string
+          num_entrada?: string | null
+          parcela?: string | null
+          precio_compra_kg?: number | null
+          recol_kg?: number | null
+          tipo_envase?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       gstock_entries: {
         Row: {
           created_at: string

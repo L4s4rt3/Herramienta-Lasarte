@@ -129,6 +129,7 @@ export const NAV_GROUPS: Array<{ label: string; workspace: WorkspaceId; items: N
     label: "Operaciones diarias",
     workspace: "produccion",
     items: [
+      { to: "/entradas", label: "Entradas de fruta", icon: Truck },
       { to: "/calidad", label: "Calidad", icon: ClipboardCheck },
       { to: "/partes", label: "Partes", icon: FileText, match: (path) => path.startsWith("/partes") },
     ],
