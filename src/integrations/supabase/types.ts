@@ -771,6 +771,7 @@ export type Database = {
           kg_entrada: number
           lote: string
           num_entrada: string | null
+          origen: string
           parcela: string | null
           precio_compra_kg: number | null
           recol_kg: number | null
@@ -796,6 +797,7 @@ export type Database = {
           kg_entrada?: number
           lote: string
           num_entrada?: string | null
+          origen?: string
           parcela?: string | null
           precio_compra_kg?: number | null
           recol_kg?: number | null
@@ -821,6 +823,7 @@ export type Database = {
           kg_entrada?: number
           lote?: string
           num_entrada?: string | null
+          origen?: string
           parcela?: string | null
           precio_compra_kg?: number | null
           recol_kg?: number | null

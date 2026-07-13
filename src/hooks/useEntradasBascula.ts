@@ -75,6 +75,25 @@ export function useEntradasBascula() {
     },
   });
 
+  const importarStock = useMutation({
+    mutationFn: async (entradas: EntradaBasculaParsed[]) => {
+      if (!user) throw new Error("No auth");
+      if (entradas.length === 0) throw new Error("El informe no contiene lotes importables.");
+      // Sembrado del stock inicial: SOLO se crean lotes que no existan ya
+      // (ignoreDuplicates), para no machacar entradas reales de báscula.
+      for (let i = 0; i < entradas.length; i += CHUNK) {
+        const chunk = entradas.slice(i, i + CHUNK).map((e) => ({ ...e, user_id: user.id }));
+        const { error } = await supabase
+          .from("entradas_bascula")
+          .upsert(chunk, { onConflict: "lote", ignoreDuplicates: true });
+        if (error) throw toError(error);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: entradasKey });
+    },
+  });
+
   const eliminar = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from("entradas_bascula").delete().eq("id", id);
@@ -106,9 +125,11 @@ export function useEntradasBascula() {
   return {
     entradas,
     stock,
+    procesados: procesadosQuery.data ?? [],
     isLoading: entradasQuery.isLoading || procesadosQuery.isLoading,
     error: entradasQuery.error ?? procesadosQuery.error,
     importar,
+    importarStock,
     eliminar,
   };
 }

@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildEntradasDesdeStock,
   buildStockEntradas,
   normalizarLoteCodigo,
   parseEntradasBasculaRows,
   parseFechaBascula,
+  parseStockLotesRows,
 } from "./entradasBascula";
 
 // Cabecera real del export del programa de báscula ("entrada 2604.xlsx").
@@ -74,6 +76,57 @@ describe("parseFechaBascula", () => {
     expect(parseFechaBascula("2026-04-06")).toBe("2026-04-06");
     expect(parseFechaBascula(new Date(2026, 3, 6))).toBe("2026-04-06");
     expect(parseFechaBascula("sin fecha")).toBeNull();
+  });
+});
+
+describe("parseStockLotesRows — informe APROVECHAMIENTO STOCK LOTES", () => {
+  // Estructura real: fila de título, cabecera, filas de agrupación por
+  // producto/agricultor (sin fecha ni lote) y leyenda final de colores.
+  const ROWS: unknown[][] = [
+    ["APROVECHAMIENTO STOCK LOTES", null, null, null, null, null, null, null, null, null],
+    ["Creación", "Lote", "Producto", "Agricultor", "Kgr.Exist.", "Envses", "APROVECHAMIENTO", "ACIDEZ", "KG MDNA", null],
+    [null, null, "NARANJA BARBERINA", "LASARTE EXPORT S.L. Carlos", 24100, 120, "SIN DATOS", null, null, null],
+    ["28/04/2026", "26042812", "NARANJA BARBERINA", "LASARTE EXPORT S.L. Carlos", 20960, 104, "SIN DATOS", null, null, null],
+    [new Date(2026, 3, 29, 0, 0, 44), "26042911", "NARANJA BARBERINA", "LASARTE EXPORT S.L. Carlos", 3140, 16, "SIN DATOS", null, null, null],
+    ["Colores originales del archivo (fila completa / % aprovechamiento):", null, null, null, null, null, null, null, null, null],
+    [null, "% de aprovechamiento calculado", null, null, null, null, null, null, null, null],
+  ];
+
+  it("extrae solo las filas de detalle con lote de 8 dígitos", () => {
+    const { lotes, descartadas } = parseStockLotesRows(ROWS);
+    expect(lotes).toHaveLength(2);
+    expect(lotes[0]).toMatchObject({ fecha: "2026-04-28", lote: "26042812", kg_existentes: 20960, envases: 104 });
+    expect(lotes[1]).toMatchObject({ fecha: "2026-04-29", lote: "26042911", kg_existentes: 3140 });
+    // La leyenda "% de aprovechamiento calculado" (con texto en la col. lote) se descarta con motivo.
+    expect(descartadas.some((d) => d.motivo.includes("no reconocible"))).toBe(true);
+  });
+
+  it("avisa si no encuentra la cabecera", () => {
+    const { lotes, descartadas } = parseStockLotesRows([["otra", "cosa"]]);
+    expect(lotes).toHaveLength(0);
+    expect(descartadas[0].motivo).toContain("cabecera");
+  });
+});
+
+describe("buildEntradasDesdeStock — sembrado del arranque", () => {
+  it("reconstruye kg_entrada = stock actual + kg ya procesados del lote", () => {
+    const lotes = [
+      { fecha: "2026-04-28", lote: "26042812", articulo: "BARBERINA", agricultor: "Carlos", kg_existentes: 20960, envases: 104 },
+      { fecha: "2026-05-08", lote: "26050801", articulo: "MIDKNIGHT", agricultor: "Covidesa", kg_existentes: 14045, envases: 45 },
+    ];
+    const procesados = [
+      { lote_codigo: "26042812 + 2 BOX", kg_peso_total: 4040, date: "2026-06-01" },
+    ];
+
+    const entradas = buildEntradasDesdeStock(lotes, procesados);
+
+    expect(entradas[0]).toMatchObject({ lote: "26042812", kg_entrada: 25000, origen: "stock_inicial" });
+    expect(entradas[1]).toMatchObject({ lote: "26050801", kg_entrada: 14045 });
+
+    // La cuenta cierra: el stock calculado devuelve exactamente el del informe.
+    const stock = buildStockEntradas(entradas, procesados, "2026-07-13");
+    expect(stock.filas.find((f) => f.lote === "26042812")?.kg_en_camara).toBe(20960);
+    expect(stock.filas.find((f) => f.lote === "26050801")?.kg_en_camara).toBe(14045);
   });
 });
 

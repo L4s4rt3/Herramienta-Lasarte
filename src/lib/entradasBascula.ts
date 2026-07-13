@@ -15,6 +15,8 @@
 
 export interface EntradaBasculaParsed {
   fecha: string; // ISO "YYYY-MM-DD"
+  /** "bascula" = export normal de entradas; "stock_inicial" = sembrado desde el informe de stock. */
+  origen?: "bascula" | "stock_inicial";
   num_entrada: string | null;
   finca: string | null;
   parcela: string | null;
@@ -182,6 +184,139 @@ export function parseEntradasBasculaRows(rows: unknown[][]): ParseEntradasBascul
   });
 
   return { entradas, descartadas };
+}
+
+// ─── Informe de stock ("APROVECHAMIENTO STOCK LOTES") ───────────────────────
+// El programa de báscula también exporta el stock actual por lote (columna
+// "Kgr.Exist."). Sirve para SEMBRAR el arranque: los lotes se empezaron a
+// registrar a medias (21-abr-2026), así que para los lotes que ya estaban en
+// cámara no tenemos su entrada real. La reconstrucción es:
+//   kg_entrada = kg existentes ahora + kg que el calibrador ya procesó del lote
+// De ese modo el stock calculado (entrada − procesado) devuelve exactamente el
+// stock del informe, y el procesado futuro descuenta bien.
+
+export interface StockLoteParsed {
+  fecha: string; // fecha de creación del lote
+  lote: string;
+  articulo: string | null;
+  agricultor: string | null;
+  kg_existentes: number;
+  envases: number | null;
+}
+
+export interface ParseStockLotesResult {
+  lotes: StockLoteParsed[];
+  descartadas: Array<{ fila: number; motivo: string }>;
+}
+
+/**
+ * Parsea las filas (header:1) del informe de stock. Solo cuentan las filas de
+ * detalle (fecha + lote de 8 dígitos + kg); las filas de agrupación por
+ * producto/agricultor (sin fecha ni lote) y la leyenda final se descartan en
+ * silencio.
+ */
+export function parseStockLotesRows(rows: unknown[][]): ParseStockLotesResult {
+  const headerIndex = rows.findIndex((row) => {
+    const headers = row.map(normalizeHeader);
+    return headers.includes("lote") && headers.some((h) => h.startsWith("kgr exist"));
+  });
+
+  if (headerIndex === -1) {
+    return { lotes: [], descartadas: [{ fila: 0, motivo: "No se encontró la cabecera (Lote / Kgr.Exist.)" }] };
+  }
+
+  const headers = rows[headerIndex].map(normalizeHeader);
+  const col = (...names: string[]) => {
+    for (const name of names) {
+      const index = headers.findIndex((h) => h === name || h.startsWith(name));
+      if (index !== -1) return index;
+    }
+    return -1;
+  };
+
+  const iFecha = col("creacion", "fecha");
+  const iLote = col("lote");
+  const iProducto = col("producto");
+  const iAgricultor = col("agricultor");
+  const iKg = col("kgr exist");
+  const iEnvases = col("envses", "envases");
+
+  const lotes: StockLoteParsed[] = [];
+  const descartadas: Array<{ fila: number; motivo: string }> = [];
+
+  rows.slice(headerIndex + 1).forEach((row, offset) => {
+    const fila = headerIndex + offset + 2;
+    const lote = String(row[iLote] ?? "").trim();
+    const fecha = parseFechaBascula(row[iFecha]);
+    const kg = toNumber(row[iKg]);
+
+    // Filas de agrupación (producto/agricultor sin lote) y leyenda: se saltan sin avisar.
+    if (!lote && !fecha) return;
+
+    if (!/^\d{8}$/.test(lote)) {
+      descartadas.push({ fila, motivo: `Lote no reconocible ("${lote}")` });
+      return;
+    }
+    if (!fecha) {
+      descartadas.push({ fila, motivo: "Sin fecha de creación" });
+      return;
+    }
+    if (kg == null || kg <= 0) {
+      descartadas.push({ fila, motivo: "Sin kg existentes" });
+      return;
+    }
+
+    lotes.push({
+      fecha,
+      lote,
+      articulo: iProducto === -1 ? null : toText(row[iProducto]),
+      agricultor: iAgricultor === -1 ? null : toText(row[iAgricultor]),
+      kg_existentes: kg,
+      envases: iEnvases === -1 ? null : toNumber(row[iEnvases]),
+    });
+  });
+
+  return { lotes, descartadas };
+}
+
+/**
+ * Convierte los lotes del informe de stock en entradas sembradas:
+ * kg_entrada = stock actual + kg ya procesados por el calibrador para ese lote.
+ */
+export function buildEntradasDesdeStock(
+  lotes: StockLoteParsed[],
+  procesados: LoteProcesadoInput[],
+): EntradaBasculaParsed[] {
+  const procesadoPorLote = new Map<string, number>();
+  for (const p of procesados) {
+    const clave = normalizarLoteCodigo(p.lote_codigo);
+    if (!clave) continue;
+    procesadoPorLote.set(clave, (procesadoPorLote.get(clave) ?? 0) + (Number(p.kg_peso_total) || 0));
+  }
+
+  return lotes.map((l) => ({
+    fecha: l.fecha,
+    origen: "stock_inicial" as const,
+    num_entrada: null,
+    finca: null,
+    parcela: null,
+    lote: l.lote,
+    agricultor: l.agricultor,
+    articulo: l.articulo,
+    tipo_envase: null,
+    envases: l.envases,
+    kg_entrada: l.kg_existentes + (procesadoPorLote.get(l.lote) ?? 0),
+    recol_kg: null,
+    coste_recoleccion: null,
+    importe_transporte: null,
+    precio_compra_kg: null,
+    importe_compra: null,
+    comision_kg: null,
+    importe_comision: null,
+    importe_total: null,
+    certificada: false,
+    certificado_ggn: null,
+  }));
 }
 
 /**

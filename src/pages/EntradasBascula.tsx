@@ -21,7 +21,9 @@ import { KPICard } from "@/components/KPICard";
 import { toast } from "@/hooks/use-toast";
 import { useEntradasBascula } from "@/hooks/useEntradasBascula";
 import {
+  buildEntradasDesdeStock,
   parseEntradasBasculaRows,
+  parseStockLotesRows,
   type EntradaBasculaParsed,
   type StockEstado,
   type StockLoteRow,
@@ -52,12 +54,14 @@ function normalizeText(value: string | null | undefined): string {
 
 interface ImportPreview {
   fileName: string;
+  /** "bascula" = export de entradas; "stock" = informe de stock (sembrado inicial). */
+  tipo: "bascula" | "stock";
   entradas: EntradaBasculaParsed[];
   descartadas: Array<{ fila: number; motivo: string }>;
 }
 
 export default function EntradasBascula() {
-  const { entradas, stock, isLoading, error, importar, eliminar } = useEntradasBascula();
+  const { entradas, stock, procesados, isLoading, error, importar, importarStock, eliminar } = useEntradasBascula();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [parseando, setParseando] = useState(false);
@@ -71,17 +75,32 @@ export default function EntradasBascula() {
       const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null }) as unknown[][];
+
+      // Detección automática: primero se intenta como export de entradas; si no
+      // tiene esa cabecera, como informe de stock ("Kgr.Exist.") para el sembrado.
       const parsed = parseEntradasBasculaRows(rows);
-      if (parsed.entradas.length === 0) {
-        toast({
-          title: "Archivo sin entradas",
-          description: parsed.descartadas[0]?.motivo ?? "No se encontraron filas importables.",
-          variant: "destructive",
-        });
-        setPreview(null);
+      if (parsed.entradas.length > 0) {
+        setPreview({ fileName: file.name, tipo: "bascula", ...parsed });
         return;
       }
-      setPreview({ fileName: file.name, ...parsed });
+
+      const stockParsed = parseStockLotesRows(rows);
+      if (stockParsed.lotes.length > 0) {
+        setPreview({
+          fileName: file.name,
+          tipo: "stock",
+          entradas: buildEntradasDesdeStock(stockParsed.lotes, procesados),
+          descartadas: stockParsed.descartadas,
+        });
+        return;
+      }
+
+      toast({
+        title: "Archivo no reconocido",
+        description: "No parece un export de entradas de báscula ni un informe de stock de lotes.",
+        variant: "destructive",
+      });
+      setPreview(null);
     } catch (e) {
       toast({ title: "No se pudo leer el archivo", description: errorMessage(e), variant: "destructive" });
     } finally {
@@ -106,11 +125,14 @@ export default function EntradasBascula() {
 
   const confirmarImport = () => {
     if (!preview) return;
-    importar.mutate(preview.entradas, {
+    const mutation = preview.tipo === "stock" ? importarStock : importar;
+    mutation.mutate(preview.entradas, {
       onSuccess: () => {
         toast({
-          title: "Entradas importadas",
-          description: `${preview.entradas.length} entrada(s) guardada(s) (${previewStats?.nuevas ?? 0} nueva(s)).`,
+          title: preview.tipo === "stock" ? "Stock inicial sembrado" : "Entradas importadas",
+          description: preview.tipo === "stock"
+            ? `${previewStats?.nuevas ?? 0} lote(s) nuevo(s) creado(s); los ${previewStats?.actualizadas ?? 0} que ya existían se han respetado.`
+            : `${preview.entradas.length} entrada(s) guardada(s) (${previewStats?.nuevas ?? 0} nueva(s)).`,
         });
         setPreview(null);
       },
@@ -144,7 +166,14 @@ export default function EntradasBascula() {
             Báscula → stock en cámara → calibrador: trazabilidad por lote desde la finca.
           </p>
         </div>
-        <Button className="glass glass-hover" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={parseando || importar.isPending}>
+        <Button
+          className="glass glass-hover"
+          variant="outline"
+          size="sm"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={parseando || importar.isPending || importarStock.isPending}
+          title="Acepta el export de entradas de la báscula y el informe de stock de lotes (se detecta solo)"
+        >
           {parseando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           Importar Excel de báscula
         </Button>
@@ -164,13 +193,29 @@ export default function EntradasBascula() {
             <div className="flex items-center gap-2 text-sm font-medium">
               <FileSpreadsheet className="h-4 w-4 text-info" />
               {preview.fileName}
+              {preview.tipo === "stock" && (
+                <Badge variant="outline" className="border-info/40 bg-info/10 px-1.5 py-0 text-[11px] text-info">
+                  Informe de stock · sembrado inicial
+                </Badge>
+              )}
             </div>
             <p className="text-sm text-muted-foreground">
-              {preview.entradas.length} entrada(s) · {formatDate(previewStats.desde)}
+              {preview.entradas.length} {preview.tipo === "stock" ? "lote(s)" : "entrada(s)"} · {formatDate(previewStats.desde)}
               {previewStats.hasta !== previewStats.desde && <> – {formatDate(previewStats.hasta)}</>} ·{" "}
               <span className="font-semibold text-foreground">{formatKg(previewStats.kg)}</span>
-              {" "}· {previewStats.nuevas} nueva(s){previewStats.actualizadas > 0 && <>, {previewStats.actualizadas} ya existente(s) que se actualizarán</>}
+              {" "}· {previewStats.nuevas} nueva(s)
+              {previewStats.actualizadas > 0 && (
+                preview.tipo === "stock"
+                  ? <>, {previewStats.actualizadas} ya existente(s) que se respetarán</>
+                  : <>, {previewStats.actualizadas} ya existente(s) que se actualizarán</>
+              )}
             </p>
+            {preview.tipo === "stock" && (
+              <p className="w-full text-xs text-muted-foreground">
+                El kg de entrada de cada lote se reconstruye como stock actual + lo que el calibrador ya procesó de ese
+                lote: así el stock calculado coincide con el informe y el procesado futuro descuenta bien.
+              </p>
+            )}
             {preview.descartadas.length > 0 && (
               <p className="flex items-center gap-1.5 text-xs text-warning">
                 <AlertTriangle className="h-3.5 w-3.5" />
@@ -178,11 +223,11 @@ export default function EntradasBascula() {
               </p>
             )}
             <div className="ml-auto flex items-center gap-2">
-              <Button size="sm" onClick={confirmarImport} disabled={importar.isPending}>
-                {importar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              <Button size="sm" onClick={confirmarImport} disabled={importar.isPending || importarStock.isPending}>
+                {importar.isPending || importarStock.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 Guardar
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => setPreview(null)} disabled={importar.isPending}>
+              <Button size="sm" variant="ghost" onClick={() => setPreview(null)} disabled={importar.isPending || importarStock.isPending}>
                 Cancelar
               </Button>
             </div>
@@ -209,8 +254,9 @@ export default function EntradasBascula() {
             <div>
               <p className="font-semibold">Todavía no hay entradas de báscula</p>
               <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-                Exporta el listado de entradas del programa de báscula (Excel) e impórtalo aquí.
-                Con las entradas cargadas verás el stock de fruta sin procesar y la trazabilidad por lote.
+                Para arrancar, importa el <span className="font-medium text-foreground">informe de stock de lotes</span> del
+                programa de báscula (siembra el stock actual) y a partir de ahí el export de entradas de cada día.
+                El importador detecta solo qué tipo de archivo le das.
               </p>
             </div>
             <Button className="glass glass-hover mt-2" variant="outline" onClick={() => fileInputRef.current?.click()}>
