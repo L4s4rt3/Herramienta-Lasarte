@@ -371,7 +371,7 @@ function diffDias(desde: string, hasta: string): number {
 }
 
 export function buildStockEntradas(
-  entradas: Array<Pick<EntradaBasculaParsed, "lote" | "fecha" | "kg_entrada" | "finca" | "articulo" | "agricultor">>,
+  entradas: Array<Pick<EntradaBasculaParsed, "lote" | "fecha" | "kg_entrada" | "finca" | "articulo" | "agricultor"> & { kg_ajuste_stock?: number | null }>,
   procesados: LoteProcesadoInput[],
   hoy: string,
 ): StockResumen {
@@ -388,7 +388,10 @@ export function buildStockEntradas(
   const filas: StockLoteRow[] = entradas.map((entrada) => {
     const clave = normalizarLoteCodigo(entrada.lote) ?? entrada.lote;
     const procesado = procesadoPorLote.get(clave);
-    const kgProcesado = procesado?.kg ?? 0;
+    // kg_ajuste_stock: conciliación con el informe de stock de la báscula
+    // (procesado anterior a que hubiera partes registrados). Se suma al
+    // procesado conocido; negativo devuelve stock.
+    const kgProcesado = (procesado?.kg ?? 0) + (Number(entrada.kg_ajuste_stock) || 0);
     const kgEnCamara = Math.max(0, entrada.kg_entrada - kgProcesado);
     const pct = entrada.kg_entrada > 0 ? kgProcesado / entrada.kg_entrada : 0;
     const estado: StockEstado = pct >= UMBRAL_PROCESADO ? "procesado" : pct > 0 ? "parcial" : "pendiente";

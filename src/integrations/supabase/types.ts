@@ -768,6 +768,7 @@ export type Database = {
           importe_comision: number | null
           importe_total: number | null
           importe_transporte: number | null
+          kg_ajuste_stock: number
           kg_entrada: number
           lote: string
           num_entrada: string | null
@@ -794,6 +795,7 @@ export type Database = {
           importe_comision?: number | null
           importe_total?: number | null
           importe_transporte?: number | null
+          kg_ajuste_stock?: number
           kg_entrada?: number
           lote: string
           num_entrada?: string | null
@@ -820,6 +822,7 @@ export type Database = {
           importe_comision?: number | null
           importe_total?: number | null
           importe_transporte?: number | null
+          kg_ajuste_stock?: number
           kg_entrada?: number
           lote?: string
           num_entrada?: string | null

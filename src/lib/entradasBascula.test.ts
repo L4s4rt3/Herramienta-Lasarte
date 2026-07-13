@@ -177,4 +177,21 @@ describe("buildStockEntradas", () => {
     // Entró el 6 de abril y terminó de procesarse el 2 de mayo → 26 días.
     expect(procesado?.dias_en_camara).toBe(26);
   });
+
+  it("kg_ajuste_stock concilia el procesado anterior a los registros (informe de báscula)", () => {
+    const conAjuste = [
+      // Lote fuera del informe de stock: ajuste = todo su stock calculado → 0 en cámara.
+      { lote: "26040604", fecha: "2026-04-06", kg_entrada: 22500, kg_ajuste_stock: 22500, finca: null, articulo: null, agricultor: null },
+      // Lote del informe: el ajuste deja el stock exactamente en los kg del informe (20000).
+      { lote: "26040704", fecha: "2026-04-07", kg_entrada: 25180, kg_ajuste_stock: 5180, finca: null, articulo: null, agricultor: null },
+    ];
+
+    const stock = buildStockEntradas(conAjuste, [], "2026-04-20");
+    const porLote = new Map(stock.filas.map((f) => [f.lote, f]));
+    expect(porLote.get("26040604")?.estado).toBe("procesado");
+    expect(porLote.get("26040604")?.kg_en_camara).toBe(0);
+    expect(porLote.get("26040704")?.estado).toBe("parcial");
+    expect(porLote.get("26040704")?.kg_en_camara).toBe(20000);
+    expect(stock.kgEnCamara).toBe(20000);
+  });
 });

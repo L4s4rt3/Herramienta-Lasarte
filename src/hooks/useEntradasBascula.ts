@@ -112,6 +112,7 @@ export function useEntradasBascula() {
         lote: e.lote,
         fecha: e.fecha,
         kg_entrada: Number(e.kg_entrada) || 0,
+        kg_ajuste_stock: Number(e.kg_ajuste_stock) || 0,
         finca: e.finca,
         articulo: e.articulo,
         agricultor: e.agricultor,
