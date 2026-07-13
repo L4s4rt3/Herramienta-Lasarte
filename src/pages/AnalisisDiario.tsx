@@ -129,7 +129,10 @@ export default function AnalisisDiario() {
   const hayDatos = data.totals.n_lotes > 0 || data.totals.kg_calibres > 0;
 
   const handleNavigateWeek = (direction: -1 | 1) => {
-    const start = new Date(weekRange.start + "T12:00:00");
+    // Desde "Todo el histórico" el rango empieza en 2000-01-01: navegar
+    // relativo a él saltaría al año 2000. Se parte de la semana actual.
+    const base = periodo === "todo" ? buildWeekRange("esta_semana").start : weekRange.start;
+    const start = new Date(base + "T12:00:00");
     start.setDate(start.getDate() + direction * 7);
     const end = new Date(start);
     end.setDate(end.getDate() + 6);
@@ -344,7 +347,7 @@ export default function AnalisisDiario() {
               onCustomDesdeChange={setCustomDesde}
               onCustomHastaChange={setCustomHasta}
               onNavigateWeek={handleManualNavigateWeek}
-              canNavigateNext={periodo === "todo" ? true : weekRange.end < today()}
+              canNavigateNext={periodo === "todo" ? false : weekRange.end < today()}
               showTodo
             />
           </div>

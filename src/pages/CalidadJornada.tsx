@@ -33,6 +33,7 @@ import { useAuth } from "@/contexts/AuthProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -951,12 +952,9 @@ export default function CalidadJornadaPage() {
   if (loading) {
     return (
       <div className="page-shell">
-        <div className="flex min-h-[42vh] items-center justify-center">
-          <div className="flex items-center gap-3 rounded-xl glass-accented px-5 py-4 text-sm text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin text-primary" />
-            Cargando jornada de calidad...
-          </div>
-        </div>
+        <Skeleton className="h-16 w-full" />
+        <Skeleton className="h-10 w-full sm:w-72" />
+        <Skeleton className="h-96" />
       </div>
     );
   }

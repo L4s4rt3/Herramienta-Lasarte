@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { Input } from "@/components/ui/input";
@@ -129,9 +130,10 @@ function ArchivoTab() {
         </CardHeader>
         <CardContent className="p-0">
           {listado.isLoading ? (
-            <div className="flex flex-col items-center gap-2 py-14 text-sm text-muted-foreground">
-              <Loader2 className="h-6 w-6 animate-spin" />
-              Cargando archivo…
+            <div className="space-y-2 p-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
             </div>
           ) : archivosFiltrados.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-14 text-center text-sm text-muted-foreground">
