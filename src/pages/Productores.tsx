@@ -13,13 +13,14 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { InfoTooltip } from "@/components/InfoTooltip";
 import { DeltaChip } from "@/components/DeltaChip";
+import { MiniKpi } from "@/components/MiniKpi";
 import { WeekSelector } from "@/components/WeekSelector";
 import { buildWeekRange } from "@/lib/analisisDiarioView";
 import type { Periodo } from "@/lib/analisisDiarioView";
 import { useProductores, type ProductorDossier, type MediasPlanta, type CalidadNotaProductor } from "@/hooks/useProductores";
 import type { CalidadEstado } from "@/lib/calidad";
 import { CalidadInformeDialog } from "@/components/CalidadInformeDialog";
-import { formatKg, formatDate, formatPct, today, toISODateLocal } from "@/lib/format";
+import { formatKgCompact as formatKg, formatDate, formatPct, today, toISODateLocal } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { GRUPO_COLORS } from "@/lib/destinoClasificacion";
 import {
@@ -125,48 +126,6 @@ function ColHead({ label, sk, right, sortKey, sortDir, onToggle, info }: {
   );
 }
 
-// ─── Mini-KPI de la franja compacta (patrón AnalisisDiario) ─────────────────
-
-const MINI_KPI_TONE: Record<string, string> = {
-  success: "text-success",
-  warning: "text-warning",
-  destructive: "text-destructive",
-  neutral: "text-foreground",
-};
-
-function MiniKpi({
-  label, value, sub, tone = "neutral", last = false, labelInfo, onClick,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  tone?: "success" | "warning" | "destructive" | "neutral";
-  last?: boolean;
-  labelInfo?: string;
-  /** Si se pasa, el KPI es clicable (p.ej. abrir el dossier del productor). */
-  onClick?: () => void;
-}) {
-  const Wrapper = onClick ? "button" : "div";
-  return (
-    <Wrapper
-      type={onClick ? "button" : undefined}
-      onClick={onClick}
-      className={cn(
-        "min-w-0 px-3 py-1.5 text-left sm:flex-1 sm:border-r sm:border-[var(--glass-border)]",
-        last && "sm:border-r-0",
-        onClick && "rounded-lg transition-colors hover:bg-[var(--glass-bg-strong)]"
-      )}
-      title={labelInfo}
-    >
-      <p className="panel-kicker truncate">{label}</p>
-      <p className={cn("mt-0.5 text-[18px] font-semibold leading-tight tabular-nums sm:text-[20px]", MINI_KPI_TONE[tone])}>
-        {value}
-        {sub && <span className="ml-1 text-xs font-medium text-muted-foreground">({sub})</span>}
-      </p>
-    </Wrapper>
-  );
-}
-
 // ─── Mini-métrica con delta (para el detalle del productor) ─────────────────
 
 function MiniMetric({
@@ -235,6 +194,9 @@ export default function Productores() {
     if (productor) next.set("productor", productor);
     else { next.delete("productor"); next.delete("tab"); }
     setSearchParams(next, { replace: true });
+    // Al abrir un dossier (o pasar al siguiente) se vuelve arriba: si venías de
+    // media tabla, la cabecera del productor quedaría fuera de pantalla.
+    if (productor) window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function handleTabChange(tab: DetailTab) {
@@ -301,6 +263,26 @@ export default function Productores() {
     [selected, filtered],
   );
 
+  // Con un dossier abierto, las flechas ← → del teclado hojean el ranking
+  // (se ignoran mientras se escribe en un campo).
+  useEffect(() => {
+    if (selectedIndex < 0) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (e.key === "ArrowLeft" && selectedIndex > 0) {
+        e.preventDefault();
+        handleSelect(filtered[selectedIndex - 1].productor);
+      } else if (e.key === "ArrowRight" && selectedIndex < filtered.length - 1) {
+        e.preventDefault();
+        handleSelect(filtered[selectedIndex + 1].productor);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIndex, filtered]);
+
   const kgTotalPeriodo = useMemo(() => data.productores.reduce((s, p) => s + p.kg_total, 0), [data.productores]);
 
   const mejorTph = useMemo(() => {
@@ -327,7 +309,7 @@ export default function Productores() {
             {!loading && hayDatos && <> · {data.productores.length} productor{data.productores.length === 1 ? "" : "es"}</>}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={loading}>
+        <Button variant="outline" size="sm" className="glass glass-hover" onClick={() => refetch()} disabled={loading}>
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
           Actualizar
         </Button>
@@ -734,10 +716,10 @@ function ProductorDetalle({
             <ArrowLeft className="h-3.5 w-3.5" /> Ranking
           </Button>
           <div className="flex items-center gap-0.5">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onPrev} disabled={!onPrev} title="Productor anterior del ranking">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onPrev} disabled={!onPrev} title="Productor anterior del ranking (tecla ←)">
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onNext} disabled={!onNext} title="Productor siguiente del ranking">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onNext} disabled={!onNext} title="Productor siguiente del ranking (tecla →)">
               <ChevronRight className="h-4 w-4" />
             </Button>
             {posicion && (

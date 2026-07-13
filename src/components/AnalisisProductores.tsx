@@ -1,16 +1,9 @@
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatKgCompact as formatKgT } from "@/lib/format";
 import { Sprout } from "lucide-react";
 import type { ProductorResumen } from "@/hooks/useAnalisisDiario";
-
-const nf = new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 });
-
-function formatKgT(v: number): string {
-  if (v >= 1000) return (v / 1000).toFixed(1) + " t";
-  return nf.format(v) + " kg";
-}
 
 function tphClass(tph: number | null) {
   if (tph === null) return "text-muted-foreground";

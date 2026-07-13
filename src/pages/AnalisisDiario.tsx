@@ -23,6 +23,7 @@ import {
 } from "@/hooks/useAnalisisDiario";
 import type { LoteResumen, ProductorResumen } from "@/hooks/useAnalisisDiario";
 import { DailyListTable } from "@/components/DailyListTable";
+import { MiniKpi } from "@/components/MiniKpi";
 import { AutoWeekFallbackNotice } from "@/components/AutoWeekFallbackNotice";
 import { LoteDetailSheet } from "@/components/LoteDetailSheet";
 import { WeekSelector } from "@/components/WeekSelector";
@@ -30,16 +31,11 @@ import { AnalisisCalibres } from "@/components/AnalisisCalibres";
 import { AnalisisProductores } from "@/components/AnalisisProductores";
 import { buildWeekRange } from "@/lib/analisisDiarioView";
 import type { Periodo } from "@/lib/analisisDiarioView";
-import { today, toISODateLocal } from "@/lib/format";
+import { formatKgCompact as formatKg, today, toISODateLocal } from "@/lib/format";
 import { GRUPO_COLORS } from "@/lib/destinoClasificacion";
 import {
   C, GRID, XAXIS, YAXIS, MARGIN, barFill, activeDotStyle, GlassTooltip, CHART_PANEL_CLASS,
 } from "@/lib/chartTheme";
-
-function formatKg(v: number): string {
-  if (v >= 1000) return (v / 1000).toFixed(1) + " t";
-  return v.toFixed(0) + " kg";
-}
 
 function formatFechaLarga(iso: string): string {
   if (!iso || iso === "—") return "—";
@@ -182,15 +178,19 @@ export default function AnalisisDiario() {
 
   const searchLower = normalizeText(search).trim();
 
-  // Opciones de productor/producto derivadas de los lotes del rango.
-  const productorOptions = useMemo(
-    () => Array.from(new Set(data.lotes.map((l) => l.productor).filter((p) => p && p !== "—"))).sort(),
-    [data.lotes]
-  );
-  const productoOptions = useMemo(
-    () => Array.from(new Set(data.lotes.map((l) => l.producto).filter((p) => p && p !== "—"))).sort(),
-    [data.lotes]
-  );
+  // Opciones de productor/producto derivadas de los lotes del rango. El valor
+  // filtrado actual se incluye siempre aunque no exista en el rango (p.ej. al
+  // llegar por URL desde el dossier): así el select no se queda en blanco.
+  const productorOptions = useMemo(() => {
+    const set = new Set(data.lotes.map((l) => l.productor).filter((p) => p && p !== "—"));
+    if (productorFiltro !== "todos") set.add(productorFiltro);
+    return Array.from(set).sort();
+  }, [data.lotes, productorFiltro]);
+  const productoOptions = useMemo(() => {
+    const set = new Set(data.lotes.map((l) => l.producto).filter((p) => p && p !== "—"));
+    if (productoFiltro !== "todos") set.add(productoFiltro);
+    return Array.from(set).sort();
+  }, [data.lotes, productoFiltro]);
 
   const hayFiltrosActivos = Boolean(searchLower) || productorFiltro !== "todos" || productoFiltro !== "todos";
 
@@ -523,42 +523,6 @@ export default function AnalisisDiario() {
           </CardContent>
         </Card>
       )}
-    </div>
-  );
-}
-
-// ─── Mini-KPI de la franja compacta ─────────────────────────────────────────
-
-const MINI_KPI_TONE: Record<string, string> = {
-  success: "text-success",
-  warning: "text-warning",
-  destructive: "text-destructive",
-  neutral: "text-foreground",
-};
-
-function MiniKpi({
-  label, value, sub, tone = "neutral", last = false, labelInfo,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  tone?: "success" | "warning" | "destructive" | "neutral";
-  last?: boolean;
-  labelInfo?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "min-w-0 px-3 py-1.5 sm:flex-1 sm:border-r sm:border-[var(--glass-border)]",
-        last && "sm:border-r-0"
-      )}
-      title={labelInfo}
-    >
-      <p className="panel-kicker truncate">{label}</p>
-      <p className={cn("mt-0.5 text-[18px] font-semibold leading-tight tabular-nums sm:text-[20px]", MINI_KPI_TONE[tone])}>
-        {value}
-        {sub && <span className="ml-1 text-xs font-medium text-muted-foreground">({sub})</span>}
-      </p>
     </div>
   );
 }

@@ -6,13 +6,9 @@ import { C } from "@/lib/chartTheme";
 import { cn } from "@/lib/utils";
 import { Ruler } from "lucide-react";
 import type { CalibreResumen } from "@/hooks/useAnalisisDiario";
+import { formatKgCompact as formatKgT } from "@/lib/format";
 
 const nf = new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 });
-
-function formatKgT(v: number): string {
-  if (v >= 1000) return (v / 1000).toFixed(1) + " t";
-  return nf.format(v) + " kg";
-}
 
 function diaCorto(iso: string): string {
   const d = new Date(iso + "T12:00:00");

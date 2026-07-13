@@ -11,11 +11,7 @@ import {
   getTphBadge,
 } from "@/lib/analisisDiarioView";
 import type { LoteResumen } from "@/hooks/useAnalisisDiario";
-
-function formatKg(v: number): string {
-  if (v >= 1000) return (v / 1000).toFixed(1) + " t";
-  return v.toFixed(0) + " kg";
-}
+import { formatKgCompact as formatKg } from "@/lib/format";
 
 const TPH_TEXT_CLASSES: Record<string, string> = {
   success: "text-success",

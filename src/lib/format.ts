@@ -13,6 +13,14 @@ export const formatPct = (v: number | null | undefined, digits = 1) =>
 export const formatNumber = (v: number | null | undefined, digits = 0) =>
   (digits === 0 ? _nf : _nfCustom(digits)).format(Number(v || 0));
 
+// Kg compactos para tablas y paneles densos (Análisis diario, Productores…):
+// a partir de 1 t se muestra en toneladas con un decimal ("45,7 t"); por
+// debajo, kg enteros ("980 kg"). Única fuente: antes había 5 copias locales.
+export const formatKgCompact = (v: number | null | undefined) => {
+  const n = Number(v || 0);
+  return n >= 1000 ? _nfCustom(1).format(n / 1000) + " t" : _nf.format(n) + " kg";
+};
+
 // Parsea una fecha sin desplazamiento de zona horaria: "YYYY-MM-DD" se ancla al
 // mediodía local en vez de a medianoche UTC (que en España adelantaría/atrasaría el día).
 const parseLocalDate = (value: string): Date => {

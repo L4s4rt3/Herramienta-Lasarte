@@ -12,11 +12,7 @@ import { cn } from "@/lib/utils";
 import { getTphBadge } from "@/lib/analisisDiarioView";
 import { GRUPO_COLORS, detectarTipoClasificacion } from "@/lib/destinoClasificacion";
 import type { LoteResumen } from "@/hooks/useAnalisisDiario";
-
-function formatKg(v: number): string {
-  if (v >= 1000) return (v / 1000).toFixed(1) + " t";
-  return v.toFixed(0) + " kg";
-}
+import { formatKgCompact as formatKg } from "@/lib/format";
 
 const nf = new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 });
 
