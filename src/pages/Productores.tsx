@@ -8,6 +8,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { InfoTooltip } from "@/components/InfoTooltip";
@@ -29,7 +30,7 @@ import {
 } from "recharts";
 import { Input } from "@/components/ui/input";
 import {
-  Loader2, RefreshCw, AlertCircle, BarChart3, Search, X,
+  RefreshCw, AlertCircle, BarChart3, Search, X,
   ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, ArrowLeft, Sprout, Ruler, StickyNote,
 } from "lucide-react";
 
@@ -67,7 +68,7 @@ const CALIDAD_ORDEN: CalidadEstado[] = ["Pésimo", "Deficiente", "Regular", "Bue
 
 /** Tooltip de metodología compartido entre la columna del ranking y el KPI del dossier. */
 const MERCADONA_APROVECHAMIENTO_INFO =
-  "Estimación: % de los kg del productor que acaban en formato MDNA, repartiendo el % MDNA de cada día entre los lotes de ese día. Excluye precalibrado. No hay vínculo exacto lote→formato.";
+  "Estimación de CONFECCIÓN (fábrica): % de los kg del productor que acaban en formato MDNA, repartiendo el % MDNA de cada día entre los lotes de ese día. Excluye precalibrado; no hay vínculo exacto lote→formato. No es el vendido real del informe semanal (ese está en Mercadona (planta)).";
 
 function calidadDominante(calidad: ProductorDossier["calidad"]): CalidadEstado | null {
   if (!calidad || calidad.total === 0) return null;
@@ -332,12 +333,13 @@ export default function Productores() {
         </Button>
       </header>
 
-      {/* ─── Loading ────────────────────────────────────────────── */}
+      {/* ─── Loading (skeletons, mismo patrón que Análisis diario) ── */}
       {loading && (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="size-6 animate-spin text-muted-foreground" />
-          <span className="ml-2 text-muted-foreground">Cargando productores...</span>
-        </div>
+        <>
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-96" />
+        </>
       )}
 
       {/* ─── Error ──────────────────────────────────────────────── */}
@@ -493,6 +495,18 @@ function RankingTable({ productores, kgTotalPeriodo, sortKey, sortDir, onToggleS
   onToggleSort: (k: SortKey) => void;
   onSelect: (productor: string) => void;
 }) {
+  // La búsqueda puede dejar el ranking vacío: mejor un mensaje que una tabla sin filas.
+  if (productores.length === 0) {
+    return (
+      <Card className="glass-accented">
+        <CardContent className="py-10 text-center">
+          <Search className="mx-auto mb-3 h-8 w-8 text-muted-foreground/30" />
+          <p className="text-sm font-medium">Ningún productor coincide con la búsqueda</p>
+          <p className="mt-1 text-xs text-muted-foreground">Borra o cambia el texto del buscador para ver el ranking completo.</p>
+        </CardContent>
+      </Card>
+    );
+  }
   return (
     <Card className="glass-accented overflow-hidden">
       <CardContent className="p-0">
@@ -501,6 +515,7 @@ function RankingTable({ productores, kgTotalPeriodo, sortKey, sortDir, onToggleS
           <table className="w-full text-[13px]">
             <thead className="sticky top-0 z-10 bg-[var(--glass-bg-solid)] backdrop-blur-xl">
               <tr className="border-b border-[var(--glass-border)] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>th]:px-3 [&>th]:py-1.5">
+                <th className="w-8 text-right" title="Posición con el orden actual">#</th>
                 <ColHead label="Productor"  sk="productor"     sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
                 <ColHead label="Kg"         sk="kg"            sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} right />
                 <ColHead label="% periodo"  sk="kg"            sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} right />
@@ -544,6 +559,7 @@ function RankingTable({ productores, kgTotalPeriodo, sortKey, sortDir, onToggleS
                     )}
                     onClick={() => onSelect(p.productor)}
                   >
+                    <td className="px-3 py-1.5 text-right tabular-nums text-xs text-muted-foreground">{i + 1}</td>
                     <td className="px-3 py-1.5 font-medium max-w-[200px]">
                       <span className="truncate block">{p.productor}</span>
                       {p.productos.length > 0 && (
@@ -611,7 +627,7 @@ function RankingTable({ productores, kgTotalPeriodo, sortKey, sortDir, onToggleS
 
         {/* Móvil: tarjetas compactas 2-col */}
         <div className="grid grid-cols-1 gap-2 p-2 sm:grid-cols-2 md:hidden">
-          {productores.map((p) => {
+          {productores.map((p, i) => {
             const pct = kgTotalPeriodo > 0 ? (p.kg_total / kgTotalPeriodo) * 100 : 0;
             const dominante = calidadDominante(p.calidad);
             return (
@@ -621,7 +637,10 @@ function RankingTable({ productores, kgTotalPeriodo, sortKey, sortDir, onToggleS
                 className="cursor-pointer rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 transition-colors hover:bg-[var(--glass-bg-strong)]"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-sm font-semibold">{p.productor}</span>
+                  <span className="truncate text-sm font-semibold">
+                    <span className="mr-1 text-[11px] font-normal tabular-nums text-muted-foreground">{i + 1}.</span>
+                    {p.productor}
+                  </span>
                   <span className="shrink-0 text-[11px] font-bold tabular-nums text-primary">{pct.toFixed(1)}%</span>
                 </div>
                 <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1">

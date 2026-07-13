@@ -77,9 +77,9 @@ export default function AnalisisDiario() {
   const [periodo, setPeriodo] = useState<Periodo>(() => (hasQueryRange ? "custom" : "esta_semana"));
   const [customDesde, setCustomDesde] = useState(() => queryDesde ?? daysAgo(30));
   const [customHasta, setCustomHasta] = useState(() => queryHasta ?? today());
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [productorFiltro, setProductorFiltro] = useState<string>(() => queryProductor ?? "todos");
-  const [productoFiltro, setProductoFiltro] = useState<string>("todos");
+  const [productoFiltro, setProductoFiltro] = useState<string>(() => searchParams.get("producto") ?? "todos");
   const [activeTab, setActiveTab] = useState<TabValue>(() => {
     const t = searchParams.get("tab");
     return isTabValue(t) ? t : "resumen";
@@ -97,6 +97,23 @@ export default function AnalisisDiario() {
   useEffect(() => {
     if (queryProductor) setProductorFiltro(queryProductor);
   }, [queryProductor]);
+
+  // Los filtros viven también en la URL (compartir enlaces y no perder el
+  // estado con atrás/adelante). Solo se escriben cuando difieren, para no
+  // entrar en bucle con los efectos que leen searchParams.
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    const setOrDelete = (key: string, value: string, defecto: string) => {
+      if (value && value !== defecto) next.set(key, value);
+      else next.delete(key);
+    };
+    setOrDelete("productor", productorFiltro, "todos");
+    setOrDelete("producto", productoFiltro, "todos");
+    setOrDelete("q", search, "");
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [productorFiltro, productoFiltro, search, searchParams, setSearchParams]);
 
   const handleTabChange = (v: string) => {
     if (!isTabValue(v)) return;
