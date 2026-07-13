@@ -96,10 +96,10 @@ export function ConsumoDiarioTable({ rows, groupByWeek = false, consumos }: Cons
   // celda "Agua" (no afecta a los totales, que ya excluyen los subcontadores).
   const aguaBreakdownByDay = useMemo(() => {
     if (!consumos) return null;
-    const map = new Map<string, { tratamientoL: number; tratamientoJabonL: number }>();
+    const map = new Map<string, { tratamientoL: number; tratamientoJabonL: number; drencherL: number }>();
     rows.forEach((row) => {
       const breakdown = waterBreakdownForRange(consumos, row.periodo, row.periodo);
-      if (breakdown.tratamientoL > 0 || breakdown.tratamientoJabonL > 0) {
+      if (breakdown.tratamientoL > 0 || breakdown.tratamientoJabonL > 0 || breakdown.drencherL > 0) {
         map.set(row.periodo, breakdown);
       }
     });
@@ -123,8 +123,9 @@ export function ConsumoDiarioTable({ rows, groupByWeek = false, consumos }: Cons
         </TooltipTrigger>
         <TooltipContent className="text-xs">
           <p className="font-semibold">Desglose del día (incluido en el total)</p>
-          {breakdown.tratamientoL > 0 && <p>Tratamiento: {formatNumber(breakdown.tratamientoL, 0)} L</p>}
+          {breakdown.tratamientoL > 0 && <p>Línea tratamiento: {formatNumber(breakdown.tratamientoL, 0)} L</p>}
           {breakdown.tratamientoJabonL > 0 && <p>Tratamiento+jabón: {formatNumber(breakdown.tratamientoJabonL, 0)} L</p>}
+          {breakdown.drencherL > 0 && <p>Drencher: {formatNumber(breakdown.drencherL, 0)} L</p>}
         </TooltipContent>
       </Tooltip>
     );

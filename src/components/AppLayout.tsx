@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
-import { ChevronDown, LogOut } from "lucide-react";
+import { ChevronDown, LogOut, Map } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
 import {
   NAV_GROUPS,
@@ -136,6 +136,29 @@ function AppLayoutContent() {
         </SidebarHeader>
 
         <SidebarContent>
+          {/* Acceso fijo al mapa de la herramienta (todos los roles): el índice
+              de secciones y páginas con su descripción. */}
+          <SidebarGroup className="pb-0">
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location.pathname === "/mapa"}
+                  tooltip="Mapa de la herramienta"
+                >
+                  <NavLink
+                    to="/mapa"
+                    onClick={closeMobileSidebar}
+                    onMouseEnter={() => preloadRoute("/mapa")}
+                  >
+                    <Map />
+                    <span>Mapa de la herramienta</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroup>
+
           {workspacesPermitidos.length > 1 ? (
             // ── Árbol completo (admin): una sección desplegable por espacio. ──
             WORKSPACE_DISPLAY_ORDER

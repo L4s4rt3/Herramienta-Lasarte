@@ -33,6 +33,7 @@ import {
 } from "@/lib/chartTheme";
 import {
   buildDailyWaterMeterConsumoFromReading,
+  buildDrencherWaterMeterConsumoFromReading,
   buildJabonWaterMeterConsumoFromReading,
   buildTratamientoWaterMeterConsumoFromReading,
   extractFotoFecha,
@@ -42,6 +43,7 @@ import {
   waterBreakdownForRange,
   type ConsumoPeriodoRow,
 } from "@/lib/consumosFisicos";
+import { LecturasContadorEditor } from "@/components/consumos/LecturasContadorEditor";
 import { errorMessage } from "@/lib/errorMessage";
 import { cn } from "@/lib/utils";
 import type { ConsumoBaseKgRow, ConsumoFisicoRow, ConsumoMaquinaRow, MaquinaRow, SesionConsumoRow } from "@/lib/types";
@@ -355,6 +357,7 @@ export default function ConsumoCostes() {
   const lecturaAguaM3 = parseConsumoNumber(aguaContadorGeneral);
   const lecturaTratamientoM3 = parseConsumoNumber(aguaContadorTratamiento);
   const lecturaJabonL = parseConsumoNumber(aguaContadorJabon);
+  const lecturaDrencherL = parseConsumoNumber(aguaDrencher);
   const lecturaAguaAnterior = useMemo(
     () => findPreviousWaterMeterReading(consumosFisicos.consumos, aguaDiariaFecha, 'agua-contador-general'),
     [aguaDiariaFecha, consumosFisicos.consumos],
@@ -367,6 +370,10 @@ export default function ConsumoCostes() {
     () => findPreviousWaterMeterReading(consumosFisicos.consumos, aguaDiariaFecha, 'agua-contador-tratamiento-jabon'),
     [aguaDiariaFecha, consumosFisicos.consumos],
   );
+  const lecturaDrencherAnterior = useMemo(
+    () => findPreviousWaterMeterReading(consumosFisicos.consumos, aguaDiariaFecha, 'agua-contador-drencher'),
+    [aguaDiariaFecha, consumosFisicos.consumos],
+  );
   const consumoAguaCalculadoL = lecturaAguaAnterior && lecturaAguaM3 > 0
     ? Math.max(0, (lecturaAguaM3 - (lecturaAguaAnterior.lecturaM3 ?? 0)) * 1000)
     : 0;
@@ -375,6 +382,9 @@ export default function ConsumoCostes() {
     : 0;
   const consumoJabonCalculadoL = lecturaJabonAnterior && lecturaJabonL > 0
     ? Math.max(0, lecturaJabonL - (lecturaJabonAnterior.lecturaL ?? 0))
+    : 0;
+  const consumoDrencherCalculadoL = lecturaDrencherAnterior && lecturaDrencherL > 0
+    ? Math.max(0, lecturaDrencherL - (lecturaDrencherAnterior.lecturaL ?? 0))
     : 0;
   // REGLA 1: el consumo de la foto de hoy se atribuye a [fecha lectura anterior, dia previo a la foto].
   const aguaDiaAnterior = useMemo(() => subtractOneDayLocal(aguaDiariaFecha), [aguaDiariaFecha]);
@@ -389,6 +399,10 @@ export default function ConsumoCostes() {
   const jabonRangoAtribuido = useMemo(
     () => ({ inicio: lecturaJabonAnterior?.fecha ?? aguaDiaAnterior, fin: aguaDiaAnterior }),
     [lecturaJabonAnterior, aguaDiaAnterior],
+  );
+  const drencherRangoAtribuido = useMemo(
+    () => ({ inicio: lecturaDrencherAnterior?.fecha ?? aguaDiaAnterior, fin: aguaDiaAnterior }),
+    [lecturaDrencherAnterior, aguaDiaAnterior],
   );
 
   useEffect(() => {
@@ -533,7 +547,7 @@ export default function ConsumoCostes() {
     const lecturaContadorM3 = parseConsumoNumber(aguaContadorGeneral);
     const lecturaContadorTratamientoM3 = parseConsumoNumber(aguaContadorTratamiento);
     const lecturaContadorJabonL = parseConsumoNumber(aguaContadorJabon);
-    const drencherL = parseConsumoNumber(aguaDrencher);
+    const lecturaContadorDrencherL = parseConsumoNumber(aguaDrencher);
 
     if (lecturaContadorM3 <= 0) {
       toast({ title: "Lectura requerida", description: "Introduce la lectura actual del contador de agua general.", variant: "destructive" });
@@ -567,6 +581,15 @@ export default function ConsumoCostes() {
       return;
     }
 
+    if (lecturaContadorDrencherL > 0 && lecturaDrencherAnterior && lecturaContadorDrencherL < (lecturaDrencherAnterior.lecturaL ?? 0)) {
+      toast({
+        title: "Lectura no valida",
+        description: `La lectura del drencher debe ser igual o superior a ${formatNumber(lecturaDrencherAnterior.lecturaL ?? 0, 0)} L.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     // La fila ya no se guarda con fecha_inicio=fecha_fin=aguaDiariaFecha (REGLA 1: el
     // consumo se atribuye al dia anterior a la foto), asi que el duplicado se detecta
     // por la fecha REAL de la foto, guardada en las notas.
@@ -589,6 +612,10 @@ export default function ConsumoCostes() {
       toast({ title: "Lectura ya registrada", description: "Ya existe una lectura de tratamiento con jabon para ese dia.", variant: "destructive" });
       return;
     }
+    if (lecturaContadorDrencherL > 0 && existsForDate("agua-contador-drencher")) {
+      toast({ title: "Lectura ya registrada", description: "Ya existe una lectura del drencher para ese dia.", variant: "destructive" });
+      return;
+    }
 
     const generalConsumo = buildDailyWaterMeterConsumoFromReading({
       fecha: aguaDiariaFecha,
@@ -596,7 +623,7 @@ export default function ConsumoCostes() {
       lecturaAnteriorM3: lecturaAguaAnterior?.lecturaM3 ?? null,
       fechaLecturaAnterior: lecturaAguaAnterior?.fecha ?? null,
       lineaTratamientoL: 0,
-      drencherL,
+      drencherL: 0,
     });
 
     const extras: ReturnType<typeof buildTratamientoWaterMeterConsumoFromReading>[] = [];
@@ -616,9 +643,17 @@ export default function ConsumoCostes() {
         fechaLecturaAnterior: lecturaJabonAnterior?.fecha ?? null,
       }));
     }
+    if (lecturaContadorDrencherL > 0) {
+      extras.push(buildDrencherWaterMeterConsumoFromReading({
+        fecha: aguaDiariaFecha,
+        lecturaContadorL: lecturaContadorDrencherL,
+        lecturaAnteriorL: lecturaDrencherAnterior?.lecturaL ?? null,
+        fechaLecturaAnterior: lecturaDrencherAnterior?.fecha ?? null,
+      }));
+    }
 
     const allConsumos = [generalConsumo, ...extras];
-    const totalConsumoL = consumoAguaCalculadoL + consumoTratamientoCalculadoL + consumoJabonCalculadoL;
+    const totalConsumoL = consumoAguaCalculadoL + consumoTratamientoCalculadoL + consumoJabonCalculadoL + consumoDrencherCalculadoL;
 
     const onAllSettled = () => {
       const summaryParts: string[] = [];
@@ -626,6 +661,7 @@ export default function ConsumoCostes() {
       else summaryParts.push("General: referencia inicial");
       if (lecturaContadorTratamientoM3 > 0 && lecturaTratamientoAnterior) summaryParts.push(`Tratamiento: ${formatNumber(consumoTratamientoCalculadoL, 0)} L`);
       if (lecturaContadorJabonL > 0 && lecturaJabonAnterior) summaryParts.push(`Jabon: ${formatNumber(consumoJabonCalculadoL, 0)} L`);
+      if (lecturaContadorDrencherL > 0 && lecturaDrencherAnterior) summaryParts.push(`Drencher: ${formatNumber(consumoDrencherCalculadoL, 0)} L`);
       const atribuido = lecturaAguaAnterior
         ? consumoAtribuidoLabel(aguaRangoAtribuido.inicio, aguaRangoAtribuido.fin)
         : null;
@@ -1314,33 +1350,32 @@ export default function ConsumoCostes() {
                 <CardTitle>Registrar contadores de agua</CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-5">
                   <div className="glass p-4 space-y-2">
                     <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fecha</Label>
                     <ConsumoDatePicker value={aguaDiariaFecha} onChange={setAguaDiariaFecha} />
                   </div>
                   <div className="glass p-4 space-y-2">
-                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lectura contador general (m3)</Label>
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">1 · Contador general (m3)</Label>
                     <Input inputMode="decimal" value={aguaContadorGeneral} onChange={(e) => setAguaContadorGeneral(e.target.value)} placeholder="38659" />
                   </div>
                   <div className="glass p-4 space-y-2">
-                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lectura contador tratamiento (m3)</Label>
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">2 · Línea tratamiento agua (m3)</Label>
                     <Input inputMode="decimal" value={aguaContadorTratamiento} onChange={(e) => setAguaContadorTratamiento(e.target.value)} placeholder="0" />
                   </div>
                   <div className="glass p-4 space-y-2">
-                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lectura contador tratamiento + jabon (L)</Label>
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">3 · Línea tratamiento agua + jabón (L)</Label>
                     <Input inputMode="decimal" value={aguaContadorJabon} onChange={(e) => setAguaContadorJabon(e.target.value)} placeholder="0" />
+                  </div>
+                  <div className="glass p-4 space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">4 · Drencher (L)</Label>
+                    <Input inputMode="decimal" value={aguaDrencher} onChange={(e) => setAguaDrencher(e.target.value)} placeholder="0" />
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Consumo agua drencher (Litros)</p>
-                  <Input className="max-w-xs" inputMode="decimal" value={aguaDrencher} onChange={(e) => setAguaDrencher(e.target.value)} placeholder="0" />
-                </div>
-
-                <div className="grid gap-4 xl:grid-cols-3">
+                <div className="grid gap-4 xl:grid-cols-2">
                   <div className="space-y-3 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
-                    <p className="text-sm font-semibold">Contador general</p>
+                    <p className="text-sm font-semibold">1 · Contador general</p>
                     <div className="grid gap-3 sm:grid-cols-3">
                       <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] p-3">
                         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Lectura anterior</p>
@@ -1375,7 +1410,7 @@ export default function ConsumoCostes() {
                   </div>
 
                   <div className="space-y-3 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
-                    <p className="text-sm font-semibold">Tratamiento</p>
+                    <p className="text-sm font-semibold">2 · Línea tratamiento agua</p>
                     <div className="grid gap-3 sm:grid-cols-3">
                       <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] p-3">
                         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Lectura anterior</p>
@@ -1410,7 +1445,7 @@ export default function ConsumoCostes() {
                   </div>
 
                   <div className="space-y-3 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
-                    <p className="text-sm font-semibold">Tratamiento con jabon</p>
+                    <p className="text-sm font-semibold">3 · Línea tratamiento agua + jabón</p>
                     <div className="grid gap-3 sm:grid-cols-3">
                       <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] p-3">
                         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Lectura anterior</p>
@@ -1443,6 +1478,41 @@ export default function ConsumoCostes() {
                       </div>
                     </div>
                   </div>
+
+                  <div className="space-y-3 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
+                    <p className="text-sm font-semibold">4 · Drencher</p>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Lectura anterior</p>
+                        <p className="mt-1 text-lg font-semibold tabular-nums">
+                          {lecturaDrencherAnterior ? `${formatNumber(lecturaDrencherAnterior.lecturaL ?? 0, 0)} L` : "-"}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {lecturaDrencherAnterior ? formatDate(lecturaDrencherAnterior.fecha) : "Referencia inicial"}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-info/20 bg-info/10 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-info">Consumo calculado</p>
+                        <p className="mt-1 text-lg font-semibold tabular-nums">
+                          {formatNumber(consumoDrencherCalculadoL, 0)} L
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {lecturaDrencherAnterior
+                            ? consumoAtribuidoLabel(drencherRangoAtribuido.inicio, drencherRangoAtribuido.fin)
+                            : "Sin consumo hasta la siguiente lectura"}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Lectura actual</p>
+                        <p className="mt-1 text-lg font-semibold tabular-nums">
+                          {lecturaDrencherL > 0 ? `${formatNumber(lecturaDrencherL, 0)} L` : "-"}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {lecturaDrencherL > 0 && lecturaDrencherAnterior && lecturaDrencherL < (lecturaDrencherAnterior.lecturaL ?? 0) ? "Revisar contador" : "Opcional"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div className="md:col-span-2 xl:col-span-4 flex justify-end">
                   <Button onClick={guardarLecturaAguaDiaria} disabled={consumosFisicos.addConsumo.isPending} className="glass glass-hover px-8">
@@ -1451,6 +1521,33 @@ export default function ConsumoCostes() {
                 </div>
               </CardContent>
             </Card>
+            )}
+
+            {registrarMode === "agua" && (
+              <LecturasContadorEditor
+                registros={consumosFisicos.registrosConsumo}
+                consumos={consumosFisicos.consumos}
+                updating={consumosFisicos.updateConsumo.isPending}
+                onUpdate={(values) => new Promise<void>((resolve) => {
+                  consumosFisicos.updateConsumo.mutate({
+                    id: values.id,
+                    recurso: values.recurso,
+                    fecha_inicio: values.fecha_inicio,
+                    fecha_fin: values.fecha_fin,
+                    cantidad: values.cantidad,
+                    unidad: values.unidad,
+                    fuente: values.fuente,
+                    referencia: values.referencia,
+                    notas: values.notas,
+                  }, {
+                    onSuccess: () => resolve(),
+                    onError: (e) => {
+                      toast({ title: "Error al corregir la lectura", description: errorMessage(e), variant: "destructive" });
+                      resolve();
+                    },
+                  });
+                })}
+              />
             )}
 
             {registrarMode === "recurso" && (

@@ -176,12 +176,12 @@ export function ConsumoMateriaCards({ rows, totales, totalesAnterior, aguaBreakd
               </div>
             )}
 
-            {materia.id === "agua" && aguaBreakdown && (aguaBreakdown.tratamientoL > 0 || aguaBreakdown.tratamientoJabonL > 0) && (
+            {materia.id === "agua" && aguaBreakdown && (aguaBreakdown.tratamientoL > 0 || aguaBreakdown.tratamientoJabonL > 0 || aguaBreakdown.drencherL > 0) && (
               <div className="mt-3 space-y-1 border-t border-[var(--glass-border)] pt-2">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Desglose (incluido en el total)</p>
                 {aguaBreakdown.tratamientoL > 0 && (
                   <p className="text-xs text-muted-foreground">
-                    Tratamiento: <span className="font-semibold text-foreground tabular-nums">{formatNumber(aguaBreakdown.tratamientoL, 0)} L</span>
+                    Línea tratamiento: <span className="font-semibold text-foreground tabular-nums">{formatNumber(aguaBreakdown.tratamientoL, 0)} L</span>
                     {total > 0 && ` · ${formatNumber((aguaBreakdown.tratamientoL / total) * 100, 1)}% del total`}
                   </p>
                 )}
@@ -189,6 +189,12 @@ export function ConsumoMateriaCards({ rows, totales, totalesAnterior, aguaBreakd
                   <p className="text-xs text-muted-foreground">
                     Tratamiento+jabón: <span className="font-semibold text-foreground tabular-nums">{formatNumber(aguaBreakdown.tratamientoJabonL, 0)} L</span>
                     {total > 0 && ` · ${formatNumber((aguaBreakdown.tratamientoJabonL / total) * 100, 1)}% del total`}
+                  </p>
+                )}
+                {aguaBreakdown.drencherL > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Drencher: <span className="font-semibold text-foreground tabular-nums">{formatNumber(aguaBreakdown.drencherL, 0)} L</span>
+                    {total > 0 && ` · ${formatNumber((aguaBreakdown.drencherL / total) * 100, 1)}% del total`}
                   </p>
                 )}
               </div>

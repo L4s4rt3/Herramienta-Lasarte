@@ -76,13 +76,30 @@ export interface WaterMeterJabonReadingInput {
 export type WaterMeterReference =
   | "agua-contador-general"
   | "agua-contador-tratamiento"
-  | "agua-contador-tratamiento-jabon";
+  | "agua-contador-tratamiento-jabon"
+  | "agua-contador-drencher";
 
 export function isWaterMeterReference(value: string | null | undefined): value is WaterMeterReference {
   return value === "agua-contador-general"
     || value === "agua-contador-tratamiento"
-    || value === "agua-contador-tratamiento-jabon";
+    || value === "agua-contador-tratamiento-jabon"
+    || value === "agua-contador-drencher";
 }
+
+/** Etiqueta legible de cada contador de agua, en el orden del registro. */
+export const WATER_METER_LABEL: Record<WaterMeterReference, string> = {
+  "agua-contador-general": "Contador general",
+  "agua-contador-tratamiento": "Línea tratamiento agua",
+  "agua-contador-tratamiento-jabon": "Línea tratamiento agua + jabón",
+  "agua-contador-drencher": "Drencher",
+};
+
+export const WATER_METER_ORDER: WaterMeterReference[] = [
+  "agua-contador-general",
+  "agua-contador-tratamiento",
+  "agua-contador-tratamiento-jabon",
+  "agua-contador-drencher",
+];
 
 export interface WaterMeterReading {
   id?: string;
@@ -314,13 +331,35 @@ export function buildJabonWaterMeterConsumoFromReading(input: WaterMeterJabonRea
   };
 }
 
+export function buildDrencherWaterMeterConsumoFromReading(input: WaterMeterJabonReadingInput): DailyWaterMeterConsumo {
+  const lecturaContadorL = finiteOrZero(input.lecturaContadorL);
+  const lecturaAnteriorL = input.lecturaAnteriorL == null ? null : finiteOrZero(input.lecturaAnteriorL);
+  const consumoL = lecturaAnteriorL == null ? 0 : Math.max(0, lecturaContadorL - lecturaAnteriorL);
+  const diaAnterior = subtractOneDayLocal(input.fecha);
+  const fechaInicio = input.fechaLecturaAnterior ?? fallbackFechaInicioSinLecturaAnterior(input.fecha);
+  const previousNote = lecturaAnteriorL == null
+    ? "Lectura anterior: sin referencia."
+    : `Lectura anterior: ${lecturaAnteriorL} L${input.fechaLecturaAnterior ? ` (${input.fechaLecturaAnterior})` : ""}.`;
+
+  return {
+    recurso: "agua",
+    fecha_inicio: fechaInicio,
+    fecha_fin: diaAnterior,
+    cantidad: consumoL,
+    unidad: "l",
+    fuente: "contador",
+    referencia: "agua-contador-drencher",
+    notas: `Lectura contador (L): ${lecturaContadorL} L (foto del ${input.fecha}). ${previousNote} Consumo calculado: ${consumoL} L.`,
+  };
+}
+
 export function parseWaterMeterReading(consumo: Pick<ConsumoFisicoInput, "referencia" | "notas">): { lecturaM3: number | null; lecturaL: number | null } {
   const notes = consumo.notas ?? "";
   const matchM3 = notes.match(/Lectura contador(?: \(m3\))?:\s*([0-9.,\s]+)/i);
   const matchL = notes.match(/Lectura contador \(L\):\s*([0-9.,\s]+)/i);
   const invoiceMatch = notes.match(/Lecturas:\s*[0-9.,\s]+\s*->\s*([0-9.,\s]+)/i);
   const ref = normalizeText(consumo.referencia ?? "");
-  const useLiters = ref === "agua-contador-tratamiento-jabon";
+  const useLiters = ref === "agua-contador-tratamiento-jabon" || ref === "agua-contador-drencher";
 
   if (useLiters) {
     const text = matchL?.[1] ?? matchM3?.[1] ?? invoiceMatch?.[1];
@@ -361,6 +400,38 @@ export function extractFotoFecha(consumo: Pick<ConsumoFisicoInput, "notas" | "fe
   return match ? match[1] : addOneDayLocal(consumo.fecha_fin);
 }
 
+/**
+ * Lectura SIGUIENTE del mismo contador (foto posterior a `fecha`). La usa el editor
+ * de lecturas: al corregir una lectura hay que recalcular también el consumo de la
+ * lectura siguiente, cuyo delta se calculó contra la lectura editada.
+ */
+export function findNextWaterMeterReading(
+  consumos: ConsumoFisicoInput[],
+  fecha: string,
+  referencia: WaterMeterReference,
+): WaterMeterReading | null {
+  return consumos
+    .filter((consumo) => {
+      if (consumo.recurso !== "agua" || consumo.fuente !== "contador") return false;
+      if (consumo.referencia !== referencia) return false;
+      if (extractFotoFecha(consumo) <= fecha) return false;
+      const { lecturaM3, lecturaL } = parseWaterMeterReading(consumo);
+      return lecturaM3 != null || lecturaL != null;
+    })
+    .map((consumo) => {
+      const { lecturaM3, lecturaL } = parseWaterMeterReading(consumo);
+      return {
+        id: consumo.id,
+        fecha: extractFotoFecha(consumo),
+        lecturaM3,
+        lecturaL,
+        consumoL: normalizeConsumoCantidad(consumo).cantidadBase,
+        referencia,
+      };
+    })
+    .sort((a, b) => a.fecha.localeCompare(b.fecha))[0] ?? null;
+}
+
 export function findPreviousWaterMeterReading(
   consumos: ConsumoFisicoInput[],
   fecha: string,
@@ -395,12 +466,13 @@ export function findPreviousWaterMeterReading(
 export interface WaterBreakdown {
   tratamientoL: number;
   tratamientoJabonL: number;
+  drencherL: number;
 }
 
 /**
- * REGLA 2 (desglose informativo): tratamiento y tratamiento+jabon no suman al total
- * de agua (ver isWaterSubmeterReference / distributeWaterConsumptions), pero sí se
- * quieren mostrar como desglose de qué parte del consumo general fue de cada uno.
+ * REGLA 2 (desglose informativo): tratamiento, tratamiento+jabon y drencher no suman
+ * al total de agua (ver isWaterSubmeterReference / distributeWaterConsumptions), pero
+ * sí se quieren mostrar como desglose de qué parte del consumo general fue de cada uno.
  * Prorratea por solape de días igual que el resto del reparto físico del módulo.
  */
 export function waterBreakdownForRange(
@@ -423,7 +495,7 @@ export function waterBreakdownForRange(
       }
 
       const ref = normalizeText(consumo.referencia ?? "");
-      if (ref !== "agua-contador-tratamiento" && ref !== "agua-contador-tratamiento-jabon") {
+      if (ref !== "agua-contador-tratamiento" && ref !== "agua-contador-tratamiento-jabon" && ref !== "agua-contador-drencher") {
         return acc;
       }
 
@@ -436,13 +508,15 @@ export function waterBreakdownForRange(
 
       if (ref === "agua-contador-tratamiento") {
         acc.tratamientoL += litros;
-      } else {
+      } else if (ref === "agua-contador-tratamiento-jabon") {
         acc.tratamientoJabonL += litros;
+      } else {
+        acc.drencherL += litros;
       }
 
       return acc;
     },
-    { tratamientoL: 0, tratamientoJabonL: 0 },
+    { tratamientoL: 0, tratamientoJabonL: 0, drencherL: 0 },
   );
 }
 
@@ -585,15 +659,16 @@ function totalConsumosForPeriod(consumos: ConsumoFisicoInput[], period: Consumpt
 }
 
 /**
- * REGLA 2 (subcontadores): tratamiento y tratamiento+jabon son SUBCONTADORES del
- * contador general -su consumo ya viaja dentro del delta del general-, así que jamás
- * deben sumarse al total de agua (ni como lectura diaria exacta, ni por reparto
+ * REGLA 2 (subcontadores): tratamiento, tratamiento+jabon y drencher son SUBCONTADORES
+ * del contador general -su consumo ya viaja dentro del delta del general-, así que
+ * jamás deben sumarse al total de agua (ni como lectura diaria exacta, ni por reparto
  * proporcional). Solo sirven para el desglose informativo (ver waterBreakdownForRange).
  */
 function isWaterSubmeterReference(reference: string | null | undefined): boolean {
   const normalizedReference = normalizeText(reference ?? "");
   return normalizedReference === "agua-contador-tratamiento"
-    || normalizedReference === "agua-contador-tratamiento-jabon";
+    || normalizedReference === "agua-contador-tratamiento-jabon"
+    || normalizedReference === "agua-contador-drencher";
 }
 
 function distributeWaterConsumptions(

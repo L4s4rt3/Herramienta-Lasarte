@@ -3,11 +3,14 @@ import {
   buildAnnualConsumptionRows,
   buildDailyConsumptionRows,
   buildDailyWaterMeterConsumoFromReading,
+  buildDrencherWaterMeterConsumoFromReading,
   buildJabonWaterMeterConsumoFromReading,
   buildMonthlyConsumptionRows,
   buildTratamientoWaterMeterConsumoFromReading,
   extractFotoFecha,
+  findNextWaterMeterReading,
   findPreviousWaterMeterReading,
+  parseWaterMeterReading,
   subtractOneDayLocal,
   waterBreakdownForRange,
   type ConsumoFisicoInput,
@@ -327,6 +330,7 @@ describe("REGLA 2 — subcontadores de tratamiento no duplican el total de agua"
     { id: "g1", recurso: "agua", fecha_inicio: "2026-07-05", fecha_fin: "2026-07-05", cantidad: 10000, unidad: "l", fuente: "contador", referencia: "agua-contador-general" },
     { id: "t1", recurso: "agua", fecha_inicio: "2026-07-05", fecha_fin: "2026-07-05", cantidad: 3000, unidad: "l", fuente: "contador", referencia: "agua-contador-tratamiento" },
     { id: "j1", recurso: "agua", fecha_inicio: "2026-07-05", fecha_fin: "2026-07-05", cantidad: 500, unidad: "l", fuente: "contador", referencia: "agua-contador-tratamiento-jabon" },
+    { id: "d1", recurso: "agua", fecha_inicio: "2026-07-05", fecha_fin: "2026-07-05", cantidad: 800, unidad: "l", fuente: "contador", referencia: "agua-contador-drencher" },
   ];
 
   it("el total diario de agua es solo el del contador general (no suma los subcontadores)", () => {
@@ -371,18 +375,21 @@ describe("waterBreakdownForRange", () => {
     { id: "g1", recurso: "agua", fecha_inicio: "2026-07-05", fecha_fin: "2026-07-05", cantidad: 10000, unidad: "l", fuente: "contador", referencia: "agua-contador-general" },
     { id: "t1", recurso: "agua", fecha_inicio: "2026-07-05", fecha_fin: "2026-07-05", cantidad: 3000, unidad: "l", fuente: "contador", referencia: "agua-contador-tratamiento" },
     { id: "j1", recurso: "agua", fecha_inicio: "2026-07-05", fecha_fin: "2026-07-05", cantidad: 500, unidad: "l", fuente: "contador", referencia: "agua-contador-tratamiento-jabon" },
+    { id: "d1", recurso: "agua", fecha_inicio: "2026-07-05", fecha_fin: "2026-07-05", cantidad: 800, unidad: "l", fuente: "contador", referencia: "agua-contador-drencher" },
   ];
 
   it("devuelve los litros de cada subcontador para el rango dado", () => {
     const breakdown = waterBreakdownForRange(consumosConSubcontadores, "2026-07-05", "2026-07-05");
     expect(breakdown.tratamientoL).toBe(3000);
     expect(breakdown.tratamientoJabonL).toBe(500);
+    expect(breakdown.drencherL).toBe(800);
   });
 
   it("devuelve ceros cuando no hay consumos de subcontador en el rango", () => {
     const breakdown = waterBreakdownForRange(consumosConSubcontadores, "2026-08-01", "2026-08-05");
     expect(breakdown.tratamientoL).toBe(0);
     expect(breakdown.tratamientoJabonL).toBe(0);
+    expect(breakdown.drencherL).toBe(0);
   });
 
   it("prorratea por solape cuando el consumo del subcontador cubre varios dias", () => {
@@ -412,5 +419,55 @@ describe("buildTratamientoWaterMeterConsumoFromReading — REGLA 1 aplicada tamb
     expect(consumo.fecha_fin).toBe("2026-07-05");
     expect(consumo.cantidad).toBe(2000);
     expect(consumo.referencia).toBe("agua-contador-tratamiento");
+  });
+});
+
+describe("buildDrencherWaterMeterConsumoFromReading — cuarto contador del registro", () => {
+  it("calcula el delta en litros y atribuye el consumo al dia anterior a la foto", () => {
+    const consumo = buildDrencherWaterMeterConsumoFromReading({
+      fecha: "2026-07-06",
+      lecturaContadorL: 5400,
+      lecturaAnteriorL: 5000,
+      fechaLecturaAnterior: "2026-07-05",
+    });
+
+    expect(consumo.fecha_inicio).toBe("2026-07-05");
+    expect(consumo.fecha_fin).toBe("2026-07-05");
+    expect(consumo.cantidad).toBe(400);
+    expect(consumo.unidad).toBe("l");
+    expect(consumo.referencia).toBe("agua-contador-drencher");
+  });
+
+  it("sin lectura anterior es referencia inicial (consumo 0) y su lectura se recupera de las notas", () => {
+    const consumo = buildDrencherWaterMeterConsumoFromReading({
+      fecha: "2026-07-06",
+      lecturaContadorL: 5400,
+      lecturaAnteriorL: null,
+    });
+
+    expect(consumo.cantidad).toBe(0);
+    const parsed = parseWaterMeterReading(consumo);
+    expect(parsed.lecturaL).toBe(5400);
+    expect(parsed.lecturaM3).toBeNull();
+  });
+});
+
+describe("findNextWaterMeterReading — para recalcular la cadena al corregir una lectura", () => {
+  const historico: ConsumoFisicoInput[] = [
+    { id: "a", ...buildDrencherWaterMeterConsumoFromReading({ fecha: "2026-07-01", lecturaContadorL: 4000, lecturaAnteriorL: null }) },
+    { id: "b", ...buildDrencherWaterMeterConsumoFromReading({ fecha: "2026-07-03", lecturaContadorL: 4500, lecturaAnteriorL: 4000, fechaLecturaAnterior: "2026-07-01" }) },
+    { id: "c", ...buildDrencherWaterMeterConsumoFromReading({ fecha: "2026-07-06", lecturaContadorL: 5000, lecturaAnteriorL: 4500, fechaLecturaAnterior: "2026-07-03" }) },
+    { id: "otro", ...buildTratamientoWaterMeterConsumoFromReading({ fecha: "2026-07-04", lecturaContadorM3: 60, lecturaAnteriorM3: 58, fechaLecturaAnterior: "2026-07-03" }) },
+  ];
+
+  it("encuentra la siguiente lectura del MISMO contador por fecha de foto", () => {
+    const next = findNextWaterMeterReading(historico, "2026-07-03", "agua-contador-drencher");
+    expect(next?.id).toBe("c");
+    expect(next?.fecha).toBe("2026-07-06");
+    expect(next?.lecturaL).toBe(5000);
+  });
+
+  it("devuelve null cuando la lectura editada es la ultima del contador", () => {
+    expect(findNextWaterMeterReading(historico, "2026-07-06", "agua-contador-drencher")).toBeNull();
   });
 });
