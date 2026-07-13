@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -373,7 +374,11 @@ export default function RrhhComunicaciones() {
         </CardHeader>
         <CardContent className="p-0">
           {rrhh.isLoading ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">Cargando…</div>
+            <div className="space-y-2 py-4">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
           ) : rrhh.historial.length === 0 ? (
             <EmptyState icon={Mail} text="Todavía no se ha enviado ninguna comunicación." />
           ) : (

@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, ChevronLeft, ChevronRight, ClipboardList, FileSearch, Package, ScrollText, TrendingUp, Trophy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { InfoTooltip } from "@/components/InfoTooltip";
 import { CalidadInformeDialog, type CalidadInformeLote } from "@/components/CalidadInformeDialog";
@@ -103,7 +104,11 @@ function ResumenCompacto({ mercadona }: { mercadona: ReturnType<typeof useMercad
         </CardHeader>
         <CardContent>
           {mercadona.isLoading ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">Cargando…</p>
+            <div className="space-y-2">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
           ) : topFormatos.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">Sin datos de formato esta semana.</p>
           ) : (
@@ -130,7 +135,11 @@ function ResumenCompacto({ mercadona }: { mercadona: ReturnType<typeof useMercad
         </CardHeader>
         <CardContent>
           {mercadona.isLoading ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">Cargando…</p>
+            <div className="space-y-2">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
           ) : !mejorDia ? (
             <p className="py-6 text-center text-sm text-muted-foreground">Sin días con producción esta semana.</p>
           ) : (
@@ -361,7 +370,11 @@ function RankingHistoricoProductores({
       </CardHeader>
       <CardContent className="p-0">
         {isLoading ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">Cargando…</p>
+          <div className="space-y-2 py-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
         ) : productoresRango.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
             {periodoTipo === "total"
@@ -521,7 +534,11 @@ function LotesSemanaTabla({
       </CardHeader>
       <CardContent className="p-0">
         {isLoading ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">Cargando…</p>
+          <div className="space-y-2 py-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
         ) : ordenados.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">Sin lotes registrados esta semana.</p>
         ) : (
@@ -647,7 +664,11 @@ function CalidadSemana({
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">Cargando…</p>
+          <div className="space-y-2">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
         ) : controles.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
             Sin controles de calidad registrados en los días de esta semana.

@@ -446,7 +446,11 @@ export default function EconomicoCostes() {
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="flex flex-col items-center gap-2 py-14 text-sm text-muted-foreground">Cargando…</div>
+            <div className="space-y-2 py-4">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
           ) : porRecurso.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-14 text-center text-sm text-muted-foreground">
               Sin consumo registrado en este periodo.
@@ -678,7 +682,11 @@ export default function EconomicoCostes() {
             </CardHeader>
             <CardContent className="p-0">
               {isLoadingPersonal ? (
-                <div className="flex flex-col items-center gap-2 py-14 text-sm text-muted-foreground">Cargando…</div>
+                <div className="space-y-2 py-4">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
               ) : personalPorZona.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 py-14 text-center text-sm text-muted-foreground">
                   Sin trabajadores presentes en este periodo.
@@ -729,7 +737,11 @@ export default function EconomicoCostes() {
             </CardHeader>
             <CardContent className="p-0">
               {isLoadingPersonal ? (
-                <div className="flex flex-col items-center gap-2 py-14 text-sm text-muted-foreground">Cargando…</div>
+                <div className="space-y-2 py-4">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
               ) : personalPorPersonaOrdenada.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 py-14 text-center text-sm text-muted-foreground">
                   Sin trabajadores presentes en este periodo.

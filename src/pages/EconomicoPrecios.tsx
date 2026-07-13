@@ -27,6 +27,7 @@ import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthProvider";
@@ -257,7 +258,11 @@ export default function EconomicoPrecios() {
       <Card className="glass-accented overflow-hidden">
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="flex flex-col items-center gap-2 py-14 text-sm text-muted-foreground">Cargando…</div>
+            <div className="space-y-2 py-4">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
           ) : recursos.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-14 text-center">
               <History className="h-10 w-10 text-muted-foreground/50" />
@@ -664,7 +669,11 @@ function MallasRotasSection({ mallas }: { mallas: ReturnType<typeof useMallasCon
       <Card className="glass-accented overflow-hidden">
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="flex flex-col items-center gap-2 py-14 text-sm text-muted-foreground">Cargando…</div>
+            <div className="space-y-2 py-4">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
           ) : (
             <ul className="divide-y divide-[var(--glass-border)]">
               {ZONAS_MALLA.map((zona) => {

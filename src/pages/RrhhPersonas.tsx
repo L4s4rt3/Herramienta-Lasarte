@@ -34,6 +34,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -320,7 +321,11 @@ export default function RrhhPersonas() {
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">Cargando plantilla…</p>
+            <div className="space-y-2 p-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-11 w-full" />
+              ))}
+            </div>
           ) : error ? (
             <div className="flex flex-col items-center gap-3 p-10 text-center">
               <AlertTriangle className="h-8 w-8 text-warning" />
@@ -1189,7 +1194,11 @@ function FichaPersonaSheet({
               </div>
 
               {isLoading ? (
-                <p className="py-10 text-center text-sm text-muted-foreground">Cargando ficha…</p>
+                <div className="space-y-2 py-4">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
               ) : (
                 <Tabs defaultValue="faltas" className="space-y-3">
                   <TabsList className="w-full flex-wrap">

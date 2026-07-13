@@ -23,6 +23,7 @@ import { useState } from "react";
 import { BadgeCheck, ChevronLeft, ChevronRight, PackageSearch, Percent, Scale, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KPICard } from "@/components/KPICard";
 import { MercadonaLotes, MercadonaProductoresRanking } from "@/components/mercadona/MercadonaLotes";
@@ -187,7 +188,11 @@ export default function MercadonaProduccion() {
                 </CardHeader>
                 <CardContent>
                   {cargandoResumen ? (
-                    <p className="py-6 text-center text-sm text-muted-foreground">Cargando…</p>
+                    <div className="space-y-2">
+                      <Skeleton className="h-10 w-full" />
+                      <Skeleton className="h-10 w-full" />
+                      <Skeleton className="h-10 w-full" />
+                    </div>
                   ) : mercadona.por_formato.length === 0 ? (
                     <p className="py-6 text-center text-sm text-muted-foreground">Sin formatos MDNA esta semana.</p>
                   ) : (

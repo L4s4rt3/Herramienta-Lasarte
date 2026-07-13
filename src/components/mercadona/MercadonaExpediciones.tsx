@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { AlertTriangle, Boxes, Package, Scale, Truck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { KPICard } from "@/components/KPICard";
 import {
   useMercadonaExpediciones, useMercadonaExpedicionesSemanales, useMercadonaConfeccionadoSemanal,
@@ -144,7 +145,11 @@ function ExpedicionesPorDia({
       </CardHeader>
       <CardContent>
         {expediciones.isLoading ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">Cargando…</p>
+          <div className="space-y-2">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
         ) : data.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">Sin palets expedidos a Mercadona esta semana.</p>
         ) : (
@@ -203,7 +208,11 @@ function CruceTresPatas({
       </CardHeader>
       <CardContent className="space-y-3 p-0">
         {isLoading ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">Cargando…</p>
+          <div className="space-y-2 py-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
         ) : filas.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">Sin semanas para comparar.</p>
         ) : (
@@ -271,7 +280,11 @@ function ProductosExpedidos({ expediciones }: { expediciones: ReturnType<typeof 
       </CardHeader>
       <CardContent className="p-0">
         {expediciones.isLoading ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">Cargando…</p>
+          <div className="space-y-2 py-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
         ) : expediciones.por_producto.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">Sin palets expedidos a Mercadona esta semana.</p>
         ) : (

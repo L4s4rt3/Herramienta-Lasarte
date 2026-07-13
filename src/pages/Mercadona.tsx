@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KPICard } from "@/components/KPICard";
 import { MercadonaImportar } from "@/components/mercadona/MercadonaImportar";
@@ -360,7 +361,11 @@ function ResumenSemana({
           </CardHeader>
           <CardContent className="space-y-3">
             {aprovechamiento.isLoading || mercadona.isLoading ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">Cargando…</p>
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
             ) : (
               <>
                 <div className="flex items-baseline justify-between">

@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -329,7 +330,11 @@ function VacacionesTab({
 
       {rrhh.isLoading ? (
         <Card className="glass-accented">
-          <CardContent className="p-10 text-center text-sm text-muted-foreground">Cargando…</CardContent>
+          <CardContent className="space-y-2 p-6">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </CardContent>
         </Card>
       ) : filas.length === 0 ? (
         <Card className="glass-accented overflow-hidden">
@@ -721,7 +726,11 @@ function HorasTab({ rrhh }: { rrhh: ReturnType<typeof useRrhhVacaciones> }) {
 
       {rrhh.isLoading ? (
         <Card className="glass-accented">
-          <CardContent className="p-10 text-center text-sm text-muted-foreground">Cargando…</CardContent>
+          <CardContent className="space-y-2 p-6">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </CardContent>
         </Card>
       ) : saldos.length === 0 ? (
         <Card className="glass-accented overflow-hidden">
