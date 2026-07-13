@@ -45,6 +45,7 @@ const EconomicoPanel = lazy(pageLoaders.economicoPanel);
 const EconomicoFacturacion = lazy(pageLoaders.economicoFacturacion);
 const EconomicoCostes = lazy(pageLoaders.economicoCostes);
 const EconomicoPrecios = lazy(pageLoaders.economicoPrecios);
+const MapaHerramienta = lazy(pageLoaders.mapa);
 const ExcelViewerPage = lazy(() => import("@/pages/ExcelViewerPage"));
 
 const LoadingFallback = () => (
@@ -80,6 +81,7 @@ const App = () => (
                     <Route element={<RoleRoute />}>
                       {/* "/" es la home por rol: cada rol aterriza en su dashboard. */}
                       <Route path="/" element={<RoleHome />} />
+                      <Route path="/mapa" element={<MapaHerramienta />} />
                       <Route path="/produccion" element={<Dashboard />} />
                       <Route path="/calidad" element={<CalidadJornada />} />
                       <Route path="/partes" element={<PartesList />} />

@@ -17,6 +17,7 @@ export const VENTAS_ALLOWED_PATHS = [
   "/ventas/categoria-primera",
   "/comercial/mercadona",
   "/cmr",
+  "/mapa",
 ] as const;
 
 /** Home de cada rol: su dashboard. "/" redirige aquí (ver RoleHome). */
@@ -67,8 +68,9 @@ export default function RoleRoute() {
   }
 
   // El rol rrhh vive SOLO en su espacio (Produccion es del rol basico): fuera
-  // de sus rutas se le devuelve a su home, igual que al rol ventas.
-  if (role === "rrhh" && !esRutaRrhh) {
+  // de sus rutas se le devuelve a su home, igual que al rol ventas. El mapa
+  // de la herramienta es de todos los roles.
+  if (role === "rrhh" && !esRutaRrhh && location.pathname !== "/mapa") {
     return <Navigate to={RRHH_HOME} replace />;
   }
 

@@ -48,6 +48,7 @@ const VENTAS_ALLOWED = new Set([
 ]);
 
 const PAGES = [
+  { to: "/mapa", label: "Mapa de la herramienta", icon: LayoutDashboard, keywords: "mapa secciones paginas indice directorio orientacion donde esta" },
   { to: "/produccion", label: "Panel de producción", icon: LayoutDashboard, keywords: "panel inicio dashboard produccion" },
   { to: "/calidad", label: "Jornada de Calidad", icon: ClipboardCheck, keywords: "calidad lotes notas aerobotics finca productor" },
   { to: "/partes", label: "Partes diarios", icon: FileText, keywords: "partes produccion diario" },
@@ -119,6 +120,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   // El rol rrhh vive solo en su espacio (igual que ventas en el suyo).
   const isRrhh = role === "rrhh";
   const visiblePages = PAGES.filter((page) => {
+    // El mapa de la herramienta es de todos los roles.
+    if (page.to === "/mapa") return true;
     // El rol "ventas" solo debe ver sus 5 secciones comerciales en la paleta.
     if (isVentas) return VENTAS_ALLOWED.has(page.to);
     if (isRrhh) return RRHH_Y_ADMIN_ONLY.has(page.to);

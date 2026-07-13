@@ -26,6 +26,10 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     label: "Panel de producción",
     subtitle: "Visión estratégica de producción, alertas y tendencias",
   },
+  "/mapa": {
+    label: "Mapa de la herramienta",
+    subtitle: "Todas las secciones y páginas, con lo que encontrarás en cada una",
+  },
   "/partes": {
     label: "Partes",
     subtitle: "Reconciliación diaria y seguimiento de descuadres",
@@ -232,9 +236,16 @@ function TopBar() {
         </p>
       </div>
 
-      <Badge variant="outline" className="hidden rounded-xl border-primary/20 bg-[var(--glass-bg-strong)] px-2.5 py-1 font-medium text-primary backdrop-blur-sm md:inline-flex">
-        {seccion?.label ?? "Producción"}
-      </Badge>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <NavLink to="/mapa" className="hidden md:inline-flex">
+            <Badge variant="outline" className="rounded-xl border-primary/20 bg-[var(--glass-bg-strong)] px-2.5 py-1 font-medium text-primary backdrop-blur-sm transition-colors hover:bg-primary/10">
+              {location.pathname === "/mapa" ? "Mapa" : seccion?.label ?? "Producción"}
+            </Badge>
+          </NavLink>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Ver el mapa de la herramienta</TooltipContent>
+      </Tooltip>
 
       {/* Buscador global (abre la paleta Ctrl+K) */}
       <Tooltip>

@@ -31,10 +31,12 @@ export const pageLoaders = {
   economicoFacturacion: () => import("@/pages/EconomicoFacturacion"),
   economicoCostes: () => import("@/pages/EconomicoCostes"),
   economicoPrecios: () => import("@/pages/EconomicoPrecios"),
+  mapa: () => import("@/pages/MapaHerramienta"),
 };
 
 const preloadByPath: Record<string, () => Promise<unknown>> = {
   "/produccion": pageLoaders.dashboard,
+  "/mapa": pageLoaders.mapa,
   "/calidad": pageLoaders.calidad,
   "/partes": pageLoaders.partesList,
   "/costes/consumos": pageLoaders.consumoCostes,

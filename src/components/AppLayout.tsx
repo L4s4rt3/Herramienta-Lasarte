@@ -1,31 +1,14 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
-import {
-  LayoutDashboard,
-  FileText,
-  ClipboardCheck,
-  LogOut,
-  ChevronDown,
-  Droplet,
-  FileSpreadsheet,
-  Users,
-  BarChart3,
-  Sprout,
-  ShoppingCart,
-  Truck,
-  UserRound,
-  CalendarOff,
-  AlertTriangle,
-  Plane,
-  Banknote,
-  Euro,
-  Receipt,
-  Tags,
-  Mail,
-  Upload,
-} from "lucide-react";
+import { ChevronDown, LogOut } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
-import { WORKSPACES, WORKSPACE_DISPLAY_ORDER, workspaceDeRuta, type WorkspaceId } from "@/lib/workspaces";
+import {
+  NAV_GROUPS,
+  WORKSPACES,
+  WORKSPACE_DISPLAY_ORDER,
+  workspaceDeRuta,
+  type WorkspaceId,
+} from "@/lib/workspaces";
 import { cn } from "@/lib/utils";
 
 
@@ -55,101 +38,14 @@ import { preloadRoute } from "@/lib/routePreload";
 import { TourGuiado } from "@/components/tour/TourGuiado";
 import { getVisibleTourSteps, tourStorageKey } from "@/components/tour/tourSteps";
 
-type NavItem = {
-  to: string;
-  label: string;
-  icon: typeof LayoutDashboard;
-  match?: (path: string) => boolean;
-};
-
 // ─── Espacios de trabajo ─────────────────────────────────────────────────────
-// Las 5 grandes secciones viven en src/lib/workspaces.ts (las comparte el
-// TopBar). Con varias secciones permitidas (admin), la sidebar pinta el ÁRBOL
-// COMPLETO: cada sección es un bloque desplegable con todas sus páginas — nada
-// queda escondido detrás de un conmutador. La sección de la ruta actual se
-// abre sola; las demás se pliegan/despliegan a mano.
-
-const navGroups: Array<{ label: string; workspace: WorkspaceId; items: NavItem[] }> = [
-  {
-    label: "Dirección",
-    workspace: "direccion",
-    items: [
-      { to: "/direccion", label: "Panel de dirección", icon: LayoutDashboard, match: (path) => path === "/direccion" },
-    ],
-  },
-  {
-    label: "Dashboard",
-    workspace: "produccion",
-    items: [
-      { to: "/produccion", label: "Panel de producción", icon: LayoutDashboard, match: (path) => path === "/produccion" },
-    ],
-  },
-  {
-    label: "Operaciones diarias",
-    workspace: "produccion",
-    items: [
-      { to: "/calidad", label: "Calidad", icon: ClipboardCheck },
-      { to: "/partes", label: "Partes", icon: FileText, match: (path) => path.startsWith("/partes") },
-    ],
-  },
-  {
-    label: "Producción",
-    workspace: "produccion",
-    items: [
-      { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3 },
-      { to: "/productores", label: "Productores", icon: Sprout },
-      // Variante de produccion: sin facturacion (la completa vive en Comercial).
-      { to: "/mercadona", label: "Mercadona (planta)", icon: ShoppingCart },
-    ],
-  },
-  {
-    label: "Operaciones",
-    workspace: "produccion",
-    items: [
-      { to: "/costes/consumos", label: "Consumos", icon: Droplet },
-    ],
-  },
-  {
-    label: "Comercial",
-    workspace: "comercial",
-    items: [
-      { to: "/comercial", label: "Panel comercial", icon: LayoutDashboard, match: (path) => path === "/comercial" },
-      { to: "/comercial/mercadona", label: "Mercadona (ventas)", icon: ShoppingCart },
-      { to: "/comercial/ventas-mes", label: "Ventas del mes", icon: Upload },
-      { to: "/ventas/categoria-segunda", label: "Categoría segunda", icon: FileSpreadsheet },
-      { to: "/ventas/categoria-primera", label: "Categoría primera", icon: FileSpreadsheet },
-      { to: "/cmr", label: "CMR y Hojas de ruta", icon: Truck },
-    ],
-  },
-  {
-    // La asistencia diaria (pasar lista + importaciones) vive aqui desde jul
-    // 2026: los operarios ya no la ven; el resto de su informacion vive
-    // repartida en Ausencias (faltas), Plantilla (personas) y Vacaciones.
-    label: "RRHH",
-    workspace: "rrhh",
-    items: [
-      { to: "/rrhh", label: "Panel de RRHH", icon: LayoutDashboard, match: (path) => path === "/rrhh" },
-      { to: "/costes/asistencia", label: "Asistencia diaria", icon: Users },
-      { to: "/rrhh/personas", label: "Plantilla", icon: UserRound },
-      { to: "/rrhh/ausencias", label: "Ausencias y bajas", icon: CalendarOff },
-      { to: "/rrhh/amonestaciones", label: "Amonestaciones", icon: AlertTriangle },
-      { to: "/rrhh/vacaciones", label: "Vacaciones y horas", icon: Plane },
-      { to: "/rrhh/nominas", label: "Nóminas", icon: Banknote },
-      { to: "/rrhh/comunicaciones", label: "Comunicaciones", icon: Mail },
-      { to: "/rrhh/mercadona", label: "Mercadona (facturas)", icon: ShoppingCart },
-    ],
-  },
-  {
-    label: "Económico",
-    workspace: "economico",
-    items: [
-      { to: "/economico", label: "Panel económico", icon: Euro, match: (path) => path === "/economico" },
-      { to: "/economico/facturacion", label: "Facturación", icon: Receipt },
-      { to: "/economico/costes", label: "Costes", icon: Droplet },
-      { to: "/economico/precios", label: "Precios", icon: Tags },
-    ],
-  },
-];
+// Las 5 grandes secciones y su directorio de páginas (NAV_GROUPS) viven en
+// src/lib/workspaces.ts (los comparten TopBar y el Mapa de la herramienta).
+// Con varias secciones permitidas (admin), la sidebar pinta el ÁRBOL COMPLETO:
+// cada sección es un bloque desplegable con todas sus páginas — nada queda
+// escondido detrás de un conmutador. La sección de la ruta actual se abre
+// sola; las demás se pliegan/despliegan a mano.
+const navGroups = NAV_GROUPS;
 
 export default function AppLayout() {
   return (
