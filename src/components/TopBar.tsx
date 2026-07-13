@@ -42,6 +42,12 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/produccion",
     parentLabel: "Producción",
   },
+  "/trazabilidad": {
+    label: "Trazabilidad",
+    subtitle: "La vida completa de cada lote: finca, entrada, calibrador, clasificación y calidad",
+    parent: "/produccion",
+    parentLabel: "Producción",
+  },
   "/calidad": {
     label: "Calidad",
     subtitle: "Notas diarias de lotes y control de calidad",

@@ -25,6 +25,7 @@ import {
   Upload,
   UserRound,
   Users,
+  Waypoints,
   type LucideIcon,
 } from "lucide-react";
 
@@ -139,6 +140,7 @@ export const NAV_GROUPS: Array<{ label: string; workspace: WorkspaceId; items: N
     workspace: "produccion",
     items: [
       { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3 },
+      { to: "/trazabilidad", label: "Trazabilidad", icon: Waypoints },
       { to: "/productores", label: "Productores", icon: Sprout },
       // Variante de produccion: sin facturacion (la completa vive en Comercial).
       { to: "/mercadona", label: "Mercadona (planta)", icon: ShoppingCart },

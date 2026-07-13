@@ -9,14 +9,16 @@ import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
 import {
-  AlertTriangle, ArrowRight, FileSpreadsheet, Loader2, Package, Search, Trash2, Truck, Upload, Warehouse, X,
+  AlertTriangle, ArrowRight, CalendarDays, ChevronDown, FileSpreadsheet, Loader2, Package, Search, Trash2, Truck, Upload, Warehouse, X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KPICard } from "@/components/KPICard";
 import { toast } from "@/hooks/use-toast";
 import { useEntradasBascula } from "@/hooks/useEntradasBascula";
@@ -29,7 +31,7 @@ import {
   type StockLoteRow,
 } from "@/lib/entradasBascula";
 import { errorMessage } from "@/lib/errorMessage";
-import { formatDate, formatKgCompact as formatKg, formatNumber, today } from "@/lib/format";
+import { formatDate, formatKgCompact as formatKg, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const ESTADO_BADGE: Record<StockEstado, { label: string; className: string }> = {
@@ -156,6 +158,34 @@ export default function EntradasBascula() {
 
   const entradaPorLote = useMemo(() => new Map(entradas.map((e) => [e.lote, e])), [entradas]);
   const hayEntradas = entradas.length > 0;
+
+  // Stock en cámara agrupado por variedad (solo lotes activos), para ver de un
+  // vistazo cuánta fruta de cada tipo queda por procesar.
+  const stockPorVariedad = useMemo(() => {
+    const map = new Map<string, { kg: number; lotes: number }>();
+    for (const f of stock.filas) {
+      if (f.estado === "procesado" || f.kg_en_camara <= 0) continue;
+      const clave = f.articulo ?? "Sin variedad";
+      const acc = map.get(clave) ?? { kg: 0, lotes: 0 };
+      acc.kg += f.kg_en_camara;
+      acc.lotes += 1;
+      map.set(clave, acc);
+    }
+    return Array.from(map.entries())
+      .map(([variedad, v]) => ({ variedad, ...v }))
+      .sort((a, b) => b.kg - a.kg);
+  }, [stock.filas]);
+
+  // Entradas agrupadas por día (vista "lo que entró cada día").
+  const entradasPorDia = useMemo(() => {
+    const map = new Map<string, typeof entradas>();
+    for (const e of entradas) {
+      const arr = map.get(e.fecha) ?? [];
+      arr.push(e);
+      map.set(e.fecha, arr);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [entradas]);
 
   return (
     <div className="page-shell">
@@ -302,6 +332,45 @@ export default function EntradasBascula() {
             />
           </section>
 
+          <Tabs defaultValue="stock" className="space-y-4">
+            <TabsList className="w-full flex-wrap sm:w-auto">
+              <TabsTrigger value="stock">Stock en cámara</TabsTrigger>
+              <TabsTrigger value="dias">
+                Entradas por día <Badge variant="secondary" className="ml-1.5 px-1.5 text-[10px]">{entradasPorDia.length}</Badge>
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="stock" className="mt-0 space-y-4">
+          {/* ─── Stock por variedad (solo activos) ─────────────────────── */}
+          {stockPorVariedad.length > 0 && (
+            <Card className="glass-accented">
+              <CardContent className="space-y-2.5 p-4 sm:p-5">
+                <div className="flex items-center gap-3">
+                  <div className="h-7 w-1 shrink-0 rounded-full bg-primary" />
+                  <div>
+                    <p className="panel-kicker">Stock por variedad</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Fruta sin procesar en cámara, agrupada por artículo</p>
+                  </div>
+                </div>
+                {stockPorVariedad.map((v) => {
+                  const pct = stock.kgEnCamara > 0 ? (v.kg / stock.kgEnCamara) * 100 : 0;
+                  return (
+                    <div key={v.variedad} className="flex items-center gap-3">
+                      <span className="w-44 shrink-0 truncate text-sm font-medium sm:w-56">{v.variedad}</span>
+                      <div className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                        <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="w-20 shrink-0 text-right text-sm font-semibold tabular-nums">{formatKg(v.kg)}</span>
+                      <span className="hidden w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:inline">
+                        {v.lotes} lote{v.lotes === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
+
           {/* ─── Stock / listado por lote ──────────────────────────────── */}
           <Card className="glass-accented">
             <CardHeader className="space-y-3">
@@ -374,9 +443,9 @@ export default function EntradasBascula() {
                         <TableRow key={fila.lote} className={cn(i % 2 === 1 && "bg-[var(--glass-bg)]/40")}>
                           <TableCell className="whitespace-nowrap font-medium">
                             <Link
-                              to={`/analisis/diario?q=${encodeURIComponent(fila.lote)}&tab=lotes&desde=${fila.fecha_entrada}&hasta=${fila.ultima_fecha_procesado ?? today()}`}
+                              to={`/trazabilidad?lote=${encodeURIComponent(fila.lote)}`}
                               className="inline-flex items-center gap-1 hover:text-primary hover:underline"
-                              title="Ver el lote en Análisis diario"
+                              title="Ver la trazabilidad completa del lote"
                             >
                               {fila.lote} <ArrowRight className="h-3 w-3 opacity-50" />
                             </Link>
@@ -424,10 +493,77 @@ export default function EntradasBascula() {
               )}
             </CardContent>
           </Card>
+            </TabsContent>
+
+            {/* ─── Entradas agrupadas por día ────────────────────────────── */}
+            <TabsContent value="dias" className="mt-0 space-y-2">
+              {entradasPorDia.map(([fecha, filasDia], index) => {
+                const kgDia = filasDia.reduce((s, e) => s + (Number(e.kg_entrada) || 0), 0);
+                return (
+                  <Collapsible key={fecha} defaultOpen={index === 0}>
+                    <div className="overflow-hidden rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)]">
+                      <CollapsibleTrigger className="group flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-[var(--glass-bg-strong)]">
+                        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                        <CalendarDays className="h-3.5 w-3.5 shrink-0 text-primary" />
+                        <span className="shrink-0 text-sm font-semibold capitalize">
+                          {new Date(`${fecha}T12:00:00`).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "short" })}
+                        </span>
+                        <span className="truncate text-[12px] text-muted-foreground">
+                          {filasDia.length} entrada{filasDia.length === 1 ? "" : "s"} · {formatKg(kgDia)}
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="divide-y divide-[var(--glass-border)] border-t border-[var(--glass-border)]">
+                          {filasDia.map((e) => (
+                            <div key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+                              <Link
+                                to={`/trazabilidad?lote=${encodeURIComponent(e.lote)}`}
+                                className="w-24 shrink-0 font-medium tabular-nums hover:text-primary hover:underline"
+                                title="Ver la trazabilidad del lote"
+                              >
+                                {e.lote}
+                              </Link>
+                              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                                {e.finca ?? "—"}{e.articulo ? ` · ${e.articulo}` : ""}
+                              </span>
+                              <span className="hidden shrink-0 text-xs text-muted-foreground md:inline">
+                                {e.envases ? `${formatNumber(e.envases)} env.` : ""}
+                              </span>
+                              <span className="w-20 shrink-0 text-right font-semibold tabular-nums">{formatKg(Number(e.kg_entrada) || 0)}</span>
+                              {e.origen === "stock_inicial" && (
+                                <Badge variant="outline" className="border-info/40 bg-info/10 px-1.5 py-0 text-[10px] text-info" title="Sembrada desde el informe de stock">
+                                  stock inicial
+                                </Badge>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 shrink-0 text-destructive hover:text-destructive"
+                                title="Borrar esta entrada"
+                                disabled={eliminar.isPending}
+                                onClick={() => {
+                                  eliminar.mutate(e.id, {
+                                    onSuccess: () => toast({ title: "Entrada borrada", description: `Lote ${e.lote} eliminado del registro.` }),
+                                    onError: (err) => toast({ title: "Error", description: errorMessage(err), variant: "destructive" }),
+                                  });
+                                }}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </CollapsibleContent>
+                    </div>
+                  </Collapsible>
+                );
+              })}
+            </TabsContent>
+          </Tabs>
 
           <p className="text-xs text-muted-foreground">
             {entradas.length} entrada(s) registradas · {formatNumber(entradas.reduce((s, e) => s + (Number(e.kg_entrada) || 0), 0))} kg entrados en total ·
-            el enlace de cada lote abre sus datos de procesado en Análisis diario.
+            el enlace de cada lote abre su trazabilidad completa.
           </p>
         </>
       )}

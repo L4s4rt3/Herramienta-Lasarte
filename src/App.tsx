@@ -47,6 +47,7 @@ const EconomicoCostes = lazy(pageLoaders.economicoCostes);
 const EconomicoPrecios = lazy(pageLoaders.economicoPrecios);
 const MapaHerramienta = lazy(pageLoaders.mapa);
 const EntradasBascula = lazy(pageLoaders.entradas);
+const TrazabilidadLote = lazy(pageLoaders.trazabilidad);
 const ExcelViewerPage = lazy(() => import("@/pages/ExcelViewerPage"));
 
 const LoadingFallback = () => (
@@ -85,6 +86,7 @@ const App = () => (
                       <Route path="/mapa" element={<MapaHerramienta />} />
                       <Route path="/produccion" element={<Dashboard />} />
                       <Route path="/entradas" element={<EntradasBascula />} />
+                      <Route path="/trazabilidad" element={<TrazabilidadLote />} />
                       <Route path="/calidad" element={<CalidadJornada />} />
                       <Route path="/partes" element={<PartesList />} />
                       <Route path="/partes/:id" element={<PartDetail />} />

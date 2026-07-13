@@ -28,6 +28,7 @@ import {
   Plane,
   Banknote,
   Mail,
+  Waypoints,
 } from "lucide-react";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useAuth } from "@/contexts/AuthProvider";
@@ -50,7 +51,8 @@ const VENTAS_ALLOWED = new Set([
 const PAGES = [
   { to: "/mapa", label: "Mapa de la herramienta", icon: LayoutDashboard, keywords: "mapa secciones paginas indice directorio orientacion donde esta" },
   { to: "/produccion", label: "Panel de producción", icon: LayoutDashboard, keywords: "panel inicio dashboard produccion" },
-  { to: "/entradas", label: "Entradas de fruta", icon: Truck, keywords: "entradas bascula camion stock camara trazabilidad lote finca" },
+  { to: "/entradas", label: "Entradas de fruta", icon: Truck, keywords: "entradas bascula camion stock camara lote finca" },
+  { to: "/trazabilidad", label: "Trazabilidad", icon: Waypoints, keywords: "trazabilidad lote finca origen destino cadena seguimiento" },
   { to: "/calidad", label: "Jornada de Calidad", icon: ClipboardCheck, keywords: "calidad lotes notas aerobotics finca productor" },
   { to: "/partes", label: "Partes diarios", icon: FileText, keywords: "partes produccion diario" },
   { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3, keywords: "analisis diario lotes calibres" },
