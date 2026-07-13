@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -352,6 +353,12 @@ export default function ConsumoCostes() {
   const [aguaContadorTratamiento, setAguaContadorTratamiento] = useState("");
   const [aguaContadorJabon, setAguaContadorJabon] = useState("");
   const [aguaDrencher, setAguaDrencher] = useState("");
+  // Atribución manual del consumo: por defecto REGLA 1 (día(s) anterior(es) a la
+  // foto); activando esto, el consumo de esta tanda de lecturas se atribuye a un
+  // día o rango concreto elegido a mano.
+  const [atribucionManual, setAtribucionManual] = useState(false);
+  const [atribDesde, setAtribDesde] = useState("");
+  const [atribHasta, setAtribHasta] = useState("");
   const [editingConsumo, setEditingConsumo] = useState<EditingConsumoForm | null>(null);
   const [editingBaseKg, setEditingBaseKg] = useState<EditingBaseKgForm | null>(null);
   const lecturaAguaM3 = parseConsumoNumber(aguaContadorGeneral);
@@ -590,6 +597,34 @@ export default function ConsumoCostes() {
       return;
     }
 
+    // Los subcontadores DESGLOSAN el consumo del general: su suma jamás puede
+    // igualar o superar el consumo del contador general del mismo periodo.
+    const sumaSubcontadoresL = consumoTratamientoCalculadoL + consumoJabonCalculadoL + consumoDrencherCalculadoL;
+    if (consumoAguaCalculadoL > 0 && sumaSubcontadoresL >= consumoAguaCalculadoL) {
+      toast({
+        title: "Desglose imposible",
+        description: `Las líneas de desglose suman ${formatNumber(sumaSubcontadoresL, 0)} L y el contador general solo marca ${formatNumber(consumoAguaCalculadoL, 0)} L de consumo. El desglose siempre debe ser inferior al general: revisa las lecturas.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Atribución manual: si se activa, el consumo se fecha en el día/rango elegido.
+    if (atribucionManual) {
+      if (!atribDesde || !atribHasta || atribDesde > atribHasta) {
+        toast({ title: "Rango no valido", description: "Elige el día (o rango de días) al que atribuir este consumo.", variant: "destructive" });
+        return;
+      }
+      if (atribHasta > aguaDiaAnterior) {
+        toast({
+          title: "Rango no valido",
+          description: "El consumo siempre es anterior a la foto: el rango no puede pasar del día previo a la fecha de la lectura.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     // La fila ya no se guarda con fecha_inicio=fecha_fin=aguaDiariaFecha (REGLA 1: el
     // consumo se atribuye al dia anterior a la foto), asi que el duplicado se detecta
     // por la fecha REAL de la foto, guardada en las notas.
@@ -652,7 +687,20 @@ export default function ConsumoCostes() {
       }));
     }
 
-    const allConsumos = [generalConsumo, ...extras];
+    // Con atribución manual se sustituye el rango automático de la REGLA 1 por el
+    // elegido, dejándolo anotado; la fecha de la foto sigue en las notas, así que
+    // la cadena de lecturas (anterior/siguiente) no se ve afectada.
+    const aplicarAtribucion = (consumo: ReturnType<typeof buildDailyWaterMeterConsumoFromReading>) =>
+      atribucionManual
+        ? {
+            ...consumo,
+            fecha_inicio: atribDesde,
+            fecha_fin: atribHasta,
+            notas: `${consumo.notas ?? ""} Atribución manual: ${atribDesde} a ${atribHasta}.`.trim(),
+          }
+        : consumo;
+
+    const allConsumos = [generalConsumo, ...extras].map(aplicarAtribucion);
     const totalConsumoL = consumoAguaCalculadoL + consumoTratamientoCalculadoL + consumoJabonCalculadoL + consumoDrencherCalculadoL;
 
     const onAllSettled = () => {
@@ -662,9 +710,11 @@ export default function ConsumoCostes() {
       if (lecturaContadorTratamientoM3 > 0 && lecturaTratamientoAnterior) summaryParts.push(`Tratamiento: ${formatNumber(consumoTratamientoCalculadoL, 0)} L`);
       if (lecturaContadorJabonL > 0 && lecturaJabonAnterior) summaryParts.push(`Jabon: ${formatNumber(consumoJabonCalculadoL, 0)} L`);
       if (lecturaContadorDrencherL > 0 && lecturaDrencherAnterior) summaryParts.push(`Drencher: ${formatNumber(consumoDrencherCalculadoL, 0)} L`);
-      const atribuido = lecturaAguaAnterior
-        ? consumoAtribuidoLabel(aguaRangoAtribuido.inicio, aguaRangoAtribuido.fin)
-        : null;
+      const atribuido = atribucionManual
+        ? consumoAtribuidoLabel(atribDesde, atribHasta)
+        : lecturaAguaAnterior
+          ? consumoAtribuidoLabel(aguaRangoAtribuido.inicio, aguaRangoAtribuido.fin)
+          : null;
       toast({
         title: "Lecturas de agua guardadas",
         description: [atribuido, summaryParts.join(" · ")].filter(Boolean).join(" — "),
@@ -673,6 +723,9 @@ export default function ConsumoCostes() {
       setAguaContadorTratamiento("");
       setAguaContadorJabon("");
       setAguaDrencher("");
+      setAtribucionManual(false);
+      setAtribDesde("");
+      setAtribHasta("");
     };
 
     const mutations = allConsumos.map((consumo) => new Promise<void>((resolve) => {
@@ -1371,6 +1424,58 @@ export default function ConsumoCostes() {
                     <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">4 · Drencher (L)</Label>
                     <Input inputMode="decimal" value={aguaDrencher} onChange={(e) => setAguaDrencher(e.target.value)} placeholder="0" />
                   </div>
+                </div>
+
+                {/* Aviso en vivo: el desglose nunca puede igualar o superar al general */}
+                {consumoAguaCalculadoL > 0 && (consumoTratamientoCalculadoL + consumoJabonCalculadoL + consumoDrencherCalculadoL) >= consumoAguaCalculadoL && (
+                  <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-xs text-destructive">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      Las líneas de desglose suman {formatNumber(consumoTratamientoCalculadoL + consumoJabonCalculadoL + consumoDrencherCalculadoL, 0)} L,
+                      igual o más que el consumo del contador general ({formatNumber(consumoAguaCalculadoL, 0)} L). Son un desglose del general: revisa las lecturas.
+                    </span>
+                  </div>
+                )}
+
+                {/* Atribución del consumo: automática (REGLA 1) o a un día/rango concreto */}
+                <div className="space-y-3 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-4">
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      id="atribucion-manual-agua"
+                      checked={atribucionManual}
+                      onCheckedChange={(v) => {
+                        const activo = v === true;
+                        setAtribucionManual(activo);
+                        if (activo) {
+                          setAtribDesde((prev) => prev || aguaDiaAnterior);
+                          setAtribHasta((prev) => prev || aguaDiaAnterior);
+                        }
+                      }}
+                      className="mt-0.5"
+                    />
+                    <div className="min-w-0">
+                      <Label htmlFor="atribucion-manual-agua" className="cursor-pointer text-sm font-medium">
+                        Atribuir este consumo a un día o rango concreto
+                      </Label>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Sin marcar, el consumo se atribuye automáticamente al día anterior a la foto
+                        (o al rango completo desde la lectura anterior, p. ej. el fin de semana).
+                      </p>
+                    </div>
+                  </div>
+                  {atribucionManual && (
+                    <div className="flex flex-wrap items-end gap-4 pl-7">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Desde</Label>
+                        <ConsumoDatePicker value={atribDesde} onChange={setAtribDesde} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Hasta</Label>
+                        <ConsumoDatePicker value={atribHasta} onChange={setAtribHasta} />
+                      </div>
+                      <p className="pb-2 text-xs text-muted-foreground">Para un solo día, deja la misma fecha en ambos.</p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid gap-4 xl:grid-cols-2">

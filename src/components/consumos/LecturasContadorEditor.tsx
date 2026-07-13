@@ -10,7 +10,9 @@ import { Check, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { toast } from "@/hooks/use-toast";
 import { formatDate, formatNumber } from "@/lib/format";
 import {
@@ -25,6 +27,7 @@ import {
   normalizeConsumoCantidad,
   parseConsumoNumber,
   parseWaterMeterReading,
+  subtractOneDayLocal,
   WATER_METER_LABEL,
   type ConsumoFisicoInput,
   type DailyWaterMeterConsumo,
@@ -103,6 +106,8 @@ export function LecturasContadorEditor({
 }) {
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [valor, setValor] = useState("");
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
 
   const filas = useMemo<LecturaFila[]>(
     () => registros
@@ -129,11 +134,15 @@ export function LecturasContadorEditor({
   const empezarEdicion = (fila: LecturaFila) => {
     setEditandoId(fila.row.id);
     setValor(fila.lectura != null ? String(fila.lectura) : "");
+    setDesde(fila.row.fecha_inicio);
+    setHasta(fila.row.fecha_fin);
   };
 
   const cancelar = () => {
     setEditandoId(null);
     setValor("");
+    setDesde("");
+    setHasta("");
   };
 
   const guardar = async (fila: LecturaFila) => {
@@ -168,16 +177,71 @@ export function LecturasContadorEditor({
       return;
     }
 
+    // El desglose (subcontadores) nunca puede igualar o superar el consumo del
+    // general del mismo día de foto: se valida contra las filas hermanas.
+    const consumoNuevoL = lecturaAnterior == null
+      ? 0
+      : Math.max(0, (nueva - lecturaAnterior) * (METROS_CUBICOS[fila.referencia] ? 1000 : 1));
+    const hermanas = registros.filter((r) => (
+      r.id !== fila.row.id
+      && r.recurso === "agua"
+      && r.fuente === "contador"
+      && isWaterMeterReference(r.referencia)
+      && extractFotoFecha(r) === fila.foto
+    ));
+    const esGeneral = fila.referencia === "agua-contador-general";
+    const generalL = esGeneral
+      ? consumoNuevoL
+      : hermanas.filter((r) => r.referencia === "agua-contador-general").reduce((s, r) => s + normalizeConsumoCantidad(r).cantidadBase, 0);
+    const subsL = (esGeneral ? 0 : consumoNuevoL)
+      + hermanas.filter((r) => r.referencia !== "agua-contador-general").reduce((s, r) => s + normalizeConsumoCantidad(r).cantidadBase, 0);
+    if (generalL > 0 && subsL >= generalL) {
+      toast({
+        title: "Desglose imposible",
+        description: `Con esta corrección el desglose sumaría ${formatNumber(subsL, 0)} L y el contador general de ese día marca ${formatNumber(generalL, 0)} L. El desglose siempre debe ser inferior al general.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Rango de días atribuidos: editable, pero nunca puede llegar al día de la foto.
+    const diaAnteriorFoto = subtractOneDayLocal(fila.foto);
+    if (!desde || !hasta || desde > hasta) {
+      toast({ title: "Rango no válido", description: "Revisa las fechas de los días atribuidos.", variant: "destructive" });
+      return;
+    }
+    if (hasta > diaAnteriorFoto) {
+      toast({
+        title: "Rango no válido",
+        description: "El consumo siempre es anterior a la foto: el rango no puede pasar del día previo a la lectura.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const reconstruida = rebuildConsumo(fila.referencia, fila.foto, nueva, lecturaAnterior, anterior?.fecha ?? null);
-    await onUpdate({ ...fila.row, ...reconstruida });
+    const atribucionManual = desde !== reconstruida.fecha_inicio || hasta !== reconstruida.fecha_fin;
+    const corregida = atribucionManual
+      ? {
+          ...reconstruida,
+          fecha_inicio: desde,
+          fecha_fin: hasta,
+          notas: `${reconstruida.notas ?? ""} Atribución manual: ${desde} a ${hasta}.`.trim(),
+        }
+      : reconstruida;
+    await onUpdate({ ...fila.row, ...corregida });
 
     // La lectura siguiente calculó su consumo contra la lectura recién corregida:
-    // se reconstruye también con el nuevo punto de partida.
+    // se recalculan su cantidad y notas, conservando sus días atribuidos.
     if (siguiente?.id && lecturaSiguiente != null) {
       const rowSiguiente = registros.find((r) => r.id === siguiente.id);
       if (rowSiguiente) {
         const reconstruidaSiguiente = rebuildConsumo(fila.referencia, siguiente.fecha, lecturaSiguiente, nueva, fila.foto);
-        await onUpdate({ ...rowSiguiente, ...reconstruidaSiguiente });
+        await onUpdate({
+          ...rowSiguiente,
+          cantidad: reconstruidaSiguiente.cantidad,
+          notas: reconstruidaSiguiente.notas ?? null,
+        });
       }
     }
 
@@ -258,6 +322,25 @@ export function LecturasContadorEditor({
                       )}
                     </TableCell>
                   </TableRow>
+                  {enEdicion && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="bg-[var(--glass-bg-strong)]">
+                        <div className="flex flex-wrap items-end gap-4 py-1">
+                          <div className="space-y-1.5">
+                            <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Días atribuidos · desde</Label>
+                            <GlassDatePicker value={desde} onChange={setDesde} />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Hasta</Label>
+                            <GlassDatePicker value={hasta} onChange={setHasta} />
+                          </div>
+                          <p className="pb-2 text-xs text-muted-foreground">
+                            Por defecto es el rango automático (día(s) anterior(es) a la foto del {formatDate(fila.foto)}); cámbialo si el consumo fue de un día o días concretos.
+                          </p>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </Fragment>
               );
             })}
