@@ -49,6 +49,8 @@ import {
 } from "@/lib/economico";
 import type { ConsumoFisicoRow, SesionConsumoRow } from "@/lib/types";
 import { useMercadonaVentas, type MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
+import { useCosteMallas, type CosteMallasPeriodo } from "@/hooks/useCosteMallas";
+import { type GastoMallasSemana } from "@/lib/costeMallas";
 import { mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
 import { METODOS_ORDEN } from "@/components/mercadona/mercadonaAnalisis.helpers";
 
@@ -438,6 +440,7 @@ export interface EconomicoSerieSemanaCombinada {
 function buildSerieCombinada(
   facturacionSemanas: EconomicoSemanaFacturacion[],
   costesSerie: CosteSemana[],
+  mallasSerie: GastoMallasSemana[] = [],
 ): EconomicoSerieSemanaCombinada[] {
   const map = new Map<string, { facturacion: number; coste: number }>();
   for (const s of facturacionSemanas) {
@@ -449,6 +452,12 @@ function buildSerieCombinada(
     const entry = map.get(c.semanaInicio) ?? { facturacion: 0, coste: 0 };
     entry.coste += c.coste;
     map.set(c.semanaInicio, entry);
+  }
+  // El gasto de mallas rotas de la semana se suma al coste (misma clave: lunes local).
+  for (const m of mallasSerie) {
+    const entry = map.get(m.semanaInicio) ?? { facturacion: 0, coste: 0 };
+    entry.coste += m.gasto;
+    map.set(m.semanaInicio, entry);
   }
   return Array.from(map.entries())
     .map(([semanaInicio, v]) => ({ semanaInicio, facturacion: v.facturacion, coste: v.coste, margen: v.facturacion - v.coste }))
@@ -463,11 +472,15 @@ export interface EconomicoPanelData {
   /** Las tablas mercadona_* aun no existen en esta instancia (ver useMercadonaVentas). */
   tablesMissingVentas: boolean;
   costes: CostesPeriodo;
+  /** Gasto de mallas rotas del periodo (precio = coste total de envasado por malla). */
+  mallas: CosteMallasPeriodo;
+  /** costes.costeTotal + mallas.totalGasto. */
+  costeTotalConMallas: number;
   facturacionRango: number;
   vendidoKgRango: number;
   /** Base IVA / vendido del periodo. Null si no hay kg vendidos con base IVA. */
   eurosPorKgMedio: number | null;
-  /** facturacionRango - costes.costeTotal. Fase 1: no incluye mano de obra ni fruta. */
+  /** facturacionRango - consumos - mallas rotas. Fase 1: no incluye mano de obra ni fruta. */
   margenBruto: number;
   /** Semanas de Mercadona con base IVA que solapan el periodo, más reciente primero. */
   semanasEnRango: EconomicoSemanaFacturacion[];
@@ -489,6 +502,7 @@ export interface EconomicoPanelData {
 export function useEconomicoPanel(desde: string, hasta: string): EconomicoPanelData {
   const { hayPrecioCero, sinPermiso } = usePreciosRecursos();
   const costes = useCostesPeriodo(desde, hasta);
+  const mallas = useCosteMallas(desde, hasta);
   const ventas = useMercadonaVentas();
 
   const semanasConBaseIva = useMemo(
@@ -514,13 +528,15 @@ export function useEconomicoPanel(desde: string, hasta: string): EconomicoPanelD
   const facturacionRango = useMemo(() => semanasEnRango.reduce((sum, s) => sum + s.neto, 0), [semanasEnRango]);
   const vendidoKgRango = useMemo(() => semanasEnRango.reduce((sum, s) => sum + s.vendidoKg, 0), [semanasEnRango]);
   const eurosPorKgMedio = vendidoKgRango > 0 ? facturacionRango / vendidoKgRango : null;
-  const margenBruto = facturacionRango - costes.costeTotal;
+  // El gasto de mallas rotas (envasado perdido) forma parte del coste del periodo.
+  const costeTotalConMallas = costes.costeTotal + mallas.totalGasto;
+  const margenBruto = facturacionRango - costeTotalConMallas;
 
   const metodosDelPeriodo = useMemo(() => buildMetodosResumen(semanasEnRangoRaw), [semanasEnRangoRaw]);
 
   const serieCombinada = useMemo(
-    () => buildSerieCombinada(semanasEnRango, costes.serieSemanal),
-    [semanasEnRango, costes.serieSemanal],
+    () => buildSerieCombinada(semanasEnRango, costes.serieSemanal, mallas.gastoPorSemana),
+    [semanasEnRango, costes.serieSemanal, mallas.gastoPorSemana],
   );
 
   const porRecursoConKg = useMemo(
@@ -531,7 +547,7 @@ export function useEconomicoPanel(desde: string, hasta: string): EconomicoPanelD
     [costes.porRecurso, costes.kgProducidos],
   );
 
-  const isLoading = costes.isLoading || ventas.isLoading;
+  const isLoading = costes.isLoading || ventas.isLoading || mallas.isLoading;
 
   return {
     isLoading,
@@ -539,6 +555,8 @@ export function useEconomicoPanel(desde: string, hasta: string): EconomicoPanelD
     hayPrecioCero,
     tablesMissingVentas: ventas.tablesMissing,
     costes,
+    mallas,
+    costeTotalConMallas,
     facturacionRango,
     vendidoKgRango,
     eurosPorKgMedio,

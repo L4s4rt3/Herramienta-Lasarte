@@ -4,10 +4,12 @@ import {
   aplicarPrecioEmpaque,
   configVigente,
   gastoMallas,
+  gastoMallasPorSemana,
   mallasRotas,
   tipoMallaDeTexto,
   type MallaConfigInput,
 } from "./costeMallas";
+import { mondayOfLocal } from "./economico";
 
 describe("mallasRotas / gastoMallas", () => {
   it("calcula el nº de mallas rotas y el gasto con datos completos", () => {
@@ -34,6 +36,35 @@ describe("mallasRotas / gastoMallas", () => {
   it("da 0 con kg reciclado 0 o negativo", () => {
     expect(mallasRotas(0, 25)).toBe(0);
     expect(mallasRotas(-10, 25)).toBe(0);
+  });
+});
+
+describe("gastoMallasPorSemana", () => {
+  const configZ1: MallaConfigInput = { zona: "z1", tipo_malla: "Malla 5 kg", kg_por_malla: 5, precio_malla: 0.2424, vigente_desde: "2026-01-01" };
+  const configZ2: MallaConfigInput = { zona: "z2", tipo_malla: "Malla 3 kg", kg_por_malla: 3, precio_malla: 0.1134, vigente_desde: "2026-01-01" };
+
+  it("agrupa el gasto por lunes de semana ISO (clave compatible con CosteSemana)", () => {
+    const partes = [
+      // Semana del lunes 2026-07-06: martes y jueves.
+      { date: "2026-07-07", z1_kg: 50, z2_kg: 30 },
+      { date: "2026-07-09", z1_kg: 25, z2_kg: 0 },
+      // Semana siguiente (lunes 2026-07-13).
+      { date: "2026-07-13", z1_kg: 10, z2_kg: 0 },
+    ];
+
+    const serie = gastoMallasPorSemana(partes, configZ1, configZ2, mondayOfLocal);
+
+    expect(serie).toHaveLength(2);
+    expect(serie[0].semanaInicio).toBe("2026-07-06");
+    // (50/5 + 25/5) mallas z1 × 0.2424 + (30/3) mallas z2 × 0.1134
+    expect(serie[0].gasto).toBeCloseTo(15 * 0.2424 + 10 * 0.1134, 6);
+    expect(serie[1].semanaInicio).toBe("2026-07-13");
+    expect(serie[1].gasto).toBeCloseTo(2 * 0.2424, 6);
+  });
+
+  it("sin config no genera semanas (gasto 0)", () => {
+    const serie = gastoMallasPorSemana([{ date: "2026-07-07", z1_kg: 50, z2_kg: 30 }], null, null, mondayOfLocal);
+    expect(serie).toHaveLength(0);
   });
 });
 

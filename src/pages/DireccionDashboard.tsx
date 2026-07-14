@@ -357,7 +357,7 @@ export default function DireccionDashboard() {
                     />
                     <KPICard
                       className="glass-accented"
-                      label="Coste de consumos"
+                      label="Costes (consumos + mallas)"
                       value={formatEuro(economico.costeTotal)}
                       icon={Receipt}
                       to="/economico"

@@ -28,6 +28,7 @@ import { useMercadonaAprovechamiento } from "@/hooks/useMercadonaAprovechamiento
 import { useComercialDashboard, type ComercialMesAnterior } from "@/hooks/useComercialDashboard";
 import { useRrhhDashboard } from "@/hooks/useRrhhDashboard";
 import { useCostesPeriodo, usePreciosRecursos } from "@/hooks/useEconomico";
+import { useCosteMallas } from "@/hooks/useCosteMallas";
 import { useMercadonaVentas, type MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
 import { mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
 import { buildPeriodoRange } from "@/lib/consumoPeriodoView";
@@ -265,6 +266,7 @@ function useDireccionEconomico(): DireccionEconomico {
 
   const { hayPrecioCero, sinPermiso: sinPermisoPrecios, isLoading: loadingPrecios } = usePreciosRecursos();
   const costes = useCostesPeriodo(periodo.start, periodo.end);
+  const mallas = useCosteMallas(periodo.start, periodo.end);
   const ventas = useMercadonaVentas();
 
   const facturacionPeriodo = useMemo(() => {
@@ -278,9 +280,12 @@ function useDireccionEconomico(): DireccionEconomico {
       .reduce((sum, s) => sum + netoSemana(s), 0);
   }, [mostrar, ventas.semanas, periodo]);
 
-  const margenBruto = facturacionPeriodo - costes.costeTotal;
+  // Mismo criterio que el Panel económico: los costes del periodo incluyen el
+  // gasto de mallas rotas (valoradas al coste total de envasado por malla).
+  const costeTotalConMallas = costes.costeTotal + mallas.totalGasto;
+  const margenBruto = facturacionPeriodo - costeTotalConMallas;
   const sinPermiso = sinPermisoPrecios || costes.sinPermiso;
-  const isLoading = loadingPrecios || costes.isLoading || ventas.isLoading;
+  const isLoading = loadingPrecios || costes.isLoading || ventas.isLoading || mallas.isLoading;
 
   return {
     mostrar,
@@ -289,7 +294,7 @@ function useDireccionEconomico(): DireccionEconomico {
     periodoLabel: periodo.label,
     periodoDetail: periodo.detail,
     facturacionPeriodo,
-    costeTotal: costes.costeTotal,
+    costeTotal: costeTotalConMallas,
     margenBruto,
     costePorKg: costes.costePorKg,
     hayPreciosACero: hayPrecioCero,

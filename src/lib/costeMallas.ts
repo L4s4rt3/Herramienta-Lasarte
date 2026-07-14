@@ -91,6 +91,42 @@ export interface KgRecicladoZonas {
   z2_kg: number;
 }
 
+export interface ParteRecicladoDia {
+  date: string; // "YYYY-MM-DD"
+  z1_kg: number;
+  z2_kg: number;
+}
+
+export interface GastoMallasSemana {
+  /** Lunes (ISO) de la semana, misma clave que CosteSemana de economico.ts. */
+  semanaInicio: string;
+  gasto: number;
+}
+
+/**
+ * Gasto de mallas rotas por semana ISO (clave = lunes local), para sumarlo a la
+ * serie semanal de costes del Panel económico. Usa la misma config vigente
+ * para todo el rango (ver useCosteMallas: no hay vigencia por día individual).
+ */
+export function gastoMallasPorSemana(
+  partes: ParteRecicladoDia[],
+  configZ1: MallaConfigInput | null,
+  configZ2: MallaConfigInput | null,
+  mondayOf: (fecha: string) => string,
+): GastoMallasSemana[] {
+  const map = new Map<string, number>();
+  for (const parte of partes) {
+    const gasto = gastoMallas(parte.z1_kg, configZ1?.kg_por_malla, configZ1?.precio_malla)
+      + gastoMallas(parte.z2_kg, configZ2?.kg_por_malla, configZ2?.precio_malla);
+    if (gasto <= 0) continue;
+    const semanaInicio = mondayOf(parte.date);
+    map.set(semanaInicio, (map.get(semanaInicio) ?? 0) + gasto);
+  }
+  return Array.from(map.entries())
+    .map(([semanaInicio, gasto]) => ({ semanaInicio, gasto }))
+    .sort((a, b) => a.semanaInicio.localeCompare(b.semanaInicio));
+}
+
 export interface ZonaMallaResultado {
   kg: number;
   kgPorMalla: number | null;

@@ -33,11 +33,14 @@ import {
   agregarGastoMallas,
   aplicarPrecioEmpaque,
   configVigente,
+  gastoMallasPorSemana,
   type AgregadoGastoMallas,
+  type GastoMallasSemana,
   type MallaConfigInput,
   type ZonaMalla,
 } from "@/lib/costeMallas";
 import { agregarCosteEmpaque, type EmpaquePrecioInput } from "@/lib/costeEmpaque";
+import { mondayOfLocal } from "@/lib/economico";
 
 // Cast local: la tabla economico_mallas_config aun no esta en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
@@ -175,11 +178,14 @@ export function useMallasConfig() {
 // ─── Gasto de mallas rotas de un periodo (para EconomicoCostes) ────────────
 
 interface ParteRecicladoRow {
+  date: string;
   kg_reciclado_malla_z1: number | null;
   kg_reciclado_malla_z2: number | null;
 }
 
 export interface CosteMallasPeriodo extends AgregadoGastoMallas {
+  /** Gasto de mallas rotas por semana ISO (clave = lunes local), para el Panel económico. */
+  gastoPorSemana: GastoMallasSemana[];
   isLoading: boolean;
   sinPermiso: boolean;
 }
@@ -212,7 +218,7 @@ export function useCosteMallas(desde: string, hasta: string): CosteMallasPeriodo
     queryFn: async (): Promise<ParteRecicladoRow[]> => {
       const { data, error } = await supabase
         .from("partes_diarios")
-        .select("kg_reciclado_malla_z1, kg_reciclado_malla_z2")
+        .select("date, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
         .gte("date", desde)
         .lte("date", hasta);
       if (error) throw toError(error);
@@ -279,10 +285,25 @@ export function useCosteMallas(desde: string, hasta: string): CosteMallasPeriodo
     [kgTotales, configZ1, configZ2],
   );
 
+  const gastoPorSemana = useMemo(
+    () => gastoMallasPorSemana(
+      partes.map((p) => ({
+        date: p.date,
+        z1_kg: Number(p.kg_reciclado_malla_z1 ?? 0),
+        z2_kg: Number(p.kg_reciclado_malla_z2 ?? 0),
+      })),
+      configZ1,
+      configZ2,
+      mondayOfLocal,
+    ),
+    [partes, configZ1, configZ2],
+  );
+
   const isLoading = configQuery.isLoading || partesQuery.isLoading || empaqueQuery.isLoading;
 
   return {
     ...resultado,
+    gastoPorSemana,
     isLoading,
     sinPermiso,
   };

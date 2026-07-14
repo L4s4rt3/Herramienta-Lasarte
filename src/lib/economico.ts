@@ -164,7 +164,7 @@ export interface CosteSemana {
 }
 
 /** Lunes de la semana ISO que contiene `fecha`, calculado en horario local (mismo criterio que el resto de la app). */
-function mondayOfLocal(fecha: string): string {
+export function mondayOfLocal(fecha: string): string {
   const [year, month, day] = fecha.split("-").map(Number);
   const date = new Date(year, month - 1, day, 12, 0, 0);
   const weekday = date.getDay();

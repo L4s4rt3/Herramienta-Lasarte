@@ -12,7 +12,7 @@ import {
   Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  AlertTriangle, ArrowRight, Droplet, Euro, FlaskConical, Fuel, Info, Receipt, Scale, ShieldAlert,
+  AlertTriangle, ArrowRight, Droplet, Euro, FlaskConical, Fuel, Info, PackageX, Receipt, Scale, ShieldAlert,
   ShoppingCart, Tag, TrendingUp, Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -194,11 +194,11 @@ export default function EconomicoPanel() {
 
       {/* ─── KPIs ─────────────────────────────────────────────────────────── */}
       {panel.isLoading ? (
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
-          {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-32" />)}
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-32" />)}
         </div>
       ) : (
-        <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
+        <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
           <KPICard
             className="glass-accented"
             label="Facturación Mercadona"
@@ -214,10 +214,20 @@ export default function EconomicoPanel() {
           />
           <KPICard
             className="glass-accented"
+            label="Mallas rotas"
+            value={formatEuro(panel.mallas.totalGasto)}
+            icon={PackageX}
+            accent={panel.mallas.totalGasto > 0 ? "warning" : "primary"}
+            labelInfo="Reciclado de malla Z1/Z2 del periodo valorado al coste total de envasado por malla (etiqueta, caja, palet, malla, banda, fleje y asa)."
+            hint={`${formatNumber(panel.mallas.totalMallas, 0)} malla(s) rota(s)`}
+          />
+          <KPICard
+            className="glass-accented"
             label="Margen bruto estimado"
             value={formatEuro(panel.margenBruto)}
             icon={TrendingUp}
             accent={panel.margenBruto >= 0 ? "success" : "destructive"}
+            hint="Facturación − consumos − mallas rotas"
           />
           <KPICard
             className="glass-accented"
@@ -240,7 +250,7 @@ export default function EconomicoPanel() {
         <CardHeader className="pb-2">
           <p className="panel-kicker">Evolución</p>
           <CardTitle className="text-base">Facturación, coste y margen por semana</CardTitle>
-          <p className="text-xs text-muted-foreground">Facturación Mercadona y coste de consumos (barras), margen bruto (línea).</p>
+          <p className="text-xs text-muted-foreground">Facturación Mercadona y coste de consumos + mallas rotas (barras), margen bruto (línea).</p>
         </CardHeader>
         <CardContent>
           {panel.isLoading ? (
@@ -318,6 +328,20 @@ export default function EconomicoPanel() {
                       </TableRow>
                     );
                   })}
+                  {panel.mallas.totalGasto > 0 && (
+                    <TableRow>
+                      <TableCell className="font-medium">
+                        <span className="inline-flex items-center gap-2">
+                          <PackageX className="h-4 w-4 text-muted-foreground" />
+                          Mallas rotas
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right font-semibold tabular-nums">{formatEuro(panel.mallas.totalGasto)}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {panel.costes.kgProducidos > 0 ? `${formatNumber(panel.mallas.totalGasto / panel.costes.kgProducidos, 4)} €/kg` : "—"}
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             )}
@@ -398,7 +422,8 @@ export default function EconomicoPanel() {
           <Info className="h-5 w-5 shrink-0 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
             <span className="font-semibold text-foreground">Margen bruto estimado</span> = facturación Mercadona −
-            coste de consumos. No incluye mano de obra, fruta ni otros costes (Fase 1).
+            coste de consumos − mallas rotas (valoradas al coste total de envasado por malla).
+            No incluye mano de obra, fruta ni otros costes (Fase 1).
           </p>
         </CardContent>
       </Card>
