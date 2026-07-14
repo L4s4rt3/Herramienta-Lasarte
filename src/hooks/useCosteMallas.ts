@@ -31,11 +31,13 @@ import { toError } from "@/lib/errorMessage";
 import { today } from "@/lib/format";
 import {
   agregarGastoMallas,
+  aplicarPrecioEmpaque,
   configVigente,
   type AgregadoGastoMallas,
   type MallaConfigInput,
   type ZonaMalla,
 } from "@/lib/costeMallas";
+import { agregarCosteEmpaque, type EmpaquePrecioInput } from "@/lib/costeEmpaque";
 
 // Cast local: la tabla economico_mallas_config aun no esta en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
@@ -219,6 +221,20 @@ export function useCosteMallas(desde: string, hasta: string): CosteMallasPeriodo
     enabled: Boolean(user) && !sinPermiso,
   });
 
+  // Precios de envasado: el coste TOTAL por malla (empaque_precios) es el
+  // precio real de una malla rota; el precio manual de la config queda como
+  // respaldo. Si la query falla (permisos), se degrada al respaldo en silencio.
+  const empaqueQuery = useQuery({
+    queryKey: ["empaque-precios"],
+    queryFn: async (): Promise<EmpaquePrecioInput[]> => {
+      const { data, error } = await SUPA.from("empaque_precios").select("*");
+      if (error) throw error;
+      return (data ?? []) as EmpaquePrecioInput[];
+    },
+    enabled: Boolean(user) && !sinPermiso,
+    retry: (failureCount, error) => (isPermissionError(error) ? false : failureCount < 2),
+  });
+
   const configs = configQuery.data ?? [];
   const partes = partesQuery.data ?? [];
 
@@ -236,15 +252,34 @@ export function useCosteMallas(desde: string, hasta: string): CosteMallasPeriodo
   // del rango pedido, o hoy si ese rango se extiende al futuro (ver cabecera).
   const fechaReferencia = hasta < today() ? hasta : today();
 
-  const configZ1 = useMemo(() => configVigente(configs, "z1", fechaReferencia), [configs, fechaReferencia]);
-  const configZ2 = useMemo(() => configVigente(configs, "z2", fechaReferencia), [configs, fechaReferencia]);
+  // Total de envasado por malla vigente a la fecha de referencia: es el precio
+  // real de cada malla rota (3kg/5kg). Si no hay datos de envasado, el precio
+  // manual de economico_mallas_config sigue mandando.
+  const totalEmpaquePorTipo = useMemo(() => {
+    const precios = empaqueQuery.data ?? [];
+    if (precios.length === 0) return {};
+    const totales: Partial<Record<"3kg" | "5kg", number>> = {};
+    for (const coste of agregarCosteEmpaque(precios, fechaReferencia)) {
+      if (coste.totalPorMalla > 0) totales[coste.tipoMalla] = coste.totalPorMalla;
+    }
+    return totales;
+  }, [empaqueQuery.data, fechaReferencia]);
+
+  const configZ1 = useMemo(
+    () => aplicarPrecioEmpaque(configVigente(configs, "z1", fechaReferencia), totalEmpaquePorTipo),
+    [configs, fechaReferencia, totalEmpaquePorTipo],
+  );
+  const configZ2 = useMemo(
+    () => aplicarPrecioEmpaque(configVigente(configs, "z2", fechaReferencia), totalEmpaquePorTipo),
+    [configs, fechaReferencia, totalEmpaquePorTipo],
+  );
 
   const resultado = useMemo(
     () => agregarGastoMallas(kgTotales, configZ1, configZ2),
     [kgTotales, configZ1, configZ2],
   );
 
-  const isLoading = configQuery.isLoading || partesQuery.isLoading;
+  const isLoading = configQuery.isLoading || partesQuery.isLoading || empaqueQuery.isLoading;
 
   return {
     ...resultado,

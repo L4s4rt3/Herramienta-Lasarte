@@ -44,6 +44,29 @@ export function configVigente<T extends MallaConfigInput>(
   return mejor;
 }
 
+/** "Malla 3 kg" / "3kg" / "MALLA 5KG…" → "3kg" | "5kg" | null. */
+export function tipoMallaDeTexto(texto: string | null | undefined): "3kg" | "5kg" | null {
+  const match = String(texto ?? "").match(/([35])\s*kg/i);
+  return match ? (`${match[1]}kg` as "3kg" | "5kg") : null;
+}
+
+/**
+ * El precio de la malla rota viene DIRECTO del coste total de envasado por
+ * malla (empaque_precios, ver costeEmpaque.ts) cuando el tipo de malla de la
+ * zona casa con 3kg/5kg. El precio manual de economico_mallas_config queda
+ * solo como respaldo para tipos sin coste de envasado configurado.
+ */
+export function aplicarPrecioEmpaque<T extends MallaConfigInput>(
+  config: T | null,
+  totalPorTipo: Partial<Record<"3kg" | "5kg", number>>,
+): T | null {
+  if (!config) return null;
+  const tipo = tipoMallaDeTexto(config.tipo_malla);
+  const total = tipo ? totalPorTipo[tipo] : undefined;
+  if (total == null || !Number.isFinite(total) || total <= 0) return config;
+  return { ...config, precio_malla: total };
+}
+
 /** Nº de mallas rotas = kg reciclados / kg de fruta por malla. 0 si `kgPorMalla` es null/<=0. */
 export function mallasRotas(kgReciclado: number, kgPorMalla: number | null | undefined): number {
   if (!Number.isFinite(kgReciclado) || kgReciclado <= 0) return 0;

@@ -6,7 +6,7 @@
 // una errata (ver comentario de cabecera de useEconomico.ts).
 import { useMemo, useState } from "react";
 import {
-  AlertTriangle, ChevronDown, Download, History, Package, Pencil, Plus, ShieldAlert, Trash2,
+  AlertTriangle, ChevronDown, Download, History, Pencil, Plus, ShieldAlert, Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -668,6 +668,9 @@ function MallasRotasSection({ mallas }: { mallas: ReturnType<typeof useMallasCon
           <h2 className="text-xl font-semibold tracking-tight">Mallas rotas (Z1/Z2)</h2>
           <p className="text-sm text-muted-foreground">
             En Z1 se usa un tipo de malla y en Z2 otro: peso de fruta por malla y precio por malla, para calcular el gasto de mallas rotas.
+            Si el tipo de la zona es una malla de 3 kg o 5 kg, el precio se toma automáticamente del{" "}
+            <span className="font-medium text-foreground">coste total de envasado por malla</span> (sección de arriba);
+            el precio manual de aquí queda solo como respaldo.
           </p>
         </div>
       </div>

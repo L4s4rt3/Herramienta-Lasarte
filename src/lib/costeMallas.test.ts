@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   agregarGastoMallas,
+  aplicarPrecioEmpaque,
   configVigente,
   gastoMallas,
   mallasRotas,
+  tipoMallaDeTexto,
   type MallaConfigInput,
 } from "./costeMallas";
 
@@ -32,6 +34,42 @@ describe("mallasRotas / gastoMallas", () => {
   it("da 0 con kg reciclado 0 o negativo", () => {
     expect(mallasRotas(0, 25)).toBe(0);
     expect(mallasRotas(-10, 25)).toBe(0);
+  });
+});
+
+describe("tipoMallaDeTexto", () => {
+  it("reconoce el tipo 3kg/5kg en los nombres reales de la config", () => {
+    expect(tipoMallaDeTexto("Malla 3 kg")).toBe("3kg");
+    expect(tipoMallaDeTexto("Malla 5 kg")).toBe("5kg");
+    expect(tipoMallaDeTexto("MALLA 5KG ROJA")).toBe("5kg");
+    expect(tipoMallaDeTexto("3kg")).toBe("3kg");
+    expect(tipoMallaDeTexto("saco 10 kg")).toBeNull();
+    expect(tipoMallaDeTexto(null)).toBeNull();
+  });
+});
+
+describe("aplicarPrecioEmpaque", () => {
+  const config: MallaConfigInput = { zona: "z1", tipo_malla: "Malla 5 kg", kg_por_malla: 5, precio_malla: 0.0262, vigente_desde: "2026-01-01" };
+
+  it("sustituye el precio manual por el total de envasado del tipo que casa", () => {
+    const conEmpaque = aplicarPrecioEmpaque(config, { "5kg": 0.2424, "3kg": 0.1134 });
+    expect(conEmpaque?.precio_malla).toBeCloseTo(0.2424);
+    // El resto de la config no cambia.
+    expect(conEmpaque?.kg_por_malla).toBe(5);
+  });
+
+  it("mantiene el precio manual si no hay total de envasado para ese tipo", () => {
+    expect(aplicarPrecioEmpaque(config, {})?.precio_malla).toBe(0.0262);
+    expect(aplicarPrecioEmpaque(config, { "5kg": 0 })?.precio_malla).toBe(0.0262);
+  });
+
+  it("mantiene el precio manual si el tipo de malla de la zona no es 3kg/5kg", () => {
+    const otra: MallaConfigInput = { ...config, tipo_malla: "saco 10 kg" };
+    expect(aplicarPrecioEmpaque(otra, { "5kg": 0.2424 })?.precio_malla).toBe(0.0262);
+  });
+
+  it("devuelve null si no hay config", () => {
+    expect(aplicarPrecioEmpaque(null, { "5kg": 0.2424 })).toBeNull();
   });
 });
 
