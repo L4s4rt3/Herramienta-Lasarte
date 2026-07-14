@@ -17,7 +17,7 @@ const corsHeaders = {
 };
 
 const RESEND_API_URL = "https://api.resend.com/emails";
-const RESEND_DEFAULT_FROM = "Lasarte SAT <onboarding@resend.dev>";
+const RESEND_DEFAULT_FROM = "Lasarte Cítricos SL <onboarding@resend.dev>";
 const RESEND_TIMEOUT_MS = 15_000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
