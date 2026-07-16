@@ -1,11 +1,14 @@
-// Espacios de trabajo de la herramienta: las 5 grandes secciones, quién puede
+// Espacios de trabajo de la herramienta: las 4 grandes secciones, quién puede
 // ver cada una, a qué sección pertenece cada ruta y el directorio de páginas
 // de cada una (NAV_GROUPS). Lo consumen AppLayout (sidebar), TopBar (chip de
 // sección y migas), la home por rol y el Mapa de la herramienta.
+// Nota (jul 2026): "Económico" (rutas /economico/*) dejó de ser un espacio
+// propio con conmutador — ahora es un grupo más dentro de Dirección.
 import {
   AlertTriangle,
   Banknote,
   BarChart3,
+  Brush,
   Building2,
   CalendarOff,
   Citrus,
@@ -14,6 +17,7 @@ import {
   Euro,
   FileSpreadsheet,
   FileText,
+  History,
   LayoutDashboard,
   Mail,
   Plane,
@@ -29,7 +33,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-export type WorkspaceId = "direccion" | "produccion" | "comercial" | "rrhh" | "economico";
+export type WorkspaceId = "direccion" | "produccion" | "comercial" | "rrhh";
 
 export interface Workspace {
   id: WorkspaceId;
@@ -47,7 +51,10 @@ export const WORKSPACES: Workspace[] = [
     label: "Dirección",
     icon: Building2,
     home: "/direccion",
-    matches: (p) => p.startsWith("/direccion"),
+    // El modo economico (jul 2026) se fundio en Direccion: sus rutas /economico/*
+    // viven ahora como grupo "Económico" dentro de este mismo espacio (ver
+    // NAV_GROUPS mas abajo), sin conmutador propio.
+    matches: (p) => p.startsWith("/direccion") || p.startsWith("/economico"),
     allowedFor: (role) => role === "admin",
   },
   {
@@ -67,14 +74,6 @@ export const WORKSPACES: Workspace[] = [
     allowedFor: (role) => role === "admin" || role === "rrhh",
   },
   {
-    id: "economico",
-    label: "Económico",
-    icon: Euro,
-    home: "/economico",
-    matches: (p) => p.startsWith("/economico"),
-    allowedFor: (role) => role === "admin",
-  },
-  {
     // Produccion va la ultima: es el espacio por defecto (matches comodin).
     // Es el espacio del rol basico (operario); rrhh vive solo en su espacio.
     id: "produccion",
@@ -92,7 +91,6 @@ export const WORKSPACE_DISPLAY_ORDER: WorkspaceId[] = [
   "produccion",
   "comercial",
   "rrhh",
-  "economico",
 ];
 
 export function workspaceDeRuta(path: string): WorkspaceId {
@@ -151,6 +149,8 @@ export const NAV_GROUPS: Array<{ label: string; workspace: WorkspaceId; items: N
     workspace: "produccion",
     items: [
       { to: "/costes/consumos", label: "Consumos", icon: Droplet },
+      { to: "/limpieza", label: "Limpieza de box", icon: Brush },
+      { to: "/historico", label: "Importar histórico", icon: History },
     ],
   },
   {
@@ -184,12 +184,15 @@ export const NAV_GROUPS: Array<{ label: string; workspace: WorkspaceId; items: N
     ],
   },
   {
+    // Fundido en Direccion (jul 2026): ya no es un workspace/conmutador
+    // aparte, es el segundo grupo desplegable dentro de Direccion.
     label: "Económico",
-    workspace: "economico",
+    workspace: "direccion",
     items: [
       { to: "/economico", label: "Panel económico", icon: Euro, match: (path) => path === "/economico" },
       { to: "/economico/facturacion", label: "Facturación", icon: Receipt },
       { to: "/economico/costes", label: "Costes", icon: Droplet },
+      { to: "/economico/fruta", label: "Compra de fruta", icon: Citrus },
       { to: "/economico/precios", label: "Precios", icon: Tags },
     ],
   },

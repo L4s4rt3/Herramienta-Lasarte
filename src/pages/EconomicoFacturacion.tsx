@@ -1,11 +1,17 @@
 // src/pages/EconomicoFacturacion.tsx
 // Sección "Económico → Facturación": factura de Mercadona (base IVA de
-// mercadona_semanas / mercadona_semana_metodos) — la única fuente de € de venta
-// disponible hoy. Solo las semanas importadas con el formato semanal real traen
-// base_iva por método + ajustes/abonos; las semanas históricas no lo incluían.
+// mercadona_semanas / mercadona_semana_metodos) por semana y por método. Ya
+// NO es la única fuente de € de venta: las ventas de categoría segunda
+// (clientes fijos LN211/LN314/LN210/LN560/L1020/L1511/LN551, ver
+// ventasMensualImport.ts) se importan aparte con granularidad MENSUAL, no
+// semanal, así que se muestran en una tarjeta informativa propia en vez de
+// mezclarlas con la tabla/gráfico semanal de Mercadona (ver useEconomicoPanel
+// para el cruce completo facturación-coste que sí las suma). Solo las
+// semanas importadas con el formato semanal real traen base_iva por método +
+// ajustes/abonos; las semanas históricas no lo incluían.
 import { useMemo } from "react";
 import type { Worksheet } from "exceljs";
-import { AlertTriangle, Download, Euro, Percent, Scale } from "lucide-react";
+import { AlertTriangle, Download, Euro, Percent, Scale, Tag } from "lucide-react";
 import {
   Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -19,6 +25,7 @@ import { KPICard } from "@/components/KPICard";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthProvider";
 import { useMercadonaVentas, type MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
+import { useVentasCategoria } from "@/hooks/useVentasCategoria";
 import { formatMercadonaWeekRangeLabel, mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
 import { metodoLabel, METODOS_ORDEN } from "@/components/mercadona/mercadonaAnalisis.helpers";
 import {
@@ -228,6 +235,8 @@ async function exportarFacturacion(
 export default function EconomicoFacturacion() {
   const { user } = useAuth();
   const { semanas, isLoading, tablesMissing } = useMercadonaVentas();
+  const segunda = useVentasCategoria("Categoria segunda");
+  const segundaResumen = segunda.resumenQuery.data;
 
   const semanasConBaseIva = useMemo(() => semanas.filter(tieneBaseIva), [semanas]);
   const filasSemana = useMemo(() => buildFilasSemana(semanas), [semanas]);
@@ -279,7 +288,8 @@ export default function EconomicoFacturacion() {
           <p className="panel-kicker">Económico</p>
           <h1 className="page-title">Facturación</h1>
           <p className="page-subtitle">
-            Facturación de Mercadona por semana y por método — la única fuente de € de venta hoy.
+            Facturación de Mercadona por semana y por método. Las ventas de categoría segunda se muestran aparte
+            (dato mensual, no semanal).
           </p>
         </div>
         <Button
@@ -296,6 +306,31 @@ export default function EconomicoFacturacion() {
           <Download className="h-4 w-4" /> Descargar Excel
         </Button>
       </header>
+
+      {/* ─── Ventas de categoría segunda (dato mensual, no semanal — ver cabecera) ─── */}
+      {segunda.hasAccess && (
+        <Card className="glass border-[var(--glass-border)] bg-[var(--glass-bg)]">
+          <CardContent className="flex flex-wrap items-center gap-3 pt-6">
+            <Tag className="h-5 w-5 shrink-0 text-primary" />
+            <div className="flex-1">
+              <p className="text-sm">
+                <span className="font-semibold text-foreground">Ventas de categoría segunda (total importado):</span>{" "}
+                {segunda.resumenQuery.isLoading
+                  ? "Cargando…"
+                  : segundaResumen
+                    ? `${formatEuro(segundaResumen.base_iva)} · ${formatKg(segundaResumen.kilos)}`
+                    : "Sin datos importados todavía"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Clientes fijos (LN211/LN314/LN210/LN560/L1020/L1511/LN551) del importador mensual — no incluye
+                Mercadona, no hay doble conteo con la facturación de arriba. El total de esta tarjeta es acumulado de
+                todo lo importado, no del periodo: la granularidad mensual no encaja con la vista semanal de esta
+                página (ver el cruce por rango en Económico → Panel).
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {isLoading ? (
         <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">

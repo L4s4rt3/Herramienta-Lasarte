@@ -44,10 +44,13 @@ const VentasMensualImport = lazy(pageLoaders.ventasMensualImport);
 const EconomicoPanel = lazy(pageLoaders.economicoPanel);
 const EconomicoFacturacion = lazy(pageLoaders.economicoFacturacion);
 const EconomicoCostes = lazy(pageLoaders.economicoCostes);
+const EconomicoFruta = lazy(pageLoaders.economicoFruta);
 const EconomicoPrecios = lazy(pageLoaders.economicoPrecios);
 const MapaHerramienta = lazy(pageLoaders.mapa);
 const EntradasBascula = lazy(pageLoaders.entradas);
 const TrazabilidadLote = lazy(pageLoaders.trazabilidad);
+const LimpiezaBox = lazy(pageLoaders.limpiezaBox);
+const HistoricoImport = lazy(pageLoaders.historicoImport);
 const ExcelViewerPage = lazy(() => import("@/pages/ExcelViewerPage"));
 
 const LoadingFallback = () => (
@@ -91,6 +94,8 @@ const App = () => (
                       <Route path="/partes" element={<PartesList />} />
                       <Route path="/partes/:id" element={<PartDetail />} />
                       <Route path="/costes/consumos" element={<ConsumoCostes />} />
+                      <Route path="/limpieza" element={<LimpiezaBox />} />
+                      <Route path="/historico" element={<HistoricoImport />} />
                       <Route path="/costes/asistencia" element={<Asistencia />} />
                       <Route path="/costes/asistencia/comparativa" element={<AsistenciaComparativa />} />
                       <Route path="/productores" element={<Productores />} />
@@ -116,6 +121,7 @@ const App = () => (
                       <Route path="/economico" element={<EconomicoPanel />} />
                       <Route path="/economico/facturacion" element={<EconomicoFacturacion />} />
                       <Route path="/economico/costes" element={<EconomicoCostes />} />
+                      <Route path="/economico/fruta" element={<EconomicoFruta />} />
                       <Route path="/economico/precios" element={<EconomicoPrecios />} />
                     </Route>
                   </Route>

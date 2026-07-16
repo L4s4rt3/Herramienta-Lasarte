@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   agregarCostesPorRecurso,
   agregarCostesPorSemana,
+  agregarCosteFruta,
   convertirUnidad,
   costeConsumo,
+  importeEntradaFruta,
+  mesesEnRango,
   precioVigente,
   solapeCantidadEnRango,
   tarifaVigente,
   type CosteEntrada,
+  type CosteFrutaEntradaInput,
   type EconomicoPrecioInput,
 } from "./economico";
 
@@ -146,5 +150,93 @@ describe("solapeCantidadEnRango", () => {
 
   it("devuelve 0 si no hay solape", () => {
     expect(solapeCantidadEnRango("2026-01-01", "2026-01-02", 100, "2026-02-01", "2026-02-28")).toBe(0);
+  });
+});
+
+describe("importeEntradaFruta", () => {
+  const base: CosteFrutaEntradaInput = {
+    fecha: "2026-04-10",
+    kg_entrada: 1000,
+    importe_compra: null,
+    coste_recoleccion: null,
+    importe_transporte: null,
+    importe_comision: null,
+    importe_total: null,
+  };
+
+  it("usa importe_total cuando viene relleno, ignorando los componentes", () => {
+    expect(importeEntradaFruta({ ...base, importe_total: 500, importe_compra: 999 })).toBe(500);
+  });
+
+  it("suma los componentes cuando importe_total es null", () => {
+    expect(importeEntradaFruta({
+      ...base,
+      importe_compra: 300,
+      coste_recoleccion: 40,
+      importe_transporte: 20,
+      importe_comision: 10,
+    })).toBeCloseTo(370);
+  });
+
+  it("trata los componentes ausentes como 0", () => {
+    expect(importeEntradaFruta({ ...base, importe_compra: 300 })).toBe(300);
+  });
+
+  it("da 0 cuando no hay ningun importe (p.ej. filas stock_inicial)", () => {
+    expect(importeEntradaFruta(base)).toBe(0);
+  });
+});
+
+describe("agregarCosteFruta", () => {
+  it("suma total, desglose, kg y serie semanal de varias entradas", () => {
+    const entradas: CosteFrutaEntradaInput[] = [
+      {
+        fecha: "2026-02-04", // miercoles, semana del 2026-02-02
+        kg_entrada: 1000,
+        importe_compra: 200,
+        coste_recoleccion: 30,
+        importe_transporte: 15,
+        importe_comision: 5,
+        importe_total: null,
+      },
+      {
+        fecha: "2026-02-11", // semana siguiente
+        kg_entrada: 500,
+        importe_compra: null,
+        coste_recoleccion: null,
+        importe_transporte: null,
+        importe_comision: null,
+        importe_total: 100,
+      },
+    ];
+    const resultado = agregarCosteFruta(entradas);
+    expect(resultado.totalImporte).toBeCloseTo(350);
+    expect(resultado.kgTotales).toBe(1500);
+    expect(resultado.desglose).toEqual({ compra: 200, recoleccion: 30, transporte: 15, comision: 5 });
+    expect(resultado.serieSemanal).toEqual([
+      { semanaInicio: "2026-02-02", coste: 250 },
+      { semanaInicio: "2026-02-09", coste: 100 },
+    ]);
+  });
+
+  it("devuelve todo a 0 con una lista vacia", () => {
+    const resultado = agregarCosteFruta([]);
+    expect(resultado.totalImporte).toBe(0);
+    expect(resultado.kgTotales).toBe(0);
+    expect(resultado.serieSemanal).toEqual([]);
+  });
+});
+
+describe("mesesEnRango", () => {
+  it("devuelve un unico mes cuando el rango cae dentro de un mes natural", () => {
+    expect(mesesEnRango("2026-04-01", "2026-04-30")).toEqual(["2026-04"]);
+  });
+
+  it("devuelve todos los meses que solapan un rango que cruza varios meses", () => {
+    expect(mesesEnRango("2026-04-15", "2026-06-05")).toEqual(["2026-04", "2026-05", "2026-06"]);
+  });
+
+  it("cruza el cambio de anio correctamente", () => {
+    expect(mesesEnRango("2025-12-20", "2026-01-10")).toEqual(["2025-12", "2026-01"]);
   });
 });

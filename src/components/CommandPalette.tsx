@@ -29,6 +29,9 @@ import {
   Banknote,
   Mail,
   Waypoints,
+  Upload,
+  Brush,
+  History,
 } from "lucide-react";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useAuth } from "@/contexts/AuthProvider";
@@ -37,7 +40,7 @@ import { useVentasCategoriaAccess } from "@/hooks/useVentasCategoria";
 // Rutas del espacio Comercial: solo visibles para "ventas" y "admin".
 const VENTAS_Y_ADMIN_ONLY = new Set(["/comercial", "/comercial/ventas-mes", "/ventas/categoria-primera", "/comercial/mercadona", "/cmr"]);
 
-// Las 5 secciones que puede ver el rol "ventas" (ver RoleRoute.tsx). Para ese
+// Las 6 secciones que puede ver el rol "ventas" (ver RoleRoute.tsx). Para ese
 // rol la paleta solo debe ofrecer estas, ni el resto de la operativa interna.
 const VENTAS_ALLOWED = new Set([
   "/comercial",
@@ -61,10 +64,13 @@ const PAGES = [
   { to: "/comercial", label: "Panel comercial", icon: ShoppingCart, keywords: "comercial panel dashboard ventas resumen" },
   { to: "/mercadona", label: "Mercadona (planta)", icon: ShoppingCart, keywords: "mercadona produccion planta aprovechamiento cliente principal" },
   { to: "/comercial/mercadona", label: "Mercadona (ventas)", icon: ShoppingCart, keywords: "mercadona ventas comercial facturacion cliente principal" },
+  { to: "/comercial/ventas-mes", label: "Ventas del mes", icon: Upload, keywords: "ventas mes importar excel categoria primera segunda reparto" },
   { to: "/ventas/categoria-segunda", label: "Categoría segunda", icon: FileSpreadsheet, keywords: "ventas comercial categoria segunda clientes productos precios" },
   { to: "/ventas/categoria-primera", label: "Categoría primera", icon: FileSpreadsheet, keywords: "ventas comercial categoria primera clientes productos precios" },
   { to: "/cmr", label: "CMR y Hojas de ruta", icon: Truck, keywords: "cmr hojas de ruta transporte logistica" },
   { to: "/costes/consumos", label: "Consumos", icon: Droplet, keywords: "consumos costes agua energia gasoil" },
+  { to: "/limpieza", label: "Limpieza de box", icon: Brush, keywords: "limpieza box pies escaleras turnos trabajadores horas partes" },
+  { to: "/historico", label: "Importar histórico", icon: History, keywords: "historico produccion campaña import excel calibrador informe" },
   { to: "/costes/asistencia", label: "Asistencia diaria (RRHH)", icon: Users, keywords: "rrhh asistencia pasar lista trabajadores turnos" },
   { to: "/rrhh", label: "Panel de RRHH", icon: UserRound, keywords: "rrhh panel dashboard resumen asistencia rendimiento comparativa" },
   { to: "/rrhh/personas", label: "Plantilla (RRHH)", icon: UserRound, keywords: "rrhh plantilla trabajadores fichas categoria antiguedad" },
@@ -74,18 +80,21 @@ const PAGES = [
   { to: "/rrhh/nominas", label: "Nóminas (RRHH)", icon: Banknote, keywords: "rrhh nominas salario mensual" },
   { to: "/rrhh/comunicaciones", label: "Comunicaciones (RRHH)", icon: Mail, keywords: "rrhh comunicaciones correos emails avisos horas vacaciones" },
   { to: "/rrhh/mercadona", label: "Mercadona (facturas)", icon: ShoppingCart, keywords: "rrhh mercadona facturas precios kg" },
-  { to: "/economico", label: "Panel económico", icon: Banknote, keywords: "economico euros facturacion costes margen admin" },
-  { to: "/economico/facturacion", label: "Facturación (Económico)", icon: Banknote, keywords: "economico facturacion base iva mercadona euros" },
-  { to: "/economico/costes", label: "Costes (Económico)", icon: Banknote, keywords: "economico costes consumos coste por kg euros" },
-  { to: "/economico/precios", label: "Precios (Económico)", icon: Banknote, keywords: "economico precios tarifas agua luz gasoil" },
+  { to: "/economico", label: "Panel económico", icon: Banknote, keywords: "economico euros facturacion costes margen admin direccion" },
+  { to: "/economico/facturacion", label: "Facturación (Económico)", icon: Banknote, keywords: "economico facturacion base iva mercadona euros direccion" },
+  { to: "/economico/costes", label: "Costes (Económico)", icon: Banknote, keywords: "economico costes consumos coste por kg euros direccion" },
+  { to: "/economico/fruta", label: "Compra de fruta (Económico)", icon: Banknote, keywords: "economico fruta bascula compra agricultor productor variedad lote euros direccion" },
+  { to: "/economico/precios", label: "Precios (Económico)", icon: Banknote, keywords: "economico precios tarifas agua luz gasoil direccion" },
 ];
 
-// Modo economico: exclusivo de admins.
+// Páginas económicas (jul 2026: fundidas en el espacio Dirección, sin
+// workspace/conmutador propio) — el acceso sigue siendo exclusivo de admins.
 const ECONOMICO_ADMIN_ONLY = new Set([
   "/direccion",
   "/economico",
   "/economico/facturacion",
   "/economico/costes",
+  "/economico/fruta",
   "/economico/precios",
 ]);
 
@@ -125,7 +134,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const visiblePages = PAGES.filter((page) => {
     // El mapa de la herramienta es de todos los roles.
     if (page.to === "/mapa") return true;
-    // El rol "ventas" solo debe ver sus 5 secciones comerciales en la paleta.
+    // El rol "ventas" solo debe ver sus 6 secciones comerciales en la paleta.
     if (isVentas) return VENTAS_ALLOWED.has(page.to);
     if (isRrhh) return RRHH_Y_ADMIN_ONLY.has(page.to);
     if (page.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;

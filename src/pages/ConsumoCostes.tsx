@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { useConsumosFisicos } from "@/hooks/useConsumosFisicos";
+import { useConsumosFisicos, useKgVendidosDerivados } from "@/hooks/useConsumosFisicos";
 import { toast } from "@/hooks/use-toast";
 import { Plus, Trash2, Save, History, BarChart3, Settings, Droplet, Zap, Fuel, FlaskConical, FileText, FileSpreadsheet, CalendarDays, Upload, CheckCircle2, AlertTriangle, Pencil, X, ChevronDown, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { today, formatNumber, formatDate } from "@/lib/format";
@@ -345,6 +345,9 @@ export default function ConsumoCostes() {
   const [baseKg, setBaseKg] = useState("");
   const [baseReferencia, setBaseReferencia] = useState("");
   const [baseNotas, setBaseNotas] = useState("");
+  // Kg vendidos DERIVADOS de [baseInicio, baseFin] (Mercadona semanal + categoria
+  // segunda mensual, ya importados): sustituye el tecleo manual del tipo "ventas".
+  const kgVendidosRango = useKgVendidosDerivados(baseInicio, baseFin);
   const [facturaImportResults, setFacturaImportResults] = useState<FacturaConsumoParseResult[]>([]);
   const [facturaImportLoading, setFacturaImportLoading] = useState(false);
   const [facturaImportSaving, setFacturaImportSaving] = useState(false);
@@ -823,6 +826,43 @@ export default function ConsumoCostes() {
       onSuccess: () => {
         toast({ title: "Base kg guardada" });
         setBaseKg("");
+        setBaseReferencia("");
+        setBaseNotas("");
+      },
+      onError: (e) => toast({ title: "Error", description: errorMessage(e), variant: "destructive" }),
+    });
+  };
+
+  // Registra la base kg tipo "ventas" con el valor DERIVADO (Mercadona + categoria
+  // segunda), en vez de tecleado a mano: el número que se guarda es siempre el
+  // que ya se ve en el desglose de la tarjeta.
+  const usarKgVendidosDerivados = () => {
+    if (!kgVendidosRango.tieneDatos) {
+      return;
+    }
+    if (baseFin < baseInicio) {
+      toast({ title: "Fechas no validas", description: "La fecha fin debe ser igual o posterior a la fecha inicio.", variant: "destructive" });
+      return;
+    }
+
+    const desglosePartes: string[] = [];
+    if (kgVendidosRango.mercadonaKg > 0) {
+      desglosePartes.push(`Mercadona: ${formatNumber(kgVendidosRango.mercadonaKg, 0)} kg (${kgVendidosRango.semanas.length} semana${kgVendidosRango.semanas.length === 1 ? "" : "s"})`);
+    }
+    if (kgVendidosRango.segundaKg > 0) {
+      desglosePartes.push(`Categoria segunda: ${formatNumber(kgVendidosRango.segundaKg, 0)} kg (${kgVendidosRango.meses.length} mes${kgVendidosRango.meses.length === 1 ? "" : "es"})`);
+    }
+
+    consumosFisicos.addBaseKg.mutate({
+      tipo_base: "ventas",
+      fecha_inicio: baseInicio,
+      fecha_fin: baseFin,
+      kg: kgVendidosRango.totalKg,
+      referencia: baseReferencia || null,
+      notas: [baseNotas, `Derivado: ${desglosePartes.join(" + ")}.`].filter(Boolean).join(" "),
+    }, {
+      onSuccess: () => {
+        toast({ title: "Base kg guardada", description: `${formatNumber(kgVendidosRango.totalKg, 0)} kg derivados de ventas ya importadas.` });
         setBaseReferencia("");
         setBaseNotas("");
       },
@@ -1745,8 +1785,8 @@ export default function ConsumoCostes() {
                   <Select value={baseTipo} onValueChange={(value) => setBaseTipo(value as typeof baseTipo)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ventas">Ventas</SelectItem>
-                      <SelectItem value="manual">Manual</SelectItem>
+                      <SelectItem value="ventas">Ventas (derivado)</SelectItem>
+                      <SelectItem value="manual">Manual (excepción)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1758,10 +1798,49 @@ export default function ConsumoCostes() {
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fecha fin</Label>
                   <ConsumoDatePicker value={baseFin} onChange={setBaseFin} />
                 </div>
-                <div className="glass p-4 space-y-2">
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kg</Label>
-                  <Input type="number" step="0.1" min="0" value={baseKg} onChange={(e) => setBaseKg(e.target.value)} placeholder="0" />
-                </div>
+
+                {baseTipo === "ventas" ? (
+                  <div className="glass p-4 space-y-2 md:col-span-3">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Kg vendidos del rango (derivado de Mercadona + categoría segunda)
+                    </Label>
+                    {kgVendidosRango.isLoading ? (
+                      <Skeleton className="h-8 w-40" />
+                    ) : kgVendidosRango.tieneDatos ? (
+                      <>
+                        <p className="text-2xl font-bold">
+                          {formatNumber(kgVendidosRango.totalKg, 0)} <span className="text-sm font-normal text-muted-foreground">kg</span>
+                        </p>
+                        <ul className="space-y-0.5 text-xs text-muted-foreground">
+                          {kgVendidosRango.mercadonaKg > 0 && (
+                            <li>
+                              Mercadona: {formatNumber(kgVendidosRango.mercadonaKg, 0)} kg
+                              {" "}({kgVendidosRango.semanas.length} semana{kgVendidosRango.semanas.length === 1 ? "" : "s"} del rango)
+                            </li>
+                          )}
+                          {kgVendidosRango.segundaKg > 0 && (
+                            <li>
+                              Categoría segunda: {formatNumber(kgVendidosRango.segundaKg, 0)} kg
+                              {" "}({kgVendidosRango.meses.length} mes{kgVendidosRango.meses.length === 1 ? "" : "es"} del rango)
+                            </li>
+                          )}
+                        </ul>
+                      </>
+                    ) : (
+                      <p className="text-sm text-warning">
+                        Sin ventas importadas en este rango — usa manual.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="glass p-4 space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Kg <span className="text-warning">(excepción manual)</span>
+                    </Label>
+                    <Input type="number" step="0.1" min="0" value={baseKg} onChange={(e) => setBaseKg(e.target.value)} placeholder="0" />
+                  </div>
+                )}
+
                 <div className="glass p-4 space-y-2">
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Referencia</Label>
                   <Input value={baseReferencia} onChange={(e) => setBaseReferencia(e.target.value)} placeholder="Opcional" />
@@ -1771,9 +1850,19 @@ export default function ConsumoCostes() {
                   <Input value={baseNotas} onChange={(e) => setBaseNotas(e.target.value)} placeholder="Opcional" />
                 </div>
                 <div className="md:col-span-3 flex justify-end">
-                  <Button onClick={guardarBaseKg} disabled={consumosFisicos.addBaseKg.isPending} className="glass glass-hover px-8">
-                    <Save className="h-4 w-4 mr-2" /> Guardar base kg
-                  </Button>
+                  {baseTipo === "ventas" ? (
+                    <Button
+                      onClick={usarKgVendidosDerivados}
+                      disabled={!kgVendidosRango.tieneDatos || kgVendidosRango.isLoading || consumosFisicos.addBaseKg.isPending}
+                      className="glass glass-hover px-8"
+                    >
+                      <Save className="h-4 w-4 mr-2" /> Usar este dato
+                    </Button>
+                  ) : (
+                    <Button onClick={guardarBaseKg} disabled={consumosFisicos.addBaseKg.isPending} className="glass glass-hover px-8">
+                      <Save className="h-4 w-4 mr-2" /> Guardar base kg
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>

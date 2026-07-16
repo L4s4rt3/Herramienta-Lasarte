@@ -1,19 +1,22 @@
 // src/pages/EconomicoPanel.tsx
 // Sección "Económico → Panel": dashboard de portada del modo económico. Cruza
 // la facturación de Mercadona (base_iva de mercadona_semanas/_metodos, semanas
-// cuyo rango L-S solapa el periodo elegido) con el coste de consumos del mismo
-// periodo (useEconomicoPanel, que compone useCostesPeriodo + useMercadonaVentas)
-// para un margen bruto estimado, su evolución semanal y los desgloses por
-// recurso y por método. Fase 1: no incluye mano de obra ni fruta, solo
-// agua/gasoil/electricidad/quimicos vs facturación.
+// cuyo rango L-S solapa el periodo elegido) + ventas de categoría segunda
+// (dato mensual del importador, ver ventasCategoria) con el coste de consumos,
+// mallas rotas, compra de fruta y personal del mismo periodo (useEconomicoPanel,
+// que compone useCostesPeriodo + useCosteMallas + useCosteFruta +
+// useCostePersonal + useMercadonaVentas + useVentasCategoria) para un margen
+// bruto estimado, su evolución semanal y los desgloses por recurso y por
+// método. Quedan fuera del margen: el envasado de la fruta BUENA vendida
+// (solo se descuenta el de las mallas rotas) y las amortizaciones.
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  AlertTriangle, ArrowRight, Droplet, Euro, FlaskConical, Fuel, Info, PackageX, Receipt, Scale, ShieldAlert,
-  ShoppingCart, Tag, TrendingUp, Zap,
+  AlertTriangle, ArrowRight, Citrus, Droplet, Euro, FlaskConical, Fuel, Info, PackageX, Receipt, Scale,
+  ShieldAlert, ShoppingCart, Tag, TrendingUp, Users, Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,12 +26,15 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { KPICard } from "@/components/KPICard";
+import { ProgressBarRow } from "@/components/ProgressBarRow";
 import { useEconomicoPanel } from "@/hooks/useEconomico";
+import { useMermaLotes } from "@/hooks/useMermaLote";
 import { metodoLabel } from "@/components/mercadona/mercadonaAnalisis.helpers";
 import { buildPeriodoRange } from "@/lib/consumoPeriodoView";
 import { formatDate, formatKg, formatNumber, toISODateLocal } from "@/lib/format";
+import { agregarMermaLotes, mermaLotesEnPeriodo } from "@/lib/mermaLote";
 import {
-  C, CHART_CURSOR, CHART_PANEL_CLASS, GRID, GlassTooltip, MARGIN, XAXIS, YAXIS, barFill, lineStyle,
+  C, CHART_CURSOR, CHART_PANEL_CLASS, GRID, GlassTooltip, MARGIN, XAXIS, YAXIS, barFill, legendStyle, lineStyle,
 } from "@/lib/chartTheme";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +59,24 @@ function recursoLabel(recurso: string): string {
 function formatEuro(value: number | null | undefined, digits = 2): string {
   if (value == null || !Number.isFinite(value)) return "—";
   return `${formatNumber(value, digits)} €`;
+}
+
+/** Formato compacto para los ticks del eje Y (evita números crudos sin separador de miles). */
+function formatEuroCompact(value: number): string {
+  if (!Number.isFinite(value)) return "";
+  if (Math.abs(value) >= 1000) return `${formatNumber(value / 1000, 1)}k €`;
+  return `${formatNumber(value, 0)} €`;
+}
+
+/** Resumen de dónde sale el precio de mallas usado en el desglose de "Coste por recurso". */
+function fuenteMallasResumen(fuenteZ1: "envasado" | "manual" | null, fuenteZ2: "envasado" | "manual" | null): string {
+  const FUENTE_LABEL: Record<"envasado" | "manual", string> = { envasado: "del envasado", manual: "manual" };
+  if (!fuenteZ1 && !fuenteZ2) return "";
+  if (fuenteZ1 === fuenteZ2 && fuenteZ1) return `Precio de malla: ${FUENTE_LABEL[fuenteZ1]} (Z1 y Z2).`;
+  const partes: string[] = [];
+  if (fuenteZ1) partes.push(`Z1 ${FUENTE_LABEL[fuenteZ1]}`);
+  if (fuenteZ2) partes.push(`Z2 ${FUENTE_LABEL[fuenteZ2]}`);
+  return partes.length > 0 ? `Precio de malla: ${partes.join(" · ")}.` : "";
 }
 
 const ACCESOS_RAPIDOS = [
@@ -106,6 +130,15 @@ export default function EconomicoPanel() {
   const rango = useMemo(() => buildRango(preset), [preset]);
 
   const panel = useEconomicoPanel(rango.start, rango.end);
+
+  // Pérdida de fruta (merma + podrido): DESGLOSE informativo de "Compra de
+  // fruta" de arriba, calculado aparte (useMermaLotes) porque no forma parte
+  // de useEconomicoPanel — nunca se resta del margen bruto ni de ningún total.
+  const { lotes: mermaLotesTodos, isLoading: isLoadingMerma } = useMermaLotes();
+  const perdidaFrutaAgregado = useMemo(() => {
+    const enRango = mermaLotesEnPeriodo(mermaLotesTodos, rango.start, rango.end).filter((l) => l.estado === "procesado");
+    return agregarMermaLotes(enRango);
+  }, [mermaLotesTodos, rango]);
 
   const mostrarGrafico = panel.serieCombinada.length >= 2;
   const maxSerie = Math.max(...panel.serieCombinada.map((s) => Math.max(s.facturacion, s.coste)), 0);
@@ -192,10 +225,52 @@ export default function EconomicoPanel() {
         </Card>
       )}
 
+      {panel.mallas.faltanDatos && (
+        <Card className="glass border-warning/30 bg-warning/6">
+          <CardContent className="flex flex-wrap items-center gap-3 pt-6">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-warning" />
+            <p className="flex-1 text-sm">
+              <span className="font-semibold">Falta config de mallas:</span> el gasto de mallas rotas puede estar infravalorado.
+            </p>
+            <Button asChild size="sm" variant="outline" className="glass glass-hover">
+              <Link to="/economico/precios">Configurar mallas</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {panel.hayPrecioCeroEmpaque && (
+        <Card className="glass border-warning/30 bg-warning/6">
+          <CardContent className="flex flex-wrap items-center gap-3 pt-6">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-warning" />
+            <p className="flex-1 text-sm">
+              <span className="font-semibold">Faltan precios de envasado:</span> el coste total por malla (y por tanto el gasto de mallas rotas) puede estar infravalorado.
+            </p>
+            <Button asChild size="sm" variant="outline" className="glass glass-hover">
+              <Link to="/economico/precios">Ver precios de envasado</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {panel.costeFruta.faltanImportes && (
+        <Card className="glass border-warning/30 bg-warning/6">
+          <CardContent className="flex flex-wrap items-center gap-3 pt-6">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-warning" />
+            <p className="flex-1 text-sm">
+              <span className="font-semibold">Faltan importes en báscula:</span> hay kg de fruta comprados en el periodo sin precio en el export, así que el coste de compra de fruta puede estar infravalorado.
+            </p>
+            <Button asChild size="sm" variant="outline" className="glass glass-hover">
+              <Link to="/entradas">Ver entradas de báscula</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ─── KPIs ─────────────────────────────────────────────────────────── */}
-      {panel.isLoading ? (
+      {panel.isLoading || isLoadingMerma ? (
         <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
-          {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-32" />)}
+          {Array.from({ length: 10 }).map((_, i) => <Skeleton key={i} className="h-32" />)}
         </div>
       ) : (
         <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
@@ -208,9 +283,46 @@ export default function EconomicoPanel() {
           />
           <KPICard
             className="glass-accented"
+            label="Ventas 2ª categoría"
+            value={formatEuro(panel.facturacionSegunda.total)}
+            icon={Tag}
+            labelInfo="Clientes fijos de categoría segunda (LN211/LN314/LN210/LN560/L1020/L1511/LN551) del importador mensual — no incluye Mercadona, se suma sin doble conteo. Dato MENSUAL: se cuentan enteros los meses que solapan el periodo, no se reparte por semana ni aparece en el gráfico de evolución."
+            hint={panel.facturacionSegunda.disponible
+              ? `${panel.facturacionSegunda.meses.length} mes(es) del importador mensual`
+              : "Sin datos importados todavía"}
+          />
+          <KPICard
+            className="glass-accented"
             label="Coste de consumos"
             value={formatEuro(panel.costes.costeTotal)}
             icon={Receipt}
+          />
+          <KPICard
+            className="glass-accented"
+            label="Compra de fruta"
+            value={formatEuro(panel.costeFruta.totalImporte)}
+            icon={Citrus}
+            accent={panel.costeFruta.faltanImportes ? "warning" : "primary"}
+            labelInfo="Entradas de báscula del periodo: importe_total si el export lo trae relleno, si no compra + recolección + transporte + comisión. No incluye el stock inicial reconstruido (kg de cámara ya existentes antes de empezar a registrar entradas)."
+            hint={`${formatKg(panel.costeFruta.kgTotales)} comprados`}
+          />
+          <KPICard
+            className="glass-accented"
+            label="Pérdida de fruta"
+            value={formatEuro(perdidaFrutaAgregado.eurPerdidaTotal)}
+            icon={Scale}
+            accent={perdidaFrutaAgregado.eurPerdidaTotal > 0 ? "warning" : "primary"}
+            labelInfo="Merma (natural estimada + podrido pre-calibrador asumido) + podrido (calibrador + manual), valorados al €/kg de compra de cada lote procesado del periodo. Es un DESGLOSE de 'Compra de fruta' de arriba, ya incluido en ese importe — no se resta otra vez del margen bruto. Detalle completo en Económico → Costes."
+            hint={perdidaFrutaAgregado.pctPerdidaTotalSobreCoste != null ? `${formatNumber(perdidaFrutaAgregado.pctPerdidaTotalSobreCoste, 1)}% del coste de fruta` : undefined}
+            to="/economico/costes"
+          />
+          <KPICard
+            className="glass-accented"
+            label="Coste de personal"
+            value={formatEuro(panel.costePersonal.total)}
+            icon={Users}
+            labelInfo="Coste por hora × horas estimadas (días presentes × jornada de 8h) de la plantilla activa — mismo cálculo que Económico → Costes."
+            hint={`${panel.costePersonal.porZona.length} zona(s) con personal`}
           />
           <KPICard
             className="glass-accented"
@@ -227,7 +339,7 @@ export default function EconomicoPanel() {
             value={formatEuro(panel.margenBruto)}
             icon={TrendingUp}
             accent={panel.margenBruto >= 0 ? "success" : "destructive"}
-            hint="Facturación − consumos − mallas rotas"
+            hint="Facturación (Mercadona + 2ª) − consumos − mallas − fruta − personal"
           />
           <KPICard
             className="glass-accented"
@@ -250,7 +362,10 @@ export default function EconomicoPanel() {
         <CardHeader className="pb-2">
           <p className="panel-kicker">Evolución</p>
           <CardTitle className="text-base">Facturación, coste y margen por semana</CardTitle>
-          <p className="text-xs text-muted-foreground">Facturación Mercadona y coste de consumos + mallas rotas (barras), margen bruto (línea).</p>
+          <p className="text-xs text-muted-foreground">
+            Facturación Mercadona, coste de consumos y mallas rotas (barras apiladas), margen bruto (línea).
+            No incluye ventas de 2ª categoría (dato mensual), compra de fruta ni personal — solo en los KPIs.
+          </p>
         </CardHeader>
         <CardContent>
           {panel.isLoading ? (
@@ -265,7 +380,7 @@ export default function EconomicoPanel() {
                 <ComposedChart data={panel.serieCombinada} margin={MARGIN}>
                   <CartesianGrid {...GRID} />
                   <XAxis {...XAXIS} dataKey="semanaInicio" tickFormatter={(value: string) => formatDate(value)} />
-                  <YAxis {...YAXIS} domain={[0, Math.max(maxSerie * 1.15, 1)]} />
+                  <YAxis {...YAXIS} width={52} domain={[0, Math.max(maxSerie * 1.15, 1)]} tickFormatter={formatEuroCompact} />
                   <Tooltip
                     cursor={CHART_CURSOR}
                     content={({ active, payload, label }) => (
@@ -277,8 +392,10 @@ export default function EconomicoPanel() {
                       />
                     )}
                   />
+                  <Legend wrapperStyle={legendStyle} />
                   <Bar dataKey="facturacion" name="Facturación" fill={barFill(C.primary, 0.4)} stroke={C.primary} strokeWidth={1.5} radius={[6, 6, 2, 2]} maxBarSize={28} />
-                  <Bar dataKey="coste" name="Coste" fill={barFill(C.warning, 0.4)} stroke={C.warning} strokeWidth={1.5} radius={[6, 6, 2, 2]} maxBarSize={28} />
+                  <Bar dataKey="costeConsumos" name="Coste de consumos" stackId="coste" fill={barFill(C.warning, 0.4)} stroke={C.warning} strokeWidth={1.5} radius={[6, 6, 0, 0]} maxBarSize={28} />
+                  <Bar dataKey="mallas" name="Mallas rotas" stackId="coste" fill={barFill(C.destructive, 0.5)} stroke={C.destructive} strokeWidth={1.5} radius={[0, 0, 2, 2]} maxBarSize={28} />
                   <Line dataKey="margen" name="Margen" {...lineStyle(C.success)} />
                 </ComposedChart>
               </ResponsiveContainer>
@@ -301,50 +418,61 @@ export default function EconomicoPanel() {
               <p className="py-10 text-center text-sm text-muted-foreground">
                 Sin consumo registrado en este periodo.
               </p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Recurso</TableHead>
-                    <TableHead className="text-right">Coste</TableHead>
-                    <TableHead className="text-right">Coste/kg</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {[...panel.porRecursoConKg].sort((a, b) => b.coste - a.coste).map((r) => {
+            ) : (() => {
+              const filas = [...panel.porRecursoConKg].sort((a, b) => b.coste - a.coste);
+              const totalCoste = filas.reduce((s, r) => s + r.coste, 0) + panel.mallas.totalGasto;
+              return (
+                <div className="space-y-2.5 p-4 sm:p-5">
+                  {filas.map((r) => {
                     const Icon = RECURSO_ICON[r.recurso] ?? Droplet;
                     return (
-                      <TableRow key={r.recurso}>
-                        <TableCell className="font-medium">
-                          <span className="inline-flex items-center gap-2">
-                            <Icon className="h-4 w-4 text-muted-foreground" />
+                      <ProgressBarRow
+                        key={r.recurso}
+                        label={(
+                          <span className="inline-flex items-center gap-1.5">
+                            <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                             {recursoLabel(r.recurso)}
                           </span>
-                        </TableCell>
-                        <TableCell className="text-right font-semibold tabular-nums">{formatEuro(r.coste)}</TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {r.costePorKg != null ? `${formatNumber(r.costePorKg, 4)} €/kg` : "—"}
-                        </TableCell>
-                      </TableRow>
+                        )}
+                        labelClassName="w-32 sm:w-40"
+                        pct={totalCoste > 0 ? (r.coste / totalCoste) * 100 : 0}
+                        value={formatEuro(r.coste)}
+                        extra={(
+                          <span className="hidden w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:inline">
+                            {r.costePorKg != null ? `${formatNumber(r.costePorKg, 4)} €/kg` : "—"}
+                          </span>
+                        )}
+                      />
                     );
                   })}
-                  {panel.mallas.totalGasto > 0 && (
-                    <TableRow>
-                      <TableCell className="font-medium">
-                        <span className="inline-flex items-center gap-2">
-                          <PackageX className="h-4 w-4 text-muted-foreground" />
-                          Mallas rotas
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right font-semibold tabular-nums">{formatEuro(panel.mallas.totalGasto)}</TableCell>
-                      <TableCell className="text-right tabular-nums">
+                  <ProgressBarRow
+                    label={(
+                      <span className="inline-flex items-center gap-1.5 text-destructive">
+                        <PackageX className="h-3.5 w-3.5 shrink-0" />
+                        Mallas rotas
+                      </span>
+                    )}
+                    labelClassName="w-32 sm:w-40"
+                    barClassName="bg-destructive"
+                    pct={totalCoste > 0 ? (panel.mallas.totalGasto / totalCoste) * 100 : 0}
+                    value={<span className="text-destructive">{formatEuro(panel.mallas.totalGasto)}</span>}
+                    extra={(
+                      <span className="hidden w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:inline">
                         {panel.costes.kgProducidos > 0 ? `${formatNumber(panel.mallas.totalGasto / panel.costes.kgProducidos, 4)} €/kg` : "—"}
-                      </TableCell>
-                    </TableRow>
+                      </span>
+                    )}
+                  />
+                  <p className="pt-1 text-[11px] text-muted-foreground">
+                    {formatNumber(panel.mallas.totalMallas, 0)} malla(s) rota(s) en el periodo · barras a escala del coste total ({formatEuro(totalCoste)})
+                  </p>
+                  {fuenteMallasResumen(panel.mallas.z1.fuentePrecio, panel.mallas.z2.fuentePrecio) && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {fuenteMallasResumen(panel.mallas.z1.fuentePrecio, panel.mallas.z2.fuentePrecio)}
+                    </p>
                   )}
-                </TableBody>
-              </Table>
-            )}
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
 
@@ -421,9 +549,11 @@ export default function EconomicoPanel() {
         <CardContent className="flex items-start gap-3 pt-6">
           <Info className="h-5 w-5 shrink-0 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
-            <span className="font-semibold text-foreground">Margen bruto estimado</span> = facturación Mercadona −
-            coste de consumos − mallas rotas (valoradas al coste total de envasado por malla).
-            No incluye mano de obra, fruta ni otros costes (Fase 1).
+            <span className="font-semibold text-foreground">Margen bruto estimado</span> = (facturación Mercadona +
+            ventas de 2ª categoría) − coste de consumos − mallas rotas − compra de fruta − coste de personal.
+            Las mallas rotas se valoran al coste TOTAL de envasado por malla (etiqueta, caja, palet, malla, banda,
+            fleje y asa), pero el envasado de la fruta buena que sí se vende no se descuenta todavía. Tampoco
+            incluye amortizaciones ni otros costes indirectos.
           </p>
         </CardContent>
       </Card>

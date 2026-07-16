@@ -30,10 +30,13 @@ export const pageLoaders = {
   economicoPanel: () => import("@/pages/EconomicoPanel"),
   economicoFacturacion: () => import("@/pages/EconomicoFacturacion"),
   economicoCostes: () => import("@/pages/EconomicoCostes"),
+  economicoFruta: () => import("@/pages/EconomicoFruta"),
   economicoPrecios: () => import("@/pages/EconomicoPrecios"),
   mapa: () => import("@/pages/MapaHerramienta"),
   entradas: () => import("@/pages/EntradasBascula"),
   trazabilidad: () => import("@/pages/TrazabilidadLote"),
+  limpiezaBox: () => import("@/pages/LimpiezaBox"),
+  historicoImport: () => import("@/pages/HistoricoImport"),
 };
 
 const preloadByPath: Record<string, () => Promise<unknown>> = {
@@ -44,6 +47,8 @@ const preloadByPath: Record<string, () => Promise<unknown>> = {
   "/calidad": pageLoaders.calidad,
   "/partes": pageLoaders.partesList,
   "/costes/consumos": pageLoaders.consumoCostes,
+  "/limpieza": pageLoaders.limpiezaBox,
+  "/historico": pageLoaders.historicoImport,
   "/costes/asistencia": pageLoaders.asistencia,
   "/costes/asistencia/comparativa": pageLoaders.asistenciaComparativa,
   "/productores": pageLoaders.productores,
@@ -67,6 +72,7 @@ const preloadByPath: Record<string, () => Promise<unknown>> = {
   "/economico": pageLoaders.economicoPanel,
   "/economico/facturacion": pageLoaders.economicoFacturacion,
   "/economico/costes": pageLoaders.economicoCostes,
+  "/economico/fruta": pageLoaders.economicoFruta,
   "/economico/precios": pageLoaders.economicoPrecios,
 };
 

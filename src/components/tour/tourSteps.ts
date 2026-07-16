@@ -26,7 +26,7 @@ import {
  * de src/components/AppLayout.tsx. No se importa desde allí para evitar un
  * ciclo de imports (AppLayout importa este archivo).
  */
-export type TourWorkspaceId = "direccion" | "produccion" | "comercial" | "rrhh" | "economico";
+export type TourWorkspaceId = "direccion" | "produccion" | "comercial" | "rrhh";
 
 export interface TourStep {
   /** Identificador estable del paso (independiente de la ruta, por si se repite). */
@@ -227,10 +227,10 @@ export const TOUR_STEPS: TourStep[] = [
       "Con Ctrl+K abres el buscador rápido desde cualquier pantalla, y casi todas las secciones tienen botón Exportar con PDF y Excel con el formato de Lasarte. ¡Listo, ya conoces el espacio de RRHH!",
   },
 
-  // ─── Económico ─────────────────────────────────────────────────────────
+  // ─── Económico (fundido en Dirección, jul 2026) ───────────────────────
   {
     id: "panel-economico",
-    workspace: "economico",
+    workspace: "direccion",
     to: "/economico",
     icon: Euro,
     title: "Panel económico",
@@ -239,7 +239,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "facturacion",
-    workspace: "economico",
+    workspace: "direccion",
     to: "/economico/facturacion",
     icon: Receipt,
     title: "Facturación",
@@ -248,7 +248,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "costes-economico",
-    workspace: "economico",
+    workspace: "direccion",
     to: "/economico/costes",
     icon: Droplet,
     title: "Costes",
@@ -257,7 +257,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "precios",
-    workspace: "economico",
+    workspace: "direccion",
     to: "/economico/precios",
     icon: Tags,
     title: "Precios",
@@ -266,12 +266,12 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "trucos-economico",
-    workspace: "economico",
+    workspace: "direccion",
     to: "/economico",
     icon: Sparkles,
     title: "Trucos rápidos",
     description:
-      "Con Ctrl+K abres el buscador rápido desde cualquier pantalla, y casi todas las secciones tienen botón Exportar con PDF y Excel con el formato de Lasarte. ¡Listo, ya conoces el espacio Económico!",
+      "Con Ctrl+K abres el buscador rápido desde cualquier pantalla, y casi todas las secciones tienen botón Exportar con PDF y Excel con el formato de Lasarte. ¡Listo, ya conoces la parte económica de Dirección!",
   },
 ];
 

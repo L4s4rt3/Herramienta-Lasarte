@@ -641,9 +641,26 @@ function formatPrecioMalla(precioMalla: number | null): string {
   return precioMalla != null ? `${formatNumber(precioMalla, 2)} €/malla` : "—";
 }
 
+function FuentePrecioBadge({ fuente }: { fuente: "envasado" | "manual" | null }) {
+  if (!fuente) return null;
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "rounded-md px-2 py-0 text-[10px]",
+        fuente === "envasado"
+          ? "border-primary/40 bg-primary/10 text-primary"
+          : "border-muted-foreground/30 text-muted-foreground",
+      )}
+    >
+      {fuente === "envasado" ? "Del envasado" : "Manual"}
+    </Badge>
+  );
+}
+
 function MallasRotasSection({ mallas }: { mallas: ReturnType<typeof useMallasConfig> }) {
   const {
-    vigentePorZona, historicoPorZona, hayDatosFaltantes, isLoading, crear,
+    vigentePorZona, precioEfectivoPorZona, historicoPorZona, hayDatosFaltantes, isLoading, crear,
   } = mallas;
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -680,7 +697,7 @@ function MallasRotasSection({ mallas }: { mallas: ReturnType<typeof useMallasCon
           <CardContent className="flex items-center gap-3 pt-6">
             <AlertTriangle className="h-5 w-5 shrink-0 text-warning" />
             <p className="text-sm">
-              <span className="font-semibold">Falta config de mallas:</span> el gasto de mallas rotas saldrá a 0 para las zonas marcadas abajo hasta que indiques el kg por malla y el precio por malla.
+              <span className="font-semibold">Falta config de mallas:</span> el gasto de mallas rotas saldrá a 0 para las zonas marcadas abajo hasta que el kg por malla esté indicado y haya un precio — del coste de envasado para ese tipo de malla, o manual como respaldo.
             </p>
           </CardContent>
         </Card>
@@ -700,7 +717,8 @@ function MallasRotasSection({ mallas }: { mallas: ReturnType<typeof useMallasCon
                 const vigente = vigentePorZona.get(zona) ?? null;
                 const historico = historicoPorZona.get(zona) ?? [];
                 const expandido = expandidos.has(zona);
-                const faltaConfig = !vigente || vigente.kg_por_malla == null || vigente.precio_malla == null;
+                const efectivo = precioEfectivoPorZona.get(zona) ?? { precio: null, fuente: null };
+                const faltaConfig = !vigente || vigente.kg_por_malla == null || efectivo.precio == null;
 
                 return (
                   <li key={zona}>
@@ -722,16 +740,18 @@ function MallasRotasSection({ mallas }: { mallas: ReturnType<typeof useMallasCon
                               {vigente.tipo_malla}
                             </Badge>
                           )}
-                          {faltaConfig && (
+                          {faltaConfig ? (
                             <Badge variant="outline" className="border-warning/40 bg-warning/10 text-[10px] text-warning">
                               Sin config
                             </Badge>
+                          ) : (
+                            <FuentePrecioBadge fuente={efectivo.fuente} />
                           )}
                         </div>
                         <div className="flex items-center gap-4">
                           <div className="text-right">
                             <p className="text-sm font-semibold tabular-nums">
-                              {formatKgPorMalla(vigente?.kg_por_malla ?? null)} · {formatPrecioMalla(vigente?.precio_malla ?? null)}
+                              {formatKgPorMalla(vigente?.kg_por_malla ?? null)} · {formatPrecioMalla(efectivo.precio)}
                             </p>
                             <p className="text-[11px] text-muted-foreground">
                               {vigente ? `Desde ${formatDate(vigente.vigente_desde)}` : "Sin vigencia registrada"}
@@ -876,13 +896,17 @@ function MallaConfigDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Precio por malla (€)</Label>
+              <Label>Precio manual (respaldo)</Label>
               <Input
                 inputMode="decimal"
                 value={precioMalla}
                 onChange={(e) => setPrecioMalla(e.target.value)}
                 placeholder="0,00"
               />
+              <p className="text-xs text-muted-foreground">
+                Solo si no hay coste de envasado para este tipo de malla (3kg/5kg). Si lo hay, déjalo en blanco: el envasado
+                (sección de arriba de esta misma página) ya da el precio real y manda siempre.
+              </p>
             </div>
           </div>
 

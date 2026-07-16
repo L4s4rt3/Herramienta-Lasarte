@@ -10,12 +10,14 @@ import {
   extractFotoFecha,
   findNextWaterMeterReading,
   findPreviousWaterMeterReading,
+  kgVendidosDerivados,
   parseWaterMeterReading,
   subtractOneDayLocal,
   waterBreakdownForRange,
   type ConsumoFisicoInput,
   type ParteKgInput,
 } from "./consumosFisicos";
+import { mercadonaWeekDateRange } from "./mercadonaVentas";
 
 const RANGE_START = "2025-09-01";
 const RANGE_END = "2025-11-30";
@@ -471,3 +473,152 @@ describe("findNextWaterMeterReading — para recalcular la cadena al corregir un
     expect(findNextWaterMeterReading(historico, "2026-07-06", "agua-contador-drencher")).toBeNull();
   });
 });
+
+describe("kgVendidosDerivados — kg vendidos derivados de Mercadona + categoría segunda", () => {
+  it("semana de Mercadona ENTERA dentro del rango: factor 1, kg = vendidoKg sin prorratear", () => {
+    const { desde, hasta } = mercadonaWeekDateRange(2026, 10);
+
+    const resultado = kgVendidosDerivados(
+      { fechaInicio: desde, fechaFin: hasta },
+      [{ anio: 2026, semana: 10, vendidoKg: 6000 }],
+      [],
+    );
+
+    expect(resultado.semanas).toHaveLength(1);
+    expect(resultado.semanas[0].factor).toBe(1);
+    expect(resultado.mercadonaKg).toBe(6000);
+    expect(resultado.segundaKg).toBe(0);
+    expect(resultado.totalKg).toBe(6000);
+    expect(resultado.tieneDatos).toBe(true);
+  });
+
+  it("semana de Mercadona PARTIDA por el rango: prorratea vendidoKg por dias solapados / 6", () => {
+    const { desde } = mercadonaWeekDateRange(2026, 10);
+    // La semana de Mercadona es lunes-sabado (6 dias). El rango solo cubre los
+    // 3 primeros dias (lunes-miercoles) -> factor 3/6 = 0.5.
+    const rangoFin = addDaysIso(desde, 2);
+
+    const resultado = kgVendidosDerivados(
+      { fechaInicio: desde, fechaFin: rangoFin },
+      [{ anio: 2026, semana: 10, vendidoKg: 6000 }],
+      [],
+    );
+
+    expect(resultado.semanas).toHaveLength(1);
+    expect(resultado.semanas[0].factor).toBeCloseTo(0.5, 6);
+    expect(resultado.mercadonaKg).toBeCloseTo(3000, 6);
+    expect(resultado.totalKg).toBeCloseTo(3000, 6);
+  });
+
+  it("mes de categoria segunda ENTERO dentro del rango: factor 1, kg = kilos sin prorratear", () => {
+    const resultado = kgVendidosDerivados(
+      { fechaInicio: "2026-02-01", fechaFin: "2026-02-28" },
+      [],
+      [{ mes: "2026-02", kilos: 4000 }],
+    );
+
+    expect(resultado.meses).toHaveLength(1);
+    expect(resultado.meses[0].factor).toBe(1);
+    expect(resultado.segundaKg).toBe(4000);
+    expect(resultado.mercadonaKg).toBe(0);
+    expect(resultado.totalKg).toBe(4000);
+  });
+
+  it("mes de categoria segunda PARTIDO por el rango: prorratea kilos por dias solapados / dias del mes", () => {
+    // Febrero 2026 (no bisiesto) tiene 28 dias; el rango solo cubre los primeros 14.
+    const resultado = kgVendidosDerivados(
+      { fechaInicio: "2026-02-01", fechaFin: "2026-02-14" },
+      [],
+      [{ mes: "2026-02", kilos: 4000 }],
+    );
+
+    expect(resultado.meses).toHaveLength(1);
+    expect(resultado.meses[0].factor).toBeCloseTo(0.5, 6);
+    expect(resultado.segundaKg).toBeCloseTo(2000, 6);
+    expect(resultado.totalKg).toBeCloseTo(2000, 6);
+  });
+
+  it("suma varias filas de categoria segunda del MISMO mes (una por cliente) antes de prorratear", () => {
+    const resultado = kgVendidosDerivados(
+      { fechaInicio: "2026-02-01", fechaFin: "2026-02-28" },
+      [],
+      [
+        { mes: "2026-02", kilos: 1000 },
+        { mes: "2026-02", kilos: 500 },
+      ],
+    );
+
+    expect(resultado.meses).toHaveLength(1);
+    expect(resultado.segundaKg).toBe(1500);
+  });
+
+  it("combina Mercadona (semanal) y categoria segunda (mensual) en el mismo rango", () => {
+    const { desde, hasta } = mercadonaWeekDateRange(2026, 6);
+
+    const resultado = kgVendidosDerivados(
+      { fechaInicio: desde, fechaFin: hasta },
+      [{ anio: 2026, semana: 6, vendidoKg: 5000 }],
+      [{ mes: desde.slice(0, 7), kilos: 2000 }],
+    );
+
+    expect(resultado.mercadonaKg).toBeGreaterThan(0);
+    expect(resultado.segundaKg).toBeGreaterThan(0);
+    expect(resultado.totalKg).toBeCloseTo(resultado.mercadonaKg + resultado.segundaKg, 6);
+  });
+
+  it("rango sin datos que solapen: no revienta, devuelve todo a 0 y tieneDatos false", () => {
+    const resultado = kgVendidosDerivados(
+      { fechaInicio: "2025-01-01", fechaFin: "2025-01-31" },
+      [{ anio: 2026, semana: 10, vendidoKg: 6000 }],
+      [{ mes: "2026-02", kilos: 4000 }],
+    );
+
+    expect(resultado.semanas).toEqual([]);
+    expect(resultado.meses).toEqual([]);
+    expect(resultado.mercadonaKg).toBe(0);
+    expect(resultado.segundaKg).toBe(0);
+    expect(resultado.totalKg).toBe(0);
+    expect(resultado.tieneDatos).toBe(false);
+  });
+
+  it("rango sin ninguna fuente pasada (arrays vacios): tieneDatos false", () => {
+    const resultado = kgVendidosDerivados({ fechaInicio: "2026-02-01", fechaFin: "2026-02-28" }, [], []);
+    expect(resultado.tieneDatos).toBe(false);
+    expect(resultado.totalKg).toBe(0);
+  });
+
+  it("ignora semanas/meses con kg/kilos nulos, negativos o cero", () => {
+    const resultado = kgVendidosDerivados(
+      { fechaInicio: "2026-02-01", fechaFin: "2026-02-28" },
+      [
+        { anio: 2026, semana: 6, vendidoKg: null },
+        { anio: 2026, semana: 7, vendidoKg: 0 },
+        { anio: 2026, semana: 8, vendidoKg: -100 },
+      ],
+      [{ mes: "2026-02", kilos: null }, { mes: "2026-03", kilos: 0 }],
+    );
+
+    expect(resultado.semanas).toEqual([]);
+    expect(resultado.meses).toEqual([]);
+    expect(resultado.tieneDatos).toBe(false);
+  });
+
+  it("ignora filas de categoria segunda sin mes", () => {
+    const resultado = kgVendidosDerivados(
+      { fechaInicio: "2026-02-01", fechaFin: "2026-02-28" },
+      [],
+      [{ mes: null, kilos: 4000 }],
+    );
+
+    expect(resultado.meses).toEqual([]);
+    expect(resultado.tieneDatos).toBe(false);
+  });
+});
+
+/** Suma dias en formato "YYYY-MM-DD" (rango de prueba corto, sin cruzar cambio de horario). */
+function addDaysIso(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const d = new Date(year, month - 1, day, 12, 0, 0);
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}

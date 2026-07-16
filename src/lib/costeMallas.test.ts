@@ -6,6 +6,7 @@ import {
   gastoMallas,
   gastoMallasPorSemana,
   mallasRotas,
+  resolverPrecioMalla,
   tipoMallaDeTexto,
   type MallaConfigInput,
 } from "./costeMallas";
@@ -172,5 +173,74 @@ describe("agregarGastoMallas", () => {
     expect(resultado.z1.mallas).toBe(0);
     expect(resultado.z1.gasto).toBe(0);
     expect(resultado.faltanDatos).toBe(true);
+  });
+});
+
+// ─── resolverPrecioMalla: fuente única = envasado, respaldo = manual ───────
+// Regresión de la queja del dueño: "los costes de las mallas está 2 veces y
+// aún teniendo el coste en 1 sitio sigo teniendo que ponerlo manualmente en
+// otro". El criterio de "falta config" solo debe fallar si NI el envasado NI
+// el manual dan un precio; nunca por tener el manual vacío cuando el
+// envasado ya lo cubre.
+describe("resolverPrecioMalla", () => {
+  it("usa el precio de envasado si cubre el tipo de malla, aunque el manual esté vacío", () => {
+    const config: MallaConfigInput = { zona: "z1", tipo_malla: "Malla 5 kg", kg_por_malla: 5, precio_malla: null, vigente_desde: "2026-01-01" };
+    const resuelto = resolverPrecioMalla(config, { "5kg": 0.2424 });
+    expect(resuelto.fuente).toBe("envasado");
+    expect(resuelto.precio).toBeCloseTo(0.2424);
+  });
+
+  it("cae al precio manual si no hay envasado para ese tipo", () => {
+    const config: MallaConfigInput = { zona: "z1", tipo_malla: "Malla 5 kg", kg_por_malla: 5, precio_malla: 0.05, vigente_desde: "2026-01-01" };
+    const resuelto = resolverPrecioMalla(config, {});
+    expect(resuelto.fuente).toBe("manual");
+    expect(resuelto.precio).toBe(0.05);
+  });
+
+  it("no da precio (fuente null) si ni el envasado ni el manual lo dan", () => {
+    const config: MallaConfigInput = { zona: "z1", tipo_malla: "Malla 5 kg", kg_por_malla: 5, precio_malla: null, vigente_desde: "2026-01-01" };
+    const resuelto = resolverPrecioMalla(config, {});
+    expect(resuelto.fuente).toBeNull();
+    expect(resuelto.precio).toBeNull();
+  });
+
+  it("el envasado manda sobre el manual cuando ambos dan precio (precedencia intacta)", () => {
+    const config: MallaConfigInput = { zona: "z1", tipo_malla: "Malla 5 kg", kg_por_malla: 5, precio_malla: 0.05, vigente_desde: "2026-01-01" };
+    const resuelto = resolverPrecioMalla(config, { "5kg": 0.2424 });
+    expect(resuelto.fuente).toBe("envasado");
+    expect(resuelto.precio).toBeCloseTo(0.2424);
+  });
+
+  it("sin config devuelve fuente null", () => {
+    expect(resolverPrecioMalla(null, { "5kg": 0.2424 })).toEqual({ precio: null, fuente: null });
+  });
+});
+
+// ─── agregarGastoMallas + aplicarPrecioEmpaque: criterio de "falta config" ──
+// integrando envasado, igual que lo hace useCosteMallas.
+describe("faltanDatos con precio efectivo (envasado + manual)", () => {
+  const configZ1SinManual: MallaConfigInput = { zona: "z1", tipo_malla: "Malla 5 kg", kg_por_malla: 5, precio_malla: null, vigente_desde: "2026-01-01" };
+  const configZ2: MallaConfigInput = { zona: "z2", tipo_malla: "Malla 3 kg", kg_por_malla: 3, precio_malla: 0.1134, vigente_desde: "2026-01-01" };
+
+  it("no marca faltanDatos si el envasado cubre el precio aunque el manual esté vacío", () => {
+    const configZ1Efectivo = aplicarPrecioEmpaque(configZ1SinManual, { "5kg": 0.2424 });
+    const resultado = agregarGastoMallas({ z1_kg: 500, z2_kg: 300 }, configZ1Efectivo, configZ2);
+    expect(resultado.z1.precioMalla).toBeCloseTo(0.2424);
+    expect(resultado.faltanDatos).toBe(false);
+  });
+
+  it("marca faltanDatos si ni el envasado ni el manual dan precio", () => {
+    const configZ1Efectivo = aplicarPrecioEmpaque(configZ1SinManual, {});
+    const resultado = agregarGastoMallas({ z1_kg: 500, z2_kg: 300 }, configZ1Efectivo, configZ2);
+    expect(resultado.z1.precioMalla).toBeNull();
+    expect(resultado.faltanDatos).toBe(true);
+  });
+
+  it("no marca faltanDatos si solo hay precio manual (sin envasado para ese tipo)", () => {
+    const configZ1Manual: MallaConfigInput = { ...configZ1SinManual, precio_malla: 0.05 };
+    const configZ1Efectivo = aplicarPrecioEmpaque(configZ1Manual, {});
+    const resultado = agregarGastoMallas({ z1_kg: 500, z2_kg: 300 }, configZ1Efectivo, configZ2);
+    expect(resultado.z1.precioMalla).toBe(0.05);
+    expect(resultado.faltanDatos).toBe(false);
   });
 });

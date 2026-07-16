@@ -28,6 +28,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import {
   agruparCostePersonalPorZona,
   type CostePersonalAgrupado,
@@ -118,13 +119,17 @@ export function useCostePersonal(desde: string, hasta: string): CostePersonal {
   const partesQuery = useQuery({
     queryKey: ["coste-personal-partes", user?.id, desde, hasta],
     queryFn: async (): Promise<ParteKgInput[]> => {
-      const { data, error } = await supabase
-        .from("partes_diarios")
-        .select("date, resumen_ia, kg_produccion_calibrador, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
-        .gte("date", desde)
-        .lte("date", hasta);
-      if (error) throw toError(error);
-      return (data ?? []) as ParteKgInput[];
+      // El periodo puede ser "toda la campaña" (ConsumoPeriodoSelector):
+      // partes_diarios va camino de las 1.000 filas, se pagina por seguridad.
+      return fetchAllRows<ParteKgInput & { id?: string }>((from, to) =>
+        supabase
+          .from("partes_diarios")
+          .select("date, resumen_ia, kg_produccion_calibrador, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2, id")
+          .gte("date", desde)
+          .lte("date", hasta)
+          .order("id")
+          .range(from, to),
+      );
     },
     enabled: Boolean(user) && !sinPermiso,
   });

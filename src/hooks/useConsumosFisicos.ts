@@ -7,9 +7,12 @@ import {
   buildDailyConsumptionRows,
   buildMonthlyConsumptionRows,
   buildWeeklyConsumptionRows,
+  kgVendidosDerivados,
+  type KgVendidosDerivadosResult,
   type ParteKgInput,
 } from "@/lib/consumosFisicos";
 import { toError } from "@/lib/errorMessage";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import {
   mergeCampana2024_2025BasesKg,
   mergeFacturasCampana2024_2025Consumos,
@@ -21,6 +24,8 @@ import {
 import { buildPaletsDesdeCampana2024BasesKgRows } from "@/lib/paletsDesdeCampana2024";
 import { today } from "@/lib/format";
 import type { ConsumoBaseKgRow, ConsumoFisicoRow } from "@/lib/types";
+import { useMercadonaVentas } from "@/hooks/useMercadonaVentas";
+import { useVentasCategoria } from "@/hooks/useVentasCategoria";
 
 export interface ConsumoFisicoFormValues {
   recurso: ConsumoFisicoRow["recurso"];
@@ -122,17 +127,18 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
   const { data: partes = [], isLoading: loadingPartes } = useQuery({
     queryKey: partesKgQueryKey,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("partes_diarios")
-        .select("date, resumen_ia, kg_produccion_calibrador, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
-        .gte("date", rangeStart)
-        .lte("date", rangeEnd);
-
-      if (error) {
-        throw toError(error);
-      }
-
-      return (data ?? []) as ParteKgInput[];
+      // rangeStart por defecto es el inicio de campaña ("2025-09-01"): el
+      // rango típico ya es "toda la campaña". partes_diarios va camino de
+      // las 1.000 filas (creciendo), se pagina por seguridad con fetchAllRows.
+      return fetchAllRows<ParteKgInput & { id?: string }>((from, to) =>
+        supabase
+          .from("partes_diarios")
+          .select("date, resumen_ia, kg_produccion_calibrador, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2, id")
+          .gte("date", rangeStart)
+          .lte("date", rangeEnd)
+          .order("id")
+          .range(from, to),
+      );
     },
     enabled: Boolean(user),
   });
@@ -337,5 +343,40 @@ export function useConsumosFisicos(rangeStart = "2025-09-01", rangeEnd = today()
     updateBaseKg: updateBaseKgMutation,
     deleteConsumo: deleteConsumoMutation,
     deleteBaseKg: deleteBaseKgMutation,
+  };
+}
+
+/**
+ * kg vendidos DERIVADOS de [fechaInicio, fechaFin] a partir de datos ya
+ * importados — mercadona_semanas.vendido_kg (useMercadonaVentas) + ventas
+ * mensuales de "Categoria segunda" (useVentasCategoria) —, prorrateados por
+ * solape de días (ver criterio en la cabecera de kgVendidosDerivados en
+ * src/lib/consumosFisicos.ts). Pensado para el formulario "Registrar kg
+ * vendidos o manuales" de ConsumoCostes: sustituye el tecleo manual del tipo
+ * "ventas" por el dato ya existente, dejando el campo editable solo para el
+ * tipo "manual" (excepción).
+ */
+export function useKgVendidosDerivados(fechaInicio: string, fechaFin: string): KgVendidosDerivadosResult & { isLoading: boolean } {
+  const mercadonaVentas = useMercadonaVentas();
+  const ventasSegunda = useVentasCategoria("Categoria segunda");
+
+  const semanasInput = useMemo(
+    () => mercadonaVentas.semanas.map((s) => ({ anio: s.anio, semana: s.semana, vendidoKg: s.vendido_kg })),
+    [mercadonaVentas.semanas],
+  );
+
+  const mesesInput = useMemo(
+    () => (ventasSegunda.mensualClienteQuery.data ?? []).map((r) => ({ mes: r.mes, kilos: r.kilos })),
+    [ventasSegunda.mensualClienteQuery.data],
+  );
+
+  const derivado = useMemo(
+    () => kgVendidosDerivados({ fechaInicio, fechaFin }, semanasInput, mesesInput),
+    [fechaInicio, fechaFin, semanasInput, mesesInput],
+  );
+
+  return {
+    ...derivado,
+    isLoading: mercadonaVentas.isLoading || ventasSegunda.mensualClienteQuery.isLoading,
   };
 }

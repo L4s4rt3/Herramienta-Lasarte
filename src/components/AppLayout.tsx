@@ -39,8 +39,10 @@ import { TourGuiado } from "@/components/tour/TourGuiado";
 import { getVisibleTourSteps, tourStorageKey } from "@/components/tour/tourSteps";
 
 // ─── Espacios de trabajo ─────────────────────────────────────────────────────
-// Las 5 grandes secciones y su directorio de páginas (NAV_GROUPS) viven en
+// Las 4 grandes secciones y su directorio de páginas (NAV_GROUPS) viven en
 // src/lib/workspaces.ts (los comparten TopBar y el Mapa de la herramienta).
+// "Económico" (jul 2026) ya no es una sección propia: sus páginas son el
+// grupo "Económico" dentro de Dirección, sin conmutador aparte.
 // Con varias secciones permitidas (admin), la sidebar pinta el ÁRBOL COMPLETO:
 // cada sección es un bloque desplegable con todas sus páginas — nada queda
 // escondido detrás de un conmutador. La sección de la ruta actual se abre

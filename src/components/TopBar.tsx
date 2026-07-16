@@ -72,6 +72,18 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/produccion",
     parentLabel: "Producción",
   },
+  "/limpieza": {
+    label: "Limpieza de box",
+    subtitle: "Partes diarios del grupo de limpieza: box (o pies), escaleras, trabajadores y horas",
+    parent: "/produccion",
+    parentLabel: "Producción",
+  },
+  "/historico": {
+    label: "Importar histórico",
+    subtitle: "Carga del histórico de producción de la campaña desde el export del calibrador",
+    parent: "/produccion",
+    parentLabel: "Producción",
+  },
   "/costes/asistencia": {
     label: "Asistencia diaria",
     subtitle: "Pase de lista, importaciones y rendimiento por zonas (RRHH)",
@@ -175,27 +187,37 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/rrhh",
     parentLabel: "RRHH",
   },
+  // Económico (jul 2026): ya no es un espacio propio, es un grupo dentro de
+  // Dirección — todas sus páginas cuelgan de /direccion en la miga.
   "/economico": {
     label: "Panel económico",
     subtitle: "Facturación, costes y margen bruto estimado (solo administración)",
+    parent: "/direccion",
+    parentLabel: "Dirección",
   },
   "/economico/facturacion": {
     label: "Facturación",
     subtitle: "Base IVA de Mercadona por semana y método, €/kg y ajustes",
-    parent: "/economico",
-    parentLabel: "Económico",
+    parent: "/direccion",
+    parentLabel: "Dirección",
   },
   "/economico/costes": {
     label: "Costes",
     subtitle: "Consumos valorados con la tarifa vigente y coste por kg producido",
-    parent: "/economico",
-    parentLabel: "Económico",
+    parent: "/direccion",
+    parentLabel: "Dirección",
+  },
+  "/economico/fruta": {
+    label: "Compra de fruta",
+    subtitle: "Detalle de las entradas de báscula: por lote, por agricultor y por variedad",
+    parent: "/direccion",
+    parentLabel: "Dirección",
   },
   "/economico/precios": {
     label: "Precios",
     subtitle: "Tarifas por recurso con histórico de vigencias",
-    parent: "/economico",
-    parentLabel: "Económico",
+    parent: "/direccion",
+    parentLabel: "Dirección",
   },
 };
 

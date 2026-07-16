@@ -16,6 +16,7 @@ export const VENTAS_ALLOWED_PATHS = [
   "/ventas/categoria-segunda",
   "/ventas/categoria-primera",
   "/comercial/mercadona",
+  "/comercial/ventas-mes",
   "/cmr",
   "/mapa",
 ] as const;
@@ -74,8 +75,10 @@ export default function RoleRoute() {
     return <Navigate to={RRHH_HOME} replace />;
   }
 
-  // El modo economico (precios, facturacion, margen) y el panel de direccion
-  // son exclusivos de admins.
+  // Las paginas economicas (precios, facturacion, margen) y el panel de
+  // direccion son exclusivos de admins. Desde jul 2026 "economico" ya no es
+  // un workspace propio (vive dentro de Direccion en src/lib/workspaces.ts),
+  // pero este gate sigue siendo por prefijo de ruta y no depende de eso.
   if ((location.pathname.startsWith("/economico") || location.pathname.startsWith("/direccion")) && role !== "admin") {
     return <Navigate to="/" replace />;
   }

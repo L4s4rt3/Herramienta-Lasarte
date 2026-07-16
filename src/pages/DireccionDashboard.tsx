@@ -350,16 +350,18 @@ export default function DireccionDashboard() {
                   <>
                     <KPICard
                       className="glass-accented"
-                      label={`Facturación Mercadona (${economico.periodoLabel})`}
+                      label={`Facturación (${economico.periodoLabel})`}
                       value={formatEuro(economico.facturacionPeriodo)}
                       icon={Euro}
+                      labelInfo="Mercadona (base IVA de las semanas del periodo) + ventas de categoría segunda a clientes fijos. Mismo dato que 'Facturación (Mercadona + 2ª)' del Panel Económico."
                       to="/economico"
                     />
                     <KPICard
                       className="glass-accented"
-                      label="Costes (consumos + mallas)"
+                      label="Costes totales"
                       value={formatEuro(economico.costeTotal)}
                       icon={Receipt}
+                      labelInfo="Consumos (agua, gasoil, electricidad, químicos) + mallas rotas + compra de fruta + coste de personal. Mismo total que usa el Panel Económico para el margen bruto."
                       to="/economico"
                     />
                     <KPICard
@@ -368,13 +370,18 @@ export default function DireccionDashboard() {
                       value={formatEuro(economico.margenBruto)}
                       accent={economico.margenBruto >= 0 ? "success" : "destructive"}
                       icon={TrendingUp}
-                      to="/economico"
-                    />
+                      labelInfo="Facturación (Mercadona + 2ª) − consumos − mallas − compra de fruta − coste de personal. Mismo cálculo y mismo número que el Panel Económico para este periodo."
+                    >
+                      <Link to="/economico" className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
+                        Ver detalle <ArrowRight className="h-3 w-3" />
+                      </Link>
+                    </KPICard>
                     <KPICard
                       className="glass-accented"
-                      label="Coste / kg"
+                      label="Coste / kg producido"
                       value={economico.costePorKg != null ? `${formatNumber(economico.costePorKg, 4)} €/kg` : "—"}
                       icon={Scale}
+                      labelInfo="Coste de consumos (sin mallas, fruta ni personal) dividido entre los kg producidos del periodo — no forma parte del margen bruto."
                       to="/economico"
                     />
                   </>

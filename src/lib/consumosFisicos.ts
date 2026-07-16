@@ -1,4 +1,5 @@
 import { produccionRealParte } from "./asistenciaRendimiento";
+import { mercadonaWeekDateRange } from "./mercadonaVentas";
 
 export type ConsumoRecurso = "agua" | "electricidad" | "gasoil" | "quimicos";
 export type ConsumoUnidad = "l" | "m3" | "kwh";
@@ -518,6 +519,192 @@ export function waterBreakdownForRange(
     },
     { tratamientoL: 0, tratamientoJabonL: 0, drencherL: 0 },
   );
+}
+
+// ─── kg vendidos DERIVADOS (sustituye el tecleo manual del tipo "ventas") ────
+//
+// El formulario de Consumos que registra la base kg tipo "ventas" pedía teclear
+// a mano los kg vendidos de un rango — pero ese dato YA existe importado:
+//  - mercadona_semanas.vendido_kg (useMercadonaVentas, semanal, lunes-sábado).
+//  - ventas_categoria_mensual_cliente.kilos de "Categoria segunda" (dato
+//    MENSUAL del importador de Comercial, ver useVentasCategoria).
+// kgVendidosDerivados() sustituye el tecleo por la suma de ambas fuentes
+// prorrateada por solape de días con el rango pedido, con desglose por fuente
+// para poder enseñarlo en la UI antes de guardarlo.
+//
+// CRITERIO DE PRORRATEO (ambas fuentes, mismo principio: reparto uniforme
+// dentro del periodo — no hay dato más fino que el semanal/mensual):
+//  - Mercadona: la semana de Mercadona son 6 días (lunes-sábado, sin domingo;
+//    ver mercadonaWeekDateRange). Si el rango pedido no cubre la semana
+//    completa, vendido_kg se prorratea por (días solapados / 6).
+//  - Categoría segunda: kilos del mes se prorratea por (días solapados / días
+//    del mes). Esto es MÁS FINO que el criterio de useEconomico.ts
+//    (facturacionSegunda incluye el mes ENTERO si solapa, pensado para un
+//    panel donde el rango habitual ya es un mes o una campaña completos); aquí
+//    el rango de Consumos puede ser cualquier tramo corto (una semana, unos
+//    días), así que prorratear por días evita inflar kg de rangos parciales.
+//  - Categoría PRIMERA: nunca se suma aquí — mismo criterio ya establecido en
+//    useEconomico.ts (ver su comentario junto a `facturacionSegunda`, que solo
+//    suma la categoría segunda a la facturación de Mercadona). Se mantiene la
+//    misma regla por consistencia entre ambas pantallas.
+
+export interface KgVendidosRango {
+  fechaInicio: string;
+  fechaFin: string;
+}
+
+export interface KgVendidosSemanaMercadonaInput {
+  anio: number;
+  semana: number;
+  vendidoKg: number | null | undefined;
+}
+
+export interface KgVendidosMesSegundaInput {
+  mes: string | null | undefined;
+  kilos: number | null | undefined;
+}
+
+export interface KgVendidosSemanaDetalle {
+  anio: number;
+  semana: number;
+  fechaInicio: string;
+  fechaFin: string;
+  vendidoKg: number;
+  /** Fracción de la semana (días solapados con el rango pedido / 6) atribuida al rango. */
+  factor: number;
+  kg: number;
+}
+
+export interface KgVendidosMesDetalle {
+  mes: string;
+  fechaInicio: string;
+  fechaFin: string;
+  kilos: number;
+  /** Fracción del mes (días solapados con el rango pedido / días del mes) atribuida al rango. */
+  factor: number;
+  kg: number;
+}
+
+export interface KgVendidosDerivadosResult {
+  mercadonaKg: number;
+  segundaKg: number;
+  totalKg: number;
+  /** Semanas de Mercadona que solapan el rango, con su prorrateo — para mostrar el desglose. */
+  semanas: KgVendidosSemanaDetalle[];
+  /** Meses de categoría segunda que solapan el rango, con su prorrateo — para mostrar el desglose. */
+  meses: KgVendidosMesDetalle[];
+  /** false si ni Mercadona ni categoría segunda tienen datos que solapen el rango (usar manual). */
+  tieneDatos: boolean;
+}
+
+/**
+ * kg vendidos de `rango` derivados de mercadona_semanas.vendido_kg + ventas
+ * mensuales de categoría segunda, prorrateados por solape de días (ver
+ * criterio en la cabecera de esta sección). Función pura: el caller
+ * (useConsumosFisicos/ConsumoCostes) le pasa los datos ya cargados de
+ * useMercadonaVentas/useVentasCategoria("Categoria segunda").
+ */
+export function kgVendidosDerivados(
+  rango: KgVendidosRango,
+  semanasMercadona: KgVendidosSemanaMercadonaInput[],
+  ventasSegundaMensual: KgVendidosMesSegundaInput[],
+): KgVendidosDerivadosResult {
+  const rangeStartMs = dateToUtcMs(rango.fechaInicio);
+  const rangeEndMs = dateToUtcMs(rango.fechaFin);
+
+  const semanas: KgVendidosSemanaDetalle[] = [];
+  for (const s of semanasMercadona) {
+    const vendidoKg = finiteOrZero(s.vendidoKg);
+    if (vendidoKg <= 0) {
+      continue;
+    }
+
+    const { desde, hasta } = mercadonaWeekDateRange(s.anio, s.semana);
+    const weekStartMs = dateToUtcMs(desde);
+    const weekEndMs = dateToUtcMs(hasta);
+    const totalDias = inclusiveDays(weekStartMs, weekEndMs);
+    if (totalDias <= 0) {
+      continue;
+    }
+
+    const overlapDias = inclusiveDays(Math.max(weekStartMs, rangeStartMs), Math.min(weekEndMs, rangeEndMs));
+    if (overlapDias <= 0) {
+      continue;
+    }
+
+    const factor = overlapDias / totalDias;
+    semanas.push({
+      anio: s.anio,
+      semana: s.semana,
+      fechaInicio: desde,
+      fechaFin: hasta,
+      vendidoKg,
+      factor,
+      kg: vendidoKg * factor,
+    });
+  }
+
+  const kilosPorMes = new Map<string, number>();
+  for (const v of ventasSegundaMensual) {
+    if (!v.mes) {
+      continue;
+    }
+
+    kilosPorMes.set(v.mes, (kilosPorMes.get(v.mes) ?? 0) + finiteOrZero(v.kilos));
+  }
+
+  const meses: KgVendidosMesDetalle[] = [];
+  for (const [mes, kilos] of kilosPorMes) {
+    if (kilos <= 0) {
+      continue;
+    }
+
+    const { fechaInicio: monthStart, fechaFin: monthEnd } = monthDateRange(mes);
+    const monthStartMs = dateToUtcMs(monthStart);
+    const monthEndMs = dateToUtcMs(monthEnd);
+    const totalDias = inclusiveDays(monthStartMs, monthEndMs);
+    if (totalDias <= 0) {
+      continue;
+    }
+
+    const overlapDias = inclusiveDays(Math.max(monthStartMs, rangeStartMs), Math.min(monthEndMs, rangeEndMs));
+    if (overlapDias <= 0) {
+      continue;
+    }
+
+    const factor = overlapDias / totalDias;
+    meses.push({
+      mes,
+      fechaInicio: monthStart,
+      fechaFin: monthEnd,
+      kilos,
+      factor,
+      kg: kilos * factor,
+    });
+  }
+
+  semanas.sort((a, b) => a.fechaInicio.localeCompare(b.fechaInicio));
+  meses.sort((a, b) => a.mes.localeCompare(b.mes));
+
+  const mercadonaKg = semanas.reduce((sum, s) => sum + s.kg, 0);
+  const segundaKg = meses.reduce((sum, m) => sum + m.kg, 0);
+
+  return {
+    mercadonaKg,
+    segundaKg,
+    totalKg: mercadonaKg + segundaKg,
+    semanas,
+    meses,
+    tieneDatos: semanas.length > 0 || meses.length > 0,
+  };
+}
+
+/** Rango [primer día, último día] ("YYYY-MM-DD") de un mes "YYYY-MM". */
+function monthDateRange(mes: string): { fechaInicio: string; fechaFin: string } {
+  const [year, month] = mes.split("-").map(Number);
+  const startMs = Date.UTC(year, month - 1, 1);
+  const endMs = Date.UTC(year, month, 0);
+  return { fechaInicio: utcMsToDateString(startMs), fechaFin: utcMsToDateString(endMs) };
 }
 
 export function buildMonthlyConsumptionRows(input: BuildConsumptionRowsInput): ConsumoPeriodoRow[] {

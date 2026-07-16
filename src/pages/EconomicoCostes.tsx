@@ -5,7 +5,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  AlertTriangle, ChevronDown, ChevronsUpDown, ChevronUp, Download, Droplet, Euro, Fuel, FlaskConical,
+  AlertTriangle, ChevronDown, ChevronsUpDown, ChevronUp, Citrus, Download, Droplet, Euro, Fuel, FlaskConical,
   Package, Scale, ShieldAlert, Users, Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -23,12 +23,22 @@ import { KPICard } from "@/components/KPICard";
 import { ConsumoPeriodoSelector } from "@/components/consumos/ConsumoPeriodoSelector";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthProvider";
-import { useCostesPeriodo } from "@/hooks/useEconomico";
+import { useCostesPeriodo, useCosteFruta } from "@/hooks/useEconomico";
 import { useCostePersonal } from "@/hooks/useCostePersonal";
 import { useCosteMallas } from "@/hooks/useCosteMallas";
+import { useEntradasBascula } from "@/hooks/useEntradasBascula";
+import { useMermaLotes } from "@/hooks/useMermaLote";
+import { useProductoresCatalogo } from "@/hooks/useProductoresCatalogo";
 import type { CostePersonaRow, CosteZonaRow } from "@/lib/costePersonal";
 import type { CostePorRecurso } from "@/lib/economico";
 import type { ZonaMallaResultado } from "@/lib/costeMallas";
+import {
+  agregarMermaLotes,
+  agruparPerdidaPorProductor,
+  mermaLotesEnPeriodo,
+  type ItemPerdidaProductor,
+} from "@/lib/mermaLote";
+import { resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import {
   buildPeriodoRange,
   type ConsumoPeriodoTipo,
@@ -38,7 +48,7 @@ import {
   C, GRID, GlassTooltip, MARGIN, XAXIS, YAXIS, barFill, CHART_PANEL_CLASS, CHART_CURSOR,
 } from "@/lib/chartTheme";
 import { errorMessage } from "@/lib/errorMessage";
-import { formatDate, formatKg, formatNumber, today } from "@/lib/format";
+import { formatDate, formatKg, formatNumber, formatPct, today } from "@/lib/format";
 import {
   añadirHojaTabla, crearLibroLasarte, descargarLibro, FMT_EUR, FMT_EUR_KG, FMT_INT, FMT_KG, FMT_PCT,
   type ColumnaTabla,
@@ -75,6 +85,19 @@ function formatEuro(value: number | null | undefined, digits = 2): string {
   return `${formatNumber(value, digits)} €`;
 }
 
+// Fuente del precio de malla usado en el desglose ("del envasado" es la fuente
+// única real; "manual" es el respaldo de economico_mallas_config) — para que
+// no haya que ir a Económico → Tarifas a comprobar de dónde sale el gasto.
+function fuentePrecioMallaHint(zona: ZonaMallaResultado) {
+  if (zona.precioMalla == null) return null;
+  const fuenteLabel = zona.fuentePrecio === "envasado" ? "del envasado" : zona.fuentePrecio === "manual" ? "manual" : null;
+  return (
+    <p className="mt-1 text-[11px] text-muted-foreground">
+      precio: {formatNumber(zona.precioMalla, 2)} €/malla{fuenteLabel ? ` · ${fuenteLabel}` : ""}
+    </p>
+  );
+}
+
 // ─── Tabla "por persona" ordenable (patrón ColHead/SortIcon de Productores.tsx) ─
 
 type PersonaSortKey = "nombre" | "zona" | "costeHora" | "horas" | "coste";
@@ -100,6 +123,44 @@ function PersonaColHead({ label, sk, right, sortKey, sortDir, onToggle }: {
         {label}<SortIcon active={sortKey === sk} dir={sortDir} />
       </span>
     </TableHead>
+  );
+}
+
+// ─── Mini-rankings de "Pérdidas de fruta" (enlazan a /trazabilidad?lote=…) ──
+
+function RankingLoteRowEur({ lote, valorLabel }: { lote: string; valorLabel: string }) {
+  return (
+    <Link
+      to={`/trazabilidad?lote=${encodeURIComponent(lote)}`}
+      className="flex items-center justify-between gap-2 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-sm transition-colors hover:bg-[var(--glass-bg-strong)]"
+    >
+      <span className="font-medium tabular-nums">{lote}</span>
+      <Badge variant="outline" className="border-destructive/40 bg-destructive/10 px-1.5 py-0 text-[11px] font-semibold text-destructive">
+        {valorLabel}
+      </Badge>
+    </Link>
+  );
+}
+
+function RankingMiniCard({ titulo, icon: Icon, vacio, children }: {
+  titulo: string;
+  icon: LucideIcon;
+  vacio: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card className="glass-accented">
+      <CardContent className="space-y-2 p-3.5">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+          <Icon className="h-3.5 w-3.5" /> {titulo}
+        </div>
+        {vacio ? (
+          <p className="py-3 text-center text-xs text-muted-foreground">Sin datos en este periodo.</p>
+        ) : (
+          <div className="space-y-1.5">{children}</div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -314,6 +375,70 @@ export default function EconomicoCostes() {
     z1: mallasZ1, z2: mallasZ2, totalMallas, totalGasto: gastoMallasTotal,
     faltanDatos: faltanDatosMallas, isLoading: isLoadingMallas, sinPermiso: sinPermisoMallas,
   } = useCosteMallas(periodoRange.start, periodoRange.end);
+
+  const {
+    totalImporte: frutaTotalImporte, desglose: frutaDesglose, kgTotales: frutaKgTotales,
+    faltanImportes: frutaFaltanImportes, isLoading: isLoadingFruta,
+  } = useCosteFruta(periodoRange.start, periodoRange.end);
+
+  // ─── Pérdidas de fruta (merma + podrido): DESGLOSE del coste de compra de
+  // arriba, no un gasto adicional — nunca se suma a costeTotalPeriodo/margen.
+  const { lotes: mermaLotesTodos, isLoading: isLoadingMerma } = useMermaLotes();
+  const { entradas: entradasBascula } = useEntradasBascula();
+  const { aliasPorNombreNormalizado, nombrePorProductorId } = useProductoresCatalogo();
+
+  const mermaLotesPeriodo = useMemo(
+    () => mermaLotesEnPeriodo(mermaLotesTodos, periodoRange.start, periodoRange.end)
+      .filter((l) => l.estado === "procesado"),
+    [mermaLotesTodos, periodoRange],
+  );
+  const mermaAgregado = useMemo(() => agregarMermaLotes(mermaLotesPeriodo), [mermaLotesPeriodo]);
+
+  // Total podrido del lote = calibrador + manual + pre-calibrador (asumido):
+  // los tres cuentan como PODRIDO en este ranking de atención, aunque en las
+  // demás vistas cada componente siga visible por separado con su etiqueta.
+  const topPodridoEur = useMemo(
+    () => mermaLotesPeriodo
+      .filter((l) => l.costePorKg != null)
+      .map((l) => ({ lote: l.lote, eur: l.costePorKg! * ((l.podridoCalibradorKg ?? 0) + (l.podridoManualKg ?? 0)) + (l.podridoPreCalibradorEur ?? 0) }))
+      .filter((r) => r.eur > 0)
+      .sort((a, b) => b.eur - a.eur)
+      .slice(0, 5),
+    [mermaLotesPeriodo],
+  );
+
+  const topPctPerdida = useMemo(
+    () => mermaLotesPeriodo
+      .filter((l) => l.pctPerdidaSobreCoste != null)
+      .map((l) => ({ lote: l.lote, pct: l.pctPerdidaSobreCoste! }))
+      .sort((a, b) => b.pct - a.pct)
+      .slice(0, 5),
+    [mermaLotesPeriodo],
+  );
+
+  const entradaPorLoteFruta = useMemo(
+    () => new Map(entradasBascula.map((e) => [e.lote, e])),
+    [entradasBascula],
+  );
+
+  const topAgricultorEur = useMemo(() => {
+    const items: ItemPerdidaProductor[] = mermaLotesPeriodo.map((l) => {
+      const fila = entradaPorLoteFruta.get(l.lote);
+      const agricultor = fila?.agricultor ?? null;
+      // entradas_bascula.productor_id existe en BD (migración productores_canonicos)
+      // pero aún no está en los tipos generados de Supabase; mismo cast puntual
+      // que useTrazabilidadLote.ts / EntradasBascula.tsx.
+      const productorIdDirecto = (fila as { productor_id?: string | null } | undefined)?.productor_id ?? null;
+      const { key, productorId } = resolveProductorGroupKey(agricultor ?? "", productorIdDirecto, aliasPorNombreNormalizado);
+      const label = (productorId ? nombrePorProductorId.get(productorId) : null) ?? agricultor ?? "Sin agricultor";
+      const kgPerdido = Math.max(0, l.mermaNaturalKg ?? 0) + (l.podridoCalibradorKg ?? 0) + (l.podridoManualKg ?? 0);
+      return { productorKey: key, productorLabel: label, kgEntrada: l.kgEntrada, kgPerdido, eurPerdido: l.perdidaTotalEur };
+    });
+    return agruparPerdidaPorProductor(items)
+      .filter((r) => (r.eurPerdido ?? 0) > 0)
+      .sort((a, b) => (b.eurPerdido ?? 0) - (a.eurPerdido ?? 0))
+      .slice(0, 5);
+  }, [mermaLotesPeriodo, entradaPorLoteFruta, aliasPorNombreNormalizado, nombrePorProductorId]);
 
   const [personaSortKey, setPersonaSortKey] = useState<PersonaSortKey>("coste");
   const [personaSortDir, setPersonaSortDir] = useState<SortDir>("desc");
@@ -588,14 +713,18 @@ export default function EconomicoCostes() {
                 icon={Package}
                 accent={mallasZ1.kg > 0 && mallasZ1.gasto === 0 ? "warning" : "primary"}
                 hint={formatEuro(mallasZ1.gasto)}
-              />
+              >
+                {fuentePrecioMallaHint(mallasZ1)}
+              </KPICard>
               <KPICard
                 label="Mallas rotas Z2"
                 value={formatNumber(mallasZ2.mallas, 0)}
                 icon={Package}
                 accent={mallasZ2.kg > 0 && mallasZ2.gasto === 0 ? "warning" : "primary"}
                 hint={formatEuro(mallasZ2.gasto)}
-              />
+              >
+                {fuentePrecioMallaHint(mallasZ2)}
+              </KPICard>
               <KPICard
                 label="Gasto total mallas"
                 value={formatEuro(gastoMallasTotal)}
@@ -783,9 +912,209 @@ export default function EconomicoCostes() {
         </>
       )}
 
+      <div className="flex items-center gap-3 pt-2">
+        <div className="h-7 w-1 rounded-full bg-primary" />
+        <div>
+          <p className="panel-kicker">Económico</p>
+          <h2 className="text-xl font-semibold tracking-tight">Coste de compra de fruta</h2>
+          <p className="text-sm text-muted-foreground">
+            Entradas de báscula del periodo: importe_total si viene relleno del export, si no la suma de
+            compra + recolección + transporte + comisión.
+          </p>
+        </div>
+      </div>
+
+      {frutaFaltanImportes && (
+        <Card className="glass border-warning/30 bg-warning/6">
+          <CardContent className="flex items-center gap-3 pt-6">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-warning" />
+            <p className="text-sm">
+              <span className="font-semibold">Faltan importes en báscula:</span>{" "}
+              hay kg de fruta comprados en el periodo sin precio/importe en el export, así que el coste sale a 0 abajo.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {isLoadingFruta ? (
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-32" />)}
+        </div>
+      ) : (
+        <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+          <KPICard
+            label="Coste de fruta"
+            value={formatEuro(frutaTotalImporte)}
+            icon={Citrus}
+            accent={frutaFaltanImportes ? "warning" : "primary"}
+            hint={`${formatKg(frutaKgTotales)} comprados`}
+          />
+          <KPICard
+            label="Coste de fruta / kg"
+            value={frutaKgTotales > 0 ? `${formatNumber(frutaTotalImporte / frutaKgTotales, 4)} €/kg` : "—"}
+            icon={Scale}
+            hint={frutaKgTotales > 0 ? undefined : "Sin kg de fruta comprados en el periodo"}
+          />
+          <KPICard
+            label="Kg de fruta comprados"
+            value={formatKg(frutaKgTotales)}
+            icon={Package}
+            accent="success"
+          />
+        </section>
+      )}
+
+      <Card className="glass-accented overflow-hidden">
+        <CardHeader>
+          <p className="panel-kicker">Desglose</p>
+          <CardTitle>Coste de fruta por componente — {periodoRange.label}</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoadingFruta ? (
+            <div className="space-y-2 py-4">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ) : frutaTotalImporte === 0 && frutaKgTotales === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-14 text-center text-sm text-muted-foreground">
+              Sin entradas de báscula en este periodo.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Componente</TableHead>
+                  <TableHead className="text-right">Importe</TableHead>
+                  <TableHead className="w-[40%]">% del total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {([
+                  { label: "Compra", valor: frutaDesglose.compra },
+                  { label: "Recolección", valor: frutaDesglose.recoleccion },
+                  { label: "Transporte", valor: frutaDesglose.transporte },
+                  { label: "Comisión", valor: frutaDesglose.comision },
+                ] as const).map((fila) => {
+                  const pct = frutaTotalImporte > 0 ? (fila.valor / frutaTotalImporte) * 100 : 0;
+                  return (
+                    <TableRow key={fila.label}>
+                      <TableCell className="font-medium">{fila.label}</TableCell>
+                      <TableCell className="text-right font-semibold tabular-nums">{formatEuro(fila.valor)}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                            <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(2, pct)}%` }} />
+                          </div>
+                          <span className="w-12 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
+                            {formatNumber(pct, 1)}%
+                          </span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="flex items-center gap-3 pt-2">
+        <div className="h-7 w-1 rounded-full bg-primary" />
+        <div>
+          <p className="panel-kicker">Económico</p>
+          <h2 className="text-xl font-semibold tracking-tight">Pérdidas de fruta (merma y podrido)</h2>
+          <p className="text-sm text-muted-foreground">
+            DESGLOSE del coste de compra de fruta de arriba — no es un gasto adicional, no se suma a ningún total de costes ni al margen.
+          </p>
+        </div>
+      </div>
+
+      {isLoadingMerma ? (
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32" />)}
+        </div>
+      ) : (
+        <>
+          {mermaAgregado.nSinDesglosePosible > 0 && (
+            <Card className="glass border-warning/30 bg-warning/6">
+              <CardContent className="flex items-center gap-3 pt-6">
+                <AlertTriangle className="h-5 w-5 shrink-0 text-warning" />
+                <p className="text-sm">
+                  <span className="font-semibold">{mermaAgregado.nSinDesglosePosible} lote(s)</span> sin fecha de
+                  procesado conocida: su merma cuenta en el total pero no se puede separar en natural
+                  estimada / podrido pre-calibrador.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+            <KPICard
+              label="Merma natural estimada"
+              value={formatEuro(mermaAgregado.eurNaturalEstimadaTotal)}
+              icon={Scale}
+              hint={`${formatKg(mermaAgregado.kgNaturalEstimadaTotal)} · deshidratación esperada por días en cámara`}
+              labelInfo="Σ mermaNaturalEstimadaKg × €/kg de compra de cada lote: la parte de la merma medida que se explica solo por el tiempo en cámara (TASA_MERMA_NATURAL_DIA = 0,0553%/día, derivada del registro manual del dueño)."
+            />
+            <KPICard
+              label="Podrido pre-calibrador (asumido)"
+              value={formatEuro(mermaAgregado.eurPodridoPreCalibradorTotal)}
+              icon={AlertTriangle}
+              accent={mermaAgregado.eurPodridoPreCalibradorTotal > 0 ? "warning" : "primary"}
+              hint={`${formatKg(mermaAgregado.kgPodridoPreCalibradorTotal)} por encima de lo esperable por deshidratación`}
+              labelInfo="Σ podridoPreCalibradorKg × €/kg: podrido de un contenedor pre-calibrador que no se pesa a diario, ASUMIDO por el dueño (decisión 2026-07-15) — antes se llamaba 'diferencia sin justificar'. Es una asunción, no una medición directa por lote."
+            />
+            <KPICard
+              label="Podrido (calibrador + manual)"
+              value={formatEuro(
+                mermaAgregado.eurPerdidaPodridoCalibradorReal
+                + mermaAgregado.eurPerdidaPodridoCalibradorEstimado
+                + mermaAgregado.eurPerdidaPodridoManualEstimado,
+              )}
+              icon={Package}
+              hint={`${formatEuro(mermaAgregado.eurPerdidaPodridoCalibradorReal)} real · ${formatEuro(mermaAgregado.eurPerdidaPodridoCalibradorEstimado + mermaAgregado.eurPerdidaPodridoManualEstimado)} ≈ estimado`}
+              labelInfo="Podrido calibrador (real si hay Informe LOTE, si no prorrateo) + podrido manual (siempre prorrateo, no se registra por lote en origen), valorados al €/kg de compra."
+            />
+            <KPICard
+              label="Pérdida total del periodo"
+              value={formatEuro(mermaAgregado.eurPerdidaTotal)}
+              icon={Euro}
+              accent="warning"
+              hint={mermaAgregado.pctPerdidaTotalSobreCoste != null ? `${formatPct(mermaAgregado.pctPerdidaTotalSobreCoste)} del coste de fruta comprada` : undefined}
+              labelInfo="Merma + podrido (calibrador + manual), valorados al €/kg de compra de cada lote procesado del periodo. Es un DESGLOSE del coste de compra ya contabilizado arriba, no un gasto adicional: no se suma a costeTotalPeriodo ni al margen."
+            />
+          </section>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <RankingMiniCard titulo="Más € en podrido" icon={Package} vacio={topPodridoEur.length === 0}>
+              {topPodridoEur.map((r) => <RankingLoteRowEur key={r.lote} lote={r.lote} valorLabel={formatEuro(r.eur)} />)}
+            </RankingMiniCard>
+            <RankingMiniCard titulo="Más % pérdida sobre coste" icon={AlertTriangle} vacio={topPctPerdida.length === 0}>
+              {topPctPerdida.map((r) => <RankingLoteRowEur key={r.lote} lote={r.lote} valorLabel={formatPct(r.pct)} />)}
+            </RankingMiniCard>
+            <RankingMiniCard titulo="Pérdida por agricultor" icon={Users} vacio={topAgricultorEur.length === 0}>
+              {topAgricultorEur.map((r) => (
+                <div key={r.key} className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate font-medium">{r.label}</span>
+                    <Badge variant="outline" className="border-destructive/40 bg-destructive/10 px-1.5 py-0 text-[11px] font-semibold text-destructive">
+                      {formatEuro(r.eurPerdido)}
+                    </Badge>
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">{formatKg(r.kgEntrada)} entrados · {r.nLotes} lote{r.nLotes === 1 ? "" : "s"}</p>
+                </div>
+              ))}
+            </RankingMiniCard>
+          </div>
+        </>
+      )}
+
       <p className="text-xs text-muted-foreground">
         El agua usa la regla de contadores (subcontadores no suman); los costes usan la tarifa vigente en cada fecha.
         Las horas de personal son una estimación (días presentes × jornada base de 8h), no horas fichadas.
+        El coste de fruta no incluye el stock inicial reconstruido desde el informe de stock (sin importe real).
+        Las pérdidas de fruta (merma/podrido) son un desglose informativo del coste de compra: no se suman de nuevo.
       </p>
     </div>
   );

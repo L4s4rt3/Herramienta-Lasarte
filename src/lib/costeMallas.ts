@@ -50,6 +50,39 @@ export function tipoMallaDeTexto(texto: string | null | undefined): "3kg" | "5kg
   return match ? (`${match[1]}kg` as "3kg" | "5kg") : null;
 }
 
+/** De dónde viene el precio EFECTIVO que se usa para valorar una malla rota. */
+export type FuentePrecioMalla = "envasado" | "manual";
+
+export interface PrecioMallaResuelto {
+  precio: number | null;
+  /** `null` si no hay precio de ningún lado (ni envasado ni manual). */
+  fuente: FuentePrecioMalla | null;
+}
+
+/**
+ * Resuelve el precio EFECTIVO de una malla rota y de dónde viene: el coste
+ * TOTAL de envasado por malla (empaque_precios, ver costeEmpaque.ts) manda
+ * cuando el tipo de malla de la zona casa con 3kg/5kg y tiene precio; el
+ * precio manual de economico_mallas_config es solo el respaldo para zonas
+ * sin coste de envasado (aún) configurado. Fuente única = envasado — el
+ * manual no debe rellenarse si el envasado ya cubre el tipo de la zona.
+ */
+export function resolverPrecioMalla<T extends MallaConfigInput>(
+  config: T | null,
+  totalPorTipo: Partial<Record<"3kg" | "5kg", number>>,
+): PrecioMallaResuelto {
+  if (!config) return { precio: null, fuente: null };
+  const tipo = tipoMallaDeTexto(config.tipo_malla);
+  const total = tipo ? totalPorTipo[tipo] : undefined;
+  if (total != null && Number.isFinite(total) && total > 0) {
+    return { precio: total, fuente: "envasado" };
+  }
+  if (config.precio_malla != null && Number.isFinite(config.precio_malla) && config.precio_malla > 0) {
+    return { precio: config.precio_malla, fuente: "manual" };
+  }
+  return { precio: null, fuente: null };
+}
+
 /**
  * El precio de la malla rota viene DIRECTO del coste total de envasado por
  * malla (empaque_precios, ver costeEmpaque.ts) cuando el tipo de malla de la
@@ -61,10 +94,9 @@ export function aplicarPrecioEmpaque<T extends MallaConfigInput>(
   totalPorTipo: Partial<Record<"3kg" | "5kg", number>>,
 ): T | null {
   if (!config) return null;
-  const tipo = tipoMallaDeTexto(config.tipo_malla);
-  const total = tipo ? totalPorTipo[tipo] : undefined;
-  if (total == null || !Number.isFinite(total) || total <= 0) return config;
-  return { ...config, precio_malla: total };
+  const resuelto = resolverPrecioMalla(config, totalPorTipo);
+  if (resuelto.fuente !== "envasado" || resuelto.precio == null) return config;
+  return { ...config, precio_malla: resuelto.precio };
 }
 
 /** Nº de mallas rotas = kg reciclados / kg de fruta por malla. 0 si `kgPorMalla` es null/<=0. */
@@ -131,6 +163,8 @@ export interface ZonaMallaResultado {
   kg: number;
   kgPorMalla: number | null;
   precioMalla: number | null;
+  /** De dónde viene `precioMalla`: envasado, manual, o null si no se pasó. */
+  fuentePrecio: FuentePrecioMalla | null;
   mallas: number;
   gasto: number;
 }
@@ -140,17 +174,22 @@ export interface AgregadoGastoMallas {
   z2: ZonaMallaResultado;
   totalMallas: number;
   totalGasto: number;
-  /** true si alguna zona con kg reciclado > 0 no tiene kg_por_malla o precio_malla configurados. */
+  /** true si alguna zona con kg reciclado > 0 no tiene kg_por_malla o precio_malla (ni envasado ni manual). */
   faltanDatos: boolean;
 }
 
-function resultadoZona(kg: number, config: MallaConfigInput | null): ZonaMallaResultado {
+function resultadoZona(
+  kg: number,
+  config: MallaConfigInput | null,
+  fuentePrecio: FuentePrecioMalla | null = null,
+): ZonaMallaResultado {
   const kgPorMalla = config?.kg_por_malla ?? null;
   const precioMalla = config?.precio_malla ?? null;
   return {
     kg,
     kgPorMalla,
     precioMalla,
+    fuentePrecio,
     mallas: mallasRotas(kg, kgPorMalla),
     gasto: gastoMallas(kg, kgPorMalla, precioMalla),
   };
@@ -159,15 +198,19 @@ function resultadoZona(kg: number, config: MallaConfigInput | null): ZonaMallaRe
 /**
  * Agrega el gasto de mallas rotas de Z1 y Z2 a partir de los kg reciclados
  * del periodo y la config vigente (ya resuelta por el llamador, ver
- * `configVigente`) de cada zona.
+ * `configVigente`/`aplicarPrecioEmpaque`) de cada zona. `fuenteZ1`/`fuenteZ2`
+ * son opcionales — solo para que la UI muestre de dónde viene el precio
+ * usado (envasado o manual); no afectan al cálculo.
  */
 export function agregarGastoMallas(
   kg: KgRecicladoZonas,
   configZ1: MallaConfigInput | null,
   configZ2: MallaConfigInput | null,
+  fuenteZ1: FuentePrecioMalla | null = null,
+  fuenteZ2: FuentePrecioMalla | null = null,
 ): AgregadoGastoMallas {
-  const z1 = resultadoZona(kg.z1_kg, configZ1);
-  const z2 = resultadoZona(kg.z2_kg, configZ2);
+  const z1 = resultadoZona(kg.z1_kg, configZ1, fuenteZ1);
+  const z2 = resultadoZona(kg.z2_kg, configZ2, fuenteZ2);
   const faltaZ1 = z1.kg > 0 && (z1.kgPorMalla == null || z1.precioMalla == null);
   const faltaZ2 = z2.kg > 0 && (z2.kgPorMalla == null || z2.precioMalla == null);
 

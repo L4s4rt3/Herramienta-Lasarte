@@ -10,12 +10,14 @@
  *   miento Mercadona sobre kg confeccionados), igual que src/pages/Dashboard.tsx.
  * - Comercial: useComercialDashboard (ya agrega Mercadona + categorías).
  * - RRHH: useRrhhDashboard (ya agrega plantilla/asistencia/bajas).
- * - Económico: useCostesPeriodo + useMercadonaVentas (mismo cruce que
- *   src/pages/EconomicoPanel.tsx: facturación Mercadona del periodo −
- *   coste de consumos = margen bruto). Solo admin: las tablas
- *   (economico_precios) tienen RLS restringida, así que además de
- *   `sinPermiso` se expone `mostrarEconomico` para que la página pueda
- *   ocultar el bloque completo a otros roles sin disparar la query.
+ * - Económico: useEconomicoPanel, el MISMO hook que alimenta
+ *   src/pages/EconomicoPanel.tsx — no se recompone un margen parcial aquí.
+ *   El margen bruto de Dirección es por tanto idéntico al del Panel
+ *   Económico para el mismo periodo (facturación Mercadona + 2ª categoría
+ *   − consumos − mallas − compra de fruta − coste de personal). Solo admin:
+ *   las tablas (economico_precios) tienen RLS restringida, así que además
+ *   de `sinPermiso` se expone `mostrar` para que la página pueda ocultar el
+ *   bloque completo a otros roles.
  *
  * Cada área expone su propio `isLoading` para que la página pueda pintar los
  * 4 bloques de forma independiente y degradar con "—" lo que no haya, en vez
@@ -27,60 +29,13 @@ import { usePartesDashboard } from "@/hooks/usePartes";
 import { useMercadonaAprovechamiento } from "@/hooks/useMercadonaAprovechamiento";
 import { useComercialDashboard, type ComercialMesAnterior } from "@/hooks/useComercialDashboard";
 import { useRrhhDashboard } from "@/hooks/useRrhhDashboard";
-import { useCostesPeriodo, usePreciosRecursos } from "@/hooks/useEconomico";
-import { useCosteMallas } from "@/hooks/useCosteMallas";
-import { useMercadonaVentas, type MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
-import { mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
+import { useEconomicoPanel, type EconomicoPanelData } from "@/hooks/useEconomico";
 import { buildPeriodoRange } from "@/lib/consumoPeriodoView";
 import { calcularTphOperativa } from "@/lib/velocidadOperativa";
 import { getSemaforo, type SemaforoState } from "@/lib/semaforo";
+import { buildRecentWeeks } from "@/lib/isoWeek";
 
 const WEEKS_IN_PANEL = 6;
-
-// ─── Semanas ISO (lunes-domingo), mismo criterio que src/pages/Dashboard.tsx ──
-
-function addDays(date: Date, days: number): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function toIsoDate(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function getIsoWeekNumber(date: Date): number {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-}
-
-function getWeekStart(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay() === 0 ? 6 : d.getDay() - 1;
-  d.setDate(d.getDate() - day);
-  d.setHours(12, 0, 0, 0);
-  return d;
-}
-
-interface SemanaIso {
-  start: string;
-  end: string;
-  weekNumber: number;
-  label: string;
-}
-
-function buildRecentIsoWeeks(count: number, anchor: Date): SemanaIso[] {
-  const currentStart = getWeekStart(anchor);
-  return Array.from({ length: count }, (_, index) => {
-    const start = addDays(currentStart, (index - count + 1) * 7);
-    const end = addDays(start, 6);
-    const weekNumber = getIsoWeekNumber(start);
-    return { start: toIsoDate(start), end: toIsoDate(end), weekNumber, label: `S${weekNumber}` };
-  });
-}
 
 // ─── Producción ──────────────────────────────────────────────────────────────
 
@@ -108,7 +63,7 @@ export interface DireccionProduccion {
 }
 
 function useDireccionProduccion(): DireccionProduccion {
-  const semanas = useMemo(() => buildRecentIsoWeeks(WEEKS_IN_PANEL, new Date()), []);
+  const semanas = useMemo(() => buildRecentWeeks(WEEKS_IN_PANEL, new Date()), []);
   const currentWeek = semanas[semanas.length - 1];
   // Suficientes días para cubrir el panel de semanas ISO completo.
   const dashboardDays = WEEKS_IN_PANEL * 7 + 7;
@@ -230,21 +185,11 @@ function useDireccionRrhh(): DireccionRrhh {
 }
 
 // ─── Económico (solo admin) ──────────────────────────────────────────────────
-
-/** true si la semana trae base_iva real (formato semanal real, v2) — mismo criterio que EconomicoPanel.tsx. */
-function semanaTieneBaseIva(semana: MercadonaSemanaConMetodos): boolean {
-  return semana.metodos.some((m) => m.base_iva != null) || semana.ajustes_base_iva != null;
-}
-
-/** Neto (€) de la semana: suma de base_iva de métodos + ajustes/abonos. */
-function netoSemana(semana: MercadonaSemanaConMetodos): number {
-  const facturacionMetodos = semana.metodos.reduce((sum, m) => sum + (m.base_iva ?? 0), 0);
-  return facturacionMetodos + (semana.ajustes_base_iva ?? 0);
-}
-
-function solapaRango(desde: string, hasta: string, rangoStart: string, rangoEnd: string): boolean {
-  return desde <= rangoEnd && hasta >= rangoStart;
-}
+//
+// El margen bruto se toma tal cual de useEconomicoPanel (el mismo hook que usa
+// EconomicoPanel.tsx) — Dirección NO recompone su propio margen a partir de
+// facturación/coste parciales, para no arriesgarse a mostrar un número con el
+// mismo nombre ("Margen bruto") pero distinto valor que el Panel Económico.
 
 export interface DireccionEconomico {
   mostrar: boolean;
@@ -252,11 +197,44 @@ export interface DireccionEconomico {
   sinPermiso: boolean;
   periodoLabel: string;
   periodoDetail: string;
+  /** Facturación Mercadona + ventas 2ª categoría del periodo (panel.facturacionTotalRango). */
   facturacionPeriodo: number;
+  /** Consumos + mallas + compra de fruta + coste de personal del periodo (panel.costeTotalPeriodo). */
   costeTotal: number;
+  /** Idéntico a panel.margenBruto — mismo número que el Panel Económico para el mismo periodo. */
   margenBruto: number;
   costePorKg: number | null;
   hayPreciosACero: boolean;
+}
+
+type EconomicoPanelForDireccion = Pick<
+  EconomicoPanelData,
+  "isLoading" | "sinPermiso" | "hayPrecioCero" | "facturacionTotalRango" | "costeTotalPeriodo" | "margenBruto"
+> & { costes: Pick<EconomicoPanelData["costes"], "costePorKg"> };
+
+/**
+ * Composición pura (sin hooks) de `DireccionEconomico` a partir de los campos
+ * ya calculados por `useEconomicoPanel`. Extraída aparte para poder testear
+ * sin montar React Query/Supabase: solo hace passthrough de facturación,
+ * coste y margen — no reimplementa ninguna fórmula.
+ */
+export function composeDireccionEconomico(
+  mostrar: boolean,
+  periodo: { label: string; detail: string },
+  panel: EconomicoPanelForDireccion,
+): DireccionEconomico {
+  return {
+    mostrar,
+    isLoading: panel.isLoading,
+    sinPermiso: panel.sinPermiso,
+    periodoLabel: periodo.label,
+    periodoDetail: periodo.detail,
+    facturacionPeriodo: panel.facturacionTotalRango,
+    costeTotal: panel.costeTotalPeriodo,
+    margenBruto: panel.margenBruto,
+    costePorKg: panel.costes.costePorKg,
+    hayPreciosACero: panel.hayPrecioCero,
+  };
 }
 
 function useDireccionEconomico(): DireccionEconomico {
@@ -264,41 +242,12 @@ function useDireccionEconomico(): DireccionEconomico {
   const mostrar = role === "admin";
   const periodo = useMemo(() => buildPeriodoRange("mes", 0), []);
 
-  const { hayPrecioCero, sinPermiso: sinPermisoPrecios, isLoading: loadingPrecios } = usePreciosRecursos();
-  const costes = useCostesPeriodo(periodo.start, periodo.end);
-  const mallas = useCosteMallas(periodo.start, periodo.end);
-  const ventas = useMercadonaVentas();
+  // Mismo rango ("mes" actual) y mismo hook que EconomicoPanel.tsx por
+  // defecto (preset "mes") — de ahí que el margen coincida para el periodo
+  // por defecto de ambas páginas.
+  const panel = useEconomicoPanel(periodo.start, periodo.end);
 
-  const facturacionPeriodo = useMemo(() => {
-    if (!mostrar) return 0;
-    return ventas.semanas
-      .filter(semanaTieneBaseIva)
-      .filter((s) => {
-        const { desde, hasta } = mercadonaWeekDateRange(s.anio, s.semana);
-        return solapaRango(desde, hasta, periodo.start, periodo.end);
-      })
-      .reduce((sum, s) => sum + netoSemana(s), 0);
-  }, [mostrar, ventas.semanas, periodo]);
-
-  // Mismo criterio que el Panel económico: los costes del periodo incluyen el
-  // gasto de mallas rotas (valoradas al coste total de envasado por malla).
-  const costeTotalConMallas = costes.costeTotal + mallas.totalGasto;
-  const margenBruto = facturacionPeriodo - costeTotalConMallas;
-  const sinPermiso = sinPermisoPrecios || costes.sinPermiso;
-  const isLoading = loadingPrecios || costes.isLoading || ventas.isLoading || mallas.isLoading;
-
-  return {
-    mostrar,
-    isLoading,
-    sinPermiso,
-    periodoLabel: periodo.label,
-    periodoDetail: periodo.detail,
-    facturacionPeriodo,
-    costeTotal: costeTotalConMallas,
-    margenBruto,
-    costePorKg: costes.costePorKg,
-    hayPreciosACero: hayPrecioCero,
-  };
+  return composeDireccionEconomico(mostrar, periodo, panel);
 }
 
 // ─── Hook principal ──────────────────────────────────────────────────────────

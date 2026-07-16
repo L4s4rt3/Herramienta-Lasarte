@@ -28,15 +28,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import { today } from "@/lib/format";
 import {
   agregarGastoMallas,
   aplicarPrecioEmpaque,
   configVigente,
   gastoMallasPorSemana,
+  resolverPrecioMalla,
   type AgregadoGastoMallas,
   type GastoMallasSemana,
   type MallaConfigInput,
+  type PrecioMallaResuelto,
   type ZonaMalla,
 } from "@/lib/costeMallas";
 import { agregarCosteEmpaque, type EmpaquePrecioInput } from "@/lib/costeEmpaque";
@@ -109,6 +112,21 @@ export function useMallasConfig() {
   const sinPermiso = isPermissionError(query.error);
   const configs = useMemo(() => query.data ?? [], [query.data]);
 
+  // Precios de envasado: el coste TOTAL por malla (empaque_precios) es la
+  // fuente única del precio real; el manual de aquí es solo respaldo. Sin
+  // esto, la sección de config avisaría de "falta precio" aunque el
+  // envasado ya lo cubra — y es justo donde se duplicaba la captura.
+  const empaqueQuery = useQuery({
+    queryKey: ["empaque-precios"],
+    queryFn: async (): Promise<EmpaquePrecioInput[]> => {
+      const { data, error } = await SUPA.from("empaque_precios").select("*");
+      if (error) throw error;
+      return (data ?? []) as EmpaquePrecioInput[];
+    },
+    enabled: Boolean(user),
+    retry: (failureCount, error) => (isPermissionError(error) ? false : failureCount < 2),
+  });
+
   const zonas: ZonaMalla[] = ["z1", "z2"];
 
   /** Config vigente HOY por zona, para la fila "vigente" de cada zona. */
@@ -121,6 +139,30 @@ export function useMallasConfig() {
     }
     return map;
   }, [configs]);
+
+  /** Total de envasado por malla vigente HOY, para resolver el precio efectivo. */
+  const totalEmpaquePorTipo = useMemo(() => {
+    const precios = empaqueQuery.data ?? [];
+    if (precios.length === 0) return {};
+    const totales: Partial<Record<"3kg" | "5kg", number>> = {};
+    for (const coste of agregarCosteEmpaque(precios, today())) {
+      if (coste.totalPorMalla > 0) totales[coste.tipoMalla] = coste.totalPorMalla;
+    }
+    return totales;
+  }, [empaqueQuery.data]);
+
+  /**
+   * Precio EFECTIVO vigente HOY por zona (envasado > manual) + su fuente,
+   * para que la UI muestre de dónde sale el precio que realmente se usa en
+   * vez de pedir un precio manual que ya no hace falta.
+   */
+  const precioEfectivoPorZona = useMemo(() => {
+    const map = new Map<ZonaMalla, PrecioMallaResuelto>();
+    for (const zona of zonas) {
+      map.set(zona, resolverPrecioMalla(vigentePorZona.get(zona) ?? null, totalEmpaquePorTipo));
+    }
+    return map;
+  }, [vigentePorZona, totalEmpaquePorTipo]);
 
   /** Histórico completo por zona, mas reciente primero. */
   const historicoPorZona = useMemo(() => {
@@ -136,13 +178,19 @@ export function useMallasConfig() {
     return map;
   }, [configs]);
 
-  /** true si a la vigencia actual de alguna zona le falta tipo_malla, kg_por_malla o precio_malla. */
+  /**
+   * true si a la vigencia actual de alguna zona le falta tipo_malla o
+   * kg_por_malla (propios de la config), o no hay precio efectivo — ni de
+   * envasado ni manual — para esa zona. Si el envasado ya cubre el tipo de
+   * malla, NO se considera dato faltante aunque el precio manual esté vacío.
+   */
   const hayDatosFaltantes = useMemo(
     () => zonas.some((zona) => {
       const vigente = vigentePorZona.get(zona);
-      return !vigente || vigente.kg_por_malla == null || vigente.precio_malla == null;
+      if (!vigente || vigente.kg_por_malla == null) return true;
+      return precioEfectivoPorZona.get(zona)?.precio == null;
     }),
-    [vigentePorZona],
+    [vigentePorZona, precioEfectivoPorZona],
   );
 
   const crear = useMutation({
@@ -167,9 +215,10 @@ export function useMallasConfig() {
   return {
     configs,
     vigentePorZona,
+    precioEfectivoPorZona,
     historicoPorZona,
     hayDatosFaltantes,
-    isLoading: query.isLoading,
+    isLoading: query.isLoading || empaqueQuery.isLoading,
     sinPermiso,
     crear,
   };
@@ -216,13 +265,17 @@ export function useCosteMallas(desde: string, hasta: string): CosteMallasPeriodo
   const partesQuery = useQuery({
     queryKey: ["economico-mallas-partes", user?.id, desde, hasta],
     queryFn: async (): Promise<ParteRecicladoRow[]> => {
-      const { data, error } = await supabase
-        .from("partes_diarios")
-        .select("date, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
-        .gte("date", desde)
-        .lte("date", hasta);
-      if (error) throw toError(error);
-      return (data ?? []) as ParteRecicladoRow[];
+      // El periodo puede ser "toda la campaña" (ConsumoPeriodoSelector):
+      // partes_diarios va camino de las 1.000 filas, se pagina por seguridad.
+      return fetchAllRows<ParteRecicladoRow & { id?: string }>((from, to) =>
+        supabase
+          .from("partes_diarios")
+          .select("date, kg_reciclado_malla_z1, kg_reciclado_malla_z2, id")
+          .gte("date", desde)
+          .lte("date", hasta)
+          .order("id")
+          .range(from, to),
+      );
     },
     enabled: Boolean(user) && !sinPermiso,
   });
@@ -271,18 +324,38 @@ export function useCosteMallas(desde: string, hasta: string): CosteMallasPeriodo
     return totales;
   }, [empaqueQuery.data, fechaReferencia]);
 
+  const rawConfigZ1 = useMemo(
+    () => configVigente(configs, "z1", fechaReferencia),
+    [configs, fechaReferencia],
+  );
+  const rawConfigZ2 = useMemo(
+    () => configVigente(configs, "z2", fechaReferencia),
+    [configs, fechaReferencia],
+  );
+
   const configZ1 = useMemo(
-    () => aplicarPrecioEmpaque(configVigente(configs, "z1", fechaReferencia), totalEmpaquePorTipo),
-    [configs, fechaReferencia, totalEmpaquePorTipo],
+    () => aplicarPrecioEmpaque(rawConfigZ1, totalEmpaquePorTipo),
+    [rawConfigZ1, totalEmpaquePorTipo],
   );
   const configZ2 = useMemo(
-    () => aplicarPrecioEmpaque(configVigente(configs, "z2", fechaReferencia), totalEmpaquePorTipo),
-    [configs, fechaReferencia, totalEmpaquePorTipo],
+    () => aplicarPrecioEmpaque(rawConfigZ2, totalEmpaquePorTipo),
+    [rawConfigZ2, totalEmpaquePorTipo],
+  );
+
+  // Fuente del precio efectivo de cada zona (envasado/manual/null), solo
+  // para que la UI muestre de dónde sale el precio usado en el desglose.
+  const fuenteZ1 = useMemo(
+    () => resolverPrecioMalla(rawConfigZ1, totalEmpaquePorTipo).fuente,
+    [rawConfigZ1, totalEmpaquePorTipo],
+  );
+  const fuenteZ2 = useMemo(
+    () => resolverPrecioMalla(rawConfigZ2, totalEmpaquePorTipo).fuente,
+    [rawConfigZ2, totalEmpaquePorTipo],
   );
 
   const resultado = useMemo(
-    () => agregarGastoMallas(kgTotales, configZ1, configZ2),
-    [kgTotales, configZ1, configZ2],
+    () => agregarGastoMallas(kgTotales, configZ1, configZ2, fuenteZ1, fuenteZ2),
+    [kgTotales, configZ1, configZ2, fuenteZ1, fuenteZ2],
   );
 
   const gastoPorSemana = useMemo(
