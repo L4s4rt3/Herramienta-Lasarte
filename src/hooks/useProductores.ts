@@ -1,9 +1,18 @@
 // src/hooks/useProductores.ts
 import { useCallback, useEffect, useState } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import type { CalidadEstado, CalidadInformeEstado } from "@/lib/calidad";
 import { detectarTipoClasificacion } from "@/lib/destinoClasificacion";
+import { fetchAllRows } from "@/lib/fetchAllRows";
+import { normalizarTexto } from "@/lib/format";
+import { esProductorPrecalibrado, resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import { esProductoMdna } from "@/hooks/useMercadona";
+
+// Cast local: productores_alias y lotes_dia.productor_id aun no estan en el
+// Database generado (migracion 20260714090000_productores_canonicos.sql
+// pendiente de aplicar). Ver useProductoresCatalogo.ts para el plan de retirada.
+const SUPA = supabase as unknown as SupabaseClient<any>;
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -102,6 +111,15 @@ export interface AprovechamientoProductor {
 
 export interface ProductorDossier {
   productor: string;
+  /**
+   * Clave de agrupación canónica ya resuelta (ver resolveProductorGroupKey en
+   * productoresCanonicos.ts): "id:<uuid>" si se resolvió un productor del
+   * catálogo (directo o vía alias), "nombre:<texto crudo>" si no. Permite
+   * cruzar este dossier con agregados calculados sobre OTRA fuente (p. ej.
+   * merma/podrido de useMermaLotes, vía entradas_bascula) usando la misma
+   * identidad canónica, sin tener que volver a resolverla.
+   */
+  productorKey: string;
   kg_total: number;
   n_lotes: number;
   n_dias: number;
@@ -164,12 +182,12 @@ const CALIDAD_ESTADOS: CalidadEstado[] = ["Excelente", "Bueno", "Regular", "Defi
 const SLOW_TPH_THRESHOLD = 12.5;
 const IN_CHUNK_SIZE = 200;
 
+// A diferencia del normalizarTexto "plano" usado para buscar (que no recorta
+// espacios), este SÍ hace trim: el resultado se usa como clave de igualdad
+// (Map de productor) en useMercadonaLotes, useCalidadProductores, etc., y un
+// espacio de borde en el dato de origen rompería el emparejamiento.
 export function normalizeNombre(value: string | null | undefined): string {
-  return String(value ?? "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .trim();
+  return normalizarTexto(value, { trim: true });
 }
 
 type LoteDiaRow = {
@@ -185,6 +203,13 @@ type LoteDiaRow = {
   notas: string | null;
   part_id: string;
   partes_diarios?: { date?: string | null } | null;
+  /**
+   * Catálogo de productores (migración 20260714090000_productores_canonicos.sql,
+   * pendiente de aplicar): undefined mientras la columna no exista en BD (el
+   * select("*") simplemente no la trae), poblada por el trigger/backfill o una
+   * asignación manual una vez aplicada.
+   */
+  productor_id?: string | null;
 };
 
 type CalidadLoteRow = {
@@ -232,27 +257,28 @@ type ProductoDiaRow = {
  * importa normalizeNombre desde aquí).
  */
 async function fetchPctMdnaPorDia(desde: string, hasta: string): Promise<Map<string, number>> {
-  const { data: partesRaw, error: partesErr } = await supabase
-    .from("partes_diarios")
-    .select("id, date")
-    .gte("date", desde)
-    .lte("date", hasta);
-  if (partesErr) throw partesErr;
+  // partes_diarios: rango de fechas potencialmente amplio (toda la campaña);
+  // se pagina por seguridad de cara al futuro (207 filas hoy, creciendo).
+  const partesRaw = await fetchAllRows<{ id: string; date: string }>((from, to) =>
+    supabase.from("partes_diarios").select("id, date").gte("date", desde).lte("date", hasta).order("id").range(from, to),
+  );
 
-  const partesById = new Map((partesRaw ?? []).map((p) => [p.id as string, p.date as string]));
+  const partesById = new Map(partesRaw.map((p) => [p.id, p.date]));
   const partIds = Array.from(partesById.keys());
   if (partIds.length === 0) return new Map();
 
+  // producto_dia: el chunking de IN_CHUNK_SIZE evita pasarnos del límite de
+  // longitud de URL de la cláusula IN, pero CADA chunk puede devolver más de
+  // 1.000 filas por sí solo (varias líneas de producto por día × 200 días) —
+  // el .limit(100000) no protegía nada, PostgREST recorta a su max-rows en
+  // silencio. Se pagina el fetch de cada chunk con fetchAllRows.
   const productoDiaRows: ProductoDiaRow[] = [];
   for (let i = 0; i < partIds.length; i += IN_CHUNK_SIZE) {
     const chunk = partIds.slice(i, i + IN_CHUNK_SIZE);
-    const { data: prodRaw, error: prodErr } = await supabase
-      .from("producto_dia")
-      .select("part_id, producto, kg")
-      .in("part_id", chunk)
-      .limit(100000);
-    if (prodErr) throw prodErr;
-    productoDiaRows.push(...((prodRaw ?? []) as ProductoDiaRow[]));
+    const rows = await fetchAllRows<ProductoDiaRow>((from, to) =>
+      supabase.from("producto_dia").select("part_id, producto, kg").in("part_id", chunk).order("id").range(from, to),
+    );
+    productoDiaRows.push(...rows);
   }
 
   const porDia = new Map<string, { total: number; mdna: number }>();
@@ -277,6 +303,37 @@ async function fetchPctMdnaPorDia(desde: string, hasta: string): Promise<Map<str
 }
 
 /**
+ * Alias aprendidos (nombre normalizado → productor_id) del catálogo de
+ * productores. Se usan para agrupar por id incluso cuando la fila de
+ * lotes_dia todavía no tiene su propio productor_id resuelto (p. ej. si el
+ * alias se creó después de importar ese lote). Degrada a mapa vacío si la
+ * tabla productores_alias todavía no existe (migración pendiente de aplicar):
+ * en ese caso la agrupación cae al texto crudo, igual que antes del catálogo.
+ */
+async function fetchAliasPorNombreNormalizado(): Promise<Map<string, string>> {
+  try {
+    const { data, error } = await SUPA.from("productores_alias").select("alias_normalizado, productor_id");
+    if (error) throw error;
+    return new Map((data ?? []).map((r: any) => [r.alias_normalizado as string, r.productor_id as string]));
+  } catch (e) {
+    console.warn("useProductores: productores_alias no disponible todavía (se agrupa por texto crudo):", e);
+    return new Map();
+  }
+}
+
+/** Nombre canónico por id de productor, para mostrar el nombre del catálogo en vez del texto crudo cuando se resuelve un id. */
+async function fetchNombrePorProductorId(): Promise<Map<string, string>> {
+  try {
+    const { data, error } = await supabase.from("calidad_productores").select("id, nombre");
+    if (error) throw error;
+    return new Map((data ?? []).map((r) => [r.id, r.nombre]));
+  } catch (e) {
+    console.error("useProductores: fallo al cargar el catálogo de productores (se usa el texto crudo):", e);
+    return new Map();
+  }
+}
+
+/**
  * Trae y agrega los lotes de producción (lotes_dia) y las notas de calidad
  * (calidad_lotes) del rango [desde, hasta], calculando un "dossier" de
  * eficiencia por productor.
@@ -292,43 +349,60 @@ export function useProductores(desde: string, hasta: string) {
     try {
       // ── 1. Lotes de producción en el rango (patrón de la página vieja),
       //      en paralelo con el % MDNA por día (producto_dia) para el
-      //      aprovechamiento Mercadona. ────────────────────────────────
-      const [lotesResp, pctMdnaPorDia] = await Promise.all([
-        supabase
-          .from("lotes_dia")
-          .select("*, partes_diarios!inner(date)")
-          .gte("partes_diarios.date", desde)
-          .lte("partes_diarios.date", hasta)
-          .order("created_at", { ascending: false }),
+      //      aprovechamiento Mercadona, y el alias/catálogo de productores
+      //      para poder agrupar por id (con fallback a texto crudo). ──────
+      // lotes_dia ya tiene 1.187 filas tras el histórico de campaña: un rango
+      // amplio de fechas puede superar de sobra las 1.000 filas que PostgREST
+      // devuelve por respuesta, así que se pagina con fetchAllRows. El orden
+      // por created_at deja de pedirse (el consumidor no depende de él: cada
+      // productor vuelve a ordenar sus propios lotes por fecha más abajo) y
+      // se sustituye por "id" para una paginación determinista.
+      const [lotesRaw, pctMdnaPorDia, aliasPorNombreNormalizado, nombrePorProductorId] = await Promise.all([
+        fetchAllRows<LoteDiaRow>((from, to) =>
+          supabase
+            .from("lotes_dia")
+            .select("*, partes_diarios!inner(date)")
+            .gte("partes_diarios.date", desde)
+            .lte("partes_diarios.date", hasta)
+            .order("id")
+            .range(from, to) as unknown as PromiseLike<{ data: LoteDiaRow[] | null; error: unknown }>,
+        ),
         fetchPctMdnaPorDia(desde, hasta),
+        fetchAliasPorNombreNormalizado(),
+        fetchNombrePorProductorId(),
       ]);
-      const { data: lotesRaw, error: lErr } = lotesResp;
-
-      if (lErr) throw lErr;
 
       // ── 2. Notas de calidad en el rango ──────────────────────────────
-      const { data: calidadRaw, error: cErr } = await supabase
-        .from("calidad_lotes")
-        .select(
-          "id, numero_lote, productor_finca_nombre, calidad, defectos, fecha, hora, producto, variedad, cantidad, observacion, accion_recomendada, informe_generado, informe_estado, aerobotics_realizado, defecto_otro",
-        )
-        .gte("fecha", desde)
-        .lte("fecha", hasta);
-
-      if (cErr) throw cErr;
+      // calidad_lotes: mismo riesgo que lotes_dia para rangos amplios (una
+      // nota por lote, volumen comparable) — se pagina igual.
+      const calidadRaw = await fetchAllRows<CalidadLoteRow>((from, to) =>
+        supabase
+          .from("calidad_lotes")
+          .select(
+            "id, numero_lote, productor_finca_nombre, calidad, defectos, fecha, hora, producto, variedad, cantidad, observacion, accion_recomendada, informe_generado, informe_estado, aerobotics_realizado, defecto_otro",
+          )
+          .gte("fecha", desde)
+          .lte("fecha", hasta)
+          .order("id")
+          .range(from, to),
+      );
 
       // ── 3. Desglose de calibre/clase/destino (Informe LOTE) ──────────
       // Tabla nueva y no siempre disponible por productor: si falla o no
       // devuelve nada, no debe romper el resto del dossier (calidad, KPIs...).
+      // lote_clasificacion tiene 8.685 filas tras el histórico: muy por
+      // encima del max-rows del servidor para un rango amplio, se pagina.
       let clasifRows: ClasificacionRow[] = [];
       try {
-        const { data: clasifRaw, error: clasifErr } = await supabase
-          .from("lote_clasificacion")
-          .select("productor, grupo_destino, clase, peso_kg, tamano, piezas, cartons")
-          .gte("fecha", desde)
-          .lte("fecha", hasta);
-        if (clasifErr) throw clasifErr;
-        clasifRows = (clasifRaw ?? []) as ClasificacionRow[];
+        clasifRows = await fetchAllRows<ClasificacionRow>((from, to) =>
+          supabase
+            .from("lote_clasificacion")
+            .select("productor, grupo_destino, clase, peso_kg, tamano, piezas, cartons")
+            .gte("fecha", desde)
+            .lte("fecha", hasta)
+            .order("id")
+            .range(from, to),
+        );
       } catch (clasifEx) {
         console.error("useProductores: fallo al cargar lote_clasificacion (se omite el perfil de destino):", clasifEx);
         clasifRows = [];
@@ -343,7 +417,13 @@ export function useProductores(desde: string, hasta: string) {
         clasifPorNombre.set(nombre, arr);
       }
 
-      const lotes: LoteDossier[] = ((lotesRaw ?? []) as LoteDiaRow[]).map((r) => ({
+      // El PRECALIBRADO no es un productor real (decisión del dueño,
+      // 2026-07-15): son segundas pasadas de fruta ya contada a nombre de sus
+      // productores reales. Fuera de rankings, dossiers y medias de planta.
+      // OJO: solo se excluye de la agregación por predicado; si el backfill
+      // del catálogo creó "PRECALIBRADO" en calidad_productores, en BD se queda.
+      const lotesRawTyped = ((lotesRaw ?? []) as LoteDiaRow[]).filter((r) => !esProductorPrecalibrado(r.productor));
+      const lotes: LoteDossier[] = lotesRawTyped.map((r) => ({
         fecha: r.partes_diarios?.date ?? "—",
         lote_codigo: r.lote_codigo ?? "—",
         productor: r.productor ?? "Sin productor",
@@ -357,6 +437,16 @@ export function useProductores(desde: string, hasta: string) {
         kg_industria: Number(r.kg_industria) || 0,
         notas: r.notas ?? null,
       }));
+
+      // Resolución de identidad canónica por fila (misma posición que `lotes`):
+      // id directo de la columna productor_id si existe, si no por alias
+      // aprendido, si no fallback al texto crudo — ver resolveProductorGroupKey.
+      // Con productor_id inexistente (migración sin aplicar) y alias vacío,
+      // esto resuelve EXACTAMENTE igual que el agrupado por texto crudo de
+      // antes del catálogo (paridad).
+      const resolucionPorFila = lotesRawTyped.map((r) =>
+        resolveProductorGroupKey(r.productor ?? "Sin productor", r.productor_id ?? null, aliasPorNombreNormalizado),
+      );
 
       const calidadRows = (calidadRaw ?? []) as CalidadLoteRow[];
 
@@ -379,19 +469,31 @@ export function useProductores(desde: string, hasta: string) {
         }
       }
 
-      // Agrupar lotes por productor
+      // Agrupar lotes por productor: por id resuelto (directo o vía alias)
+      // cuando existe, si no por el texto crudo tal cual (fallback = mismo
+      // comportamiento que antes del catálogo, ver resolveProductorGroupKey).
       const porProductor = new Map<string, LoteDossier[]>();
-      for (const l of lotes) {
-        const key = l.productor;
+      const productorIdPorKey = new Map<string, string | null>();
+      lotes.forEach((l, i) => {
+        const { key, productorId } = resolucionPorFila[i];
         const arr = porProductor.get(key) ?? [];
         arr.push(l);
         porProductor.set(key, arr);
-      }
+        productorIdPorKey.set(key, productorId);
+      });
 
       const days = Array.from(new Set(lotes.map((l) => l.fecha).filter((f) => f && f !== "—"))).sort();
 
       const productores: ProductorDossier[] = Array.from(porProductor.entries())
-        .map(([productor, ls]) => {
+        .map(([key, ls]) => {
+          // Nombre a mostrar: el canónico del catálogo si se resolvió un id
+          // (con fallback al texto crudo si el catálogo aún no cargó), o el
+          // propio texto crudo del grupo (todas sus filas comparten el mismo,
+          // por construcción de la clave "nombre:<texto>") si no hay id.
+          const productorId = productorIdPorKey.get(key) ?? null;
+          const productor = productorId
+            ? nombrePorProductorId.get(productorId) ?? ls[0].productor
+            : ls[0].productor;
           const conTph = ls.filter((l) => l.toneladas_hora !== null && l.toneladas_hora > 0);
           const minTph = conTph.reduce((s, l) => s + (l.duracion_min ?? 0), 0);
           const tph_promedio = conTph.length > 0
@@ -590,6 +692,7 @@ export function useProductores(desde: string, hasta: string) {
 
           return {
             productor,
+            productorKey: key,
             kg_total,
             n_lotes: ls.length,
             n_dias: fechasOrdenadas.length,

@@ -11,16 +11,32 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { InfoTooltip } from "@/components/InfoTooltip";
 import { DeltaChip } from "@/components/DeltaChip";
 import { MiniKpi } from "@/components/MiniKpi";
 import { WeekSelector } from "@/components/WeekSelector";
+import { ColHead, toggleSort as toggleSortShared } from "@/components/SortableColumn";
 import { buildWeekRange } from "@/lib/analisisDiarioView";
 import type { Periodo } from "@/lib/analisisDiarioView";
+import { useAuth } from "@/contexts/AuthProvider";
 import { useProductores, type ProductorDossier, type MediasPlanta, type CalidadNotaProductor } from "@/hooks/useProductores";
+import {
+  useProductoresCatalogo, type FuentePendiente, type NombrePendiente, type ProductorCatalogoRow,
+} from "@/hooks/useProductoresCatalogo";
+import { useMermaLotes } from "@/hooks/useMermaLote";
+import { useEntradasBascula } from "@/hooks/useEntradasBascula";
+import { useCalidadReferencias, type CalidadReferenciaRow } from "@/hooks/useCalidadReferencias";
+import { mermaLotesEnPeriodo, type FuentePodrido, type MermaLotesAgregado } from "@/lib/mermaLote";
+import { agregarMermaPorProductor, type ItemMermaAgrupable } from "@/lib/mermaPorProductor";
+import { resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import type { CalidadEstado } from "@/lib/calidad";
 import { CalidadInformeDialog } from "@/components/CalidadInformeDialog";
-import { formatKgCompact as formatKg, formatDate, formatPct, today, toISODateLocal } from "@/lib/format";
+import { formatKgCompact as formatKg, formatDate, formatPct, today, toISODateLocal, normalizarTexto } from "@/lib/format";
+import { errorMessage } from "@/lib/errorMessage";
+import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { GRUPO_COLORS } from "@/lib/destinoClasificacion";
 import {
@@ -31,18 +47,12 @@ import {
 } from "recharts";
 import { Input } from "@/components/ui/input";
 import {
-  RefreshCw, AlertCircle, BarChart3, Search, X,
-  ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, ArrowLeft, Sprout, Ruler, StickyNote,
+  RefreshCw, AlertCircle, BarChart3, Search, X, Loader2, UserPlus,
+  ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ArrowLeft, Sprout, Ruler, StickyNote,
+  ArrowUpRight,
 } from "lucide-react";
 
 const nf = new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 });
-
-function normalizeText(value: string | null | undefined): string {
-  return String(value ?? "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "");
-}
 
 // ─── Umbrales / helpers visuales ─────────────────────────────────────────────
 
@@ -93,38 +103,10 @@ function formatDateShort(iso: string): string {
   return `${d}/${m}`;
 }
 
-// ─── Sort helpers (patrón ColHead/SortIcon de PartesList.tsx) ────────────────
+// ─── Sort helpers (ColHead/SortIcon compartidos: src/components/SortableColumn.tsx) ──
 
 type SortKey = "productor" | "kg" | "lotes" | "tph" | "lentos" | "peso" | "industria_pct" | "export_pct" | "mercadona_pct" | "ultimo_dia";
 type SortDir = "asc" | "desc";
-
-function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
-  if (!active) return <ChevronsUpDown className="h-3 w-3 opacity-30" />;
-  return dir === "asc"
-    ? <ChevronUp className="h-3 w-3 text-primary" />
-    : <ChevronDown className="h-3 w-3 text-primary" />;
-}
-
-function ColHead({ label, sk, right, sortKey, sortDir, onToggle, info }: {
-  label: string; sk: SortKey; right?: boolean;
-  sortKey: SortKey; sortDir: SortDir; onToggle: (k: SortKey) => void;
-  info?: string;
-}) {
-  return (
-    <th
-      className={cn(
-        "cursor-pointer select-none whitespace-nowrap transition-colors hover:text-foreground",
-        right && "text-right"
-      )}
-      onClick={() => onToggle(sk)}
-    >
-      <span className={cn("inline-flex items-center gap-1", right && "flex-row-reverse")}>
-        {label}<SortIcon active={sortKey === sk} dir={sortDir} />
-        {info && <InfoTooltip iconClassName="h-3 w-3">{info}</InfoTooltip>}
-      </span>
-    </th>
-  );
-}
 
 // ─── Mini-métrica con delta (para el detalle del productor) ─────────────────
 
@@ -161,6 +143,8 @@ type DetailTab = typeof DETAIL_TABS[number];
 
 export default function Productores() {
   const navigate = useNavigate();
+  const { role } = useAuth();
+  const isAdmin = role === "admin";
   const [searchParams, setSearchParams] = useSearchParams();
   const queryProductor = searchParams.get("productor");
   const queryTab = searchParams.get("tab");
@@ -180,6 +164,53 @@ export default function Productores() {
   );
 
   const { data, loading, error, refetch } = useProductores(weekRange.start, weekRange.end);
+
+  // ─── % de pérdida (merma + podrido) por productor, para el dossier ────────
+  // Reutiliza useMermaLotes() (React Query cachea: no duplica el fetch pesado
+  // que ya usa la pestaña "Mermas y coste" de Entradas) y agrupa por la MISMA
+  // clave canónica que useProductores (resolveProductorGroupKey/alias), pero
+  // resuelta desde entradas_bascula (agricultor/productor_id) porque los
+  // MermaLote no traen productor: es el mismo cruce que ya hace el ranking
+  // "Pérdida por agricultor" de EntradasBascula.tsx.
+  const { lotes: mermaLotesTodos } = useMermaLotes();
+  const { entradas } = useEntradasBascula();
+  const { aliasPorNombreNormalizado } = useProductoresCatalogo();
+  const { referencias: calidadReferencias } = useCalidadReferencias();
+
+  const mermaLotesPeriodo = useMemo(
+    () => mermaLotesEnPeriodo(mermaLotesTodos, weekRange.start, weekRange.end),
+    [mermaLotesTodos, weekRange],
+  );
+  const entradaPorLote = useMemo(() => new Map(entradas.map((e) => [e.lote, e])), [entradas]);
+
+  const mermaAgregadoPorProductor = useMemo(() => {
+    const items: ItemMermaAgrupable[] = mermaLotesPeriodo.map((l) => {
+      const fila = entradaPorLote.get(l.lote);
+      const agricultor = fila?.agricultor ?? null;
+      // entradas_bascula.productor_id existe en BD (migración productores_canonicos)
+      // pero aún no está en los tipos generados de Supabase (mismo cast puntual
+      // que EntradasBascula.tsx/EconomicoFruta.tsx).
+      const productorIdDirecto = (fila as { productor_id?: string | null } | undefined)?.productor_id ?? null;
+      const { key } = resolveProductorGroupKey(agricultor ?? "", productorIdDirecto, aliasPorNombreNormalizado);
+      return { lote: l, productorKey: key };
+    });
+    return agregarMermaPorProductor(items);
+  }, [mermaLotesPeriodo, entradaPorLote, aliasPorNombreNormalizado]);
+
+  // ─── Podrido real de referencia (informe del calibrador) por productor ────
+  // Agrupado por variedad (a diferencia del simulador de EconomicoFruta.tsx,
+  // que suma todas las variedades: aquí se listan por separado para poder
+  // mostrar "variedad Y, Z kg medidos" en el dossier).
+  const referenciasPorProductorKey = useMemo(() => {
+    const map = new Map<string, CalidadReferenciaRow[]>();
+    for (const r of calidadReferencias) {
+      const { key } = resolveProductorGroupKey(r.productor_nombre, r.productor_id, aliasPorNombreNormalizado);
+      const arr = map.get(key) ?? [];
+      arr.push(r);
+      map.set(key, arr);
+    }
+    return map;
+  }, [calidadReferencias, aliasPorNombreNormalizado]);
 
   // Si llega un ?productor=X que existe en los datos, preseleccionarlo.
   useEffect(() => {
@@ -218,9 +249,10 @@ export default function Productores() {
     setPeriodo("custom");
   }
 
+  // Igual que el helper genérico toggleSort de SortableColumn, pero "productor" (única
+  // columna de texto) reinicia a asc y el resto (numéricas) reinicia a desc (mayor primero).
   function toggleSort(key: SortKey) {
-    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setSortKey(key); setSortDir(key === "productor" ? "asc" : "desc"); }
+    toggleSortShared(key, sortKey, sortDir, setSortKey, setSortDir, (k) => (k === "productor" ? "asc" : "desc"));
   }
 
   const sorted = useMemo(() => {
@@ -245,13 +277,13 @@ export default function Productores() {
   }, [data.productores, sortKey, sortDir]);
 
   // Búsqueda sobre el ranking (nombre de productor o producto).
-  const searchLower = normalizeText(search).trim();
+  const searchLower = normalizarTexto(search).trim();
   const filtered = useMemo(() => {
     if (!searchLower) return sorted;
     return sorted.filter(
       (p) =>
-        normalizeText(p.productor).includes(searchLower) ||
-        p.productos.some((prod) => normalizeText(prod).includes(searchLower)),
+        normalizarTexto(p.productor).includes(searchLower) ||
+        p.productos.some((prod) => normalizarTexto(prod).includes(searchLower)),
     );
   }, [sorted, searchLower]);
 
@@ -317,6 +349,9 @@ export default function Productores() {
           Actualizar
         </Button>
       </header>
+
+      {/* ─── Cola de "nombres sin vincular" (solo admin) ───────────── */}
+      {isAdmin && !selectedDossier && <NombresSinVincularSection />}
 
       {/* ─── Loading (skeletons, mismo patrón que Análisis diario) ── */}
       {loading && (
@@ -441,6 +476,9 @@ export default function Productores() {
                   `/analisis/diario?desde=${weekRange.start}&hasta=${weekRange.end}&productor=${encodeURIComponent(selectedDossier.productor)}&tab=lotes`,
                 )
               }
+              mermaAgregado={mermaAgregadoPorProductor.get(selectedDossier.productorKey) ?? null}
+              referenciasProductor={referenciasPorProductorKey.get(selectedDossier.productorKey) ?? []}
+              onVerEconomico={isAdmin ? () => navigate("/economico/fruta") : undefined}
             />
           )}
         </>
@@ -655,11 +693,182 @@ function MobileField({ label, value, valueClass, muted }: { label: string; value
   );
 }
 
+// ─── Cola de "nombres sin vincular" (identidad canónica de productores) ────
+// Ver supabase/migrations/20260714090000_productores_canonicos.sql y
+// src/hooks/useProductoresCatalogo.ts. Solo admin: asigna cada nombre de
+// productor en texto libre (báscula/calibrador/calidad) a un productor del
+// catálogo, o crea uno nuevo. Backfill automático solo cubre coincidencias
+// EXACTAS tras normalizar; el resto pasa por aquí.
+
+const FUENTE_LABEL: Record<FuentePendiente, string> = {
+  bascula: "Báscula",
+  calibrador: "Calibrador",
+  calidad: "Calidad",
+};
+
+function NombresSinVincularSection() {
+  const {
+    productores, nombresPendientes, migracionPendiente, isLoading, error,
+    asignarNombreAProductor, crearProductorYVincular,
+  } = useProductoresCatalogo();
+  const [expandido, setExpandido] = useState(true);
+  const [creandoPara, setCreandoPara] = useState<NombrePendiente | null>(null);
+
+  // Antes de aplicar la migración, productores_alias no existe: la cola se
+  // oculta (asignar/crear fallaría) y se deja constancia en consola. El resto
+  // de la página (ranking, dossier) sigue funcionando con normalidad.
+  useEffect(() => {
+    if (migracionPendiente) {
+      console.info(
+        "Productores: cola de \"nombres sin vincular\" oculta -- productores_alias todavía no existe " +
+        "(migración 20260714090000_productores_canonicos.sql pendiente de aplicar).",
+      );
+    }
+  }, [migracionPendiente]);
+
+  if (isLoading || migracionPendiente || error || nombresPendientes.length === 0) return null;
+
+  const handleAsignar = (pendiente: NombrePendiente, productorId: string) => {
+    asignarNombreAProductor.mutate(
+      { productorId, nombreCrudo: pendiente.nombre },
+      {
+        onSuccess: () => toast({ title: "Productor vinculado", description: `"${pendiente.nombre}" asignado correctamente.` }),
+        onError: (e) => toast({ title: "Error al vincular", description: errorMessage(e), variant: "destructive" }),
+      },
+    );
+  };
+
+  return (
+    <Card className="glass-accented border-warning/30">
+      <CardContent className="space-y-3 p-3">
+        <button type="button" onClick={() => setExpandido((v) => !v)} className="flex w-full items-center gap-2 text-left">
+          <AlertCircle className="h-4 w-4 shrink-0 text-warning" />
+          <p className="text-sm font-semibold">
+            {nombresPendientes.length} nombre{nombresPendientes.length === 1 ? "" : "s"} de productor sin vincular
+          </p>
+          <span className="text-[11px] text-muted-foreground">— revisa y asigna cada uno a un productor del catálogo</span>
+          {expandido ? <ChevronUp className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />}
+        </button>
+        {expandido && (
+          <div className="max-h-96 space-y-1.5 overflow-y-auto pr-1">
+            {nombresPendientes.map((p) => (
+              <FilaNombrePendiente
+                key={p.normalizado}
+                pendiente={p}
+                productores={productores}
+                onAsignar={(productorId) => handleAsignar(p, productorId)}
+                onCrearNuevo={() => setCreandoPara(p)}
+                pending={asignarNombreAProductor.isPending}
+              />
+            ))}
+          </div>
+        )}
+      </CardContent>
+      <CrearProductorDialog
+        pendiente={creandoPara}
+        onOpenChange={(open) => !open && setCreandoPara(null)}
+        crearProductorYVincular={crearProductorYVincular}
+      />
+    </Card>
+  );
+}
+
+function FilaNombrePendiente({ pendiente, productores, onAsignar, onCrearNuevo, pending }: {
+  pendiente: NombrePendiente;
+  productores: ProductorCatalogoRow[];
+  onAsignar: (productorId: string) => void;
+  onCrearNuevo: () => void;
+  pending: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-xs">
+      <span className="min-w-0 flex-1 truncate font-medium" title={pendiente.nombre}>{pendiente.nombre}</span>
+      <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{pendiente.apariciones}×</Badge>
+      {pendiente.fuentes.map((f) => (
+        <Badge key={f} variant="outline" className="px-1.5 py-0 text-[10px] text-muted-foreground">{FUENTE_LABEL[f]}</Badge>
+      ))}
+      <Select onValueChange={onAsignar} disabled={pending || productores.length === 0}>
+        <SelectTrigger className="h-7 w-44 text-xs">
+          <SelectValue placeholder="Asignar a…" />
+        </SelectTrigger>
+        <SelectContent>
+          {productores.map((prod) => (
+            <SelectItem key={prod.id} value={prod.id} className="text-xs">{prod.nombre}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={onCrearNuevo} disabled={pending}>
+        <UserPlus className="h-3 w-3" /> Nuevo
+      </Button>
+    </div>
+  );
+}
+
+function CrearProductorDialog({ pendiente, onOpenChange, crearProductorYVincular }: {
+  pendiente: NombrePendiente | null;
+  onOpenChange: (open: boolean) => void;
+  crearProductorYVincular: ReturnType<typeof useProductoresCatalogo>["crearProductorYVincular"];
+}) {
+  const [nombre, setNombre] = useState("");
+
+  useEffect(() => {
+    if (pendiente) setNombre(pendiente.nombre);
+  }, [pendiente]);
+
+  const handleConfirmar = () => {
+    if (!pendiente) return;
+    const limpio = nombre.trim();
+    if (!limpio) return;
+    crearProductorYVincular.mutate(
+      { nombre: limpio, nombreCrudo: pendiente.nombre },
+      {
+        onSuccess: () => {
+          toast({ title: "Productor creado", description: `"${limpio}" creado y vinculado a "${pendiente.nombre}".` });
+          onOpenChange(false);
+        },
+        onError: (e) => toast({ title: "Error al crear el productor", description: errorMessage(e), variant: "destructive" }),
+      },
+    );
+  };
+
+  return (
+    <Dialog open={Boolean(pendiente)} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Crear productor nuevo</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label htmlFor="nombre-productor-nuevo">Nombre canónico</Label>
+          <Input
+            id="nombre-productor-nuevo"
+            value={nombre}
+            onChange={(e) => setNombre(e.target.value)}
+            autoFocus
+            disabled={crearProductorYVincular.isPending}
+          />
+          <p className="text-xs text-muted-foreground">
+            Se vinculará automáticamente al nombre pendiente "{pendiente?.nombre}" y a cualquier fila existente cuyo texto coincida.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={crearProductorYVincular.isPending}>
+            Cancelar
+          </Button>
+          <Button onClick={handleConfirmar} disabled={crearProductorYVincular.isPending || !nombre.trim()}>
+            {crearProductorYVincular.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Crear y vincular
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Detalle del productor ───────────────────────────────────────────────
 
 function ProductorDetalle({
   dossier, medias, days, kgTotalPeriodo, activeTab, onTabChange, onBack, onLoteClick,
-  posicion, onPrev, onNext, onVerAnalisis,
+  posicion, onPrev, onNext, onVerAnalisis, mermaAgregado, referenciasProductor, onVerEconomico,
 }: {
   dossier: ProductorDossier;
   medias: MediasPlanta;
@@ -674,6 +883,12 @@ function ProductorDetalle({
   onPrev?: () => void;
   onNext?: () => void;
   onVerAnalisis: () => void;
+  /** % de pérdida (merma + podrido) de este productor en el periodo, ya agregado (ver useMermaLotes/mermaPorProductor.ts). `null` si no tiene lotes de báscula vinculados en el periodo. */
+  mermaAgregado: MermaLotesAgregado | null;
+  /** Podrido real medido por variedad (calidad_referencias_productor), una fila por variedad. Vacío si no hay informe del calibrador para este productor. */
+  referenciasProductor: CalidadReferenciaRow[];
+  /** Solo se pasa (no-undefined) cuando el usuario es admin: enlace discreto al forfait de Económico → Fruta. */
+  onVerEconomico?: () => void;
 }) {
   const chartData = useMemo(() => {
     const porDiaTph = new Map<string, { sumTph: number; nTph: number }>();
@@ -740,9 +955,20 @@ function ProductorDetalle({
           {dossier.productos.map((prod) => (
             <Badge key={prod} variant="secondary" className="text-[10px] px-1.5 py-0">{prod}</Badge>
           ))}
-          <Button variant="outline" size="sm" className="ml-auto h-7 gap-1.5 text-xs" onClick={onVerAnalisis}>
+          <Button variant="outline" size="sm" className={cn("h-7 gap-1.5 text-xs", !onVerEconomico && "ml-auto")} onClick={onVerAnalisis}>
             <BarChart3 className="h-3.5 w-3.5" /> Ver sus lotes en Análisis diario
           </Button>
+          {onVerEconomico && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 text-xs text-muted-foreground"
+              onClick={onVerEconomico}
+              title="Solo admin: forfait y coste real de este productor"
+            >
+              Análisis económico del productor <ArrowUpRight className="h-3 w-3" />
+            </Button>
+          )}
         </div>
       </div>
 
@@ -870,6 +1096,9 @@ function ProductorDetalle({
             </CardContent>
           </Card>
 
+          {/* Pérdidas de fruta (merma + podrido, sin €: los € viven en Económico → Fruta) */}
+          <PerdidaFrutaCard agregado={mermaAgregado} />
+
           {/* Desglose por producto */}
           <PorProductoCard porProducto={dossier.por_producto} />
         </TabsContent>
@@ -882,7 +1111,8 @@ function ProductorDetalle({
           <CalibresClasesTab dossier={dossier} />
         </TabsContent>
 
-        <TabsContent value="calidad">
+        <TabsContent value="calidad" className="space-y-3">
+          <PodridoReferenciaCard referencias={referenciasProductor} />
           <CalidadProductorCard calidad={dossier.calidad} />
         </TabsContent>
 
@@ -892,6 +1122,178 @@ function ProductorDetalle({
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// ─── Pérdidas de fruta (merma + podrido, sin €) ───────────────────────────
+// Mismas etiquetas de fuente que la pestaña "Mermas y coste" de
+// EntradasBascula.tsx (real/≈est./asumido/sin dato): se REPLICA la
+// presentación aquí (ese archivo no exporta sus componentes) para que el
+// dossier se lea igual sin duplicar ninguna fórmula — todos los números
+// vienen de agregarMermaLotes (src/lib/mermaLote.ts) vía useMermaLotes().
+
+function FuenteBadge({ fuente }: { fuente: FuentePodrido }) {
+  if (fuente === "real") {
+    return (
+      <Badge variant="outline" className="border-emerald-600/35 bg-emerald-600/12 px-1 py-0 text-[10px] text-emerald-800 dark:text-emerald-200">
+        real
+      </Badge>
+    );
+  }
+  if (fuente === "desconocido") {
+    return (
+      <Badge variant="outline" className="border-[var(--glass-border)] px-1 py-0 text-[10px] text-muted-foreground/70">
+        sin dato
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="border-[var(--glass-border)] px-1 py-0 text-[10px] text-muted-foreground">
+      ≈ est.
+    </Badge>
+  );
+}
+
+/** Podrido pre-calibrador: ASUMIDO por el dueño (decisión 2026-07-15), ni "real" ni "≈ est.". */
+function AsumidoBadge() {
+  return (
+    <Badge variant="outline" className="border-amber-500/35 bg-amber-500/12 px-1 py-0 text-[10px] text-amber-800 dark:text-amber-200">
+      asumido
+    </Badge>
+  );
+}
+
+function PerdidaFrutaCard({ agregado }: { agregado: MermaLotesAgregado | null }) {
+  const podridoTotalKg = agregado
+    ? agregado.kgPodridoCalibradorReal + agregado.kgPodridoCalibradorEstimado + agregado.kgPodridoManualEstimado
+    : 0;
+  const naturalKg = agregado ? Math.max(0, agregado.kgMermaNaturalTotal) : 0;
+  const kgEntrada = agregado?.kgEntradaProcesados ?? 0;
+  const pctPerdidaTotal = agregado && kgEntrada > 0 ? ((naturalKg + podridoTotalKg) / kgEntrada) * 100 : null;
+  const pctNatural = agregado && kgEntrada > 0 ? (naturalKg / kgEntrada) * 100 : null;
+  const pctPodrido = agregado && kgEntrada > 0 ? (podridoTotalKg / kgEntrada) * 100 : null;
+
+  return (
+    <Card className="glass-accented">
+      <CardContent className="p-3 space-y-2.5">
+        <div className="flex items-center gap-2">
+          <div className="h-5 w-1 rounded-full bg-primary" />
+          <p className="text-sm font-semibold">Pérdidas de fruta</p>
+          <InfoTooltip iconClassName="h-3 w-3">
+            Merma natural (báscula − calibrador) + podrido (calibrador + manual) de los lotes de báscula de este
+            productor en el periodo, en kg y % — sin €: el valor económico de estas pérdidas vive en Económico →
+            Fruta. Real = Informe LOTE cuando existe; ≈ estimado = prorrateo del podrido del parte; asumido = podrido
+            de un contenedor pre-calibrador que no se pesa a diario.
+          </InfoTooltip>
+        </div>
+
+        {!agregado ? (
+          <p className="text-sm text-muted-foreground">Sin lotes de báscula vinculados a este productor en el periodo.</p>
+        ) : agregado.nProcesados === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {agregado.nPendientesOParciales > 0
+              ? `${agregado.nPendientesOParciales} lote${agregado.nPendientesOParciales === 1 ? "" : "s"} de báscula aún en cámara/parcial: todavía sin merma calculable.`
+              : "Sin lotes procesados en el periodo."}
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+              <div>
+                <p className="panel-kicker">% pérdida total</p>
+                <p
+                  className={cn(
+                    "text-xl font-bold tabular-nums",
+                    pctPerdidaTotal !== null && pctPerdidaTotal > 8 ? "text-destructive" : "text-warning",
+                  )}
+                >
+                  {pctPerdidaTotal !== null ? formatPct(pctPerdidaTotal) : "—"}
+                </p>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                sobre {formatKg(kgEntrada)} entrados en {agregado.nProcesados} lote{agregado.nProcesados === 1 ? "" : "s"} con dato
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold text-muted-foreground">Merma natural</p>
+                  <span className="text-xs font-semibold tabular-nums">
+                    {formatKg(naturalKg)}{pctNatural !== null && <span className="ml-1 text-muted-foreground">({formatPct(pctNatural)})</span>}
+                  </span>
+                </div>
+                <p className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+                  {formatKg(agregado.kgNaturalEstimadaTotal)} <FuenteBadge fuente="prorrateo" /> por días en cámara
+                </p>
+                <p className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+                  {formatKg(agregado.kgPodridoPreCalibradorTotal)} <AsumidoBadge /> pre-calibrador
+                </p>
+              </div>
+              <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold text-muted-foreground">Podrido (calibrador + manual)</p>
+                  <span className="text-xs font-semibold tabular-nums">
+                    {formatKg(podridoTotalKg)}{pctPodrido !== null && <span className="ml-1 text-muted-foreground">({formatPct(pctPodrido)})</span>}
+                  </span>
+                </div>
+                <p className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+                  {formatKg(agregado.kgPodridoCalibradorReal)} <FuenteBadge fuente="real" /> · {formatKg(agregado.kgPodridoCalibradorEstimado)} <FuenteBadge fuente="prorrateo" /> calibrador
+                </p>
+                <p className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+                  {formatKg(agregado.kgPodridoManualEstimado)} <FuenteBadge fuente="prorrateo" /> manual
+                </p>
+              </div>
+            </div>
+
+            {agregado.nLotesPodridoDesconocido > 0 && (
+              <p className="text-[11px] text-muted-foreground/80">
+                {agregado.nLotesPodridoDesconocido} lote{agregado.nLotesPodridoDesconocido === 1 ? "" : "s"} con podrido sin dato (histórico importado): su pérdida puede estar subestimada.
+              </p>
+            )}
+            {agregado.nLotesCerradosSinRegistro > 0 && (
+              <p className="text-[11px] text-muted-foreground/80">
+                {agregado.nLotesCerradosSinRegistro} lote{agregado.nLotesCerradosSinRegistro === 1 ? "" : "s"} cerrado{agregado.nLotesCerradosSinRegistro === 1 ? "" : "s"} sin análisis ({formatKg(agregado.kgCerradosSinRegistro)}) excluido{agregado.nLotesCerradosSinRegistro === 1 ? "" : "s"}: su procesado no consta bajo su código.
+              </p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Podrido real de referencia (informe del calibrador) ─────────────────
+
+function PodridoReferenciaCard({ referencias }: { referencias: CalidadReferenciaRow[] }) {
+  if (referencias.length === 0) return null;
+  return (
+    <Card className="glass-accented">
+      <CardContent className="p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="h-5 w-1 rounded-full bg-primary" />
+          <p className="text-sm font-semibold">Podrido real medido (informe calibrador)</p>
+          <InfoTooltip iconClassName="h-3 w-3">
+            % de podrido del informe "Totales de Tamaños, Clase y Calidad por Variedad" del calibrador, importado
+            para este productor. Es una medición directa (no un prorrateo), por eso lleva la badge "real".
+          </InfoTooltip>
+        </div>
+        <div className="space-y-1.5">
+          {referencias.map((r) => {
+            const pct = r.kg_total > 0 ? (r.kg_podrido / r.kg_total) * 100 : null;
+            return (
+              <div key={r.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                <span className="min-w-0 flex-1 truncate font-medium">{r.variedad || "Sin variedad"}</span>
+                <Badge variant="outline" className="border-emerald-600/35 bg-emerald-600/12 px-1 py-0 text-[10px] text-emerald-800 dark:text-emerald-200">
+                  real
+                </Badge>
+                <span className="tabular-nums font-semibold">{pct !== null ? formatPct(pct) : "—"}</span>
+                <span className="text-[11px] text-muted-foreground">{formatKg(r.kg_total)} kg medidos</span>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
