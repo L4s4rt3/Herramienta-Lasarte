@@ -656,6 +656,49 @@ export function criterioCierreModo(kgEntrada: number, kgProcesadoTotal: number):
   return pct >= UMBRAL_CIERRE_CON_ANALISIS ? "con_analisis" : "sin_registro";
 }
 
+// ─── "Probablemente terminado": aviso derivado, sin cierre automático ──────
+// Queja textual del dueño: "hay lotes que ya han pasado por producción y
+// siguen contando como en cámara... hay que reforzar el proceso para que no
+// pase". Causa estructural: el hueco natural (merma + podrido no pesado,
+// 3-7%) impide llegar al UMBRAL_PROCESADO (97%) automático, así que el lote
+// solo sale del stock con un cierre MANUAL — y nadie se acuerda de cerrarlo.
+//
+// Por qué esto NO se auto-cierra: en BD hay 37 lotes que reanudaron pasadas
+// del calibrador DESPUÉS de pasar por encima del 85% procesado (7 de ellos
+// tras ≥5 días parados), con un gap máximo observado de 12 días entre la
+// última pasada "antigua" y la que reanudó. Cerrar a ciegas con cualquier
+// umbral de días clasificaría esa fruta que vuelve a línea como merma real.
+//
+// UMBRAL_PROBABLE_TERMINADO / DIAS_SIN_ACTIVIDAD_TERMINADO: parámetros
+// elegidos por análisis de clasificación sobre TODA la campaña (jul 2026, 80
+// lotes terminados reales como verdad, hecho por el orquestador contra la
+// BD a petición del dueño): con ≥7 días de inactividad hay CERO reanudaciones
+// históricas a cualquier umbral de % (el parón máximo observado antes de
+// reanudar es 12 días); bajar el umbral de % a 80% captura 63/80 terminados
+// reales (79%) frente a 55/80 con 85%, sin ningún falso positivo. Los DÍAS
+// hacen el trabajo de seguridad, no el %. Margen para un futuro auto-cierre a
+// 14 días si el dueño lo pide.
+//
+// Sea cual sea el ajuste futuro, el falso positivo sigue teniendo COSTE CERO:
+// es un estado derivado que se desmarca solo en cuanto llega una pasada nueva
+// del calibrador, no escribe nada en la BD.
+export const UMBRAL_PROBABLE_TERMINADO = 0.80;
+export const DIAS_SIN_ACTIVIDAD_TERMINADO = 7;
+
+/**
+ * Guardia inversa: un lote cerrado a mano (`cerrado_at`) cuyo calibrador
+ * registró una pasada DESPUÉS de la fecha de cierre. Es la señal de que el
+ * cierre fue prematuro/erróneo — la fruta "cerrada" volvió a línea — así que
+ * hay que avisar para revisarlo/reabrirlo, nunca reabrir solo automáticamente
+ * (mismo espíritu que faltanEnHerramienta.conflicto en conciliarStockConInforme:
+ * se avisa, no se actúa sola).
+ */
+export function pasadasPosterioresAlCierre(cerradoAt: string | null, ultimaPasada: string | null): boolean {
+  if (!cerradoAt || !ultimaPasada) return false;
+  const fechaCierre = cerradoAt.slice(0, 10); // "YYYY-MM-DDTHH:mm:ss..." -> "YYYY-MM-DD"
+  return ultimaPasada > fechaCierre;
+}
+
 export interface StockLoteRow {
   lote: string;
   fecha_entrada: string;
@@ -674,15 +717,42 @@ export interface StockLoteRow {
   cerrado_at: string | null;
   /** entradas_bascula.cierre_modo (migración 20260716120000): solo informativo aquí (para el badge), no cambia estado/kg_en_camara — ver src/lib/mermaLote.ts para el efecto real del modo. `null` si el lote está abierto o si se cerró antes de que existiera esta columna (tratado como "con_analisis" en mermaLote.ts). */
   cierre_modo: CierreModo | null;
+  /**
+   * Ver UMBRAL_PROBABLE_TERMINADO/DIAS_SIN_ACTIVIDAD_TERMINADO más abajo:
+   * true cuando el lote está "parcial" (nunca "procesado"/cerrado — esos ya
+   * no cuentan como stock), lleva ≥UMBRAL_PROBABLE_TERMINADO (80%) procesado
+   * y el calibrador no le ha tocado en ≥DIAS_SIN_ACTIVIDAD_TERMINADO (7)
+   * días. Es un AVISO, no un cierre: no cambia `estado` ni `kg_en_camara`,
+   * solo señala en la UI el hueco que el auto-cierre NO puede asumir (ver la
+   * cabecera de este archivo/PROBLEMA en el diseño) para que alguien lo
+   * revise y cierre a mano si procede.
+   */
+  probablementeTerminado: boolean;
+  /**
+   * Guardia inversa (ver pasadasPosterioresAlCierre): true cuando el lote
+   * está cerrado a mano (cerrado_at) pero el calibrador registró una pasada
+   * DESPUÉS de la fecha de cierre — la fruta volvió a línea tras cerrarse, así
+   * que cerrarlo fue (probablemente) un error y hay que revisarlo/reabrirlo.
+   */
+  cerradoConActividadPosterior: boolean;
 }
 
 export interface StockResumen {
   filas: StockLoteRow[];
+  /** Total en cámara (firme + probablemente terminado), igual que antes de introducir la partición — mantiene compatibilidad con el resto de la app y los tests existentes. */
   kgEnCamara: number;
+  /** Subconjunto "firme" de kgEnCamara: lotes activos que NO cumplen la regla de probablementeTerminado. */
+  kgEnCamaraFirme: number;
+  /** Subconjunto de kgEnCamara en lotes marcados probablementeTerminado. */
+  kgProbablementeTerminados: number;
+  /** Nº de lotes con probablementeTerminado=true (para el aviso/KPI). */
+  lotesProbablementeTerminados: number;
   lotesPendientes: number;
   lotesParciales: number;
   /** Días del lote pendiente/parcial más antiguo. */
   antiguedadMaxDias: number;
+  /** Lotes cerrados a mano con una pasada del calibrador posterior a su cierre (ver pasadasPosterioresAlCierre): candidatos a reabrir por error de cierre. */
+  lotesCerradosConActividadPosterior: StockLoteRow[];
 }
 
 /** Días naturales entre dos fechas ISO "YYYY-MM-DD" (hasta − desde, nunca negativo). Exportada para src/lib/mermaLote.ts (diasEnCamara). */
@@ -727,6 +797,14 @@ export function buildStockEntradas(
     const cerradoManualmente = Boolean(entrada.cerrado_at);
     const estado: StockEstado = estadoLotePorProcesado(entrada.kg_entrada, kgProcesado, cerradoManualmente);
     const finDeCuenta = estado === "procesado" && procesado?.ultimaFecha ? procesado.ultimaFecha : hoy;
+    const ultimaFechaProcesado = procesado?.ultimaFecha ?? null;
+
+    const pctProcesado = entrada.kg_entrada > 0 ? kgProcesado / entrada.kg_entrada : 0;
+    const diasSinActividad = ultimaFechaProcesado ? diffDias(ultimaFechaProcesado, hoy) : null;
+    const probablementeTerminado = estado === "parcial"
+      && pctProcesado >= UMBRAL_PROBABLE_TERMINADO
+      && diasSinActividad != null
+      && diasSinActividad >= DIAS_SIN_ACTIVIDAD_TERMINADO;
 
     return {
       lote: entrada.lote,
@@ -737,22 +815,30 @@ export function buildStockEntradas(
       kg_entrada: entrada.kg_entrada,
       kg_procesado: kgProcesado,
       kg_en_camara: estado === "procesado" ? 0 : kgEnCamara,
-      ultima_fecha_procesado: procesado?.ultimaFecha ?? null,
+      ultima_fecha_procesado: ultimaFechaProcesado,
       dias_en_camara: diffDias(entrada.fecha, finDeCuenta),
       estado,
       cerrado_at: entrada.cerrado_at ?? null,
       cierre_modo: entrada.cierre_modo ?? null,
+      probablementeTerminado,
+      cerradoConActividadPosterior: pasadasPosterioresAlCierre(entrada.cerrado_at ?? null, ultimaFechaProcesado),
     };
   });
 
   const activos = filas.filter((f) => f.estado !== "procesado");
+  const probables = activos.filter((f) => f.probablementeTerminado);
+  const firmes = activos.filter((f) => !f.probablementeTerminado);
 
   return {
     filas,
     kgEnCamara: activos.reduce((s, f) => s + f.kg_en_camara, 0),
+    kgEnCamaraFirme: firmes.reduce((s, f) => s + f.kg_en_camara, 0),
+    kgProbablementeTerminados: probables.reduce((s, f) => s + f.kg_en_camara, 0),
+    lotesProbablementeTerminados: probables.length,
     lotesPendientes: filas.filter((f) => f.estado === "pendiente").length,
     lotesParciales: filas.filter((f) => f.estado === "parcial").length,
     antiguedadMaxDias: activos.reduce((max, f) => Math.max(max, f.dias_en_camara), 0),
+    lotesCerradosConActividadPosterior: filas.filter((f) => f.cerradoConActividadPosterior),
   };
 }
 

@@ -4,13 +4,16 @@ import {
   buildStockEntradas,
   conciliarStockConInforme,
   criterioCierreModo,
+  DIAS_SIN_ACTIVIDAD_TERMINADO,
   estadoLotePorProcesado,
   normalizarLoteCodigo,
   parseEntradasBasculaRows,
   parseFechaBascula,
   parseInformeAprovechamientoStock,
   parseStockLotesRows,
+  pasadasPosterioresAlCierre,
   UMBRAL_CIERRE_CON_ANALISIS,
+  UMBRAL_PROBABLE_TERMINADO,
 } from "./entradasBascula";
 
 // Cabecera real del export del programa de báscula ("entrada 2604.xlsx").
@@ -393,5 +396,146 @@ describe("criterioCierreModo — umbral del 85% para sugerir el modo de cierre",
 
   it("caso real: 53 lotes con procesado parcial alto (93.8%) sugieren con_analisis", () => {
     expect(criterioCierreModo(24900, 23360)).toBe("con_analisis"); // 93.8%
+  });
+});
+
+describe("buildStockEntradas — probablementeTerminado (aviso derivado, sin cierre automático)", () => {
+  // Parámetros vigentes (ajustados por análisis de clasificación sobre la
+  // campaña completa, ver la cabecera de UMBRAL_PROBABLE_TERMINADO en
+  // entradasBascula.ts): 80% procesado + 7 días sin actividad del calibrador.
+  const entradaBase = { lote: "26060501", fecha: "2026-06-05", kg_entrada: 10000, finca: null, articulo: "NAVEL", agricultor: null };
+
+  it("80%+ procesado y ≥7 días sin actividad -> true", () => {
+    const procesados = [{ lote_codigo: "26060501", kg_peso_total: 8600, date: "2026-06-08" }]; // 86%, última pasada 8-jun
+    const stock = buildStockEntradas([entradaBase], procesados, "2026-06-15"); // 7 días desde la última pasada
+    const fila = stock.filas[0];
+    expect(fila.estado).toBe("parcial");
+    expect(fila.probablementeTerminado).toBe(true);
+    expect(stock.lotesProbablementeTerminados).toBe(1);
+    expect(stock.kgProbablementeTerminados).toBe(fila.kg_en_camara);
+    expect(stock.kgEnCamaraFirme).toBe(0);
+  });
+
+  it("pasada reciente (< 7 días) -> false aunque el % ya esté por encima del umbral", () => {
+    const procesados = [{ lote_codigo: "26060501", kg_peso_total: 8600, date: "2026-06-13" }]; // 86%, hace 2 días
+    const stock = buildStockEntradas([entradaBase], procesados, "2026-06-15");
+    const fila = stock.filas[0];
+    expect(fila.estado).toBe("parcial");
+    expect(fila.probablementeTerminado).toBe(false);
+    expect(stock.lotesProbablementeTerminados).toBe(0);
+    expect(stock.kgEnCamaraFirme).toBe(fila.kg_en_camara);
+    expect(stock.kgProbablementeTerminados).toBe(0);
+  });
+
+  it("una pasada nueva desmarca el aviso (estado derivado, no persistido)", () => {
+    const procesados = [
+      { lote_codigo: "26060501", kg_peso_total: 8600, date: "2026-06-08" }, // 86%, marcaría a los 7 días
+      { lote_codigo: "26060501", kg_peso_total: 100, date: "2026-06-14" }, // pasada nueva: reinicia el contador de días
+    ];
+    const stock = buildStockEntradas([entradaBase], procesados, "2026-06-15");
+    const fila = stock.filas[0];
+    expect(fila.probablementeTerminado).toBe(false); // solo 1 día desde la última pasada
+  });
+
+  it("un lote cerrado a mano nunca se marca (ya es 'procesado', no 'parcial')", () => {
+    const cerrado = { ...entradaBase, cerrado_at: "2026-06-09T00:00:00Z" };
+    const procesados = [{ lote_codigo: "26060501", kg_peso_total: 8600, date: "2026-06-08" }];
+    const stock = buildStockEntradas([cerrado], procesados, "2026-06-20");
+    const fila = stock.filas[0];
+    expect(fila.estado).toBe("procesado");
+    expect(fila.probablementeTerminado).toBe(false);
+  });
+
+  it("por debajo del umbral (80%) no se marca aunque lleve muchos días sin actividad", () => {
+    const procesados = [{ lote_codigo: "26060501", kg_peso_total: 7900, date: "2026-06-05" }]; // 79%
+    const stock = buildStockEntradas([entradaBase], procesados, "2026-07-01");
+    expect(stock.filas[0].probablementeTerminado).toBe(false);
+  });
+
+  it("usa exactamente UMBRAL_PROBABLE_TERMINADO y DIAS_SIN_ACTIVIDAD_TERMINADO como frontera (>=, no >)", () => {
+    const kgEnElUmbral = entradaBase.kg_entrada * UMBRAL_PROBABLE_TERMINADO;
+    const hoy = "2026-06-15";
+    const fechaEnElUmbralDias = "2026-06-08"; // exactamente 7 días antes de hoy
+
+    const enElUmbral = buildStockEntradas(
+      [entradaBase],
+      [{ lote_codigo: "26060501", kg_peso_total: kgEnElUmbral, date: fechaEnElUmbralDias }],
+      hoy,
+    );
+    expect(enElUmbral.filas[0].probablementeTerminado).toBe(true);
+
+    const debajoDelUmbralPct = buildStockEntradas(
+      [entradaBase],
+      [{ lote_codigo: "26060501", kg_peso_total: kgEnElUmbral - 1, date: fechaEnElUmbralDias }],
+      hoy,
+    );
+    expect(debajoDelUmbralPct.filas[0].probablementeTerminado).toBe(false);
+
+    const menosDiasQueElUmbral = buildStockEntradas(
+      [entradaBase],
+      [{ lote_codigo: "26060501", kg_peso_total: kgEnElUmbral, date: "2026-06-09" }], // 6 días
+      hoy,
+    );
+    expect(menosDiasQueElUmbral.filas[0].probablementeTerminado).toBe(false);
+  });
+
+  it("la partición kgEnCamaraFirme + kgProbablementeTerminados suma exactamente kgEnCamara", () => {
+    const entradas = [
+      entradaBase, // 86%, 7 días -> probable
+      { lote: "26060502", fecha: "2026-06-06", kg_entrada: 12000, finca: null, articulo: "NAVEL", agricultor: null }, // pendiente -> firme
+      { lote: "26060503", fecha: "2026-06-07", kg_entrada: 9000, finca: null, articulo: "NAVEL", agricultor: null }, // parcial reciente -> firme
+    ];
+    const procesados = [
+      { lote_codigo: "26060501", kg_peso_total: 8600, date: "2026-06-08" },
+      { lote_codigo: "26060503", kg_peso_total: 3000, date: "2026-06-14" },
+    ];
+    const stock = buildStockEntradas(entradas, procesados, "2026-06-15");
+    expect(stock.kgEnCamaraFirme + stock.kgProbablementeTerminados).toBe(stock.kgEnCamara);
+    expect(stock.lotesProbablementeTerminados).toBe(1);
+  });
+});
+
+describe("pasadasPosterioresAlCierre — guardia inversa (cerrado con actividad posterior)", () => {
+  it("true si hay pasada posterior a la fecha de cierre", () => {
+    expect(pasadasPosterioresAlCierre("2026-06-10T00:00:00Z", "2026-06-12")).toBe(true);
+  });
+
+  it("false si la última pasada es anterior o igual a la fecha de cierre", () => {
+    expect(pasadasPosterioresAlCierre("2026-06-10T00:00:00Z", "2026-06-09")).toBe(false);
+    expect(pasadasPosterioresAlCierre("2026-06-10T00:00:00Z", "2026-06-10")).toBe(false);
+  });
+
+  it("false si el lote no está cerrado o no hay ninguna pasada registrada", () => {
+    expect(pasadasPosterioresAlCierre(null, "2026-06-12")).toBe(false);
+    expect(pasadasPosterioresAlCierre("2026-06-10T00:00:00Z", null)).toBe(false);
+    expect(pasadasPosterioresAlCierre(null, null)).toBe(false);
+  });
+
+  it("buildStockEntradas expone la guardia por fila y el conteo agregado", () => {
+    const entradas = [
+      { lote: "26060601", fecha: "2026-06-01", kg_entrada: 10000, finca: null, articulo: null, agricultor: null, cerrado_at: "2026-06-10T00:00:00Z" },
+      { lote: "26060602", fecha: "2026-06-02", kg_entrada: 8000, finca: null, articulo: null, agricultor: null, cerrado_at: "2026-06-10T00:00:00Z" },
+    ];
+    const procesados = [
+      { lote_codigo: "26060601", kg_peso_total: 9000, date: "2026-06-15" }, // posterior al cierre -> guardia
+      { lote_codigo: "26060602", kg_peso_total: 7000, date: "2026-06-05" }, // anterior al cierre -> sin problema
+    ];
+    const stock = buildStockEntradas(entradas, procesados, "2026-06-20");
+    const porLote = new Map(stock.filas.map((f) => [f.lote, f]));
+    expect(porLote.get("26060601")?.cerradoConActividadPosterior).toBe(true);
+    expect(porLote.get("26060602")?.cerradoConActividadPosterior).toBe(false);
+    expect(stock.lotesCerradosConActividadPosterior).toHaveLength(1);
+    expect(stock.lotesCerradosConActividadPosterior[0].lote).toBe("26060601");
+  });
+});
+
+describe("DIAS_SIN_ACTIVIDAD_TERMINADO — documentación del margen frente al gap real observado", () => {
+  it("se queda por debajo del gap máximo observado de reanudación (12 días) a propósito", () => {
+    expect(DIAS_SIN_ACTIVIDAD_TERMINADO).toBeLessThan(12);
+    expect(DIAS_SIN_ACTIVIDAD_TERMINADO).toBe(7);
+  });
+
+  it("UMBRAL_PROBABLE_TERMINADO es 0.80 (ajustado por análisis de clasificación sobre la campaña, no reutiliza UMBRAL_CIERRE_CON_ANALISIS)", () => {
+    expect(UMBRAL_PROBABLE_TERMINADO).toBe(0.80);
   });
 });

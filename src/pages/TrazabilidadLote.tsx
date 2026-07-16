@@ -9,7 +9,7 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
-  AlertTriangle, ArrowLeft, ArrowRight, Boxes, ChevronLeft, ChevronRight, ClipboardCheck, Factory, Lock, LockOpen, Leaf, Scale, Search, Ship, Truck, Warehouse, X,
+  AlertTriangle, ArrowLeft, ArrowRight, Boxes, ChevronLeft, ChevronRight, ClipboardCheck, Factory, HelpCircle, Lock, LockOpen, Leaf, Scale, Search, Ship, Truck, Warehouse, X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,16 +17,24 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CerrarLoteDialog } from "@/components/CerrarLoteDialog";
+import { FuenteBadge, fuentePodridoAVariant } from "@/components/FuenteBadge";
 import { ProgressBarRow } from "@/components/ProgressBarRow";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthProvider";
 import { useEntradasBascula } from "@/hooks/useEntradasBascula";
 import { useMermaLote } from "@/hooks/useMermaLote";
 import { useTrazabilidadLote } from "@/hooks/useTrazabilidadLote";
-import { esRestoEnCamaraRelevante, normalizarLoteCodigo, type CierreModo, type StockLoteRow } from "@/lib/entradasBascula";
+import {
+  DIAS_SIN_ACTIVIDAD_TERMINADO,
+  esRestoEnCamaraRelevante,
+  normalizarLoteCodigo,
+  UMBRAL_PROBABLE_TERMINADO,
+  type CierreModo,
+  type StockLoteRow,
+} from "@/lib/entradasBascula";
 import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatKgCompact as formatKg, formatNumber, formatPct, normalizarTexto } from "@/lib/format";
-import type { FuentePodrido, MermaLote } from "@/lib/mermaLote";
+import type { MermaLote } from "@/lib/mermaLote";
 import { productorNoCoincide } from "@/lib/productoresCanonicos";
 import { GRUPO_COLORS } from "@/lib/destinoClasificacion";
 import { barFill } from "@/lib/chartTheme";
@@ -329,6 +337,15 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
               Procesado
             </Badge>
           ) : null}
+          {filaStock?.probablementeTerminado && (
+            <Badge
+              variant="outline"
+              className="border-warning/40 bg-warning/10 px-1.5 py-0 text-[11px] text-warning"
+              title={`Lleva el ${formatPct(UMBRAL_PROBABLE_TERMINADO * 100)} o más procesado y ${DIAS_SIN_ACTIVIDAD_TERMINADO} días o más sin ninguna pasada del calibrador — probablemente el hueco es merma/podrido, no fruta pendiente. Se desmarca solo en cuanto llegue una pasada nueva.`}
+            >
+              <HelpCircle className="mr-1 h-3 w-3" /> ¿Terminado?
+            </Badge>
+          )}
 
           {mostrarNav && (
             <div className="ml-auto flex items-center gap-1">
@@ -446,6 +463,26 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
             </div>
           )}
         >
+          {filaStock?.cerradoConActividadPosterior && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                El calibrador registró una pasada DESPUÉS de cerrar este lote: la fruta volvió a línea, el cierre fue
+                probablemente un error.
+              </span>
+              {cerradoManualmente && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto h-6 gap-1 px-2 text-xs text-destructive hover:text-destructive"
+                  disabled={reabrirLote.isPending}
+                  onClick={handleReabrir}
+                >
+                  <LockOpen className="h-3 w-3" /> Reabrir
+                </Button>
+              )}
+            </div>
+          )}
           {entrada && (
             <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
               <DatoLinea label="Fecha de entrada" valor={formatDate(entrada.fecha)} />
@@ -752,38 +789,6 @@ function DatoLinea({ label, valor, destacado = false }: { label: string; valor: 
 // para todos los roles, así que solo muestra kg y %. El enlace de abajo lleva
 // al admin al detalle económico.
 
-/** "real" (Informe LOTE) en verde; "prorrateo" en gris con "≈" — nunca se ocultan las estimaciones. */
-function FuenteBadge({ fuente }: { fuente: FuentePodrido }) {
-  if (fuente === "real") {
-    return (
-      <Badge variant="outline" className="border-emerald-600/35 bg-emerald-600/12 px-1.5 py-0 text-[10px] text-emerald-800 dark:text-emerald-200">
-        real
-      </Badge>
-    );
-  }
-  if (fuente === "desconocido") {
-    return (
-      <Badge variant="outline" className="border-[var(--glass-border)] px-1.5 py-0 text-[10px] text-muted-foreground/70">
-        sin dato
-      </Badge>
-    );
-  }
-  return (
-    <Badge variant="outline" className="border-[var(--glass-border)] px-1.5 py-0 text-[10px] text-muted-foreground">
-      ≈ estimado
-    </Badge>
-  );
-}
-
-/** Podrido pre-calibrador: es una ASUNCIÓN del dueño (decisión 2026-07-15), ni "real" (Informe LOTE) ni "≈ estimado" (prorrateo) — tono ámbar propio para distinguirlo de ambos. */
-function AsumidoBadge() {
-  return (
-    <Badge variant="outline" className="border-amber-500/35 bg-amber-500/12 px-1.5 py-0 text-[10px] text-amber-800 dark:text-amber-200">
-      asumido
-    </Badge>
-  );
-}
-
 /** Umbral VISUAL (no de negocio) para destacar en warning el podrido pre-calibrador: > 40% de la merma medida o > 500 kg. */
 function podridoPreCalibradorDestacado(merma: MermaLote): boolean {
   const medida = Math.max(0, merma.mermaNaturalKg ?? 0);
@@ -863,7 +868,7 @@ function MermasYPerdidasCard({ lote }: { lote: string }) {
           <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
             <div className="flex items-center gap-1.5">
               <p className="text-xs font-semibold text-muted-foreground">Podrido calibrador</p>
-              <FuenteBadge fuente={merma.podridoCalibradorFuente} />
+              <FuenteBadge fuente={fuentePodridoAVariant(merma.podridoCalibradorFuente)} />
             </div>
             <p className="mt-1 text-lg font-bold tabular-nums">
               {merma.podridoCalibradorKg == null ? <span className="text-muted-foreground/70">sin dato</span> : formatKg(merma.podridoCalibradorKg)}
@@ -874,7 +879,7 @@ function MermasYPerdidasCard({ lote }: { lote: string }) {
           <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
             <div className="flex items-center gap-1.5">
               <p className="text-xs font-semibold text-muted-foreground">Podrido manual</p>
-              <FuenteBadge fuente={merma.podridoManualKg == null ? "desconocido" : "prorrateo"} />
+              <FuenteBadge fuente={fuentePodridoAVariant(merma.podridoManualKg == null ? "desconocido" : "prorrateo")} />
             </div>
             <p className="mt-1 text-lg font-bold tabular-nums">
               {merma.podridoManualKg == null ? <span className="text-muted-foreground/70">sin dato</span> : formatKg(merma.podridoManualKg)}
@@ -907,7 +912,7 @@ function MermasYPerdidasCard({ lote }: { lote: string }) {
                   {podridoPreCalibradorDestacado(merma) && <AlertTriangle className="h-3 w-3 shrink-0" />}
                   Podrido pre-calibrador:{" "}
                   <span className="tabular-nums">{formatKg(merma.podridoPreCalibradorKg ?? 0)}</span>
-                  <AsumidoBadge />
+                  <FuenteBadge fuente="asumido" />
                 </p>
               </div>
             ) : null}

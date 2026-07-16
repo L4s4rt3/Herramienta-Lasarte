@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import * as XLSX from "xlsx";
 import {
-  AlertTriangle, ArrowRight, CalendarDays, ChevronDown, FileSpreadsheet, GitCompare, Loader2, Lock, LockOpen, Package, Percent, Route, Search, Trash2, Truck, Upload, Users, Warehouse, X,
+  AlertTriangle, ArrowRight, CalendarDays, ChevronDown, FileSpreadsheet, GitCompare, HelpCircle, Loader2, Lock, LockOpen, Package, Percent, Route, Search, Trash2, Truck, Upload, Users, Warehouse, X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CerrarLoteDialog } from "@/components/CerrarLoteDialog";
 import { CerrarLotesEnBloqueDialog } from "@/components/CerrarLotesEnBloqueDialog";
 import { ConciliarInformeCamaraDialog } from "@/components/ConciliarInformeCamaraDialog";
+import { FuenteBadge, fuentePodridoAVariant } from "@/components/FuenteBadge";
 import { KPICard } from "@/components/KPICard";
 import { ProgressBarRow } from "@/components/ProgressBarRow";
 import { SortableTableHead, toggleSort, type SortDir } from "@/components/SortableColumn";
@@ -32,9 +33,11 @@ import { useMermaLotes } from "@/hooks/useMermaLote";
 import { useProductoresCatalogo } from "@/hooks/useProductoresCatalogo";
 import {
   buildEntradasDesdeStock,
+  DIAS_SIN_ACTIVIDAD_TERMINADO,
   normalizarLoteCodigo,
   parseEntradasBasculaRows,
   parseStockLotesRows,
+  UMBRAL_PROBABLE_TERMINADO,
   type EntradaBasculaParsed,
   type StockEstado,
   type StockLoteRow,
@@ -43,7 +46,6 @@ import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatKgCompact as formatKg, formatNumber, formatPct, normalizarTexto } from "@/lib/format";
 import {
   agruparPerdidaPorProductor,
-  type FuentePodrido,
   type ItemPerdidaProductor,
   type MermaLote,
 } from "@/lib/mermaLote";
@@ -115,38 +117,6 @@ function VariedadRow({ variedad, totalKg }: { variedad: { variedad: string; kg: 
 // "Pérdidas de fruta"), que sí puede mostrar € porque esa zona es solo admin.
 // Ver src/lib/mermaLote.ts para las fórmulas y src/hooks/useMermaLote.ts para
 // la carga de datos.
-
-/** "real" (Informe LOTE) en verde; "≈ est." (prorrateo) en gris; "sin dato" (parte del histórico sin podrido) en gris apagado — nunca se ocultan las estimaciones ni el hueco de dato. */
-function FuenteBadgeMini({ fuente }: { fuente: FuentePodrido }) {
-  if (fuente === "real") {
-    return (
-      <Badge variant="outline" className="border-emerald-600/35 bg-emerald-600/12 px-1 py-0 text-[10px] text-emerald-800 dark:text-emerald-200">
-        real
-      </Badge>
-    );
-  }
-  if (fuente === "desconocido") {
-    return (
-      <Badge variant="outline" className="border-[var(--glass-border)] px-1 py-0 text-[10px] text-muted-foreground/70">
-        sin dato
-      </Badge>
-    );
-  }
-  return (
-    <Badge variant="outline" className="border-[var(--glass-border)] px-1 py-0 text-[10px] text-muted-foreground">
-      ≈ est.
-    </Badge>
-  );
-}
-
-/** Podrido pre-calibrador: ASUMIDO por el dueño (decisión 2026-07-15), tono ámbar propio (ni "real" ni "≈ est."). */
-function AsumidoBadgeMini() {
-  return (
-    <Badge variant="outline" className="border-amber-500/35 bg-amber-500/12 px-1 py-0 text-[10px] text-amber-800 dark:text-amber-200">
-      asumido
-    </Badge>
-  );
-}
 
 type MermaSortKey =
   | "lote" | "kg_entrada" | "kg_calibrador" | "merma_kg" | "merma_pct" | "dias" | "podrido_pre"
@@ -434,20 +404,20 @@ function MermasCosteTab() {
                           >
                             {formatKg(l.podridoPreCalibradorKg)}
                           </Badge>
-                          <AsumidoBadgeMini />
+                          <FuenteBadge fuente="asumido" size="sm" />
                         </span>
                       ) : "—"}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       <span className="inline-flex items-center justify-end gap-1">
                         {l.podridoCalibradorKg == null ? <span className="text-muted-foreground/70">sin dato</span> : formatKg(l.podridoCalibradorKg)}{" "}
-                        <FuenteBadgeMini fuente={l.podridoCalibradorFuente} />
+                        <FuenteBadge fuente={fuentePodridoAVariant(l.podridoCalibradorFuente)} size="sm" />
                       </span>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       <span className="inline-flex items-center justify-end gap-1">
                         {l.podridoManualKg == null ? <span className="text-muted-foreground/70">sin dato</span> : formatKg(l.podridoManualKg)}{" "}
-                        <FuenteBadgeMini fuente={l.podridoManualKg == null ? "desconocido" : "prorrateo"} />
+                        <FuenteBadge fuente={fuentePodridoAVariant(l.podridoManualKg == null ? "desconocido" : "prorrateo")} size="sm" />
                       </span>
                     </TableCell>
                   </TableRow>
@@ -498,11 +468,13 @@ export default function EntradasBascula() {
   const [parseando, setParseando] = useState(false);
   const [search, setSearch] = useState("");
   const [soloActivos, setSoloActivos] = useState(true);
+  const [soloProbablesTerminados, setSoloProbablesTerminados] = useState(false);
   const [sortKey, setSortKey] = useState<StockSortKey>("fecha_entrada");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [activeTab, setActiveTab] = useState<"stock" | "dias" | "mermas">("stock");
   const [highlightLote, setHighlightLote] = useState<string | null>(null);
   const [bloqueDialogOpen, setBloqueDialogOpen] = useState(false);
+  const [bloqueTerminadosDialogOpen, setBloqueTerminadosDialogOpen] = useState(false);
   const [conciliarDialogOpen, setConciliarDialogOpen] = useState(false);
 
   // ─── Conectividad: llegada desde Trazabilidad con ?lote= ────────────────
@@ -616,6 +588,7 @@ export default function EntradasBascula() {
   const filasVisibles = useMemo(() => {
     const filtradas = stock.filas.filter((fila) => {
       if (soloActivos && fila.estado === "procesado") return false;
+      if (soloProbablesTerminados && !fila.probablementeTerminado) return false;
       if (!searchLower) return true;
       return (
         normalizarTexto(fila.lote).includes(searchLower)
@@ -627,7 +600,7 @@ export default function EntradasBascula() {
     const ordenadas = [...filtradas].sort((a, b) => compareStockRows(a, b, sortKey));
     if (sortDir === "desc") ordenadas.reverse();
     return ordenadas;
-  }, [stock.filas, soloActivos, searchLower, sortKey, sortDir]);
+  }, [stock.filas, soloActivos, soloProbablesTerminados, searchLower, sortKey, sortDir]);
 
   const handleToggleSort = (key: StockSortKey) => toggleSort(key, sortKey, sortDir, setSortKey, setSortDir);
 
@@ -645,6 +618,26 @@ export default function EntradasBascula() {
       })
       .filter((f): f is NonNullable<typeof f> => f != null),
     [stock.filas, entradaPorLote],
+  );
+
+  // Mismo mapeo, pero solo los "probablemente terminados" (≥UMBRAL_PROBABLE_TERMINADO
+  // procesado y ≥DIAS_SIN_ACTIVIDAD_TERMINADO días sin actividad) para
+  // prefiltrar el diálogo de cierre en bloque desde el banner de abajo, en
+  // modo con_analisis fijo.
+  const lotesProbablesTerminadosParaBloque = useMemo(
+    () => lotesActivosParaBloque.filter((f) => stock.filas.find((s) => s.lote === f.lote)?.probablementeTerminado),
+    [lotesActivosParaBloque, stock.filas],
+  );
+
+  // Lotes cerrados a mano con una pasada del calibrador posterior a su cierre
+  // (guardia inversa, pasadasPosterioresAlCierre): la fruta "cerrada" volvió a
+  // línea, así que el cierre fue probablemente un error — se avisa aparte,
+  // nunca se reabre solo.
+  const lotesCerradosConActividadPosteriorIds = useMemo(
+    () => stock.lotesCerradosConActividadPosterior
+      .map((f) => entradaPorLote.get(f.lote)?.id)
+      .filter((id): id is string => Boolean(id)),
+    [stock.lotesCerradosConActividadPosterior, entradaPorLote],
   );
 
   // Stock en cámara agrupado por variedad (solo lotes activos), para ver de un
@@ -738,6 +731,17 @@ export default function EntradasBascula() {
           open={bloqueDialogOpen}
           onOpenChange={setBloqueDialogOpen}
           filas={lotesActivosParaBloque}
+          cerrarLotesEnBloque={cerrarLotesEnBloque}
+        />
+      )}
+
+      {/* ─── Cierre masivo prefiltrado a "probablemente terminados" (banner de abajo, solo admin) ── */}
+      {isAdmin && (
+        <CerrarLotesEnBloqueDialog
+          open={bloqueTerminadosDialogOpen}
+          onOpenChange={setBloqueTerminadosDialogOpen}
+          filas={lotesActivosParaBloque}
+          lotesFijos={lotesProbablesTerminadosParaBloque}
           cerrarLotesEnBloque={cerrarLotesEnBloque}
         />
       )}
@@ -839,11 +843,19 @@ export default function EntradasBascula() {
             <KPICard
               className="glass-accented"
               label="Stock en cámara"
-              value={formatKg(stock.kgEnCamara)}
+              value={formatKg(stock.kgEnCamaraFirme)}
               hint="Entradas menos lo procesado por el calibrador"
               icon={Warehouse}
-              labelInfo="Kg entrados por báscula que el calibrador aún no ha procesado (cruce por código de lote). Un lote cuenta como procesado cuando el calibrador ha pasado el 97% o más de sus kg (báscula y calibrador nunca pesan exactamente igual)."
-            />
+              labelInfo="Kg entrados por báscula que el calibrador aún no ha procesado (cruce por código de lote). Un lote cuenta como procesado cuando el calibrador ha pasado el 97% o más de sus kg (báscula y calibrador nunca pesan exactamente igual). Se excluyen los lotes 'probablemente terminados' (ver abajo), que se muestran aparte."
+            >
+              {stock.lotesProbablementeTerminados > 0 && (
+                <p className="mt-2 text-xs font-medium text-warning">
+                  + {formatKg(stock.kgProbablementeTerminados)} en {stock.lotesProbablementeTerminados} lote
+                  {stock.lotesProbablementeTerminados === 1 ? "" : "s"} probablemente terminado
+                  {stock.lotesProbablementeTerminados === 1 ? "" : "s"}
+                </p>
+              )}
+            </KPICard>
             <KPICard
               className="glass-accented"
               label="Lotes en cámara"
@@ -869,6 +881,72 @@ export default function EntradasBascula() {
               labelInfo="Días desde la entrada del lote activo (en cámara o parcial) más antiguo. Más de 7 días en ámbar, más de 14 en rojo."
             />
           </section>
+
+          {/* ─── Banner: lotes probablemente terminados (solo admin puede cerrar en bloque) ── */}
+          {stock.lotesProbablementeTerminados > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+              <HelpCircle className="h-4 w-4 shrink-0" />
+              <span>
+                {stock.lotesProbablementeTerminados} lote{stock.lotesProbablementeTerminados === 1 ? "" : "s"} llevan{" "}
+                {DIAS_SIN_ACTIVIDAD_TERMINADO} días o más sin actividad con el {formatPct(UMBRAL_PROBABLE_TERMINADO * 100)} o
+                más procesado — probablemente terminados, pero no se cierran solos (el hueco puede ser fruta que vuelva a
+                línea).
+              </span>
+              {isAdmin && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="ml-auto h-8 border-warning/40 bg-warning/5 text-xs text-warning hover:bg-warning/15"
+                  onClick={() => setBloqueTerminadosDialogOpen(true)}
+                >
+                  <Lock className="h-3.5 w-3.5" /> Cerrar todos con análisis…
+                </Button>
+              )}
+            </div>
+          )}
+
+          {/* ─── Aviso: lotes cerrados con una pasada del calibrador posterior al cierre ── */}
+          {stock.lotesCerradosConActividadPosterior.length > 0 && (
+            <div className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <div className="flex flex-wrap items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <span>
+                  {stock.lotesCerradosConActividadPosterior.length} lote
+                  {stock.lotesCerradosConActividadPosterior.length === 1 ? "" : "s"} cerrado
+                  {stock.lotesCerradosConActividadPosterior.length === 1 ? "" : "s"} a mano volvieron a pasar por el
+                  calibrador DESPUÉS del cierre: revisar, probablemente hay que reabrirlos.
+                </span>
+                {isAdmin && lotesCerradosConActividadPosteriorIds.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto h-8 border-destructive/40 bg-destructive/5 text-xs text-destructive hover:bg-destructive/15"
+                    disabled={reabrirLotesEnBloque.isPending}
+                    onClick={() => {
+                      reabrirLotesEnBloque.mutate({ ids: lotesCerradosConActividadPosteriorIds }, {
+                        onSuccess: (r) => toast({ title: "Lotes reabiertos", description: `${r.reabiertos} lote(s) vuelven a estar activos.` }),
+                        onError: (err) => toast({ title: "No se pudieron reabrir", description: errorMessage(err), variant: "destructive" }),
+                      });
+                    }}
+                  >
+                    {reabrirLotesEnBloque.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LockOpen className="h-3.5 w-3.5" />}
+                    Reabrir todos
+                  </Button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {stock.lotesCerradosConActividadPosterior.map((f) => (
+                  <Link
+                    key={f.lote}
+                    to={`/trazabilidad?lote=${encodeURIComponent(f.lote)}`}
+                    className="rounded-md border border-destructive/30 bg-[var(--glass-bg)] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-destructive hover:underline"
+                  >
+                    {f.lote}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
 
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "stock" | "dias" | "mermas")} className="space-y-4">
             <TabsList className="w-full flex-wrap sm:w-auto">
@@ -1049,6 +1127,20 @@ export default function EntradasBascula() {
                       </button>
                     ))}
                   </div>
+                  {stock.lotesProbablementeTerminados > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={cn(
+                        "glass h-9 text-xs",
+                        soloProbablesTerminados ? "border-warning/40 bg-warning/10 text-warning" : "text-muted-foreground",
+                      )}
+                      onClick={() => setSoloProbablesTerminados((v) => !v)}
+                      title={`Filtra a los lotes con ${formatPct(UMBRAL_PROBABLE_TERMINADO * 100)} o más procesado y ${DIAS_SIN_ACTIVIDAD_TERMINADO} días o más sin actividad del calibrador`}
+                    >
+                      <HelpCircle className="h-3.5 w-3.5" /> ¿Terminados? ({stock.lotesProbablementeTerminados})
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardHeader>
@@ -1118,6 +1210,15 @@ export default function EntradasBascula() {
                           <TableCell>
                             <div className="flex flex-wrap items-center gap-1">
                               <Badge variant="outline" className={cn("px-1.5 py-0 text-[11px]", badge.className)}>{badge.label}</Badge>
+                              {fila.probablementeTerminado && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-warning/40 bg-warning/10 px-1.5 py-0 text-[10px] text-warning"
+                                  title={`Lleva el ${formatPct(UMBRAL_PROBABLE_TERMINADO * 100)} o más procesado y ${DIAS_SIN_ACTIVIDAD_TERMINADO} días o más sin ninguna pasada del calibrador — probablemente el hueco es merma/podrido, no fruta pendiente. Se desmarca solo en cuanto llegue una pasada nueva.`}
+                                >
+                                  <HelpCircle className="mr-1 h-2.5 w-2.5" /> ¿terminado?
+                                </Badge>
+                              )}
                               {fila.cerrado_at && (
                                 <Badge
                                   variant="outline"
@@ -1125,6 +1226,15 @@ export default function EntradasBascula() {
                                   title={fila.cierre_modo === "sin_registro" ? "Su procesado no consta bajo este código: excluido de mermas/podrido/forfait." : "El hueco cuenta como merma natural + podrido pre-calibrador."}
                                 >
                                   <Lock className="mr-1 h-2.5 w-2.5" /> {fila.cierre_modo === "sin_registro" ? "Cerrado sin análisis" : "Cerrado a mano"}
+                                </Badge>
+                              )}
+                              {fila.cerradoConActividadPosterior && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-destructive/40 bg-destructive/10 px-1.5 py-0 text-[10px] text-destructive"
+                                  title="El calibrador registró una pasada DESPUÉS de cerrar este lote: la fruta volvió a línea, el cierre fue probablemente un error. Revisar y reabrir si procede."
+                                >
+                                  <AlertTriangle className="mr-1 h-2.5 w-2.5" /> reanudó tras cerrar
                                 </Badge>
                               )}
                             </div>

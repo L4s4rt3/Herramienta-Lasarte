@@ -17,7 +17,13 @@ import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { CIERRE_MODO_TEXTOS } from "@/components/CerrarLoteDialog";
 import { toast } from "@/hooks/use-toast";
 import { errorMessage } from "@/lib/errorMessage";
-import { criterioCierreModo, UMBRAL_CIERRE_CON_ANALISIS, type CierreModo } from "@/lib/entradasBascula";
+import {
+  criterioCierreModo,
+  DIAS_SIN_ACTIVIDAD_TERMINADO,
+  UMBRAL_CIERRE_CON_ANALISIS,
+  UMBRAL_PROBABLE_TERMINADO,
+  type CierreModo,
+} from "@/lib/entradasBascula";
 import { formatKgCompact as formatKg, formatPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -42,9 +48,20 @@ interface CerrarLotesEnBloqueMutation {
 interface CerrarLotesEnBloqueDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Lotes activos (pendiente/parcial) del stock actual — el diálogo filtra por fecha internamente. */
+  /** Lotes activos (pendiente/parcial) del stock actual — el diálogo filtra por fecha internamente. Ignorado si se pasa `lotesFijos`. */
   filas: LoteActivoParaBloque[];
   cerrarLotesEnBloque: CerrarLotesEnBloqueMutation;
+  /**
+   * Lista ya decidida de antemano (p.ej. desde el banner de "N lotes llevan
+   * ≥DIAS_SIN_ACTIVIDAD_TERMINADO días sin actividad con
+   * ≥UMBRAL_PROBABLE_TERMINADO procesado" en EntradasBascula.tsx): cuando se
+   * pasa, el diálogo NO filtra por fecha ni reparte por criterioCierreModo —
+   * cierra exactamente estos lotes con modo "con_analisis" fijo (ya se
+   * preseleccionaron por la regla de "probablemente terminado"). Si se omite,
+   * el diálogo funciona igual que antes (fecha límite + reparto automático de
+   * dos grupos por criterioCierreModo, un umbral de negocio distinto).
+   */
+  lotesFijos?: LoteActivoParaBloque[];
 }
 
 const FECHA_LIMITE_DEFECTO = "2026-06-01";
@@ -112,11 +129,21 @@ function GrupoResumen({ grupo, titulo, descripcion, tono }: {
   );
 }
 
-export function CerrarLotesEnBloqueDialog({ open, onOpenChange, filas, cerrarLotesEnBloque }: CerrarLotesEnBloqueDialogProps) {
+export function CerrarLotesEnBloqueDialog({ open, onOpenChange, filas, cerrarLotesEnBloque, lotesFijos }: CerrarLotesEnBloqueDialogProps) {
   const [fechaLimite, setFechaLimite] = useState(FECHA_LIMITE_DEFECTO);
   const [progreso, setProgreso] = useState<{ hecho: number; total: number } | null>(null);
+  const modoFijo = lotesFijos != null;
 
-  const { conAnalisis, sinRegistro } = useMemo(() => agruparParaCierreEnBloque(filas, fechaLimite), [filas, fechaLimite]);
+  const { conAnalisis, sinRegistro } = useMemo(() => {
+    if (lotesFijos) {
+      const kgHueco = lotesFijos.reduce((s, f) => s + Math.max(0, f.kg_entrada - f.kg_procesado), 0);
+      return {
+        conAnalisis: { modo: "con_analisis" as const, lotes: lotesFijos, kgHueco },
+        sinRegistro: { modo: "sin_registro" as const, lotes: [], kgHueco: 0 },
+      };
+    }
+    return agruparParaCierreEnBloque(filas, fechaLimite);
+  }, [filas, fechaLimite, lotesFijos]);
   const total = conAnalisis.lotes.length + sinRegistro.lotes.length;
 
   const handleConfirmar = async () => {
@@ -147,37 +174,52 @@ export function CerrarLotesEnBloqueDialog({ open, onOpenChange, filas, cerrarLot
     <Dialog open={open} onOpenChange={(next) => { if (!cerrarLotesEnBloque.isPending) onOpenChange(next); }}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Cerrar antiguos en bloque</DialogTitle>
+          <DialogTitle>{modoFijo ? "Cerrar lotes probablemente terminados" : "Cerrar antiguos en bloque"}</DialogTitle>
           <DialogDescription>
-            Cierra de golpe todos los lotes activos con entrada anterior a la fecha elegida. Se reparten automáticamente
-            entre "con análisis" y "sin análisis" según si llevan el {formatPct(UMBRAL_CIERRE_CON_ANALISIS * 100)} o más
-            procesado — revisa los códigos antes de confirmar.
+            {modoFijo ? (
+              <>
+                Cierra con análisis (el hueco cuenta como merma/podrido real) los lotes que llevan el{" "}
+                {formatPct(UMBRAL_PROBABLE_TERMINADO * 100)} o más procesado y {DIAS_SIN_ACTIVIDAD_TERMINADO} días o más
+                sin ninguna pasada del calibrador — revisa los códigos antes de confirmar.
+              </>
+            ) : (
+              <>
+                Cierra de golpe todos los lotes activos con entrada anterior a la fecha elegida. Se reparten
+                automáticamente entre "con análisis" y "sin análisis" según si llevan el{" "}
+                {formatPct(UMBRAL_CIERRE_CON_ANALISIS * 100)} o más procesado — revisa los códigos antes de confirmar.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Entradas anteriores a</span>
-          <GlassDatePicker value={fechaLimite} onChange={setFechaLimite} displayFormat="dd MMM yyyy" />
-        </div>
+        {!modoFijo && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Entradas anteriores a</span>
+            <GlassDatePicker value={fechaLimite} onChange={setFechaLimite} displayFormat="dd MMM yyyy" />
+          </div>
+        )}
 
         <div className="space-y-2.5">
           <GrupoResumen
             grupo={conAnalisis}
-            titulo="casi terminados"
+            titulo={modoFijo ? "probablemente terminados" : "casi terminados"}
             descripcion={`cierre con análisis (${CIERRE_MODO_TEXTOS.con_analisis.titulo.toLowerCase()})`}
             tono="warning"
           />
-          <GrupoResumen
-            grupo={sinRegistro}
-            titulo="sin registro suficiente"
-            descripcion="cierre sin análisis (fuera del stock, sin contar pérdida)"
-            tono="muted"
-          />
+          {!modoFijo && (
+            <GrupoResumen
+              grupo={sinRegistro}
+              titulo="sin registro suficiente"
+              descripcion="cierre sin análisis (fuera del stock, sin contar pérdida)"
+              tono="muted"
+            />
+          )}
         </div>
 
         {total === 0 && (
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            <AlertTriangle className="h-4 w-4 shrink-0" /> No hay lotes activos con entrada anterior a esa fecha.
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {modoFijo ? "No hay lotes probablemente terminados." : "No hay lotes activos con entrada anterior a esa fecha."}
           </p>
         )}
 
