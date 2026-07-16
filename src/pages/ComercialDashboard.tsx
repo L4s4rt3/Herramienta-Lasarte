@@ -8,7 +8,7 @@ import {
   Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  AlertTriangle, ArrowRight, Boxes, Euro, FileStack, Layers, PackageCheck, ShoppingCart, Trophy, Users,
+  AlertTriangle, ArrowRight, Boxes, CalendarRange, Euro, FileStack, Layers, PackageCheck, ShoppingCart, Trophy, Users,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -37,6 +37,7 @@ const ACCESOS_RAPIDOS = [
   { to: "/comercial/mercadona", label: "Mercadona", desc: "Ventas semanales y planificación", icon: ShoppingCart },
   { to: "/ventas/categoria-segunda", label: "Categoría segunda", desc: "Ranking, clientes y catálogo", icon: Layers },
   { to: "/ventas/categoria-primera", label: "Categoría primera", desc: "Ranking, clientes y catálogo", icon: Layers },
+  { to: "/comercial/ventas-mes", label: "Ventas del mes", desc: "Importador mensual (reparte por categoría)", icon: CalendarRange },
   { to: "/cmr", label: "CMR / Hojas de ruta", desc: "Documentos de transporte", icon: FileStack },
 ] as const;
 
@@ -47,7 +48,10 @@ export default function ComercialDashboard() {
     <div className="page-shell">
       <header className="page-header">
         <div>
-          <p className="panel-kicker">Comercial</p>
+          <p className="panel-kicker flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />
+            Comercial
+          </p>
           <h1 className="page-title">Panel comercial</h1>
           <p className="page-subtitle">Ventas de un vistazo: Mercadona, categorías y clientes.</p>
         </div>
@@ -61,9 +65,9 @@ export default function ComercialDashboard() {
       ) : null}
 
       {/* ─── KPIs ─────────────────────────────────────────────────────────── */}
-      <section className="grid grid-cols-2 gap-3 xl:grid-cols-5">
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-6">
         {d.isLoading ? (
-          Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-32" />)
+          Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-32" />)
         ) : (
           <>
             <KPICard
@@ -108,6 +112,24 @@ export default function ComercialDashboard() {
               hint="Con expediciones en los últimos 30 días"
               icon={Users}
             />
+            <KPICard
+              className="glass-accented"
+              label={`Ventas ${d.mesAnterior.label} (1ª + 2ª)`}
+              value={
+                d.mesAnterior.isLoading
+                  ? "…"
+                  : d.mesAnterior.hayDatos
+                    ? formatKg(d.mesAnterior.kg)
+                    : "Sin datos"
+              }
+              hint={
+                d.mesAnterior.hayDatos
+                  ? `${formatNumber(d.mesAnterior.baseIva, 0)} € base IVA · mes pasado`
+                  : `Mes pasado sin importar (${d.mesAnterior.label})`
+              }
+              icon={CalendarRange}
+              to="/comercial/ventas-mes"
+            />
           </>
         )}
       </section>
@@ -142,6 +164,71 @@ export default function ComercialDashboard() {
                   <Line dataKey="planificado" name="Planificado" {...lineStyle(C.info)} />
                 </ComposedChart>
               </ResponsiveContainer>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ─── Campaña: kg por cliente principal ────────────────────────────── */}
+      <Card className="glass-accented overflow-hidden">
+        <CardHeader className="pb-2">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] text-primary">
+              <Boxes className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle className="text-base">Campaña: kg por cliente principal</CardTitle>
+              <p className="text-xs text-muted-foreground">Toda la campaña, no una ventana de días: Mercadona (vendido acumulado) y ranking de Categoría segunda.</p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {d.campana.isLoading ? (
+            <Skeleton className="h-48" />
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="panel-kicker">Mercadona</p>
+                  <Link to="/comercial/mercadona" className="text-xs font-semibold text-primary hover:underline">Ver Mercadona →</Link>
+                </div>
+                {d.campana.mercadonaKg > 0 ? (
+                  <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3.5">
+                    <p className="text-lg font-semibold tabular-nums">{formatKg(d.campana.mercadonaKg)}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Vendido acumulado, semanas importadas</p>
+                  </div>
+                ) : (
+                  <EstadoVacio icon={ShoppingCart} texto="Sin semanas de Mercadona importadas." />
+                )}
+              </div>
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="panel-kicker">Categoría segunda</p>
+                  <Link to="/ventas/categoria-segunda" className="text-xs font-semibold text-primary hover:underline">Ver categoría segunda →</Link>
+                </div>
+                {!d.campana.hasAccessSegunda ? (
+                  <EstadoVacio icon={Layers} texto="Sin acceso a categoría segunda." />
+                ) : d.campana.clientesSegunda.length === 0 ? (
+                  <EstadoVacio icon={Layers} texto="Sin clientes con kg en categoría segunda." />
+                ) : (
+                  <ul className="divide-y divide-[var(--glass-border)]">
+                    {d.campana.clientesSegunda.map((c, i) => {
+                      const maxKg = d.campana.clientesSegunda[0]?.kg || 1;
+                      return (
+                        <li key={c.cliente} className="py-2">
+                          <div className="flex items-center justify-between gap-3 text-sm">
+                            <span className="truncate font-medium">{i + 1}. {c.cliente}</span>
+                            <span className="shrink-0 font-semibold tabular-nums">{formatKg(c.kg)}</span>
+                          </div>
+                          <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                            <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(4, Math.round((c.kg / maxKg) * 100))}%` }} />
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
             </div>
           )}
         </CardContent>

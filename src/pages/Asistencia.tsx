@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { today } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthProvider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1169,6 +1170,12 @@ export default function Asistencia() {
               <span className="font-semibold">{getWeekLabel(getWeekDates(weekStart))}</span>
             )}
           </p>
+          <Link
+            to="/costes/asistencia/comparativa"
+            className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+          >
+            Comparativa semanal →
+          </Link>
         </div>
         <div className="flex rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-0.5">
           <Button

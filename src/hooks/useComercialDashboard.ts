@@ -65,6 +65,11 @@ export interface ComercialMesAnterior {
   baseIva: number;
 }
 
+export interface ComercialCampanaCliente {
+  cliente: string;
+  kg: number;
+}
+
 async function fetchPartIdsEnRango(desde: string, hasta: string): Promise<string[]> {
   const data = await fetchAllRows<{ id: string }>((from, to) =>
     supabase.from("partes_diarios").select("id").gte("date", desde).lte("date", hasta).order("id").range(from, to),
@@ -158,6 +163,30 @@ export function useComercialDashboard() {
     };
   }, [categoriaSegundaHook.mensualClienteQuery, categoriaPrimeraHook.mensualClienteQuery, mesAnteriorInfo]);
 
+  // ─── Módulo "campaña": kg por cliente principal (Mercadona + Categoria
+  // segunda), toda la campaña (no una ventana de 30 días como topClientes).
+  // rankingClientesQuery ya viene cacheada por categoriaSegundaHook (se pide
+  // sin condicion, aunque no se leyera aqui), asi que exponerla no añade
+  // ninguna consulta nueva.
+  const campanaMercadonaKg = useMemo(
+    () => semanas.reduce((sum, s) => sum + (s.vendido_kg ?? 0), 0),
+    [semanas],
+  );
+
+  const campanaClientesSegunda: ComercialCampanaCliente[] = useMemo(
+    () => (categoriaSegundaHook.rankingClientesQuery.data ?? [])
+      .slice(0, 6)
+      .map((r) => ({ cliente: r.cliente_nombre?.trim() || "Sin nombre", kg: r.kilos ?? 0 })),
+    [categoriaSegundaHook.rankingClientesQuery.data],
+  );
+
+  const campana = {
+    isLoading: ventas.isLoading || categoriaSegundaHook.rankingClientesQuery.isLoading,
+    hasAccessSegunda: categoriaSegundaHook.hasAccess,
+    mercadonaKg: campanaMercadonaKg,
+    clientesSegunda: campanaClientesSegunda,
+  };
+
   // ─── Top clientes por kg (palets_dia, último mes) — una sola query al rango ─
   const hasta = today();
   const desde = useMemo(
@@ -214,6 +243,9 @@ export function useComercialDashboard() {
     categoriaSegunda,
     categoriaPrimera,
     mesAnterior,
+
+    // Campaña (kg por cliente principal)
+    campana,
 
     // Clientes
     topClientes,

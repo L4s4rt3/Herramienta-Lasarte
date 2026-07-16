@@ -7,14 +7,17 @@
 // restringida a rrhh/admin: si el usuario no tiene ese rol se degradan con un
 // aviso, pero el resto del panel (asistencia, rendimiento, comparativa) no es
 // sensible y se muestra igual.
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
+  ArrowRight,
+  Banknote,
   CalendarCheck,
   CalendarClock,
   FileWarning,
   HeartPulse,
+  Mail,
   Package,
   Palmtree,
   Scale,
@@ -35,10 +38,13 @@ import {
 } from "@/lib/chartTheme";
 import { formatDate, formatKg, formatNumber, today } from "@/lib/format";
 import { useRrhhDashboard, useRendimientoDia } from "@/hooks/useRrhhDashboard";
+import { useRrhhNominas } from "@/hooks/useRrhhDocs";
 import type { SemanaComparativaData } from "@/lib/asistenciaComparativa";
 
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 const DAY_KEYS = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"];
+
+const MES_LABELS = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 
 const GRAVEDAD_LABEL: Record<string, string> = {
   leve: "Leve",
@@ -88,6 +94,29 @@ export default function RrhhDashboard() {
   const fechaRendimiento = fechaRendimientoManual ?? rrhh.ultimoDiaConAsistencia;
   const rendimiento = useRendimientoDia(fechaRendimiento);
 
+  // ─── Nóminas: mes con hueco más reciente (dato-resumen barato para el
+  // acceso a "Nóminas", hoy isla) — una sola query a rrhh_nominas del año en
+  // curso, recorrida hacia atrás desde el mes actual hasta encontrar uno con
+  // menos nóminas subidas que trabajadores activos.
+  const hoy = today();
+  const anioActual = Number(hoy.slice(0, 4));
+  const mesActual = Number(hoy.slice(5, 7));
+  const nominas = useRrhhNominas(anioActual);
+  const mesConHuecoNominas = useMemo(() => {
+    if (nominas.sinPermiso || rrhh.plantillaActiva === 0) return null;
+    const trabajadoresPorMes = new Map<number, Set<string>>();
+    for (const n of nominas.nominas) {
+      const set = trabajadoresPorMes.get(n.mes) ?? new Set<string>();
+      set.add(n.trabajador_id);
+      trabajadoresPorMes.set(n.mes, set);
+    }
+    for (let mes = mesActual; mes >= 1; mes--) {
+      const count = trabajadoresPorMes.get(mes)?.size ?? 0;
+      if (count < rrhh.plantillaActiva) return mes;
+    }
+    return null;
+  }, [nominas.nominas, nominas.sinPermiso, rrhh.plantillaActiva, mesActual]);
+
   const semanas = rrhh.semanas;
   const chartData = semanas.map((sem) => {
     const row: Record<string, string | number | null> = { semana: sem.label };
@@ -106,7 +135,10 @@ export default function RrhhDashboard() {
     <div className="page-shell">
       <header className="page-header">
         <div>
-          <p className="panel-kicker">RRHH</p>
+          <p className="panel-kicker flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />
+            RRHH
+          </p>
           <h1 className="page-title">Panel de RRHH</h1>
           <p className="page-subtitle">
             Plantilla, asistencia, rendimiento y comparativa semanal en un único vistazo.
@@ -324,8 +356,8 @@ export default function RrhhDashboard() {
         </CardContent>
       </Card>
 
-      {/* ─── Amonestaciones / vacaciones / bajas ──────────────────────────── */}
-      <section className="grid gap-4 xl:grid-cols-3">
+      {/* ─── Amonestaciones / vacaciones / bajas / nóminas y comunicaciones ─ */}
+      <section className="grid gap-4 xl:grid-cols-4">
         <Card className="glass-accented">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between gap-2">
@@ -423,6 +455,48 @@ export default function RrhhDashboard() {
                 ))}
               </ul>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Nóminas y comunicaciones: hoy islas, se enganchan al panel con un
+            dato-resumen barato (mes con hueco más reciente en nóminas). */}
+        <Card className="glass-accented">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Nóminas y comunicaciones</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2.5">
+            <Link
+              to="/rrhh/nominas"
+              className="group flex items-start gap-3 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3 transition-colors hover:bg-[var(--glass-bg-strong)]"
+            >
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg glass-strong text-primary">
+                <Banknote className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">Nóminas</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {nominas.sinPermiso
+                    ? "Solo RRHH y administración"
+                    : mesConHuecoNominas != null
+                      ? `Falta subir ${MES_LABELS[mesConHuecoNominas]}`
+                      : `Al día en ${anioActual}`}
+                </p>
+              </div>
+              <ArrowRight className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+            </Link>
+            <Link
+              to="/rrhh/comunicaciones"
+              className="group flex items-start gap-3 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3 transition-colors hover:bg-[var(--glass-bg-strong)]"
+            >
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg glass-strong text-primary">
+                <Mail className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">Comunicaciones</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">Avisos automáticos y correos a la plantilla</p>
+              </div>
+              <ArrowRight className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+            </Link>
           </CardContent>
         </Card>
       </section>
