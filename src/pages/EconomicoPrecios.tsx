@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { EconomicoSubnav } from "@/components/economico/EconomicoSubnav";
 import { FuenteBadge } from "@/components/FuenteBadge";
 import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { Input } from "@/components/ui/input";
@@ -214,7 +215,7 @@ export default function EconomicoPrecios() {
       <div className="page-shell">
         <header className="page-header">
           <div>
-            <p className="panel-kicker">Económico</p>
+            <p className="panel-kicker text-seccion-texto">Económico</p>
             <h1 className="page-title">Tarifas de recursos</h1>
             <p className="page-subtitle">Precio por unidad de agua, electricidad, gasoil y químicos.</p>
           </div>
@@ -239,7 +240,7 @@ export default function EconomicoPrecios() {
       <header className="page-header">
         <div>
           <div className="flex items-center gap-2">
-            <p className="panel-kicker">Económico</p>
+            <p className="panel-kicker text-seccion-texto">Económico</p>
             <Badge variant="outline" className="rounded-md px-2 py-0 text-xs">
               {recursos.length} recurso(s)
             </Badge>
@@ -260,6 +261,8 @@ export default function EconomicoPrecios() {
           </Button>
         </div>
       </header>
+
+      <EconomicoSubnav />
 
       {hayPrecioCero && (
         <Card className="glass border-warning/30 bg-warning/6">
@@ -665,7 +668,7 @@ function MallasRotasSection({ mallas }: { mallas: ReturnType<typeof useMallasCon
       <div className="flex items-center gap-3 pt-2">
         <div className="h-7 w-1 rounded-full bg-primary" />
         <div>
-          <p className="panel-kicker">Económico</p>
+          <p className="panel-kicker text-seccion-texto">Económico</p>
           <h2 className="text-xl font-semibold tracking-tight">Mallas rotas (Z1/Z2)</h2>
           <p className="text-sm text-muted-foreground">
             En Z1 se usa un tipo de malla y en Z2 otro: peso de fruta por malla y precio por malla, para calcular el gasto de mallas rotas.
@@ -947,7 +950,7 @@ function EmpaqueSection({ empaque }: { empaque: ReturnType<typeof useEmpaquePrec
       <div className="flex items-center gap-3 pt-2">
         <div className="h-7 w-1 rounded-full bg-primary" />
         <div>
-          <p className="panel-kicker">Económico</p>
+          <p className="panel-kicker text-seccion-texto">Económico</p>
           <h2 className="text-xl font-semibold tracking-tight">Costes de envasado</h2>
           <p className="text-sm text-muted-foreground">
             Precios de materiales de packaging (etiqueta, caja, palet, malla, banda, fleje, asa) por tipo de malla.

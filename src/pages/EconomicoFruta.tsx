@@ -34,6 +34,7 @@ import {
 } from "recharts";
 import { InfoTooltip } from "@/components/InfoTooltip";
 import { KPICard } from "@/components/KPICard";
+import { EconomicoSubnav } from "@/components/economico/EconomicoSubnav";
 import { ConsumoPeriodoSelector } from "@/components/consumos/ConsumoPeriodoSelector";
 import { SortableTableHead, toggleSort, type SortDir } from "@/components/SortableColumn";
 import { toast } from "@/hooks/use-toast";
@@ -753,7 +754,7 @@ export default function EconomicoFruta() {
     <div className="page-shell">
       <header className="page-header">
         <div>
-          <p className="panel-kicker">Económico</p>
+          <p className="panel-kicker text-seccion-texto">Económico</p>
           <h1 className="page-title">Compra de fruta</h1>
           <p className="page-subtitle">
             Detalle de las entradas de báscula del periodo: por lote, por agricultor y por variedad.
@@ -778,6 +779,8 @@ export default function EconomicoFruta() {
           <Download className="h-4 w-4" /> Descargar Excel
         </Button>
       </header>
+
+      <EconomicoSubnav />
 
       <ConsumoPeriodoSelector
         tipo={periodoTipo}

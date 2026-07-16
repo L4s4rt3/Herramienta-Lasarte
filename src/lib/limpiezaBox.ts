@@ -89,6 +89,68 @@ export function resumenLimpiezaEnRango(
   };
 }
 
+// ─── Coste de personal de limpieza (FASE 3 del rediseño, decisión del dueño) ─
+// DESGLOSE informativo del coste de personal ya contado en Económico → Costes
+// (por asistencia): estas horas NO se suman a ningún total, solo se muestran
+// aparte para que el dueño vea cuánto de ese coste ya contado corresponde al
+// grupo de limpieza de boxes. Trabajador de plantilla (trabajador_id resuelto
+// con coste_hora numérico) → cuenta en horas Y en €; nombre libre o trabajador
+// sin coste_hora asignado → cuenta solo en horas (el € de esa persona no se
+// puede estimar, se deja fuera en vez de asumir un coste inventado).
+
+export interface LimpiezaParteTrabajadorInput {
+  trabajador_id: string | null;
+  nombre: string;
+  horas: number | string | null | undefined;
+}
+
+export interface LimpiezaCostePeriodo {
+  /** Horas de TODOS los trabajadores del periodo (plantilla + nombres libres). */
+  horasTotal: number;
+  /** De horasTotal, las de trabajadores de plantilla con coste_hora asignado. */
+  horasConCoste: number;
+  /** De horasTotal, las que no se pueden valorar (nombre libre o sin coste_hora). */
+  horasSinCoste: number;
+  /** Σ horas × coste_hora, solo de quien tiene coste_hora asignado. */
+  eurTotal: number;
+  /** Nº de nombres distintos sin coste_hora resuelto (para el aviso de la UI). */
+  nPersonasSinCoste: number;
+}
+
+/**
+ * Agrega las filas de `limpieza_parte_trabajadores` de un periodo (ya
+ * filtradas por fecha por el llamador) valorando cada una con el coste_hora
+ * de `costeHoraPorTrabajador` (id de la tabla `trabajadores` → coste_hora,
+ * `null`/ausente = sin coste asignado).
+ */
+export function agregarLimpiezaCoste(
+  trabajadoresParte: readonly LimpiezaParteTrabajadorInput[],
+  costeHoraPorTrabajador: ReadonlyMap<string, number | null>,
+): LimpiezaCostePeriodo {
+  let horasTotal = 0;
+  let horasConCoste = 0;
+  let horasSinCoste = 0;
+  let eurTotal = 0;
+  const sinCosteNombres = new Set<string>();
+
+  for (const t of trabajadoresParte) {
+    const horas = Number(t.horas);
+    if (!Number.isFinite(horas) || horas <= 0) continue;
+    horasTotal += horas;
+
+    const costeHora = t.trabajador_id ? costeHoraPorTrabajador.get(t.trabajador_id) ?? null : null;
+    if (costeHora != null && Number.isFinite(costeHora)) {
+      horasConCoste += horas;
+      eurTotal += horas * costeHora;
+    } else {
+      horasSinCoste += horas;
+      sinCosteNombres.add(t.nombre);
+    }
+  }
+
+  return { horasTotal, horasConCoste, horasSinCoste, eurTotal, nPersonasSinCoste: sinCosteNombres.size };
+}
+
 export interface ResumenSemanaLimpieza extends ResumenLimpieza {
   /** Lunes de la semana ISO, "YYYY-MM-DD" (clave estable de agrupación). */
   semanaInicio: string;

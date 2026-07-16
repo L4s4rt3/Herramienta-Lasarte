@@ -28,6 +28,7 @@ import {
 import { KPICard } from "@/components/KPICard";
 import { ProgressBarRow } from "@/components/ProgressBarRow";
 import { SelectorPeriodo } from "@/components/SelectorPeriodo";
+import { EconomicoSubnav } from "@/components/economico/EconomicoSubnav";
 import { useEconomicoPanel } from "@/hooks/useEconomico";
 import { useMermaLotes } from "@/hooks/useMermaLote";
 import { metodoLabel } from "@/components/mercadona/mercadonaAnalisis.helpers";
@@ -83,6 +84,7 @@ function fuenteMallasResumen(fuenteZ1: "envasado" | "manual" | null, fuenteZ2: "
 const ACCESOS_RAPIDOS = [
   { to: "/economico/facturacion", label: "Facturación", desc: "Semanas y métodos de Mercadona", icon: Euro },
   { to: "/economico/costes", label: "Costes", desc: "Consumos vs tarifas por periodo", icon: Receipt },
+  { to: "/economico/fruta", label: "Compra de fruta", desc: "Detalle por lote, agricultor y forfait", icon: Citrus },
   { to: "/economico/precios", label: "Precios", desc: "Tarifas de agua, gasoil, luz y químicos", icon: Tag },
 ] as const;
 
@@ -136,7 +138,7 @@ export default function EconomicoPanel() {
       <div className="page-shell">
         <header className="page-header">
           <div>
-            <p className="panel-kicker">Económico</p>
+            <p className="panel-kicker text-seccion-texto">Económico</p>
             <h1 className="page-title">Panel económico</h1>
             <p className="page-subtitle">Facturación, costes y margen bruto estimado del periodo elegido.</p>
           </div>
@@ -160,11 +162,13 @@ export default function EconomicoPanel() {
     <div className="page-shell">
       <header className="page-header">
         <div>
-          <p className="panel-kicker">Económico</p>
+          <p className="panel-kicker text-seccion-texto">Económico</p>
           <h1 className="page-title">Panel económico</h1>
           <p className="page-subtitle">Facturación, costes y margen bruto estimado del periodo elegido.</p>
         </div>
       </header>
+
+      <EconomicoSubnav />
 
       <div className="section-toolbar flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="flex items-center gap-1 rounded-xl bg-[var(--glass-bg)] border border-[var(--glass-border)] p-1 shadow-[var(--glass-shadow)]">
@@ -518,7 +522,7 @@ export default function EconomicoPanel() {
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Accesos rápidos</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-2.5 sm:grid-cols-3">
+        <CardContent className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
           {ACCESOS_RAPIDOS.map(({ to, label, desc, icon: Icon }) => (
             <Link
               key={to}
@@ -531,6 +535,14 @@ export default function EconomicoPanel() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold">{label}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>
+                {/* Compra de fruta: dato-resumen del periodo elegido, ya disponible
+                    en useEconomicoPanel (mismo importe que el KPI "Compra de
+                    fruta" de arriba) — antes esta tarjeta era una isla sin dato. */}
+                {to === "/economico/fruta" && !panel.isLoading && (
+                  <p className="mt-1 text-xs font-semibold tabular-nums text-foreground">
+                    {formatEuro(panel.costeFruta.totalImporte)} en el periodo
+                  </p>
+                )}
               </div>
               <ArrowRight className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
             </Link>

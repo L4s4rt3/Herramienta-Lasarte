@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   ArrowRight,
   CalendarCheck,
+  Citrus,
   Euro,
   Factory,
   Gauge,
@@ -90,7 +91,8 @@ export default function DireccionDashboard() {
     <div className="page-shell">
       <header className="page-header">
         <div>
-          <p className="panel-kicker">Dirección</p>
+          {/* Acento de Dirección (--seccion-acento-texto, FASE 3 del rediseño). */}
+          <p className="panel-kicker text-seccion-texto">Dirección</p>
           <h1 className="page-title">Panel de dirección</h1>
           <p className="page-subtitle">
             Un vistazo a las 4 áreas: producción, comercial, RRHH y económico.
@@ -214,7 +216,7 @@ export default function DireccionDashboard() {
                 hint={comercial.hayUltimaSemana && comercial.hayPlanificado ? `${formatPct(comercial.pctCumplimiento, 0)} cumplimiento` : undefined}
                 accent={comercial.hayUltimaSemana && comercial.hayPlanificado ? cumplimientoAccent(comercial.pctCumplimiento) : "primary"}
                 icon={ShoppingCart}
-                to="/comercial"
+                to="/comercial/mercadona"
               />
               <KPICard
                 className="glass-accented"
@@ -222,7 +224,7 @@ export default function DireccionDashboard() {
                 value={comercial.tieneBaseIva ? `${formatNumber(comercial.eurosPorKg, 3)} €/kg` : "—"}
                 hint={comercial.tieneBaseIva ? "Base IVA / vendido, última semana" : "Sin base IVA en esta semana"}
                 icon={Euro}
-                to="/comercial"
+                to="/comercial/mercadona"
               />
               <KPICard
                 className="glass-accented"
@@ -289,7 +291,7 @@ export default function DireccionDashboard() {
                 label="Plantilla activa"
                 value={formatNumber(rrhh.plantillaActiva)}
                 icon={Users}
-                to="/rrhh"
+                to="/rrhh/personas"
               />
               <KPICard
                 className="glass-accented"
@@ -298,7 +300,7 @@ export default function DireccionDashboard() {
                 hint={rrhh.hayAsistenciaRegistrada ? undefined : "Sin días con asistencia registrada"}
                 accent={rrhh.hayAsistenciaRegistrada ? asistenciaAccent(rrhh.pctAsistenciaUltimoDia ?? 0) : "primary"}
                 icon={CalendarCheck}
-                to="/rrhh"
+                to="/costes/asistencia"
               />
               <KPICard
                 className="glass-accented"
@@ -307,7 +309,7 @@ export default function DireccionDashboard() {
                 hint="Desde el lunes"
                 accent={rrhh.ausenciasSemana > 0 ? "warning" : "primary"}
                 icon={AlertTriangle}
-                to="/rrhh"
+                to="/rrhh/ausencias"
               />
               <KPICard
                 className="glass-accented"
@@ -316,7 +318,7 @@ export default function DireccionDashboard() {
                 hint="Bajas laborales en curso"
                 accent={rrhh.bajasActivas > 0 ? "warning" : "primary"}
                 icon={HeartPulse}
-                to="/rrhh"
+                to="/rrhh/ausencias"
               />
             </>
           )}
@@ -354,7 +356,7 @@ export default function DireccionDashboard() {
                       value={formatEuro(economico.facturacionPeriodo)}
                       icon={Euro}
                       labelInfo="Mercadona (base IVA de las semanas del periodo) + ventas de categoría segunda a clientes fijos. Mismo dato que 'Facturación (Mercadona + 2ª)' del Panel Económico."
-                      to="/economico"
+                      to="/economico/facturacion"
                     />
                     <KPICard
                       className="glass-accented"
@@ -362,7 +364,7 @@ export default function DireccionDashboard() {
                       value={formatEuro(economico.costeTotal)}
                       icon={Receipt}
                       labelInfo="Consumos (agua, gasoil, electricidad, químicos) + mallas rotas + compra de fruta + coste de personal. Mismo total que usa el Panel Económico para el margen bruto."
-                      to="/economico"
+                      to="/economico/costes"
                     />
                     <KPICard
                       className="glass-accented"
@@ -382,7 +384,41 @@ export default function DireccionDashboard() {
                       value={economico.costePorKg != null ? `${formatNumber(economico.costePorKg, 4)} €/kg` : "—"}
                       icon={Scale}
                       labelInfo="Coste de consumos (sin mallas, fruta ni personal) dividido entre los kg producidos del periodo — no forma parte del margen bruto."
-                      to="/economico"
+                      to="/economico/costes"
+                    />
+                  </>
+                )}
+              </div>
+
+              {/* ─── Módulo "Compra de fruta y forfait" (FASE 3): promociona
+                  /economico/fruta, hoy solo accesible desde dentro de Económico. ─── */}
+              <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
+                {economico.fruta == null || economico.fruta.isLoading ? (
+                  Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-32" />)
+                ) : (
+                  <>
+                    <KPICard
+                      className="glass-accented"
+                      label="Compra de fruta (kg del periodo)"
+                      value={formatKg(economico.fruta.kgComprados)}
+                      icon={Citrus}
+                      labelInfo="Kg comprados en entradas de báscula del periodo (mismo dato que 'Compra de fruta' del Panel Económico)."
+                      to="/economico/fruta"
+                    />
+                    <KPICard
+                      className="glass-accented"
+                      label="€/kg medio de compra"
+                      value={economico.fruta.eurosPorKgMedio != null ? `${formatNumber(economico.fruta.eurosPorKgMedio, 4)} €/kg` : "—"}
+                      icon={Euro}
+                      to="/economico/fruta"
+                    />
+                    <KPICard
+                      className="glass-accented"
+                      label="Forfait medio (coste/kg aprovechable)"
+                      value={economico.fruta.forfaitMedioEurKg != null ? `${formatNumber(economico.fruta.forfaitMedioEurKg, 4)} €/kg` : "—"}
+                      icon={Scale}
+                      labelInfo="Σ coste de compra / Σ kg aprovechable (kg que llegan a venderse, tras merma y podrido) de todos los lotes procesados del periodo. Es el coste real por kilo vendible, no el €/kg de compra nominal — ver Económico → Compra de fruta para el detalle por productor/finca y el simulador."
+                      to="/economico/fruta"
                     />
                   </>
                 )}

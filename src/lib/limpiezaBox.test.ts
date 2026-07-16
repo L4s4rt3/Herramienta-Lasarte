@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   PIES_A_BOX,
+  agregarLimpiezaCoste,
   boxAPies,
   piesABox,
   resumenLimpiezaEnRango,
@@ -111,5 +112,57 @@ describe("resumenLimpiezaPorSemanaIso", () => {
     ]);
     expect(semanas).toHaveLength(1);
     expect(semanas[0].box).toBe(20);
+  });
+});
+
+describe("agregarLimpiezaCoste", () => {
+  it("valora solo a los trabajadores de plantilla con coste_hora asignado", () => {
+    const costeHoraPorTrabajador = new Map<string, number | null>([
+      ["t1", 12],
+      ["t2", null], // plantilla pero sin coste_hora asignado
+    ]);
+    const r = agregarLimpiezaCoste(
+      [
+        { trabajador_id: "t1", nombre: "Ana", horas: 4 },
+        { trabajador_id: "t2", nombre: "Bea", horas: 3 },
+        { trabajador_id: null, nombre: "Nombre libre", horas: 2 },
+      ],
+      costeHoraPorTrabajador,
+    );
+    expect(r.horasTotal).toBe(9);
+    expect(r.horasConCoste).toBe(4);
+    expect(r.horasSinCoste).toBe(5);
+    expect(r.eurTotal).toBe(48); // 4h × 12€/h
+    expect(r.nPersonasSinCoste).toBe(2); // Bea + Nombre libre
+  });
+
+  it("ignora horas no numéricas, cero o negativas sin romper", () => {
+    const r = agregarLimpiezaCoste(
+      [
+        { trabajador_id: "t1", nombre: "Ana", horas: 0 },
+        { trabajador_id: "t1", nombre: "Ana", horas: -3 },
+        { trabajador_id: "t1", nombre: "Ana", horas: "no" as unknown as number },
+        { trabajador_id: "t1", nombre: "Ana", horas: null },
+      ],
+      new Map([["t1", 10]]),
+    );
+    expect(r).toEqual({ horasTotal: 0, horasConCoste: 0, horasSinCoste: 0, eurTotal: 0, nPersonasSinCoste: 0 });
+  });
+
+  it("sin trabajadores ni mapa de costes devuelve el resumen vacío", () => {
+    const r = agregarLimpiezaCoste([], new Map());
+    expect(r).toEqual({ horasTotal: 0, horasConCoste: 0, horasSinCoste: 0, eurTotal: 0, nPersonasSinCoste: 0 });
+  });
+
+  it("un mismo nombre libre repetido en varios partes solo cuenta una vez en nPersonasSinCoste", () => {
+    const r = agregarLimpiezaCoste(
+      [
+        { trabajador_id: null, nombre: "Suplente", horas: 3 },
+        { trabajador_id: null, nombre: "Suplente", horas: 5 },
+      ],
+      new Map(),
+    );
+    expect(r.horasSinCoste).toBe(8);
+    expect(r.nPersonasSinCoste).toBe(1);
   });
 });

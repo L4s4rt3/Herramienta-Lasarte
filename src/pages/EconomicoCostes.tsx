@@ -5,8 +5,8 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  AlertTriangle, ChevronDown, ChevronsUpDown, ChevronUp, Citrus, Download, Droplet, Euro, Fuel, FlaskConical,
-  Package, Scale, ShieldAlert, Users, Zap,
+  AlertTriangle, ArrowRight, ChevronDown, ChevronsUpDown, ChevronUp, Citrus, Download, Droplet, Euro, Fuel,
+  FlaskConical, Package, Scale, ShieldAlert, Sparkles, Users, Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -22,12 +22,14 @@ import {
 import { FuenteBadge } from "@/components/FuenteBadge";
 import { KPICard } from "@/components/KPICard";
 import { ConsumoPeriodoSelector } from "@/components/consumos/ConsumoPeriodoSelector";
+import { EconomicoSubnav } from "@/components/economico/EconomicoSubnav";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthProvider";
 import { useCostesPeriodo, useCosteFruta } from "@/hooks/useEconomico";
 import { useCostePersonal } from "@/hooks/useCostePersonal";
 import { useCosteMallas } from "@/hooks/useCosteMallas";
 import { useEntradasBascula } from "@/hooks/useEntradasBascula";
+import { useLimpiezaBoxCostePeriodo } from "@/hooks/useLimpiezaBox";
 import { useMermaLotes } from "@/hooks/useMermaLote";
 import { useProductoresCatalogo } from "@/hooks/useProductoresCatalogo";
 import type { CostePersonaRow, CosteZonaRow } from "@/lib/costePersonal";
@@ -377,6 +379,10 @@ export default function EconomicoCostes() {
     faltanDatos: faltanDatosMallas, isLoading: isLoadingMallas, sinPermiso: sinPermisoMallas,
   } = useCosteMallas(periodoRange.start, periodoRange.end);
 
+  // Limpieza de box: DESGLOSE informativo del coste de personal de arriba
+  // (decisión del dueño, FASE 3) — nunca se suma al total, ver KPICard de abajo.
+  const limpiezaBoxCoste = useLimpiezaBoxCostePeriodo(periodoRange.start, periodoRange.end);
+
   const {
     totalImporte: frutaTotalImporte, desglose: frutaDesglose, kgTotales: frutaKgTotales,
     faltanImportes: frutaFaltanImportes, isLoading: isLoadingFruta,
@@ -466,7 +472,7 @@ export default function EconomicoCostes() {
       <div className="page-shell">
         <header className="page-header">
           <div>
-            <p className="panel-kicker">Económico</p>
+            <p className="panel-kicker text-seccion-texto">Económico</p>
             <h1 className="page-title">Costes del periodo</h1>
             <p className="page-subtitle">Coste total y por kg producido, según las tarifas vigentes.</p>
           </div>
@@ -490,7 +496,7 @@ export default function EconomicoCostes() {
     <div className="page-shell">
       <header className="page-header">
         <div>
-          <p className="panel-kicker">Económico</p>
+          <p className="panel-kicker text-seccion-texto">Económico</p>
           <h1 className="page-title">Costes del periodo</h1>
           <p className="page-subtitle">Coste total y por kg producido, según las tarifas vigentes.</p>
         </div>
@@ -516,6 +522,8 @@ export default function EconomicoCostes() {
           <Download className="h-4 w-4" /> Descargar Excel
         </Button>
       </header>
+
+      <EconomicoSubnav />
 
       <ConsumoPeriodoSelector
         tipo={periodoTipo}
@@ -667,7 +675,7 @@ export default function EconomicoCostes() {
       <div className="flex items-center gap-3 pt-2">
         <div className="h-7 w-1 rounded-full bg-primary" />
         <div>
-          <p className="panel-kicker">Económico</p>
+          <p className="panel-kicker text-seccion-texto">Económico</p>
           <h2 className="text-xl font-semibold tracking-tight">Coste de mallas rotas</h2>
           <p className="text-sm text-muted-foreground">Reciclado de malla de cada zona / kg por malla = mallas rotas, × precio por malla = gasto.</p>
         </div>
@@ -741,7 +749,7 @@ export default function EconomicoCostes() {
       <div className="flex items-center gap-3 pt-2">
         <div className="h-7 w-1 rounded-full bg-primary" />
         <div>
-          <p className="panel-kicker">Económico</p>
+          <p className="panel-kicker text-seccion-texto">Económico</p>
           <h2 className="text-xl font-semibold tracking-tight">Coste de personal</h2>
           <p className="text-sm text-muted-foreground">Coste por hora × horas trabajadas, agrupado por zona — de la mano de RRHH.</p>
         </div>
@@ -802,6 +810,32 @@ export default function EconomicoCostes() {
                 hint={personalSinCoste > 0 ? "Asigna el coste/hora en Plantilla" : "Toda la plantilla presente tiene coste asignado"}
                 to="/rrhh/personas"
               />
+            </section>
+          )}
+
+          {/* ─── Limpieza de box: DESGLOSE informativo, ya incluido arriba ──── */}
+          {!limpiezaBoxCoste.tablaPendiente && (limpiezaBoxCoste.isLoading || limpiezaBoxCoste.horasTotal > 0) && (
+            <section className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-3">
+              {limpiezaBoxCoste.isLoading ? (
+                <Skeleton className="h-32" />
+              ) : (
+                <KPICard
+                  className="glass-accented"
+                  label="De ello, limpieza de box"
+                  value={`${formatNumber(limpiezaBoxCoste.horasTotal, 0)} h`}
+                  hint={`≈ ${formatEuro(limpiezaBoxCoste.eurTotal)}`}
+                  icon={Sparkles}
+                  labelInfo={
+                    "Desglose informativo, ya incluido en el coste de personal de arriba (no se suma otra vez): "
+                    + "horas de limpieza_parte_trabajadores del periodo × coste/hora del trabajador, solo para "
+                    + "trabajadores de plantilla con coste/hora asignado. "
+                    + (limpiezaBoxCoste.nPersonasSinCoste > 0
+                      ? `${limpiezaBoxCoste.nPersonasSinCoste} nombre(s) libre(s) o sin coste/hora asignado `
+                        + `(${formatNumber(limpiezaBoxCoste.horasSinCoste, 0)} h) cuentan en las horas pero no en el importe €.`
+                      : "Todas las horas del periodo tienen coste/hora asignado.")
+                  }
+                />
+              )}
             </section>
           )}
 
@@ -913,16 +947,24 @@ export default function EconomicoCostes() {
         </>
       )}
 
-      <div className="flex items-center gap-3 pt-2">
-        <div className="h-7 w-1 rounded-full bg-primary" />
-        <div>
-          <p className="panel-kicker">Económico</p>
-          <h2 className="text-xl font-semibold tracking-tight">Coste de compra de fruta</h2>
-          <p className="text-sm text-muted-foreground">
-            Entradas de báscula del periodo: importe_total si viene relleno del export, si no la suma de
-            compra + recolección + transporte + comisión.
-          </p>
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+        <div className="flex items-center gap-3">
+          <div className="h-7 w-1 rounded-full bg-primary" />
+          <div>
+            <p className="panel-kicker text-seccion-texto">Económico</p>
+            <h2 className="text-xl font-semibold tracking-tight">Coste de compra de fruta</h2>
+            <p className="text-sm text-muted-foreground">
+              Entradas de báscula del periodo: importe_total si viene relleno del export, si no la suma de
+              compra + recolección + transporte + comisión.
+            </p>
+          </div>
         </div>
+        <Link
+          to="/economico/fruta"
+          className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-primary hover:underline"
+        >
+          Detalle por lote, agricultor y forfait <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
       </div>
 
       {frutaFaltanImportes && (
@@ -1023,7 +1065,7 @@ export default function EconomicoCostes() {
       <div className="flex items-center gap-3 pt-2">
         <div className="h-7 w-1 rounded-full bg-primary" />
         <div>
-          <p className="panel-kicker">Económico</p>
+          <p className="panel-kicker text-seccion-texto">Económico</p>
           <h2 className="text-xl font-semibold tracking-tight">Pérdidas de fruta (merma y podrido)</h2>
           <p className="text-sm text-muted-foreground">
             DESGLOSE del coste de compra de fruta de arriba — no es un gasto adicional, no se suma a ningún total de costes ni al margen.

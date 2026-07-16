@@ -19,12 +19,14 @@
  * las lecturas no filtran por user_id; la RLS permite editar/borrar solo lo
  * propio (o todo a un admin).
  */
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
 import { esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
+import { agregarLimpiezaCoste, type LimpiezaCostePeriodo } from "@/lib/limpiezaBox";
 
 // Cast local: las tablas limpieza_* aún no están en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
@@ -225,6 +227,58 @@ export function useLimpiezaBox() {
     crearParte,
     editarParte,
     eliminarParte,
+  };
+}
+
+export interface LimpiezaBoxCostePeriodo extends LimpiezaCostePeriodo {
+  isLoading: boolean;
+  /** true si limpieza_partes/limpieza_parte_trabajadores no existen todavía. */
+  tablaPendiente: boolean;
+}
+
+/**
+ * Coste de personal del grupo de limpieza de boxes en [desde, hasta]: DESGLOSE
+ * informativo del coste de personal de Económico → Costes (por asistencia),
+ * NO un gasto adicional — ver cabecera de agregarLimpiezaCoste en
+ * src/lib/limpiezaBox.ts. Reutiliza useLimpiezaBox() (misma queryKey, React
+ * Query dedupe el fetch si la página ya la usa) y solo añade una query propia
+ * y pequeña para el coste_hora de la plantilla activa.
+ */
+export function useLimpiezaBoxCostePeriodo(desde: string, hasta: string): LimpiezaBoxCostePeriodo {
+  const { user } = useAuth();
+  const { partes, tablaPendiente, isLoading: isLoadingPartes } = useLimpiezaBox();
+
+  const trabajadoresQuery = useQuery({
+    queryKey: ["limpieza-box", "coste-trabajadores", user?.id],
+    queryFn: async (): Promise<{ id: string; coste_hora: number | null }[]> => {
+      const { data, error } = await SUPA.from("trabajadores").select("id, coste_hora").eq("activo", true);
+      if (error) throw toError(error);
+      return (data ?? []) as { id: string; coste_hora: number | null }[];
+    },
+    enabled: Boolean(user) && !tablaPendiente,
+  });
+
+  const costeHoraPorTrabajador = useMemo(
+    () => new Map((trabajadoresQuery.data ?? []).map((t) => [t.id, t.coste_hora] as const)),
+    [trabajadoresQuery.data],
+  );
+
+  const trabajadoresDelPeriodo = useMemo(
+    () => partes
+      .filter((p) => p.fecha >= desde && p.fecha <= hasta)
+      .flatMap((p) => p.trabajadores),
+    [partes, desde, hasta],
+  );
+
+  const resultado = useMemo(
+    () => agregarLimpiezaCoste(trabajadoresDelPeriodo, costeHoraPorTrabajador),
+    [trabajadoresDelPeriodo, costeHoraPorTrabajador],
+  );
+
+  return {
+    ...resultado,
+    isLoading: isLoadingPartes || trabajadoresQuery.isLoading,
+    tablaPendiente,
   };
 }
 

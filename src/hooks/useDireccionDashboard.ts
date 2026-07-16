@@ -29,7 +29,10 @@ import { usePartesDashboard } from "@/hooks/usePartes";
 import { useMercadonaAprovechamiento } from "@/hooks/useMercadonaAprovechamiento";
 import { useComercialDashboard, type ComercialMesAnterior } from "@/hooks/useComercialDashboard";
 import { useRrhhDashboard } from "@/hooks/useRrhhDashboard";
-import { useEconomicoPanel, type EconomicoPanelData } from "@/hooks/useEconomico";
+import { useEconomicoPanel, useCosteFruta, type EconomicoPanelData } from "@/hooks/useEconomico";
+import { useMermaLotes } from "@/hooks/useMermaLote";
+import { mermaLotesEnPeriodo } from "@/lib/mermaLote";
+import { agruparForfait, type ItemForfaitAgrupable } from "@/lib/forfait";
 import { buildPeriodoRange } from "@/lib/consumoPeriodoView";
 import { calcularTphOperativa } from "@/lib/velocidadOperativa";
 import { getSemaforo, type SemaforoState } from "@/lib/semaforo";
@@ -191,6 +194,22 @@ function useDireccionRrhh(): DireccionRrhh {
 // facturación/coste parciales, para no arriesgarse a mostrar un número con el
 // mismo nombre ("Margen bruto") pero distinto valor que el Panel Económico.
 
+/**
+ * Módulo "Compra de fruta y forfait" (FASE 3 del rediseño): resumen del
+ * periodo para promocionar /economico/fruta desde Dirección. `forfaitMedioEurKg`
+ * agrupa TODOS los lotes procesados del periodo en un único grupo (misma
+ * `agruparForfait` que usa EconomicoFruta.tsx por productor/finca, aquí con
+ * una sola clave) — Σcoste/Σaprovechable del periodo, no una media de forfaits.
+ * Opcional en el tipo porque `composeDireccionEconomico` (testeado sin red,
+ * ver useDireccionDashboard.test.ts) no lo calcula: lo añade `useDireccionEconomico`.
+ */
+export interface DireccionEconomicoFruta {
+  isLoading: boolean;
+  kgComprados: number;
+  eurosPorKgMedio: number | null;
+  forfaitMedioEurKg: number | null;
+}
+
 export interface DireccionEconomico {
   mostrar: boolean;
   isLoading: boolean;
@@ -205,6 +224,7 @@ export interface DireccionEconomico {
   margenBruto: number;
   costePorKg: number | null;
   hayPreciosACero: boolean;
+  fruta?: DireccionEconomicoFruta;
 }
 
 type EconomicoPanelForDireccion = Pick<
@@ -247,7 +267,31 @@ function useDireccionEconomico(): DireccionEconomico {
   // por defecto de ambas páginas.
   const panel = useEconomicoPanel(periodo.start, periodo.end);
 
-  return composeDireccionEconomico(mostrar, periodo, panel);
+  // Módulo "Compra de fruta y forfait": mismos hooks cacheados por React
+  // Query que ya usan EconomicoPanel/EconomicoFruta (useCosteFruta,
+  // useMermaLotes) — no se reimplementa ninguna fórmula, solo se reagrupan
+  // los lotes procesados del periodo en un único grupo con agruparForfait
+  // (misma función pura que usa EconomicoFruta.tsx por productor/finca).
+  const fruta = useCosteFruta(periodo.start, periodo.end);
+  const { lotes: mermaLotesTodos, isLoading: isLoadingMermaLotes } = useMermaLotes();
+  const forfaitMedioEurKg = useMemo(() => {
+    const procesados = mermaLotesEnPeriodo(mermaLotesTodos, periodo.start, periodo.end)
+      .filter((l) => l.estado === "procesado");
+    const items: ItemForfaitAgrupable[] = procesados.map((lote) => ({
+      lote, groupKey: "periodo", groupLabel: "Periodo",
+    }));
+    return agruparForfait(items).grupos[0]?.forfaitEurKg ?? null;
+  }, [mermaLotesTodos, periodo]);
+
+  return {
+    ...composeDireccionEconomico(mostrar, periodo, panel),
+    fruta: {
+      isLoading: fruta.isLoading || isLoadingMermaLotes,
+      kgComprados: fruta.kgTotales,
+      eurosPorKgMedio: fruta.kgTotales > 0 ? fruta.totalImporte / fruta.kgTotales : null,
+      forfaitMedioEurKg,
+    },
+  };
 }
 
 // ─── Hook principal ──────────────────────────────────────────────────────────

@@ -9,9 +9,10 @@
 // para el cruce completo facturación-coste que sí las suma). Solo las
 // semanas importadas con el formato semanal real traen base_iva por método +
 // ajustes/abonos; las semanas históricas no lo incluían.
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import type { Worksheet } from "exceljs";
-import { AlertTriangle, Download, Euro, Percent, Scale, Tag } from "lucide-react";
+import { AlertTriangle, Download, Euro, History, Percent, Scale, Tag } from "lucide-react";
 import {
   Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -22,22 +23,27 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { KPICard } from "@/components/KPICard";
+import { SelectorPeriodo } from "@/components/SelectorPeriodo";
+import { EconomicoSubnav } from "@/components/economico/EconomicoSubnav";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthProvider";
 import { useMercadonaVentas, type MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
 import { useVentasCategoria } from "@/hooks/useVentasCategoria";
+import { solapaRango } from "@/hooks/useEconomico";
 import { formatMercadonaWeekRangeLabel, mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
 import { metodoLabel, METODOS_ORDEN } from "@/components/mercadona/mercadonaAnalisis.helpers";
+import { periodoDeFecha, type PeriodoValue } from "@/lib/selectorPeriodo";
 import {
   C, GRID, GlassTooltip, MARGIN, XAXIS, YAXIS, barFill, CHART_PANEL_CLASS, CHART_CURSOR,
 } from "@/lib/chartTheme";
 import { errorMessage } from "@/lib/errorMessage";
-import { formatDate, formatKg, formatNumber, formatPct } from "@/lib/format";
+import { formatDate, formatKg, formatNumber, formatPct, today } from "@/lib/format";
 import {
   añadirHojaTabla, crearLibroLasarte, descargarLibro, FMT_EUR, FMT_EUR_KG, FMT_KG, LASARTE_COLORS,
   type ColumnaTabla,
 } from "@/lib/exportKit";
 import { buildLasarteFilename } from "@/lib/reportKit";
+import { cn } from "@/lib/utils";
 
 function formatEuro(value: number | null | undefined, digits = 2): string {
   if (value == null || !Number.isFinite(value)) return "—";
@@ -238,8 +244,24 @@ export default function EconomicoFacturacion() {
   const segunda = useVentasCategoria("Categoria segunda");
   const segundaResumen = segunda.resumenQuery.data;
 
-  const semanasConBaseIva = useMemo(() => semanas.filter(tieneBaseIva), [semanas]);
-  const filasSemana = useMemo(() => buildFilasSemana(semanas), [semanas]);
+  // ─── Periodo (FASE 3 del rediseño): por defecto la campaña actual, con la
+  // opción de ver el histórico completo (comportamiento original de esta
+  // página antes del selector). El filtro solapa el rango [desde, hasta] de
+  // cada semana de Mercadona (mercadonaWeekDateRange) con el periodo elegido
+  // — misma función pura (solapaRango) que usa useEconomicoPanel.
+  const [periodo, setPeriodo] = useState<PeriodoValue>(() => periodoDeFecha("campana", today()));
+  const [verTodo, setVerTodo] = useState(false);
+
+  const semanasDelPeriodo = useMemo(() => {
+    if (verTodo) return semanas;
+    return semanas.filter((s) => {
+      const { desde, hasta } = mercadonaWeekDateRange(s.anio, s.semana);
+      return solapaRango(desde, hasta, periodo.desde, periodo.hasta);
+    });
+  }, [semanas, verTodo, periodo]);
+
+  const semanasConBaseIva = useMemo(() => semanasDelPeriodo.filter(tieneBaseIva), [semanasDelPeriodo]);
+  const filasSemana = useMemo(() => buildFilasSemana(semanasDelPeriodo), [semanasDelPeriodo]);
   const filasMetodo = useMemo(() => buildFilasMetodo(semanasConBaseIva), [semanasConBaseIva]);
 
   const facturacionBruta = useMemo(
@@ -260,11 +282,12 @@ export default function EconomicoFacturacion() {
       <div className="page-shell">
         <header className="page-header">
           <div>
-            <p className="panel-kicker">Económico</p>
+            <p className="panel-kicker text-seccion-texto">Económico</p>
             <h1 className="page-title">Facturación</h1>
             <p className="page-subtitle">Facturación de Mercadona por semana y por método.</p>
           </div>
         </header>
+        <EconomicoSubnav />
         <Card className="glass-accented">
           <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
             <AlertTriangle className="h-10 w-10 text-warning" />
@@ -285,7 +308,7 @@ export default function EconomicoFacturacion() {
     <div className="page-shell">
       <header className="page-header">
         <div>
-          <p className="panel-kicker">Económico</p>
+          <p className="panel-kicker text-seccion-texto">Económico</p>
           <h1 className="page-title">Facturación</h1>
           <p className="page-subtitle">
             Facturación de Mercadona por semana y por método. Las ventas de categoría segunda se muestran aparte
@@ -307,6 +330,33 @@ export default function EconomicoFacturacion() {
         </Button>
       </header>
 
+      <EconomicoSubnav />
+
+      <div className="section-toolbar flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+        <SelectorPeriodo
+          bare
+          value={periodo}
+          onChange={(next) => { setPeriodo(next); setVerTodo(false); }}
+          modos={["mes", "campana", "rango"]}
+          canNavigateNext={periodo.desde <= today()}
+          disabled={verTodo}
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setVerTodo((v) => !v)}
+          className={cn(
+            "h-8 gap-1.5 rounded-lg px-3 text-xs",
+            verTodo
+              ? "bg-[var(--glass-bg-strong)] font-semibold text-foreground shadow-[var(--glass-shadow)]"
+              : "text-muted-foreground hover:bg-[var(--glass-bg-strong)]/60 hover:text-foreground",
+          )}
+        >
+          <History className="h-3.5 w-3.5" /> Todo el histórico
+        </Button>
+      </div>
+
       {/* ─── Ventas de categoría segunda (dato mensual, no semanal — ver cabecera) ─── */}
       {segunda.hasAccess && (
         <Card className="glass border-[var(--glass-border)] bg-[var(--glass-bg)]">
@@ -325,7 +375,8 @@ export default function EconomicoFacturacion() {
                 Clientes fijos (LN211/LN314/LN210/LN560/L1020/L1511/LN551) del importador mensual — no incluye
                 Mercadona, no hay doble conteo con la facturación de arriba. El total de esta tarjeta es acumulado de
                 todo lo importado, no del periodo: la granularidad mensual no encaja con la vista semanal de esta
-                página (ver el cruce por rango en Económico → Panel).
+                página (ver el cruce por rango en{" "}
+                <Link to="/economico" className="font-semibold underline underline-offset-2">Económico → Panel</Link>).
               </p>
             </div>
           </CardContent>
@@ -343,8 +394,9 @@ export default function EconomicoFacturacion() {
             <div>
               <h2 className="text-lg font-semibold">Sin facturación importada</h2>
               <p className="mt-1 max-w-md text-sm text-muted-foreground">
-                Ninguna semana importada trae todavía base IVA. Importa una semana con el formato semanal real
-                desde Mercadona → Importar para que aparezca aquí.
+                {verTodo
+                  ? "Ninguna semana importada trae todavía base IVA. Importa una semana con el formato semanal real desde Mercadona → Importar para que aparezca aquí."
+                  : "Ninguna semana con base IVA solapa este periodo. Prueba otro periodo o pulsa \"Todo el histórico\"."}
               </p>
             </div>
           </CardContent>
@@ -494,6 +546,8 @@ export default function EconomicoFacturacion() {
 
       <p className="text-xs text-muted-foreground">
         Solo las semanas importadas con el fichero semanal traen facturación; las históricas no incluían base IVA.
+        {" "}La tabla y los KPIs de arriba solo cuentan las semanas que solapan el periodo elegido — pulsa
+        "Todo el histórico" para ver todas las semanas importadas.
       </p>
     </div>
   );
