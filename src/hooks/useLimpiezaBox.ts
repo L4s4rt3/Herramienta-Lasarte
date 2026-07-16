@@ -227,3 +227,35 @@ export function useLimpiezaBox() {
     eliminarParte,
   };
 }
+
+/**
+ * Último parte de limpieza (solo fecha + box): resumen barato para el
+ * dashboard de producción (FASE 2 del rediseño, "La sección") — a diferencia
+ * de useLimpiezaBox(), que trae la lista completa con sus trabajadores, esto
+ * es una sola fila con dos columnas. `null` mientras carga, si aún no hay
+ * ningún parte o si la tabla no existe todavía (migración pendiente).
+ */
+export function useUltimoParteLimpieza() {
+  const { user } = useAuth();
+
+  const query = useQuery({
+    queryKey: ["limpieza-box", "ultimo-parte"] as const,
+    queryFn: async (): Promise<{ fecha: string; box: number } | null> => {
+      const { data, error } = await SUPA
+        .from("limpieza_partes")
+        .select("fecha, box")
+        .order("fecha", { ascending: false })
+        .order("turno", { ascending: false })
+        .limit(1);
+      if (error) {
+        if (esErrorTablaOColumnaInexistente(error)) return null;
+        throw toError(error);
+      }
+      const fila = (data ?? [])[0] as { fecha: string; box: number } | undefined;
+      return fila ? { fecha: fila.fecha, box: fila.box } : null;
+    },
+    enabled: Boolean(user),
+  });
+
+  return { data: query.data ?? null, isLoading: query.isLoading };
+}

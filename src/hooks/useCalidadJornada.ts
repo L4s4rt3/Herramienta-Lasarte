@@ -253,6 +253,33 @@ export function useCalidadHistoricoRango(enabled: boolean) {
   return query;
 }
 
+/**
+ * Fecha de la última jornada de calidad guardada (para el resumen barato del
+ * dashboard de producción — FASE 2 del rediseño, "La sección"): una sola fila
+ * (`limit(1)`), nada que ver con el bundle completo de `useCalidadJornadaDia`.
+ * `null` mientras carga o si todavía no hay ninguna jornada guardada.
+ */
+export function useUltimaJornadaCalidad() {
+  const { user } = useAuth();
+
+  const query = useQuery({
+    queryKey: [NS, "ultima-guardada"] as const,
+    queryFn: async (): Promise<string | null> => {
+      const { data, error } = await supabase
+        .from("calidad_jornadas")
+        .select("fecha")
+        .eq("estado", "guardada")
+        .order("fecha", { ascending: false })
+        .limit(1);
+      if (error) throw error;
+      return data?.[0]?.fecha ?? null;
+    },
+    enabled: Boolean(user),
+  });
+
+  return { fecha: query.data ?? null, isLoading: query.isLoading };
+}
+
 /** Escrituras de la jornada de calidad: jornada, lotes, productores y adjuntos. */
 export function useCalidadJornadaMutaciones() {
   const queryClient = useQueryClient();

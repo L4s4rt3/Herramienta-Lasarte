@@ -20,6 +20,7 @@
 // resto en null/vacio (no existe una fila en mercadona_semanas para esta
 // semana "de produccion", y no hace falta: nunca se leen).
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { BadgeCheck, PackageSearch, Percent, Scale, Timer } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -79,7 +80,13 @@ export default function MercadonaProduccion() {
     <div className="page-shell">
       <header className="page-header">
         <div>
-          <p className="panel-kicker">Producción</p>
+          {/* Kicker-enlace de vuelta al panel de producción, con el acento de
+              la sección (--seccion-acento-texto, FASE 2 del rediseño). */}
+          <p className="panel-kicker">
+            <Link to="/produccion" className="text-seccion-texto transition-colors hover:underline">
+              Producción
+            </Link>
+          </p>
           <h1 className="page-title">Mercadona · Producción</h1>
           <p className="page-subtitle">
             Qué productores, lotes, días y formatos rinden mejor para Mercadona en planta.

@@ -272,8 +272,11 @@ function TopBar() {
 
       <Tooltip>
         <TooltipTrigger asChild>
+          {/* Chip de sección: acento por workspace (--seccion-acento-texto,
+              fijado por AppLayout vía data-seccion), no el primary genérico —
+              FASE 2 del rediseño, ver src/index.css. */}
           <NavLink to="/mapa" className="hidden md:inline-flex">
-            <Badge variant="outline" className="rounded-xl border-primary/20 bg-[var(--glass-bg-strong)] px-2.5 py-1 font-medium text-primary backdrop-blur-sm transition-colors hover:bg-primary/10">
+            <Badge variant="outline" className="rounded-xl border-seccion/25 bg-seccion/10 px-2.5 py-1 font-medium text-seccion-texto backdrop-blur-sm transition-colors hover:bg-seccion/15">
               {location.pathname === "/mapa" ? "Mapa" : seccion?.label ?? "Producción"}
             </Badge>
           </NavLink>

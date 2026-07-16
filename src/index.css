@@ -89,6 +89,60 @@
     --auth-orange-hover: #EA580C;
     --auth-border: #E5E2D8;
     --auth-input-bg: #FFFFFF;
+
+    /* ── Acento por sección (FASE 2 del rediseño, jul 2026) ──────────
+       Un color de acento por workspace, derivado del logo (ver
+       public/branding/lasarte-logo-horizontal.jpg), para que cada gran
+       sección tenga su propia identidad visual sin tocar el primary global
+       (naranja: se queda para acciones/enlaces en TODA la app). Mecanismo:
+       AppLayout fija data-seccion="<workspace>" en el wrapper de
+       SidebarProvider según workspaceDeRuta(location.pathname); las reglas
+       [data-seccion=...] de abajo pisan estas 3 variables para toda la
+       página (sidebar, TopBar, contenido).
+       - --seccion-acento: color crudo del logo — para iconos/bordes/fondos
+         con opacidad (bg-seccion/10, border-seccion/40...) y para texto
+         SOBRE FONDO SIEMPRE OSCURO (la sidebar no cambia con el tema).
+       - --seccion-acento-texto: el mismo color ajustado a contraste, para
+         TEXTO sobre el fondo de página (que sí cambia claro/oscuro).
+       - --seccion-acento-suave: tinte de fondo ya con alfa, listo para usar
+         directo (background: var(--seccion-acento-suave)), como
+         --glass-border-accent.
+       FASE 2 (jul 2026): solo Producción los consume de forma visible (chip
+       del TopBar, indicador activo de la sidebar, kickers de sus páginas,
+       nodos del timeline de Trazabilidad). El resto de secciones quedan
+       definidas y listas para las fases 3-4. */
+    --seccion-acento: 85 54% 51%;
+    --seccion-acento-texto: 87 65% 34%;
+    --seccion-acento-suave: hsl(85 54% 51% / 0.12);
+  }
+
+  /* Producción · verde manzana del logo (#8DC63F crudo / #5C8F1E texto claro). */
+  [data-seccion="produccion"] {
+    --seccion-acento: 85 54% 51%;
+    --seccion-acento-texto: 87 65% 34%;
+    --seccion-acento-suave: hsl(85 54% 51% / 0.12);
+  }
+
+  /* Comercial · azul del logo (#1B75BB crudo / #16639F texto claro). */
+  [data-seccion="comercial"] {
+    --seccion-acento: 206 75% 42%;
+    --seccion-acento-texto: 206 76% 36%;
+    --seccion-acento-suave: hsl(206 75% 42% / 0.12);
+  }
+
+  /* RRHH · naranja del logo (#F07822 crudo / #D9660D texto claro) — distinto
+     del --primary naranja global (24 95% 53%), aunque queden cerca. */
+  [data-seccion="rrhh"] {
+    --seccion-acento: 25 87% 54%;
+    --seccion-acento-texto: 26 89% 45%;
+    --seccion-acento-suave: hsl(25 87% 54% / 0.12);
+  }
+
+  /* Dirección · azul marino del logo (#2B2E6E, crudo = texto claro: ya es lo bastante oscuro). */
+  [data-seccion="direccion"] {
+    --seccion-acento: 238 44% 30%;
+    --seccion-acento-texto: 238 44% 30%;
+    --seccion-acento-suave: hsl(238 44% 30% / 0.12);
   }
 
   .dark {
@@ -158,6 +212,29 @@
     --auth-orange-hover: #EA580C;
     --auth-border: #E5E2D8;
     --auth-input-bg: #FFFFFF;
+
+    /* ── Acento por sección (dark): --seccion-acento-texto usa la variante
+       clara del par (más legible sobre fondo oscuro); --seccion-acento se
+       mantiene igual (ya es el color crudo, sirve en ambos temas). */
+    --seccion-acento-texto: 85 60% 60%;
+    --seccion-acento-suave: hsl(85 54% 51% / 0.18);
+  }
+
+  .dark [data-seccion="produccion"] {
+    --seccion-acento-texto: 85 60% 60%;
+    --seccion-acento-suave: hsl(85 54% 51% / 0.18);
+  }
+  .dark [data-seccion="comercial"] {
+    --seccion-acento-texto: 205 64% 62%;
+    --seccion-acento-suave: hsl(206 75% 42% / 0.18);
+  }
+  .dark [data-seccion="rrhh"] {
+    --seccion-acento-texto: 27 89% 64%;
+    --seccion-acento-suave: hsl(25 87% 54% / 0.18);
+  }
+  .dark [data-seccion="direccion"] {
+    --seccion-acento-texto: 236 62% 76%;
+    --seccion-acento-suave: hsl(238 44% 30% / 0.22);
   }
 }
 

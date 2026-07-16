@@ -740,12 +740,14 @@ function TimelinePaso({ icon: Icon, titulo, activo, esUltimo = false, vacio, acc
 }) {
   return (
     <div className="flex gap-3 sm:gap-4">
+      {/* Nodo + línea con el acento de Producción (--seccion-acento, FASE 2
+          del rediseño) en vez del primary genérico. */}
       <div className="flex w-9 shrink-0 flex-col items-center sm:w-10">
         <div
           className={cn(
             "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 sm:h-9 sm:w-9",
             activo
-              ? "border-primary/40 bg-primary/10 text-primary"
+              ? "border-seccion/40 bg-seccion/10 text-seccion"
               : "border-[var(--glass-border)] bg-muted text-muted-foreground",
           )}
         >
@@ -753,7 +755,7 @@ function TimelinePaso({ icon: Icon, titulo, activo, esUltimo = false, vacio, acc
         </div>
         {!esUltimo && (
           activo ? (
-            <div className="w-px flex-1 bg-primary/40" />
+            <div className="w-px flex-1 bg-seccion/40" />
           ) : (
             <div className="w-0 flex-1 border-l border-dashed border-muted-foreground/35" />
           )

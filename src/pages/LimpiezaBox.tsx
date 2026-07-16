@@ -7,6 +7,7 @@
 // trabajadores con sus horas y observaciones. El listado agrupa por día, como
 // la vista "Entradas por día" de EntradasBascula.tsx.
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   AlertTriangle, Brush, CalendarDays, ChevronDown, Clock, Footprints, Loader2, Package, Pencil, Plus, Trash2, Users, X,
 } from "lucide-react";
@@ -231,10 +232,20 @@ export default function LimpiezaBox() {
   return (
     <div className="page-shell">
       <header className="page-header">
-        <h1 className="page-title">Limpieza de box</h1>
-        <p className="page-subtitle">
-          Partes diarios del grupo de limpieza: box limpiados (en pies o en box), escaleras, trabajadores y horas.
-        </p>
+        <div>
+          {/* Miga de vuelta al panel de producción, con el acento de la
+              sección (--seccion-acento-texto, FASE 2 del rediseño): Limpieza
+              deja de ser una isla. */}
+          <p className="panel-kicker">
+            <Link to="/produccion" className="text-seccion-texto transition-colors hover:underline">
+              Producción
+            </Link>
+          </p>
+          <h1 className="page-title">Limpieza de box</h1>
+          <p className="page-subtitle">
+            Partes diarios del grupo de limpieza: box limpiados (en pies o en box), escaleras, trabajadores y horas.
+          </p>
+        </div>
       </header>
 
       {/* ─── Migración pendiente ─────────────────────────────────────────── */}

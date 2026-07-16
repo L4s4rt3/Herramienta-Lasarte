@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthProvider";
@@ -1327,6 +1328,13 @@ export default function ConsumoCostes() {
     <div className="page-shell">
       <header className="page-header">
         <div>
+          {/* Kicker-enlace de vuelta al panel de producción, con el acento de
+              la sección (--seccion-acento-texto, FASE 2 del rediseño). */}
+          <p className="panel-kicker">
+            <Link to="/produccion" className="text-seccion-texto transition-colors hover:underline">
+              Producción
+            </Link>
+          </p>
           <h1 className="page-title">Consumos físicos</h1>
           <p className="page-subtitle">Agua · Electricidad · Gasoil · Tratamientos por kg de naranja · {selectedCampana.label}</p>
         </div>

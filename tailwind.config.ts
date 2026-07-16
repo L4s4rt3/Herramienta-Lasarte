@@ -60,6 +60,16 @@ export default {
           DEFAULT: "hsl(var(--info))",
           foreground: "hsl(var(--info-foreground))",
         },
+        // Acento por sección (FASE 2 del rediseño, jul 2026): --seccion-acento
+        // lo fija AppLayout con data-seccion="<workspace>" en src/index.css
+        // según el workspace activo (workspaceDeRuta). "DEFAULT" es el color
+        // crudo del logo (para iconos/bordes/fondos con opacidad), "texto" es
+        // la variante ajustada a contraste para texto legible sobre el fondo
+        // de página (ver la cabecera de esa sección en index.css).
+        seccion: {
+          DEFAULT: "hsl(var(--seccion-acento))",
+          texto: "hsl(var(--seccion-acento-texto))",
+        },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",

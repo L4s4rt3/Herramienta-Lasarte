@@ -808,13 +808,18 @@ export default function CalidadJornadaPage() {
     <div className="page-shell">
       <header className="page-header">
         <div>
-          <p className="panel-kicker">Departamento de Calidad</p>
+          {/* Kicker con el acento de Producción (--seccion-acento-texto, FASE 2 del rediseño). */}
+          <p className="panel-kicker text-seccion-texto">Departamento de Calidad</p>
           <h1 className="page-title">Jornada de Calidad</h1>
           <p className="max-w-2xl text-sm text-muted-foreground">
             Notas de lotes para informes diarios, conectadas con el parte de la misma fecha.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* Enlace fijo (no solo cuando hay incidencia) al parte del mismo día: cierra el ciclo Calidad ↔ Partes. */}
+          <Button variant="outline" size="sm" className="glass glass-hover" asChild>
+            <Link to={`/partes?fecha=${fecha}`}>Ver parte del día</Link>
+          </Button>
           {autosaveStatus !== "idle" && (
             <span className={cn("flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium", autosaveStatus === "saving" && "border-warning/40 bg-warning/10 text-warning", autosaveStatus === "saved" && "border-success/40 bg-success/10 text-success", autosaveStatus === "error" && "border-destructive/40 bg-destructive/10 text-destructive")}>
               {autosaveStatus === "saving" && <Loader2 className="h-3 w-3 animate-spin" />}

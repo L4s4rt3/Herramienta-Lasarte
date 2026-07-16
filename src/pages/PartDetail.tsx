@@ -798,10 +798,15 @@ export default function PartDetail() {
                   </p>
                 </div>
               </div>
-              <Button variant="outline" size="sm" className="glass glass-hover" onClick={abrirTabCalidad}>
-                <ClipboardCheck className="h-4 w-4" />
-                Ver informes de calidad
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="outline" size="sm" className="glass glass-hover" onClick={abrirTabCalidad}>
+                  <ClipboardCheck className="h-4 w-4" />
+                  Ver informes de calidad
+                </Button>
+                <Button variant="ghost" size="sm" className="glass-hover" asChild>
+                  <Link to={`/calidad?fecha=${parte.date}`}>Abrir Jornada de Calidad</Link>
+                </Button>
+              </div>
             </div>
             {calidadDelDia && calidadDelDia.length > 0 && (
               <div className="flex flex-wrap gap-2">

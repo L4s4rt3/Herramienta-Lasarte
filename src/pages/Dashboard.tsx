@@ -3,6 +3,10 @@ import { Link } from "react-router-dom";
 import { usePartesDashboard, computeRecicladoAgg, RecicladoAgg } from "@/hooks/usePartes";
 import { useMercadona } from "@/hooks/useMercadona";
 import { useMercadonaAprovechamiento } from "@/hooks/useMercadonaAprovechamiento";
+import { useEntradasBascula } from "@/hooks/useEntradasBascula";
+import { useMermaLotes } from "@/hooks/useMermaLote";
+import { useUltimaJornadaCalidad } from "@/hooks/useCalidadJornada";
+import { useUltimoParteLimpieza } from "@/hooks/useLimpiezaBox";
 import { ConfeccionZonas } from "@/components/ConfeccionZonas";
 import { KPICard } from "@/components/KPICard";
 import { SemaforoPill } from "@/components/SemaforoPill";
@@ -14,6 +18,7 @@ import { SelectorPeriodo } from "@/components/SelectorPeriodo";
 import { getSemaforo, DJPMN_HELP } from "@/lib/semaforo";
 import { detectarTipoClasificacion, GRUPO_COLORS } from "@/lib/destinoClasificacion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Tooltip as UiTooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   ComposedChart, Line, Bar, Cell, CartesianGrid, XAxis, YAxis,
@@ -21,7 +26,7 @@ import {
   PieChart, Pie,
 } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatKg, formatPct } from "@/lib/format";
+import { formatDate, formatKg, formatNumber, formatPct } from "@/lib/format";
 import { calcularTphOperativa } from "@/lib/velocidadOperativa";
 import { buildPeriodoRange } from "@/lib/consumoPeriodoView";
 import { addDays, buildRecentWeeks } from "@/lib/isoWeek";
@@ -29,11 +34,14 @@ import { cn } from "@/lib/utils";
 import {
   Truck, Package, TrendingDown, BarChart3,
   Gauge, Droplet, Plus, ShoppingCart,
-  Recycle, Trash2,
+  Recycle, Trash2, Warehouse, AlertTriangle, ArrowRight, Clock,
+  ClipboardCheck, FileText, Waypoints, Sprout, Brush, History, LayoutDashboard,
+  type LucideIcon,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/fetchAllRows";
+import { mermaLotesEnPeriodo } from "@/lib/mermaLote";
 import {
   GlassTooltip, C, GRID, XAXIS, YAXIS, MARGIN,
   BAR_STYLE, CHART_CURSOR, CHART_LINE_CURSOR, CHART_PANEL_CLASS,
@@ -130,6 +138,66 @@ function RecicladoColumn({ title, subtitle, agg }: RecicladoColumnProps) {
         Sobre {formatKg(agg.calibrador_kg)} de calibrador
       </p>
     </div>
+  );
+}
+
+// ─── Divisores del hilo físico (báscula → cámara → línea → palet) ──────────
+// Marcan visualmente las 4 filas del rediseño (FASE 2, jul 2026) sin añadir
+// otra caja glass: Cámara (stock) → Línea (producción de la semana) →
+// Atención (podrido/avisos) → La sección (accesos a toda producción).
+
+function FlujoDivider({ icon: Icon, label, hint }: { icon: LucideIcon; label: string; hint?: string }) {
+  return (
+    <div className="flex items-center gap-2 px-1">
+      <Icon className="h-4 w-4 shrink-0 text-muted-foreground/70" />
+      <p className="panel-kicker whitespace-nowrap">{label}</p>
+      {hint && <span className="truncate text-xs text-muted-foreground">· {hint}</span>}
+      <div className="h-px flex-1 bg-[var(--glass-border)]" />
+    </div>
+  );
+}
+
+// ─── "La sección": accesos a todas las páginas de producción ───────────────
+
+interface SeccionAcceso {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  dato?: string;
+}
+
+function SeccionAccesoCard({ item }: { item: SeccionAcceso }) {
+  const Icon = item.icon;
+  return (
+    <Link
+      to={item.to}
+      className="glass glass-hover flex flex-col gap-2 rounded-xl p-3.5 transition-all hover:-translate-y-0.5"
+    >
+      <div className="flex h-9 w-9 items-center justify-center rounded-lg glass-strong text-primary">
+        <Icon className="h-[18px] w-[18px]" />
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold">{item.label}</p>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.dato ?? " "}</p>
+      </div>
+    </Link>
+  );
+}
+
+/** Fila de un mini-ranking de atención: enlaza al lote, con badge rojo de kg. Mismo patrón que RankingLoteRow de EntradasBascula.tsx. */
+function AtencionLoteRow({ lote, kg }: { lote: string; kg: number }) {
+  return (
+    <Link
+      to={`/trazabilidad?lote=${encodeURIComponent(lote)}`}
+      className="flex items-center justify-between gap-2 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-sm transition-colors hover:bg-[var(--glass-bg-strong)]"
+    >
+      <span className="inline-flex items-center gap-1 font-medium tabular-nums">
+        {lote} <ArrowRight className="h-3 w-3 opacity-40" />
+      </span>
+      <Badge variant="outline" className="border-destructive/40 bg-destructive/10 px-1.5 py-0 text-[11px] font-semibold text-destructive">
+        {formatKg(kg)}
+      </Badge>
+    </Link>
   );
 }
 
@@ -300,6 +368,40 @@ export default function Dashboard() {
   // T/h con la jornada operativa de cada día (8 h hasta 1 jul 2026, 7 h después).
   const avgTph = calcularTphOperativa(currentWeekData.produccion, currentWeekData.fechas);
 
+  // ─── Fila "Cámara": stock de fruta sin procesar (báscula → cámara) ──────
+  const { stock, isLoading: stockLoading } = useEntradasBascula();
+
+  // ─── Fila "Atención": lotes con más podrido de la semana activa (kg, sin €) ─
+  // Mismo criterio que "Atención especial" de EntradasBascula.tsx: solo lotes
+  // procesados y con análisis (excluye cerrados sin registro), podrido total =
+  // calibrador + manual + pre-calibrador (asumido).
+  const { lotes: mermaLotes, isLoading: mermaLoading } = useMermaLotes();
+  const topPodridoSemana = useMemo(() => {
+    const semana = mermaLotesEnPeriodo(mermaLotes, currentWeek.start, currentWeek.end);
+    return semana
+      .filter((l) => l.estado === "procesado" && !l.cerradoSinRegistro)
+      .map((l) => ({ lote: l.lote, kg: (l.podridoCalibradorKg ?? 0) + (l.podridoManualKg ?? 0) + (l.podridoPreCalibradorKg ?? 0) }))
+      .filter((r) => r.kg > 0)
+      .sort((a, b) => b.kg - a.kg)
+      .slice(0, 5);
+  }, [mermaLotes, currentWeek]);
+
+  // ─── Fila "La sección": accesos a toda producción con dato barato donde lo hay ─
+  const { fecha: ultimaCalidadFecha } = useUltimaJornadaCalidad();
+  const { data: ultimoParteLimpieza } = useUltimoParteLimpieza();
+  const seccionAccesos: SeccionAcceso[] = useMemo(() => [
+    { to: "/entradas", label: "Entradas de fruta", icon: Truck, dato: !stockLoading ? `${formatKg(stock.kgEnCamara)} en cámara` : undefined },
+    { to: "/trazabilidad", label: "Trazabilidad", icon: Waypoints, dato: "Ficha completa por lote" },
+    { to: "/calidad", label: "Calidad", icon: ClipboardCheck, dato: ultimaCalidadFecha ? `Último informe ${formatDate(ultimaCalidadFecha)}` : "Sin informes todavía" },
+    { to: "/partes", label: "Partes", icon: FileText, dato: ultimoDiaConParte ? `Último parte ${formatDate(ultimoDiaConParte)}` : undefined },
+    { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3, dato: "Lotes, calibres y destinos por día" },
+    { to: "/productores", label: "Productores", icon: Sprout, dato: "Origen, rendimiento y comportamiento" },
+    { to: "/mercadona", label: "Mercadona (planta)", icon: ShoppingCart, dato: mercadona.kg_mercadona > 0 ? `${formatKg(mercadona.kg_mercadona)} esta semana` : undefined },
+    { to: "/costes/consumos", label: "Consumos", icon: Droplet, dato: "Agua · luz · gasoil · tratamientos" },
+    { to: "/limpieza", label: "Limpieza de box", icon: Brush, dato: ultimoParteLimpieza ? `${formatNumber(ultimoParteLimpieza.box)} box · ${formatDate(ultimoParteLimpieza.fecha)}` : undefined },
+    { to: "/historico", label: "Importar histórico", icon: History, dato: "Carga del histórico de campaña" },
+  ], [stockLoading, stock.kgEnCamara, ultimaCalidadFecha, ultimoDiaConParte, mercadona.kg_mercadona, ultimoParteLimpieza]);
+
   return (
     <div className="page-shell">
 
@@ -366,6 +468,67 @@ export default function Dashboard() {
           onGoToCurrentWeek={handleGoToCurrentWeek}
         />
       )}
+
+      {/* ─── Fila 1 · Cámara: báscula → cámara, stock sin procesar ─────────── */}
+      <FlujoDivider icon={Warehouse} label="Cámara" hint="stock de fruta sin procesar, antigüedad" />
+      <Card className="overflow-hidden glass-accented">
+        <CardHeader className="pb-3 px-5 pt-4">
+          <div className="flex items-center gap-3">
+            <div className="h-7 w-1 rounded-full bg-primary" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <CardTitle className="text-lg font-semibold">Stock en cámara</CardTitle>
+                <InfoTooltip>
+                  Fruta entrada por báscula que el calibrador todavía no ha procesado del todo. "Firme" son lotes
+                  activos sin señales de estar terminados; "probablemente terminado" son lotes parciales con ≥80%
+                  procesado y sin actividad del calibrador en 7+ días — revisar y cerrar a mano si procede.
+                </InfoTooltip>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">Báscula → cámara · stock actual, no acotado a la semana</p>
+            </div>
+            <Link to="/entradas" className="ml-auto shrink-0 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline underline-offset-2">
+              Ver entradas <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 pt-1">
+          {stockLoading ? (
+            <Skeleton className="h-28" />
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+              <KPICard
+                label="Stock firme"
+                value={formatKg(stock.kgEnCamaraFirme)}
+                icon={Warehouse}
+                to="/entradas"
+                labelInfo="Lotes en cámara (pendientes o parciales) que NO están marcados como probablemente terminados."
+              />
+              <KPICard
+                label="Probablemente terminado"
+                value={formatKg(stock.kgProbablementeTerminados)}
+                icon={AlertTriangle}
+                accent={stock.lotesProbablementeTerminados > 0 ? "warning" : "primary"}
+                to="/entradas"
+                hint={stock.lotesProbablementeTerminados > 0
+                  ? `${stock.lotesProbablementeTerminados} lote${stock.lotesProbablementeTerminados === 1 ? "" : "s"} para revisar/cerrar`
+                  : "Sin lotes que revisar"}
+                labelInfo="Lotes parciales con ≥80% procesado y sin actividad del calibrador en 7+ días: probablemente terminados."
+              />
+              <KPICard
+                label="Antigüedad máxima"
+                value={`${stock.antiguedadMaxDias} día${stock.antiguedadMaxDias === 1 ? "" : "s"}`}
+                icon={Clock}
+                to="/entradas"
+                accent={stock.antiguedadMaxDias > 14 ? "destructive" : stock.antiguedadMaxDias > 7 ? "warning" : "primary"}
+                hint="Del lote activo más antiguo en cámara"
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ─── Fila 2 · Línea: producción de la semana, cascada DJPMN, clasificación ─ */}
+      <FlujoDivider icon={Gauge} label="Línea" hint="producción de la semana seleccionada arriba" />
 
       {/* ─── KPIs principales ─────────────────────────────────────────────── */}
       <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-5">
@@ -863,6 +1026,57 @@ export default function Dashboard() {
           )}
         </CardContent>
       </Card>
+
+      {/* ─── Fila 3 · Atención: podrido de la semana + avisos ──────────────── */}
+      <FlujoDivider icon={AlertTriangle} label="Atención" hint="lo que conviene revisar esta semana" />
+      <Card className="overflow-hidden glass-accented">
+        <CardHeader className="pb-3 px-5 pt-4">
+          <div className="flex items-center gap-3">
+            <div className="h-7 w-1 rounded-full bg-warning" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <CardTitle className="text-lg font-semibold">Lotes con más podrido</CardTitle>
+                <InfoTooltip>
+                  Podrido total del lote (calibrador + manual + pre-calibrador asumido) de los lotes procesados con
+                  entrada esta semana. Solo kg — el desglose en € vive en Económico → Costes (solo administración).
+                </InfoTooltip>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Semana {currentWeek.weekNumber} · {currentWeek.rangeLabel} · kg, sin €
+              </p>
+            </div>
+            <Link
+              to="/entradas?tab=mermas"
+              className="ml-auto shrink-0 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline underline-offset-2"
+            >
+              Ver mermas y coste <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 pt-1">
+          {mermaLoading ? (
+            <Skeleton className="h-24" />
+          ) : topPodridoSemana.length === 0 ? (
+            <div className="flex h-20 items-center justify-center text-center text-sm text-muted-foreground">
+              Sin podrido registrado en lotes procesados esta semana.
+            </div>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              {topPodridoSemana.map((r) => (
+                <AtencionLoteRow key={r.lote} lote={r.lote} kg={r.kg} />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ─── Fila 4 · La sección: accesos a toda producción ────────────────── */}
+      <FlujoDivider icon={LayoutDashboard} label="La sección" hint="todas las páginas de producción" />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {seccionAccesos.map((item) => (
+          <SeccionAccesoCard key={item.to} item={item} />
+        ))}
+      </div>
     </div>
   );
 }

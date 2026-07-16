@@ -471,7 +471,14 @@ export default function EntradasBascula() {
   const [soloProbablesTerminados, setSoloProbablesTerminados] = useState(false);
   const [sortKey, setSortKey] = useState<StockSortKey>("fecha_entrada");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [activeTab, setActiveTab] = useState<"stock" | "dias" | "mermas">("stock");
+  // Estado inicial de la pestaña desde ?tab= (p.ej. el enlace "Ver mermas y
+  // coste" del dashboard de producción a /entradas?tab=mermas): solo lee el
+  // valor al montar, igual que el resto de parámetros de conectividad de más
+  // abajo (?lote=) — no hace falta sincronizar en cada cambio de URL.
+  const [activeTab, setActiveTab] = useState<"stock" | "dias" | "mermas">(() => {
+    const tab = searchParams.get("tab");
+    return tab === "mermas" || tab === "dias" ? tab : "stock";
+  });
   const [highlightLote, setHighlightLote] = useState<string | null>(null);
   const [bloqueDialogOpen, setBloqueDialogOpen] = useState(false);
   const [bloqueTerminadosDialogOpen, setBloqueTerminadosDialogOpen] = useState(false);

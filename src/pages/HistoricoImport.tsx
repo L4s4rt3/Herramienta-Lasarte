@@ -295,7 +295,8 @@ function HistoricoImportAdmin() {
     <div className="page-shell space-y-4">
       <header className="page-header">
         <div>
-          <p className="panel-kicker">Producción</p>
+          {/* Acento de Producción (--seccion-acento-texto, FASE 2 del rediseño). */}
+          <p className="panel-kicker text-seccion-texto">Producción</p>
           <h1 className="page-title">Importar histórico</h1>
           <p className="page-subtitle">
             Carga el histórico de PRODUCCIÓN de toda la campaña desde el export del calibrador ("Informe PRODUCCION").

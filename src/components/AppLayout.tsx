@@ -50,8 +50,18 @@ import { getVisibleTourSteps, tourStorageKey } from "@/components/tour/tourSteps
 const navGroups = NAV_GROUPS;
 
 export default function AppLayout() {
+  // data-seccion en el wrapper de SidebarProvider: fija --seccion-acento (+
+  // -texto/-suave, ver src/index.css) para TODA la página (sidebar, TopBar,
+  // Outlet) según la gran sección de la ruta actual — las variables CSS
+  // heredan por el árbol del DOM aunque este wrapper no sea un hijo directo
+  // del contenedor flex de la sidebar. FASE 2 (jul 2026): solo Producción lo
+  // consume de forma visible; el resto de secciones quedan listas para las
+  // fases 3-4.
+  const location = useLocation();
+  const seccionActual = workspaceDeRuta(location.pathname);
+
   return (
-    <SidebarProvider>
+    <SidebarProvider data-seccion={seccionActual}>
       <AppLayoutContent />
     </SidebarProvider>
   );
@@ -176,7 +186,13 @@ function AppLayoutContent() {
                   .filter((item) => (item.to === "/ventas/categoria-segunda" ? ventasCategoriaAccess.hasAccess : true));
                 if (items.length === 0) return null;
                 return (
-                  <SidebarGroup key={ws.id} className="py-1">
+                  <SidebarGroup
+                    key={ws.id}
+                    className={cn("py-1", activo && "border-l-2 border-seccion/50")}
+                  >
+                    {/* Sección activa: acento del workspace (--seccion-acento,
+                        fijado por AppLayout vía data-seccion), no el
+                        sidebar-primary genérico — FASE 2 del rediseño. */}
                     <button
                       type="button"
                       onClick={() => setSeccionesAbiertas((prev) => ({ ...prev, [ws.id]: !abierta }))}
@@ -185,7 +201,7 @@ function AppLayoutContent() {
                       className={cn(
                         "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
                         activo
-                          ? "text-sidebar-primary"
+                          ? "text-seccion"
                           : "text-sidebar-foreground/60 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground",
                       )}
                     >
