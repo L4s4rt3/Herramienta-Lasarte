@@ -29,6 +29,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import type { ParsedSemana } from "@/lib/mercadonaVentas";
 
 // Cast local: las tablas mercadona_* aun no estan en el Database generado.
@@ -337,24 +338,22 @@ export function useMercadonaTopProductores(desde: string, hasta: string) {
   const query = useQuery({
     queryKey: ["mercadona-top-productores", desde, hasta],
     queryFn: async (): Promise<MercadonaTopProductor[]> => {
-      const { data: partes, error: partesError } = await supabase
-        .from("partes_diarios")
-        .select("id")
-        .gte("date", desde)
-        .lte("date", hasta);
-      if (partesError) throw toError(partesError);
+      // desde/hasta son un rango libre (puede cubrir toda la campaña):
+      // partes_diarios y lotes_dia (1.187 filas tras el histórico) se
+      // paginan con fetchAllRows por seguridad.
+      const partes = await fetchAllRows<{ id: string }>((from, to) =>
+        supabase.from("partes_diarios").select("id").gte("date", desde).lte("date", hasta).order("id").range(from, to),
+      );
 
-      const partIds = (partes ?? []).map((p) => p.id as string);
+      const partIds = partes.map((p) => p.id);
       if (partIds.length === 0) return [];
 
-      const { data: lotes, error: lotesError } = await supabase
-        .from("lotes_dia")
-        .select("productor, kg_peso_total")
-        .in("part_id", partIds);
-      if (lotesError) throw toError(lotesError);
+      const lotes = await fetchAllRows<{ productor: string | null; kg_peso_total: number }>((from, to) =>
+        supabase.from("lotes_dia").select("productor, kg_peso_total").in("part_id", partIds).order("id").range(from, to),
+      );
 
       const porProductor = new Map<string, { kg: number; n_lotes: number }>();
-      for (const lote of lotes ?? []) {
+      for (const lote of lotes) {
         const nombre = (lote.productor ?? "").trim() || "Sin productor";
         const entry = porProductor.get(nombre) ?? { kg: 0, n_lotes: 0 };
         entry.kg += Number(lote.kg_peso_total) || 0;

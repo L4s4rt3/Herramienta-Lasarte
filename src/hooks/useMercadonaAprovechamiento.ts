@@ -13,6 +13,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import { mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
 import { kgMercadonaEstimado, type PaletAprovechamiento } from "@/lib/mercadonaAprovechamiento";
 
@@ -33,17 +34,18 @@ export interface MercadonaAprovechamientoSemana {
   fiabilidadPct: number | null;
 }
 
+// Una semana (6 días) cabe en un único chunk de 200, pero ese chunk puede
+// devolver de sobra más de 1.000 palets (39.716 palets / ~207 partes ≈ 192
+// de media por día): el .limit(100000) no protegía nada, se pagina con
+// fetchAllRows.
 async function fetchPaletsInChunks(partIds: string[]): Promise<PaletAprovechamiento[]> {
   const rows: PaletAprovechamiento[] = [];
   for (let i = 0; i < partIds.length; i += IN_CHUNK_SIZE) {
     const chunk = partIds.slice(i, i + IN_CHUNK_SIZE);
-    const { data, error } = await supabase
-      .from("palets_dia")
-      .select("cliente, producto, kg_neto")
-      .in("part_id", chunk)
-      .limit(100000);
-    if (error) throw error;
-    rows.push(...((data ?? []) as PaletAprovechamiento[]));
+    const chunkRows = await fetchAllRows<PaletAprovechamiento>((from, to) =>
+      supabase.from("palets_dia").select("cliente, producto, kg_neto").in("part_id", chunk).order("id").range(from, to),
+    );
+    rows.push(...chunkRows);
   }
   return rows;
 }

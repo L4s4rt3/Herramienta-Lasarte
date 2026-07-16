@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import { calcularTphOperativa } from "@/lib/velocidadOperativa";
 import {
   calcularProduccionRealParteAnalisis,
   calcularProduccionRealPartesAnalisis,
 } from "@/lib/analisisDiarioProduccion";
 import { detectarTipoClasificacion as detectarGrupoDestinoLote } from "@/lib/destinoClasificacion";
+import { prefijoNumericoLote } from "@/lib/loteCodigo";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -314,14 +316,31 @@ export function useAnalisisDiario(desde: string, hasta: string) {
     setError(null);
     try {
       // ── 1. Partes en el rango ──────────────────────────────────────────────
-      const { data: partes, error: pErr } = await supabase
-        .from("partes_diarios")
-        .select("id, date, resumen_ia, kg_produccion_calibrador, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
-        .gte("date", desde)
-        .lte("date", hasta)
-        .order("date", { ascending: false });
-
-      if (pErr) {
+      // partes_diarios va camino de las 1.000 filas (creciendo un registro
+      // por día): el rango puede cubrir toda la campaña, así que se pagina
+      // con fetchAllRows por seguridad de cara al futuro. Orden estable:
+      // fecha desc + id como desempate único.
+      let partes: Array<{
+        id: string;
+        date: string;
+        resumen_ia: unknown;
+        kg_produccion_calibrador: number;
+        kg_mujeres_calibrador: number;
+        kg_reciclado_malla_z1: number;
+        kg_reciclado_malla_z2: number;
+      }>;
+      try {
+        partes = await fetchAllRows((from, to) =>
+          supabase
+            .from("partes_diarios")
+            .select("id, date, resumen_ia, kg_produccion_calibrador, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
+            .gte("date", desde)
+            .lte("date", hasta)
+            .order("date", { ascending: false })
+            .order("id", { ascending: false })
+            .range(from, to),
+        );
+      } catch (pErr) {
         console.error("Error fetching partes:", pErr);
         setLoading(false);
         return;
@@ -340,13 +359,21 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       const parteDateMap = new Map((partes ?? []).map((p) => [p.id, p.date]));
 
       // ── 2. Calibres desde calibres_dia ─────────────────────────────────────
-      const { data: calibresRaw, error: cErr } = await supabase
-        .from("calibres_dia")
-        .select("calibre, clase, grupo_destino, kg, part_id")
-        .in("part_id", partIds)
-        .limit(100000);
-
-      if (cErr) {
+      // El rango de partIds puede cubrir toda la campaña: calibres_dia puede
+      // devolver muchas más de 1.000 filas (varias líneas por día), así que
+      // se pagina con fetchAllRows en vez de confiar en .limit(100000) (que
+      // PostgREST recorta a su max-rows real en silencio).
+      let calibresRaw: Array<{ calibre: string; clase: string | null; grupo_destino: string | null; kg: number; part_id: string }>;
+      try {
+        calibresRaw = await fetchAllRows((from, to) =>
+          supabase
+            .from("calibres_dia")
+            .select("calibre, clase, grupo_destino, kg, part_id")
+            .in("part_id", partIds)
+            .order("id")
+            .range(from, to),
+        );
+      } catch (cErr) {
         console.error("Error fetching calibres_dia:", cErr);
         setLoading(false);
         return;
@@ -445,12 +472,31 @@ export function useAnalisisDiario(desde: string, hasta: string) {
         .sort((a, b) => b.kg_total - a.kg_total);
 
       // ── 3. Lotes desde lotes_dia ───────────────────────────────────────────
-      const { data: lotesRaw, error: lErr } = await supabase
-        .from("lotes_dia")
-        .select("lote_codigo, productor, producto, kg_peso_total, toneladas_hora, duracion_min, peso_fruta_promedio_g, kg_industria, notas, hora_inicio, part_id")
-        .in("part_id", partIds);
-
-      if (lErr) {
+      // lotes_dia tiene 1.187 filas tras el histórico: un rango amplio de
+      // partIds puede devolver más de 1.000, se pagina con fetchAllRows.
+      let lotesRaw: Array<{
+        lote_codigo: string | null;
+        productor: string | null;
+        producto: string | null;
+        kg_peso_total: number;
+        toneladas_hora: number | null;
+        duracion_min: number | null;
+        peso_fruta_promedio_g: number | null;
+        kg_industria: number | null;
+        notas: string | null;
+        hora_inicio: string | null;
+        part_id: string;
+      }>;
+      try {
+        lotesRaw = await fetchAllRows((from, to) =>
+          supabase
+            .from("lotes_dia")
+            .select("lote_codigo, productor, producto, kg_peso_total, toneladas_hora, duracion_min, peso_fruta_promedio_g, kg_industria, notas, hora_inicio, part_id")
+            .in("part_id", partIds)
+            .order("id")
+            .range(from, to),
+        );
+      } catch (lErr) {
         console.error("Error fetching lotes_dia:", lErr);
         setLoading(false);
         return;
@@ -470,16 +516,19 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       const clasificacionRows: LoteClasificacionRow[] = [];
 
       try {
-        const { data: clasifRaw, error: clasifErr } = await supabase
-          .from("lote_clasificacion")
-          .select("lote_codigo, lote_codigo_base, productor, producto, calidad, clase, grupo_destino, tamano, piezas, pct_piezas, peso_kg, pct_peso, cartons, pct_cartons, part_id")
-          .in("part_id", partIds)
-          .limit(100000);
+        // lote_clasificacion tiene 8.685 filas tras el histórico: muy por
+        // encima del max-rows del servidor para un rango amplio de partIds,
+        // se pagina con fetchAllRows en vez de .limit(100000).
+        const clasifRaw = await fetchAllRows((from, to) =>
+          supabase
+            .from("lote_clasificacion")
+            .select("lote_codigo, lote_codigo_base, productor, producto, calidad, clase, grupo_destino, tamano, piezas, pct_piezas, peso_kg, pct_peso, cartons, pct_cartons, part_id")
+            .in("part_id", partIds)
+            .order("id")
+            .range(from, to),
+        );
 
-        if (clasifErr) {
-          console.error("Error fetching lote_clasificacion:", clasifErr);
-        } else {
-          for (const c of clasifRaw ?? []) {
+        for (const c of clasifRaw) {
             const kg = Number(c.peso_kg) || 0;
             const grupo = detectarGrupoDestinoLote(c.grupo_destino);
             const clase = c.clase ?? "Sin clase";
@@ -528,7 +577,6 @@ export function useAnalisisDiario(desde: string, hasta: string) {
             };
             addDetalle(detallePorLoteCodigo, codigoKey);
             addDetalle(detallePorLoteCodigoBase, codigoBaseKey);
-          }
         }
       } catch (clasifCatchErr) {
         console.error("Error inesperado fetching lote_clasificacion:", clasifCatchErr);
@@ -558,9 +606,9 @@ export function useAnalisisDiario(desde: string, hasta: string) {
           clasificacion = toClasificacionResumen(acumuladoExacto);
           detalle = detallePorLoteCodigo.get(loteCodigoKey);
         } else {
-          const match = (l.lote_codigo ?? "").match(/^(\d+)/);
-          if (match) {
-            const codigoBaseKey = `${partId}|${match[1]}`;
+          const prefijo = prefijoNumericoLote(l.lote_codigo);
+          if (prefijo) {
+            const codigoBaseKey = `${partId}|${prefijo}`;
             const acumuladoBase = clasifPorLoteCodigoBase.get(codigoBaseKey);
             if (acumuladoBase) {
               clasificacion = toClasificacionResumen(acumuladoBase);

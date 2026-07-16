@@ -49,3 +49,31 @@ export const formatDateTime = (d: string | Date | null | undefined) => {
 };
 
 export const today = () => toISODateLocal(new Date());
+
+// Normaliza texto para comparar/buscar sin distinguir mayúsculas ni tildes:
+// minúsculas + NFD + elimina las marcas diacríticas combinantes. Única
+// fuente: antes había 4 copias locales (EntradasBascula, TrazabilidadLote,
+// Productores, useProductores.normalizeNombre).
+// `trim: true` además recorta espacios al principio/final — necesario cuando
+// el resultado se usa como clave de igualdad (p. ej. nombre de productor
+// como clave de Map); no hace falta para búsquedas con `.includes()`, donde
+// los espacios de borde no cambian el resultado.
+//
+// ESPEJO: normalizarTexto(valor, {trim:true}) tiene una réplica en SQL,
+// public.normalizar_nombre_productor(text) (ver supabase/migrations/
+// 20260714090000_productores_canonicos.sql), usada por los triggers y el
+// backfill de productor_id/productor_finca_id. Esa réplica aproxima el NFD
+// de aquí con translate() sobre los diacríticos españoles habituales (no es
+// un NFD genérico) — si esta función cambia de forma que afecte a nombres de
+// productor, replicar el cambio también en esa función SQL.
+export function normalizarTexto(value: string | null | undefined, opts?: { trim?: boolean }): string {
+  const out = String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+  // Modo clave de igualdad: además de recortar bordes, colapsa espacios
+  // internos múltiples — igual que normalizar_nombre_productor en SQL, que
+  // hace regexp_replace('\s+', ' '). Sin esto, "Juan  García" (doble espacio)
+  // generaría claves distintas en JS y en los triggers de la base de datos.
+  return opts?.trim ? out.replace(/\s+/g, " ").trim() : out;
+}

@@ -14,6 +14,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import type { MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
 import { mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
 
@@ -85,28 +86,32 @@ export interface MercadonaExpedicionesResumen {
 }
 
 async function fetchPartesEnRango(desde: string, hasta: string): Promise<Map<string, string>> {
-  const { data, error } = await supabase
-    .from("partes_diarios")
-    .select("id, date")
-    .gte("date", desde)
-    .lte("date", hasta);
-  if (error) throw error;
-  return new Map((data ?? []).map((p) => [p.id as string, p.date as string]));
+  // partes_diarios va camino de las 1.000 filas (creciendo): se pagina por
+  // seguridad de cara al futuro.
+  const data = await fetchAllRows<{ id: string; date: string }>((from, to) =>
+    supabase.from("partes_diarios").select("id, date").gte("date", desde).lte("date", hasta).order("id").range(from, to),
+  );
+  return new Map(data.map((p) => [p.id, p.date]));
 }
 
 async function fetchPaletsMercadonaEnChunks(partIds: string[]): Promise<PaletRow[]> {
   // Se traen TODOS los palets de esos partes (no solo cliente=Mercadona) para
   // poder reparar en cliente las filas con cliente vacio (ver repararPaletsMercadona).
+  // palets_dia tiene 39.716 filas: cada chunk de 200 partes puede devolver
+  // por sí solo miles de filas, muy por encima del max-rows del servidor
+  // (el .limit(100000) no protegía nada). Se pagina cada chunk con fetchAllRows.
   const rows: PaletRow[] = [];
   for (let i = 0; i < partIds.length; i += IN_CHUNK_SIZE) {
     const chunk = partIds.slice(i, i + IN_CHUNK_SIZE);
-    const { data, error } = await supabase
-      .from("palets_dia")
-      .select("part_id, producto, cliente, kg_neto, n_cajas, situacion")
-      .in("part_id", chunk)
-      .limit(100000);
-    if (error) throw error;
-    rows.push(...((data ?? []) as PaletRow[]));
+    const chunkRows = await fetchAllRows<PaletRow>((from, to) =>
+      supabase
+        .from("palets_dia")
+        .select("part_id, producto, cliente, kg_neto, n_cajas, situacion")
+        .in("part_id", chunk)
+        .order("id")
+        .range(from, to),
+    );
+    rows.push(...chunkRows);
   }
   return repararPaletsMercadona(rows);
 }
@@ -295,14 +300,26 @@ interface ParteCascada {
 }
 
 async function fetchPartesConCascada(desde: string, hasta: string): Promise<Map<string, ParteCascada>> {
-  const { data, error } = await supabase
-    .from("partes_diarios")
-    .select("id, date, kg_produccion_calibrador, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
-    .gte("date", desde)
-    .lte("date", hasta);
-  if (error) throw error;
+  // partes_diarios va camino de las 1.000 filas (creciendo): se pagina por
+  // seguridad de cara al futuro.
+  const data = await fetchAllRows<{
+    id: string;
+    date: string;
+    kg_produccion_calibrador: number;
+    kg_mujeres_calibrador: number;
+    kg_reciclado_malla_z1: number;
+    kg_reciclado_malla_z2: number;
+  }>((from, to) =>
+    supabase
+      .from("partes_diarios")
+      .select("id, date, kg_produccion_calibrador, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
+      .gte("date", desde)
+      .lte("date", hasta)
+      .order("id")
+      .range(from, to),
+  );
   return new Map(
-    (data ?? []).map((p) => {
+    data.map((p) => {
       const calibrador = Number(p.kg_produccion_calibrador) || 0;
       const real = calibrador
         - (Number(p.kg_mujeres_calibrador) || 0)
@@ -315,16 +332,15 @@ async function fetchPartesConCascada(desde: string, hasta: string): Promise<Map<
 }
 
 async function fetchProductoDiaMdnaEnChunks(partIds: string[]): Promise<ProductoDiaRow[]> {
+  // Mismo motivo que fetchPaletsMercadonaEnChunks: cada chunk de 200 partes
+  // puede devolver por sí solo más de 1.000 filas de producto_dia.
   const rows: ProductoDiaRow[] = [];
   for (let i = 0; i < partIds.length; i += IN_CHUNK_SIZE) {
     const chunk = partIds.slice(i, i + IN_CHUNK_SIZE);
-    const { data, error } = await supabase
-      .from("producto_dia")
-      .select("part_id, producto, kg")
-      .in("part_id", chunk)
-      .limit(100000);
-    if (error) throw error;
-    rows.push(...((data ?? []) as ProductoDiaRow[]));
+    const chunkRows = await fetchAllRows<ProductoDiaRow>((from, to) =>
+      supabase.from("producto_dia").select("part_id, producto, kg").in("part_id", chunk).order("id").range(from, to),
+    );
+    rows.push(...chunkRows);
   }
   return rows;
 }

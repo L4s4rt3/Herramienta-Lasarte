@@ -20,6 +20,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getISOWeek, getISOWeekYear, startOfISOWeek } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import { toISODateLocal } from "@/lib/format";
 
 const IN_CHUNK_SIZE = 200;
@@ -68,26 +69,34 @@ export interface EdekaSemana {
 }
 
 async function fetchTodosLosPartes(): Promise<Map<string, string>> {
-  const { data, error } = await supabase
-    .from("partes_diarios")
-    .select("id, date")
-    .limit(100000);
-  if (error) throw error;
-  return new Map((data ?? []).map((p) => [p.id as string, p.date as string]));
+  // partes_diarios sin filtro (histórico completo): va camino de las 1.000
+  // filas (creciendo), se pagina por seguridad de cara al futuro; el
+  // .limit(100000) no era una protección real (PostgREST recorta a su
+  // max-rows en silencio).
+  const data = await fetchAllRows<{ id: string; date: string }>((from, to) =>
+    supabase.from("partes_diarios").select("id, date").order("id").range(from, to),
+  );
+  return new Map(data.map((p) => [p.id, p.date]));
 }
 
 async function fetchPaletsEdekaEnChunks(partIds: string[]): Promise<PaletRow[]> {
+  // El volumen de palets Edeka es bajo (~18 en toda la base), pero el
+  // ilike("cliente") se aplica DESPUÉS del filtro por chunk de partes: cada
+  // chunk de 200 partes barre TODOS sus palets antes de filtrar, así que se
+  // pagina igual que el resto de hooks de este patrón por si acaso.
   const rows: PaletRow[] = [];
   for (let i = 0; i < partIds.length; i += IN_CHUNK_SIZE) {
     const chunk = partIds.slice(i, i + IN_CHUNK_SIZE);
-    const { data, error } = await supabase
-      .from("palets_dia")
-      .select("part_id, palet_id, producto, destino, kg_neto, n_cajas, situacion")
-      .in("part_id", chunk)
-      .ilike("cliente", "%edeka%")
-      .limit(100000);
-    if (error) throw error;
-    rows.push(...((data ?? []) as PaletRow[]));
+    const chunkRows = await fetchAllRows<PaletRow>((from, to) =>
+      supabase
+        .from("palets_dia")
+        .select("part_id, palet_id, producto, destino, kg_neto, n_cajas, situacion")
+        .in("part_id", chunk)
+        .ilike("cliente", "%edeka%")
+        .order("id")
+        .range(from, to),
+    );
+    rows.push(...chunkRows);
   }
   return rows;
 }

@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatKg, formatPct } from "@/lib/format";
 import { calcularTphOperativa } from "@/lib/velocidadOperativa";
 import { buildPeriodoRange } from "@/lib/consumoPeriodoView";
+import { addDays, buildRecentWeeks } from "@/lib/isoWeek";
 import { cn } from "@/lib/utils";
 import {
   Truck, Package, TrendingDown, BarChart3,
@@ -31,6 +32,7 @@ import {
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import {
   GlassTooltip, C, GRID, XAXIS, YAXIS, MARGIN,
   BAR_STYLE, CHART_CURSOR, CHART_LINE_CURSOR, CHART_PANEL_CLASS,
@@ -57,49 +59,6 @@ interface DsjDotProps {
 }
 
 const WEEKS_IN_PANEL = 6;
-
-function toIsoDate(date: Date) {
-  // Componentes locales, no UTC (en España toISOString adelantaría el día de madrugada).
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function getIsoWeekNumber(date: Date) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-}
-
-function getWeekStart(date: Date) {
-  const d = new Date(date);
-  const day = d.getDay() === 0 ? 6 : d.getDay() - 1;
-  d.setDate(d.getDate() - day);
-  d.setHours(12, 0, 0, 0);
-  return d;
-}
-
-function buildRecentWeeks(count: number, anchor: Date) {
-  const currentStart = getWeekStart(anchor);
-  return Array.from({ length: count }, (_, index) => {
-    const start = addDays(currentStart, (index - count + 1) * 7);
-    const end = addDays(start, 6);
-    const weekNumber = getIsoWeekNumber(start);
-    return {
-      start: toIsoDate(start),
-      end: toIsoDate(end),
-      weekNumber,
-      label: `S${weekNumber}`,
-      rangeLabel: `${start.toLocaleDateString("es-ES", { day: "numeric", month: "short" })} - ${end.toLocaleDateString("es-ES", { day: "numeric", month: "short" })}`,
-    };
-  });
-}
 
 // ─── Tooltip glass ───────────────────────────────────────────────────
 
@@ -290,22 +249,21 @@ export default function Dashboard() {
   const { data: grupoDistribution, isLoading: grupoDistributionLoading } = useQuery({
     queryKey: ["dashboard-grupo-distribution", currentWeek.start, currentWeek.end],
     queryFn: async () => {
-      const { data: partesIds } = await supabase
-        .from("partes_diarios")
-        .select("id")
-        .gte("date", currentWeek.start)
-        .lte("date", currentWeek.end);
+      const partesIds = await fetchAllRows<{ id: string }>((from, to) =>
+        supabase.from("partes_diarios").select("id").gte("date", currentWeek.start).lte("date", currentWeek.end).order("id").range(from, to),
+      );
 
-      if (!partesIds || partesIds.length === 0) return [];
+      if (partesIds.length === 0) return [];
 
       const ids = partesIds.map((p) => p.id);
-      const { data: calibres } = await supabase
-        .from("calibres_dia")
-        .select("grupo_destino, kg")
-        .in("part_id", ids)
-        .limit(100000);
+      // Una semana no debería acercarse a las 1.000 filas de calibres_dia,
+      // pero el .limit(100000) tampoco protegía nada de verdad (PostgREST
+      // recorta a su max-rows en silencio): se pagina por seguridad.
+      const calibres = await fetchAllRows<{ grupo_destino: string | null; kg: number }>((from, to) =>
+        supabase.from("calibres_dia").select("grupo_destino, kg").in("part_id", ids).order("id").range(from, to),
+      );
 
-      if (!calibres || calibres.length === 0) return [];
+      if (calibres.length === 0) return [];
 
       const map = new Map<string, number>();
       for (const c of calibres) {

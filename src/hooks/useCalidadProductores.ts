@@ -12,6 +12,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import { normalizeNombre } from "@/hooks/useProductores";
 import type { CalidadEstado, CalidadInformeEstado } from "@/lib/calidad";
 import type { CalidadInformeLote } from "@/components/CalidadInformeDialog";
@@ -38,15 +39,40 @@ function useCalidadControles() {
   const query = useQuery({
     queryKey: ["calidad-controles-todos"],
     queryFn: async (): Promise<CalidadControlProductor[]> => {
-      const { data, error } = await supabase
-        .from("calidad_lotes")
-        .select(
-          "id, fecha, numero_lote, productor_finca_nombre, producto, variedad, cantidad, hora, calidad, defectos, defecto_otro, observacion, accion_recomendada, informe_generado, informe_estado, aerobotics_realizado, validado_at, validado_by",
-        )
-        .order("fecha", { ascending: false });
-      if (error) throw error;
+      // TODOS los controles de calidad, sin filtro de fecha: puede superar
+      // de sobra las 1.000 filas (volumen comparable a lotes_dia). Se pagina
+      // con fetchAllRows; "id" como desempate del orden por fecha.
+      const data = await fetchAllRows<{
+        id: string;
+        fecha: string;
+        numero_lote: string;
+        productor_finca_nombre: string | null;
+        producto: string | null;
+        variedad: string | null;
+        cantidad: string | null;
+        hora: string | null;
+        calidad: string;
+        defectos: string[] | null;
+        defecto_otro: string | null;
+        observacion: string | null;
+        accion_recomendada: string | null;
+        informe_generado: string | null;
+        informe_estado: string | null;
+        aerobotics_realizado: boolean | null;
+        validado_at: string | null;
+        validado_by: string | null;
+      }>((from, to) =>
+        supabase
+          .from("calidad_lotes")
+          .select(
+            "id, fecha, numero_lote, productor_finca_nombre, producto, variedad, cantidad, hora, calidad, defectos, defecto_otro, observacion, accion_recomendada, informe_generado, informe_estado, aerobotics_realizado, validado_at, validado_by",
+          )
+          .order("fecha", { ascending: false })
+          .order("id", { ascending: false })
+          .range(from, to),
+      );
 
-      return (data ?? []).map((row): CalidadControlProductor => {
+      return data.map((row): CalidadControlProductor => {
         const defectos = row.defectos ?? [];
         return {
           id: row.id,

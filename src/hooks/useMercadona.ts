@@ -10,6 +10,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 
 const IN_CHUNK_SIZE = 200;
 
@@ -64,18 +65,24 @@ export function normalizarFormatoMdna(producto: string): string {
   return "MDNA otros";
 }
 
+// El chunking de IN_CHUNK_SIZE evita pasarnos del límite de longitud de URL
+// de la cláusula IN, pero cada chunk puede devolver por sí solo más de
+// 1.000 filas (varias líneas de producto por día × 200 días): el
+// .limit(100000) no protegía nada, PostgREST recorta a su max-rows en
+// silencio. Se pagina cada chunk con fetchAllRows.
 async function fetchInChunks(ids: string[]): Promise<ProductoDiaRow[]> {
   const rows: ProductoDiaRow[] = [];
   for (let i = 0; i < ids.length; i += IN_CHUNK_SIZE) {
     const chunk = ids.slice(i, i + IN_CHUNK_SIZE);
-    const { data, error } = await supabase
-      .from("producto_dia")
-      .select("part_id, producto, kg, n_cajas")
-      .in("part_id", chunk)
-      .limit(100000);
-
-    if (error) throw error;
-    rows.push(...((data ?? []) as ProductoDiaRow[]));
+    const chunkRows = await fetchAllRows<ProductoDiaRow>((from, to) =>
+      supabase
+        .from("producto_dia")
+        .select("part_id, producto, kg, n_cajas")
+        .in("part_id", chunk)
+        .order("id")
+        .range(from, to),
+    );
+    rows.push(...chunkRows);
   }
   return rows;
 }
@@ -84,18 +91,17 @@ export function useMercadona(desde: string, hasta: string) {
   const query = useQuery({
     queryKey: ["mercadona-aprovechamiento", desde, hasta],
     queryFn: async (): Promise<{ productos: ProductoDiaRow[]; partesById: Map<string, string> }> => {
-      const { data: partesIds, error: partesError } = await supabase
-        .from("partes_diarios")
-        .select("id, date")
-        .gte("date", desde)
-        .lte("date", hasta);
+      // partes_diarios va camino de las 1.000 filas (creciendo): se pagina
+      // por seguridad de cara al futuro aunque hoy el rango típico no llegue.
+      const partesIds = await fetchAllRows<{ id: string; date: string }>((from, to) =>
+        supabase.from("partes_diarios").select("id, date").gte("date", desde).lte("date", hasta).order("id").range(from, to),
+      );
 
-      if (partesError) throw partesError;
-      if (!partesIds || partesIds.length === 0) {
+      if (partesIds.length === 0) {
         return { productos: [], partesById: new Map() };
       }
 
-      const partesById = new Map(partesIds.map((p) => [p.id as string, p.date as string]));
+      const partesById = new Map(partesIds.map((p) => [p.id, p.date]));
       const ids = Array.from(partesById.keys());
       const productos = await fetchInChunks(ids);
 

@@ -13,6 +13,7 @@
  */
 import { useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import { callChatFunction, DOMAIN_PROMPT, ChatContent } from "@/lib/gemini";
 import { computeCascade } from "@/lib/cascade";
 import { normalizeConsumoCantidad, type ConsumoFisicoInput } from "@/lib/consumosFisicos";
@@ -176,13 +177,13 @@ async function buildMercadonaSemanal(sections: string[], weekStart: string, week
     return;
   }
 
-  const { data: productos } = await supabase
-    .from("producto_dia")
-    .select("producto, kg, n_cajas")
-    .in("part_id", partesIds.map((p) => p.id))
-    .limit(5000);
+  // Una semana no debería acercarse a las 1.000 filas de producto_dia, pero
+  // el .limit(5000) tampoco protegía nada de verdad: se pagina por seguridad.
+  const productos = await fetchAllRows<{ producto: string | null; kg: number; n_cajas: number | null }>((from, to) =>
+    supabase.from("producto_dia").select("producto, kg, n_cajas").in("part_id", partesIds.map((p) => p.id)).order("id").range(from, to),
+  );
 
-  const rows = (productos ?? []).filter((p) => (p.producto ?? "").trim() !== "");
+  const rows = productos.filter((p) => (p.producto ?? "").trim() !== "");
   const kgTotal = rows.reduce((s, p) => s + (Number(p.kg) || 0), 0);
   // MDNA excluyendo precalibrado (PREC): no cuenta para el aprovechamiento.
   const mdna = rows.filter((p) => {
@@ -209,27 +210,42 @@ function normalizeNombreProductor(value: string | null | undefined): string {
 }
 
 async function buildProductoresDelMes(sections: string[], monthStart: string) {
-  const [{ data: lotes }, { data: clasifRaw }] = await Promise.all([
-    supabase
-      .from("lotes_dia")
-      .select("productor, toneladas_hora, duracion_min, kg_peso_total, kg_industria, partes_diarios!inner(date)")
-      .gte("partes_diarios.date", monthStart)
-      .limit(3000),
-    supabase
-      .from("lote_clasificacion")
-      .select("productor, grupo_destino, peso_kg")
-      .gte("fecha", monthStart)
-      .limit(20000),
+  // lotes_dia (1.187 filas) y sobre todo lote_clasificacion (8.685 filas,
+  // ~868/mes de media) pueden superar de sobra las 1.000 filas en un mes
+  // cargado: los .limit(3000)/.limit(20000) no protegían nada (PostgREST
+  // recorta a su max-rows en silencio, sesgando el ranking del mes). Se
+  // paginan con fetchAllRows.
+  const [lotes, clasifRaw] = await Promise.all([
+    fetchAllRows<{
+      productor: string | null;
+      toneladas_hora: number | null;
+      duracion_min: number | null;
+      kg_peso_total: number;
+      kg_industria: number | null;
+    }>((from, to) =>
+      supabase
+        .from("lotes_dia")
+        .select("productor, toneladas_hora, duracion_min, kg_peso_total, kg_industria, partes_diarios!inner(date)")
+        .gte("partes_diarios.date", monthStart)
+        .order("id")
+        .range(from, to) as unknown as PromiseLike<{
+          data: Array<{ productor: string | null; toneladas_hora: number | null; duracion_min: number | null; kg_peso_total: number; kg_industria: number | null }> | null;
+          error: unknown;
+        }>,
+    ),
+    fetchAllRows<{ productor: string | null; grupo_destino: string | null; peso_kg: number }>((from, to) =>
+      supabase.from("lote_clasificacion").select("productor, grupo_destino, peso_kg").gte("fecha", monthStart).order("id").range(from, to),
+    ),
   ]);
 
-  if (!lotes?.length) {
+  if (lotes.length === 0) {
     sections.push("-- PRODUCTORES DEL MES: sin lotes registrados este mes.");
     return;
   }
 
   // % export por productor, a partir del Informe LOTE (si existe para ese productor).
   const exportPorProductor = new Map<string, { kgExport: number; kgTotal: number }>();
-  for (const c of clasifRaw ?? []) {
+  for (const c of clasifRaw) {
     const nombre = normalizeNombreProductor(c.productor);
     if (!nombre) continue;
     const acc = exportPorProductor.get(nombre) ?? { kgExport: 0, kgTotal: 0 };
@@ -277,13 +293,13 @@ async function buildProductoresDelMes(sections: string[], monthStart: string) {
 
 async function buildDistribucionDestino(sections: string[], partIds: string[]) {
   if (!partIds.length) return;
-  const { data: calibres } = await supabase
-    .from("calibres_dia")
-    .select("grupo_destino, kg")
-    .in("part_id", partIds)
-    .limit(50000);
+  // 30 días de calibres_dia pueden superar de sobra las 1.000 filas; el
+  // .limit(50000) no protegía nada. Se pagina con fetchAllRows.
+  const calibres = await fetchAllRows<{ grupo_destino: string | null; kg: number }>((from, to) =>
+    supabase.from("calibres_dia").select("grupo_destino, kg").in("part_id", partIds).order("id").range(from, to),
+  );
 
-  if (!calibres?.length) return;
+  if (calibres.length === 0) return;
   const map = new Map<string, number>();
   for (const c of calibres) {
     const grupo = normalizeGrupo(c.grupo_destino);

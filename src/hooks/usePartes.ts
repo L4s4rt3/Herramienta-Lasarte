@@ -8,6 +8,7 @@
 import { useEffect, useMemo } from "react";
 import { QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import { computeCascade, CascadeResult } from "@/lib/cascade";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthProvider";
@@ -117,13 +118,19 @@ function buildCascade(p: ParteRaw): Parte {
 export const PARTES_QUERY_KEY = ["partes"] as const;
 
 export async function fetchPartes(): Promise<Parte[]> {
-  const { data, error } = await supabase
-    .from("partes_diarios")
-    .select("*")
-    .order("date", { ascending: false });
-
-  if (error) throw error;
-  return ((data ?? []) as ParteRaw[]).map(buildCascade);
+  // TODOS los partes, sin filtro: partes_diarios va camino de las 1.000
+  // filas (creciendo, un registro por día). Se pagina con fetchAllRows en
+  // vez de un .select() sin límite, por seguridad de cara al futuro — este
+  // hook alimenta tanto PartesList como Dashboard.
+  const data = await fetchAllRows<ParteRaw>((from, to) =>
+    supabase
+      .from("partes_diarios")
+      .select("*")
+      .order("date", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, to),
+  );
+  return data.map(buildCascade);
 }
 
 export const partesQueryOptions = {

@@ -17,7 +17,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
-import { toError } from "@/lib/errorMessage";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import { toISODateLocal, today } from "@/lib/format";
 import { useMercadonaVentas, type MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
 import { useVentasCategoria } from "@/hooks/useVentasCategoria";
@@ -66,26 +66,24 @@ export interface ComercialMesAnterior {
 }
 
 async function fetchPartIdsEnRango(desde: string, hasta: string): Promise<string[]> {
-  const { data, error } = await supabase
-    .from("partes_diarios")
-    .select("id")
-    .gte("date", desde)
-    .lte("date", hasta);
-  if (error) throw toError(error);
-  return (data ?? []).map((p) => p.id as string);
+  const data = await fetchAllRows<{ id: string }>((from, to) =>
+    supabase.from("partes_diarios").select("id").gte("date", desde).lte("date", hasta).order("id").range(from, to),
+  );
+  return data.map((p) => p.id);
 }
 
 async function fetchPaletsEnChunks(partIds: string[]): Promise<PaletClienteRow[]> {
+  // Aunque el rango es de solo 30 días, palets_dia mueve ~192 filas de media
+  // por día (39.716 palets / ~207 partes): un único chunk de 200 días puede
+  // devolver de sobra más de 1.000 filas. El .limit(100000) no protegía
+  // nada, se pagina cada chunk con fetchAllRows.
   const rows: PaletClienteRow[] = [];
   for (let i = 0; i < partIds.length; i += IN_CHUNK_SIZE) {
     const chunk = partIds.slice(i, i + IN_CHUNK_SIZE);
-    const { data, error } = await supabase
-      .from("palets_dia")
-      .select("part_id, cliente, kg_neto, n_cajas")
-      .in("part_id", chunk)
-      .limit(100000);
-    if (error) throw toError(error);
-    rows.push(...((data ?? []) as PaletClienteRow[]));
+    const chunkRows = await fetchAllRows<PaletClienteRow>((from, to) =>
+      supabase.from("palets_dia").select("part_id, cliente, kg_neto, n_cajas").in("part_id", chunk).order("id").range(from, to),
+    );
+    rows.push(...chunkRows);
   }
   return rows;
 }

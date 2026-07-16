@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle, DialogTrigger,
@@ -49,14 +50,19 @@ export function ExportPartesDialog({ defaultFrom, defaultTo }: Props) {
   }
 
   async function fetchRows(): Promise<ParteRow[]> {
-    const { data, error } = await supabase
-      .from("partes_diarios")
-      .select("*")
-      .gte("date", from)
-      .lte("date", to)
-      .order("date", { ascending: true });
-    if (error) throw error;
-    return (data ?? []) as ParteRow[];
+    // El rango es editable a mano (puede cubrir toda la campaña): se pagina
+    // con fetchAllRows para que el export no pierda filas en silencio si
+    // partes_diarios ya (o algún día) supera el max-rows del servidor.
+    return fetchAllRows<ParteRow>((from_, to_) =>
+      supabase
+        .from("partes_diarios")
+        .select("*")
+        .gte("date", from)
+        .lte("date", to)
+        .order("date", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from_, to_) as unknown as PromiseLike<{ data: ParteRow[] | null; error: unknown }>,
+    );
   }
 
   async function doExport(kind: "xlsx" | "pdf") {

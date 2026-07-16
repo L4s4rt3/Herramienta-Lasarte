@@ -17,6 +17,7 @@ import { InfoTooltip } from "@/components/InfoTooltip";
 import { AutoWeekFallbackNotice } from "@/components/AutoWeekFallbackNotice";
 import { ExportPartesDialog } from "@/components/ExportPartesDialog";
 import { PartesPeriodoNav, computePeriodoRango, parseAnchorDate, type VistaPeriodo } from "@/components/PartesPeriodoNav";
+import { ColHead } from "@/components/SortableColumn";
 import { useI18n } from "@/lib/i18n";
 import { formatDate, formatKg, today } from "@/lib/format";
 import { getSemaforo, DJPMN_HELP } from "@/lib/semaforo";
@@ -24,7 +25,7 @@ import { format, parseISO, getISOWeek, startOfWeek, endOfWeek } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "@/hooks/use-toast";
 import {
-  Plus, Trash2, ChevronUp, ChevronDown, ChevronsUpDown, ChevronRight,
+  Plus, Trash2, ChevronRight,
   Search, X, CalendarIcon, AlertTriangle, Factory,
 } from "lucide-react";
 import {
@@ -44,28 +45,8 @@ function formatDateShort(d: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
-function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
-  if (!active) return <ChevronsUpDown className="h-3 w-3 opacity-30" />;
-  return dir === "asc"
-    ? <ChevronUp className="h-3 w-3 text-primary" />
-    : <ChevronDown className="h-3 w-3 text-primary" />;
-}
-
-function ColHead({ label, sk, right, sortKey, sortDir, onToggle }: { label: string; sk: SortKey; right?: boolean; sortKey: SortKey; sortDir: SortDir; onToggle: (k: SortKey) => void }) {
-  return (
-    <th
-      className={cn(
-        "px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer select-none whitespace-nowrap hover:text-foreground transition-colors",
-        right && "text-right"
-      )}
-      onClick={() => onToggle(sk)}
-    >
-      <span className={cn("inline-flex items-center gap-1", right && "flex-row-reverse")}>
-        {label}<SortIcon active={sortKey === sk} dir={sortDir} />
-      </span>
-    </th>
-  );
-}
+/** Clases del <th> de PartesList: más densas que el header por defecto de `.data-table` (ver src/index.css). */
+const COL_HEAD_CLASS = "px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground";
 
 function DSJBar({ pct }: { pct: number }) {
   const sem = getSemaforo(pct);
@@ -365,11 +346,11 @@ export default function PartesList() {
         <table className="data-table">
           <thead>
             <tr>
-              <ColHead label="Fecha"         sk="date"         sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
-              <ColHead label="Estado"        sk="estado"       sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
-              <ColHead label="Prod. real"    sk="produccion"   sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
-              <ColHead label="Palets ajust." sk="palets"       sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right />
-              <ColHead label="% DJPMN"       sk="dsj_pct"      sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+              <ColHead label="Fecha"         sk="date"         sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} className={COL_HEAD_CLASS} />
+              <ColHead label="Estado"        sk="estado"       sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} className={COL_HEAD_CLASS} />
+              <ColHead label="Prod. real"    sk="produccion"   sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right className={COL_HEAD_CLASS} />
+              <ColHead label="Palets ajust." sk="palets"       sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} right className={COL_HEAD_CLASS} />
+              <ColHead label="% DJPMN"       sk="dsj_pct"      sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} className={COL_HEAD_CLASS} />
               <th className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-right whitespace-nowrap">DJPMN (kg)</th>
               <th className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-right whitespace-nowrap">Mermas</th>
               <th className="w-8" />
