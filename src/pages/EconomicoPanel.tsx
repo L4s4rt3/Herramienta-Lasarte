@@ -337,6 +337,8 @@ export default function EconomicoPanel() {
             icon={TrendingUp}
             accent={panel.margenBruto >= 0 ? "success" : "destructive"}
             hint="Facturación (Mercadona + 2ª) − consumos − mallas − fruta − personal"
+            /* --vivo: KPI principal de este dashboard (dato vivo, ajuste 2026-07-16) */
+            valueClassName="text-vivo"
           />
           <KPICard
             className="glass-accented"

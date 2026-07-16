@@ -123,6 +123,8 @@ export default function RrhhDashboard() {
           hint={`${formatNumber(rrhh.computablesKgPersona)} computan kg/persona`}
           icon={Users}
           to="/rrhh/personas"
+          /* --vivo: KPI principal de este dashboard (dato vivo, ajuste 2026-07-16) */
+          valueClassName="text-vivo"
         />
         <KPICard
           className="glass-accented"

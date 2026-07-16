@@ -194,7 +194,8 @@ function AppLayoutContent() {
                         SidebarGroup, arriba) es la única marca por workspace
                         que sobrevive a la calibración de color 2026-07-17; el
                         texto del encabezado vuelve al sidebar-primary
-                        estándar (marino/índigo), igual para las 4 secciones. */}
+                        estándar (azul medio desde el duotono 2026-07-16),
+                        igual para las 4 secciones. */}
                     <button
                       type="button"
                       onClick={() => setSeccionesAbiertas((prev) => ({ ...prev, [ws.id]: !abierta }))}

@@ -26,6 +26,17 @@ interface KPICardProps {
   labelInfo?: ReactNode;
   /** Contenido extra bajo el valor/delta (mini-escala, sparkline...). */
   children?: ReactNode;
+  /**
+   * Clases extra para el <p> del valor. Uso restringido: el token --vivo
+   * (naranja "dato vivo", ajuste de color 2026-07-16) solo va aquí, en el
+   * KPI PRINCIPAL de cada dashboard (máximo uno por pantalla) — no existe
+   * accent="vivo" a propósito: accent tiñe también la barra superior y el
+   * icono, y --vivo nunca debe ser interactivo ni decorar bordes/fondos,
+   * solo el número. Ver Dashboard.tsx (Stock firme), DireccionDashboard.tsx
+   * y EconomicoPanel.tsx (Margen bruto), ComercialDashboard.tsx (Vendido
+   * Mercadona) y RrhhDashboard.tsx (Plantilla activa).
+   */
+  valueClassName?: string;
 }
 
 const TREND_COLOR: Record<Trend, string> = {
@@ -48,7 +59,7 @@ const ACCENT_ICON: Record<Accent, string> = {
   destructive: "text-destructive",
 };
 
-export function KPICard({ label, value, hint, icon: Icon, trend, delta, deltaTrend, accent = "primary", className, to, labelInfo, children }: KPICardProps) {
+export function KPICard({ label, value, hint, icon: Icon, trend, delta, deltaTrend, accent = "primary", className, to, labelInfo, children, valueClassName }: KPICardProps) {
   const TrendIcon = trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : null;
 
   const content = (
@@ -60,7 +71,7 @@ export function KPICard({ label, value, hint, icon: Icon, trend, delta, deltaTre
             <p className="panel-kicker">{label}</p>
             {labelInfo && <InfoTooltip>{labelInfo}</InfoTooltip>}
           </div>
-          <p className="mt-2 break-words text-2xl font-semibold tabular-nums leading-tight sm:text-3xl">{value}</p>
+          <p className={cn("mt-2 break-words text-2xl font-semibold tabular-nums leading-tight sm:text-3xl", valueClassName)}>{value}</p>
           {delta ? (
             <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
               <DeltaChip value={delta} trend={deltaTrend || "neutral"} />

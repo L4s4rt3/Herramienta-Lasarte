@@ -81,6 +81,10 @@ export function SelectorPeriodo({
   const esActual = esPeriodoActual(value, hoy);
   const mostrarSegmentado = modos && modos.length > 1;
   const mostrarHoy = showHoy && value.modo !== "rango" && !esActual;
+  // Cuando SÍ estás en el periodo de hoy no hay botón "Hoy" que pulsar (ya
+  // estás ahí) — en su lugar, una etiqueta no interactiva en --vivo (dato
+  // vivo, ajuste de color 2026-07-16) confirma "estás viendo el presente".
+  const mostrarHoyVivo = showHoy && value.modo !== "rango" && esActual;
 
   function ir(next: PeriodoValue) {
     onChange(next);
@@ -149,7 +153,8 @@ export function SelectorPeriodo({
         </Button>
       </div>
 
-      {/* Hoy */}
+      {/* Hoy: botón interactivo (navega al periodo actual) cuando NO estás en
+          él; etiqueta fija en --vivo cuando SÍ lo estás (no hay a dónde navegar). */}
       {mostrarHoy && (
         <Button
           variant="ghost"
@@ -160,6 +165,12 @@ export function SelectorPeriodo({
         >
           Hoy
         </Button>
+      )}
+      {mostrarHoyVivo && (
+        <span className="flex h-7 items-center gap-1.5 px-2 text-xs font-semibold text-vivo">
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-vivo" aria-hidden="true" />
+          Hoy
+        </span>
       )}
 
       {/* Saltar a fecha */}

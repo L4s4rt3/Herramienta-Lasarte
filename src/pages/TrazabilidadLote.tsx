@@ -742,7 +742,8 @@ function TimelinePaso({ icon: Icon, titulo, activo, esUltimo = false, vacio, acc
     <div className="flex gap-3 sm:gap-4">
       {/* Nodo + línea con el primary global (revertido del acento de
           Producción de fase 2 — calibración de color 2026-07-17: el
-          timeline vuelve al marino/neutro estándar). */}
+          timeline vuelve al primary estándar, azul medio desde el duotono
+          2026-07-16). */}
       <div className="flex w-9 shrink-0 flex-col items-center sm:w-10">
         <div
           className={cn(

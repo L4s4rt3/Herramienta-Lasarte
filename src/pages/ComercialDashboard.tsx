@@ -74,6 +74,8 @@ export default function ComercialDashboard() {
               accent={d.ultimaSemana && d.planificadoKg > 0 ? cumplimientoAccent(d.pctCumplimiento) : "primary"}
               icon={ShoppingCart}
               to="/comercial/mercadona"
+              /* --vivo: KPI principal de este dashboard (dato vivo, ajuste 2026-07-16) */
+              valueClassName="text-vivo"
             />
             <KPICard
               className="glass-accented"

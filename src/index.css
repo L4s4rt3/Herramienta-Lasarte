@@ -15,12 +15,28 @@
     --popover: 38 20% 96%;
     --popover-foreground: 150 18% 14%;
 
-    /* Acento corporativo único: azul marino del logo LASARTE (#2B2E6E),
-       decisión del dueño (jul 2026) — reemplaza el naranja como acento
-       global de botones/enlaces/foco en toda la app. */
-    --primary: 238 44% 30%;
+    /* Acento corporativo único: AZUL MEDIO del logo LASARTE (#1B75BB),
+       "duotono Lasarte" (jul 2026): tras probar marino (16/7) y naranja
+       (16/7 más tarde), el dueño vio el comparador y se decidió por un
+       duotono — el azul del corchete del logo como estructura/interacción
+       (--primary) y el naranja del logo como nota puntual de "dato vivo"
+       (--vivo, ver más abajo, uso muy restringido). #1B75BB crudo ya pasa
+       AA (4.83:1 con blanco) pero se oscurece un poco a hsl(206 75% 36%)
+       para más margen (6.16:1) sin dejar de leerse como el azul del logo. */
+    --primary: 206 75% 36%;
     --primary-foreground: 0 0% 100%;
-    --primary-glow: 233 40% 52%;
+    --primary-glow: 206 75% 42%;
+
+    /* --vivo: NARANJA del logo LASARTE — el otro lado del duotono. NO es un
+       acento interactivo (nunca en botones/enlaces/bordes/fondos/tablas):
+       marca el único dato "actual/presente" de cada pantalla — el KPI
+       principal de cada dashboard y la etiqueta "Hoy" del SelectorPeriodo
+       cuando el periodo mostrado es hoy. Máximo un --vivo por vista. El
+       naranja crudo del logo (25 87% 54%) da solo 2.9:1 como texto sobre el
+       fondo de página; se oscurece a hsl(25 87% 36%) para pasar AA (4.75:1
+       sobre --background claro) y se lee igual de "naranja Lasarte". */
+    --vivo: 25 87% 36%;
+    --vivo-foreground: 0 0% 100%;
 
     --secondary: 38 28% 88%;
     --secondary-foreground: 150 18% 14%;
@@ -44,18 +60,21 @@
 
     --border: 38 25% 82%;
     --input: 38 20% 85%;
-    --ring: 238 44% 30%;
+    --ring: 206 75% 36%;
 
     --radius: 0.625rem;
 
     --sidebar-background: 150 30% 14% / 0.85;
     --sidebar-foreground: 40 20% 92%;
-    --sidebar-primary: 236 45% 76%;
-    --sidebar-primary-foreground: 236 45% 18%;
+    /* La sidebar es SIEMPRE oscura (claro u oscuro no cambia su fondo), así
+       que sidebar-primary usa la variante azul aclarada (misma que
+       --primary en .dark) en vez del --primary del tema claro. */
+    --sidebar-primary: 206 65% 66%;
+    --sidebar-primary-foreground: 206 65% 18%;
     --sidebar-accent: 150 25% 22%;
     --sidebar-accent-foreground: 40 25% 95%;
     --sidebar-border: 150 20% 22%;
-    --sidebar-ring: 236 45% 76%;
+    --sidebar-ring: 206 65% 66%;
 
     --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
     --glass-border: hsl(38 30% 75% / 0.35);
@@ -88,8 +107,8 @@
     --auth-muted: #6B756A;
     --auth-green: #173A27;
     --auth-olive: #8A9A5B;
-    --auth-accent: #2B2E6E;
-    --auth-accent-hover: #21254F;
+    --auth-accent: #1765A1;
+    --auth-accent-hover: #124F7D;
     --auth-border: #E5E2D8;
     --auth-input-bg: #FFFFFF;
 
@@ -97,8 +116,8 @@
        Un color de acento por workspace, derivado del logo (ver
        public/branding/lasarte-logo-horizontal.jpg), para que cada gran
        sección tenga una marca mínima sin competir con el --primary global
-       (azul marino: el acento de acciones/enlaces en TODA la app desde la
-       calibración de color 2026-07-17). Mecanismo: AppLayout fija
+       (azul medio: el acento de acciones/enlaces en TODA la app desde el
+       duotono 2026-07-16). Mecanismo: AppLayout fija
        data-seccion="<workspace>" en el wrapper de SidebarProvider según
        workspaceDeRuta(location.pathname); las reglas [data-seccion=...] de
        abajo pisan estas 3 variables para toda la página.
@@ -129,23 +148,30 @@
     --seccion-acento-suave: hsl(85 30% 51% / 0.12);
   }
 
-  /* Comercial · azul del logo, desaturado (#1B75BB/#16639F crudos). */
+  /* Comercial · azul del logo, desaturado (#1B75BB/#16639F crudos). NOTA
+     2026-07-16 (duotono): comparte hue 206 con el --primary global (mismo
+     azul, distinta sat/L) — el dueño pidió dejar los 4 puntitos "como
+     están", así que no se toca, pero queda anotado por si algún día se ve
+     ambiguo igual que le pasó a RRHH con el naranja. */
   [data-seccion="comercial"] {
     --seccion-acento: 206 41% 42%;
     --seccion-acento-texto: 206 42% 36%;
     --seccion-acento-suave: hsl(206 41% 42% / 0.12);
   }
 
-  /* RRHH · naranja del logo, desaturado (#F07822/#D9660D crudos) — distinto
-     del --primary (marino) global. */
+  /* RRHH · naranja del logo, desaturado (#F07822/#D9660D crudos). AJUSTE
+     2026-07-16 (duotono): con --primary azul y --vivo naranja MUY escaso y
+     no interactivo (ver arriba), este puntito desaturado ya no colisiona con
+     ningún acento interactivo — se mantiene el valor original de fase 2-3. */
   [data-seccion="rrhh"] {
     --seccion-acento: 25 48% 54%;
     --seccion-acento-texto: 26 49% 40%;
     --seccion-acento-suave: hsl(25 48% 54% / 0.12);
   }
 
-  /* Dirección · azul marino del logo, desaturado (mismo tono de familia que
-     el --primary global, pero un punto más apagado para diferenciarlo). */
+  /* Dirección · azul marino del logo, desaturado — hue distinto (238) del
+     --primary global (azul medio, hue 206): familia "azul" en sentido
+     amplio pero tonos separados a propósito para no competir. */
   [data-seccion="direccion"] {
     --seccion-acento: 238 24% 30%;
     --seccion-acento-texto: 238 24% 30%;
@@ -159,9 +185,16 @@
     --card-foreground: 40 20% 92%;
     --popover: 150 20% 13%;
     --popover-foreground: 40 20% 92%;
-    --primary: 236 45% 72%;
-    --primary-foreground: 236 45% 18%;
-    --primary-glow: 234 55% 82%;
+    /* Azul aclarado para fondo oscuro: hsl(206 65% 62%) sobre foreground
+       oscuro hsl(206 65% 18%) da 5.08:1 (AA); como texto sobre el fondo
+       oscuro 150 20% 10% da 6.49:1. */
+    --primary: 206 65% 62%;
+    --primary-foreground: 206 65% 18%;
+    --primary-glow: 206 70% 74%;
+    /* --vivo (dark): naranja aclarado hsl(26 90% 62%) — como texto sobre el
+       fondo oscuro 150 20% 10% da 7.38:1 (AA de sobra). */
+    --vivo: 26 90% 62%;
+    --vivo-foreground: 26 90% 18%;
     --secondary: 150 15% 20%;
     --secondary-foreground: 40 20% 92%;
     --muted: 150 15% 18%;
@@ -176,15 +209,15 @@
     --destructive-foreground: 0 0% 100%;
     --border: 150 15% 22%;
     --input: 150 15% 22%;
-    --ring: 236 45% 72%;
+    --ring: 206 65% 62%;
     --sidebar-background: 150 30% 12% / 0.8;
     --sidebar-foreground: 40 20% 92%;
-    --sidebar-primary: 236 45% 76%;
-    --sidebar-primary-foreground: 236 45% 18%;
+    --sidebar-primary: 206 65% 66%;
+    --sidebar-primary-foreground: 206 65% 18%;
     --sidebar-accent: 150 25% 20%;
     --sidebar-accent-foreground: 40 25% 95%;
     --sidebar-border: 150 20% 20%;
-    --sidebar-ring: 236 45% 76%;
+    --sidebar-ring: 206 65% 66%;
     --glass-border: hsl(0 0% 100% / 0.08);
     --glass-border-accent: hsl(var(--primary) / 0.15);
     --glass-bg: hsl(150 20% 13% / 0.7);
@@ -215,8 +248,8 @@
     --auth-muted: #6B756A;
     --auth-green: #173A27;
     --auth-olive: #8A9A5B;
-    --auth-accent: #2B2E6E;
-    --auth-accent-hover: #21254F;
+    --auth-accent: #1765A1;
+    --auth-accent-hover: #124F7D;
     --auth-border: #E5E2D8;
     --auth-input-bg: #FFFFFF;
 

@@ -373,6 +373,8 @@ export default function DireccionDashboard() {
                       accent={economico.margenBruto >= 0 ? "success" : "destructive"}
                       icon={TrendingUp}
                       labelInfo="Facturación (Mercadona + 2ª) − consumos − mallas − compra de fruta − coste de personal. Mismo cálculo y mismo número que el Panel Económico para este periodo."
+                      /* --vivo: KPI principal de este dashboard (dato vivo, ajuste 2026-07-16) */
+                      valueClassName="text-vivo"
                     >
                       <Link to="/economico" className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
                         Ver detalle <ArrowRight className="h-3 w-3" />

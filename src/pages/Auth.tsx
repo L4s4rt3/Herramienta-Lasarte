@@ -149,7 +149,7 @@ export default function Auth() {
           <div
             className="absolute top-0 left-6 right-6 h-[2px] rounded-full"
             style={{
-              background: "linear-gradient(90deg, transparent, #2B2E6E, transparent)",
+              background: "linear-gradient(90deg, transparent, #1765A1, transparent)",
             }}
           />
 
@@ -188,9 +188,9 @@ export default function Auth() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="h-12 transition-shadow duration-300 focus:shadow-[0_0_0_4px_rgba(43,46,110,0.15)]"
+                  className="h-12 transition-shadow duration-300 focus:shadow-[0_0_0_4px_rgba(23,101,161,0.15)]"
                   style={inputStyle}
-                  onFocus={(e) => { e.target.style.borderColor = "#2B2E6E"; e.target.style.boxShadow = "0 0 0 4px rgba(43,46,110,0.15)"; }}
+                  onFocus={(e) => { e.target.style.borderColor = "#1765A1"; e.target.style.boxShadow = "0 0 0 4px rgba(23,101,161,0.15)"; }}
                   onBlur={(e) => { e.target.style.borderColor = "var(--auth-border)"; e.target.style.boxShadow = "none"; }}
                 />
               </div>
@@ -220,7 +220,7 @@ export default function Auth() {
                   required
                   className="h-12 transition-shadow duration-300"
                   style={inputStyle}
-                  onFocus={(e) => { e.target.style.borderColor = "#2B2E6E"; e.target.style.boxShadow = "0 0 0 4px rgba(43,46,110,0.15)"; }}
+                  onFocus={(e) => { e.target.style.borderColor = "#1765A1"; e.target.style.boxShadow = "0 0 0 4px rgba(23,101,161,0.15)"; }}
                   onBlur={(e) => { e.target.style.borderColor = "var(--auth-border)"; e.target.style.boxShadow = "none"; }}
                 />
               </div>
@@ -267,7 +267,7 @@ export default function Auth() {
                   maxLength={100}
                   className="h-12 transition-shadow duration-300"
                   style={inputStyle}
-                  onFocus={(e) => { e.target.style.borderColor = "#2B2E6E"; e.target.style.boxShadow = "0 0 0 4px rgba(43,46,110,0.15)"; }}
+                  onFocus={(e) => { e.target.style.borderColor = "#1765A1"; e.target.style.boxShadow = "0 0 0 4px rgba(23,101,161,0.15)"; }}
                   onBlur={(e) => { e.target.style.borderColor = "var(--auth-border)"; e.target.style.boxShadow = "none"; }}
                 />
               </div>
@@ -281,7 +281,7 @@ export default function Auth() {
                   required
                   className="h-12 transition-shadow duration-300"
                   style={inputStyle}
-                  onFocus={(e) => { e.target.style.borderColor = "#2B2E6E"; e.target.style.boxShadow = "0 0 0 4px rgba(43,46,110,0.15)"; }}
+                  onFocus={(e) => { e.target.style.borderColor = "#1765A1"; e.target.style.boxShadow = "0 0 0 4px rgba(23,101,161,0.15)"; }}
                   onBlur={(e) => { e.target.style.borderColor = "var(--auth-border)"; e.target.style.boxShadow = "none"; }}
                 />
               </div>
@@ -296,7 +296,7 @@ export default function Auth() {
                   minLength={6}
                   className="h-12 transition-shadow duration-300"
                   style={inputStyle}
-                  onFocus={(e) => { e.target.style.borderColor = "#2B2E6E"; e.target.style.boxShadow = "0 0 0 4px rgba(43,46,110,0.15)"; }}
+                  onFocus={(e) => { e.target.style.borderColor = "#1765A1"; e.target.style.boxShadow = "0 0 0 4px rgba(23,101,161,0.15)"; }}
                   onBlur={(e) => { e.target.style.borderColor = "var(--auth-border)"; e.target.style.boxShadow = "none"; }}
                 />
               </div>

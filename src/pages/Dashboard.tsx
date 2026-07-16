@@ -502,6 +502,8 @@ export default function Dashboard() {
                 icon={Warehouse}
                 to="/entradas"
                 labelInfo="Lotes en cámara (pendientes o parciales) que NO están marcados como probablemente terminados."
+                /* --vivo: KPI principal de este dashboard (dato vivo, ajuste 2026-07-16) */
+                valueClassName="text-vivo"
               />
               <KPICard
                 label="Probablemente terminado"

@@ -60,6 +60,15 @@ export default {
           DEFAULT: "hsl(var(--info))",
           foreground: "hsl(var(--info-foreground))",
         },
+        // "Dato vivo" (naranja del logo, ajuste de color 2026-07-16): NO es
+        // un acento interactivo — nunca en botones, bordes, fondos ni tablas.
+        // Marca el único número "actual/presente" de cada dashboard (el KPI
+        // principal) y la etiqueta "Hoy" del SelectorPeriodo cuando el
+        // periodo mostrado es el de hoy. Máximo un elemento por pantalla.
+        vivo: {
+          DEFAULT: "hsl(var(--vivo))",
+          foreground: "hsl(var(--vivo-foreground))",
+        },
         // Acento por sección (FASE 2 del rediseño, jul 2026): --seccion-acento
         // lo fija AppLayout con data-seccion="<workspace>" en src/index.css
         // según el workspace activo (workspaceDeRuta). "DEFAULT" es el color

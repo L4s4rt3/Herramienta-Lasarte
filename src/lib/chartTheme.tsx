@@ -24,13 +24,15 @@ export const C = {
 
 // Paleta para series múltiples (máx 5 series) — SIN significado semántico:
 // no reutiliza success/warning/destructive (esos colores siguen atados a su
-// significado allí donde se usan). Escala derivada del marino corporativo
-// (calibración de color 2026-07-17): marino, índigo medio, azul-gris, verde
-// apagado, neutro cálido — coherente en claro y oscuro porque el primer tono
-// es el token --primary (reacciona al tema) y el resto son medios tonos
+// significado allí donde se usan). Escala derivada del azul medio corporativo
+// (duotono 2026-07-16, --primary): azul medio, índigo medio, azul-gris, verde
+// apagado, neutro cálido — el índigo va segundo porque es el vecino más
+// próximo en la familia azul del líder; el naranja NO aparece aquí (es
+// --vivo, reservado al KPI puntual, nunca a series de gráfico). El primer
+// tono es el token --primary (reacciona al tema) y el resto son medios tonos
 // pensados para verse bien sobre glass claro y oscuro por igual.
 export const SERIES_PALETTE = [
-  "hsl(var(--primary))",  // marino
+  "hsl(var(--primary))",  // azul medio
   "hsl(230 38% 58%)",     // índigo medio
   "hsl(205 20% 52%)",     // azul-gris
   "hsl(160 15% 48%)",     // verde apagado
@@ -52,9 +54,9 @@ export const DEST_COLORS = {
 } as const;
 
 // Para charts que necesitan 7 colores (días de semana) — misma escala
-// derivada del marino que SERIES_PALETTE, sin colores semánticos.
+// que SERIES_PALETTE (azul medio líder), sin colores semánticos.
 export const WEEK_PALETTE = [
-  "hsl(var(--primary))",  // marino
+  "hsl(var(--primary))",  // azul medio
   "hsl(230 38% 58%)",     // índigo medio
   "hsl(205 20% 52%)",     // azul-gris
   "hsl(160 15% 48%)",     // verde apagado
