@@ -24,9 +24,11 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import type { Tables } from "@/integrations/supabase/types";
 import type { MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
 import { normalizeNombre } from "@/hooks/useProductores";
+import { esProductorPrecalibrado } from "@/lib/productoresCanonicos";
 import { mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
 import { esProductoMdna } from "@/hooks/useMercadona";
 import type { CalidadEstado, CalidadInformeEstado } from "@/lib/calidad";
@@ -80,26 +82,32 @@ export interface MercadonaProductorHistorico {
 }
 
 async function fetchPartesEnRango(desde: string, hasta: string): Promise<Map<string, string>> {
-  const { data, error } = await supabase
-    .from("partes_diarios")
-    .select("id, date")
-    .gte("date", desde)
-    .lte("date", hasta);
-  if (error) throw error;
-  return new Map((data ?? []).map((p) => [p.id as string, p.date as string]));
+  // partes_diarios va camino de las 1.000 filas (creciendo): se pagina por
+  // seguridad de cara al futuro.
+  const data = await fetchAllRows<{ id: string; date: string }>((from, to) =>
+    supabase.from("partes_diarios").select("id, date").gte("date", desde).lte("date", hasta).order("id").range(from, to),
+  );
+  return new Map(data.map((p) => [p.id, p.date]));
 }
 
+// lotes_dia (1.187 filas) y producto_dia pueden devolver, cada uno, más de
+// 1.000 filas por chunk de 200 partes cuando el rango cubre buena parte de
+// la campaña (useMercadonaProductoresData pide el histórico ENTERO). El
+// .limit(100000) no protegía nada, PostgREST recorta a su max-rows en
+// silencio: se pagina cada chunk con fetchAllRows.
 async function fetchLotesDiaByPartIds(ids: string[]): Promise<LoteDiaRow[]> {
   const rows: LoteDiaRow[] = [];
   for (let i = 0; i < ids.length; i += IN_CHUNK_SIZE) {
     const chunk = ids.slice(i, i + IN_CHUNK_SIZE);
-    const { data, error } = await supabase
-      .from("lotes_dia")
-      .select("part_id, productor, lote_codigo, producto, kg_peso_total, toneladas_hora, duracion_min, peso_fruta_promedio_g")
-      .in("part_id", chunk)
-      .limit(100000);
-    if (error) throw error;
-    rows.push(...((data ?? []) as LoteDiaRow[]));
+    const chunkRows = await fetchAllRows<LoteDiaRow>((from, to) =>
+      supabase
+        .from("lotes_dia")
+        .select("part_id, productor, lote_codigo, producto, kg_peso_total, toneladas_hora, duracion_min, peso_fruta_promedio_g")
+        .in("part_id", chunk)
+        .order("id")
+        .range(from, to),
+    );
+    rows.push(...chunkRows);
   }
   return rows;
 }
@@ -108,13 +116,10 @@ async function fetchProductoDiaByPartIds(ids: string[]): Promise<ProductoDiaRow[
   const rows: ProductoDiaRow[] = [];
   for (let i = 0; i < ids.length; i += IN_CHUNK_SIZE) {
     const chunk = ids.slice(i, i + IN_CHUNK_SIZE);
-    const { data, error } = await supabase
-      .from("producto_dia")
-      .select("part_id, producto, kg")
-      .in("part_id", chunk)
-      .limit(100000);
-    if (error) throw error;
-    rows.push(...((data ?? []) as ProductoDiaRow[]));
+    const chunkRows = await fetchAllRows<ProductoDiaRow>((from, to) =>
+      supabase.from("producto_dia").select("part_id, producto, kg").in("part_id", chunk).order("id").range(from, to),
+    );
+    rows.push(...chunkRows);
   }
   return rows;
 }
@@ -248,6 +253,10 @@ export function computeProductoresHistorico(
 ): MercadonaProductorHistorico[] {
   const porProductor = new Map<string, { kg: number; nLotes: number; kgPonderadoMdna: number }>();
   for (const l of lotes) {
+    // El PRECALIBRADO no es un productor real (decisión del dueño, 2026-07-15):
+    // segundas pasadas de fruta ya contada a nombre de su productor real.
+    // Fuera del ranking (solo de la agregación: en BD no se toca nada).
+    if (esProductorPrecalibrado(l.productor)) continue;
     const nombre = (l.productor ?? "").trim() || "Sin productor";
     const date = partesById.get(l.part_id) ?? "";
     const kg = Number(l.kg_peso_total) || 0;
@@ -331,13 +340,14 @@ export function useMercadonaProductoresData() {
   const query = useQuery({
     queryKey: ["mercadona-productores-historico"],
     queryFn: async (): Promise<MercadonaProductoresData> => {
-      const { data: partes, error: partesError } = await supabase
-        .from("partes_diarios")
-        .select("id, date");
-      if (partesError) throw partesError;
-      if (!partes || partes.length === 0) return EMPTY_PRODUCTORES_DATA;
+      // Histórico COMPLETO, sin filtro de fecha: partes_diarios va camino de
+      // las 1.000 filas (creciendo), se pagina por seguridad de cara al futuro.
+      const partes = await fetchAllRows<{ id: string; date: string }>((from, to) =>
+        supabase.from("partes_diarios").select("id, date").order("id").range(from, to),
+      );
+      if (partes.length === 0) return EMPTY_PRODUCTORES_DATA;
 
-      const partesById = new Map(partes.map((p) => [p.id as string, p.date as string]));
+      const partesById = new Map(partes.map((p) => [p.id, p.date]));
       const ids = Array.from(partesById.keys());
 
       const [lotes, productos] = await Promise.all([

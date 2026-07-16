@@ -12,6 +12,7 @@
  * destrío en cámara), así que un lote se considera "procesado" cuando el
  * calibrador ha pasado ≥ 97% de sus kg de entrada.
  */
+import { normalizarLoteCodigo } from "@/lib/loteCodigo";
 
 export interface EntradaBasculaParsed {
   fecha: string; // ISO "YYYY-MM-DD"
@@ -44,7 +45,18 @@ export interface ParseEntradasBasculaResult {
   descartadas: Array<{ fila: number; motivo: string }>;
 }
 
-const UMBRAL_PROCESADO = 0.97;
+export const UMBRAL_PROCESADO = 0.97;
+
+/**
+ * Un resto en cámara es "relevante" (el lote sigue activo, no se pinta como
+ * procesado) cuando supera el margen de tolerancia del calibrador
+ * (deshidratación / destrío): el mismo criterio 1 - UMBRAL_PROCESADO que usa
+ * buildStockEntradas más abajo, expuesto como helper para que otras
+ * pantallas (p. ej. TrazabilidadLote) no repitan el 0.03 a mano.
+ */
+export function esRestoEnCamaraRelevante(kgEnCamara: number, kgEntrada: number): boolean {
+  return kgEnCamara > kgEntrada * (1 - UMBRAL_PROCESADO);
+}
 
 function normalizeHeader(value: unknown): string {
   return String(value ?? "")
@@ -56,10 +68,36 @@ function normalizeHeader(value: unknown): string {
     .trim();
 }
 
-/** Convierte "DD/MM/YYYY" (o Date/ISO) a "YYYY-MM-DD"; null si no es fecha. */
+/**
+ * Nº de días entre el epoch de fecha de Excel (1899-12-30, con el bug del año
+ * bisiesto 1900 incluido) y el epoch de Unix (1970-01-01). Constante estándar
+ * usada por cualquier lector de xlsx para convertir un serial numérico.
+ */
+const EXCEL_EPOCH_OFFSET_DIAS = 25569;
+
+/**
+ * Convierte un serial de fecha de Excel (nº de días desde 1899-12-30) a
+ * "YYYY-MM-DD" en UTC. Se usa como año/mes/día puro, sin hora: el informe
+ * "APROVECHAMIENTO STOCK LOTES" mezcla, para la misma columna Creación,
+ * celdas con formato de texto ("28/04/2026") y celdas con formato de fecha de
+ * Excel de verdad, que sheet_to_json({raw:true}) devuelve como el nº crudo
+ * (p.ej. 46136) en vez de como texto o Date — sin este caso, esas filas se
+ * descartaban por "Sin fecha de creación" (4 de los 117 lotes reales del
+ * informe de referencia).
+ */
+function excelSerialToIso(serial: number): string {
+  const utcDays = Math.floor(serial - EXCEL_EPOCH_OFFSET_DIAS);
+  const d = new Date(utcDays * 86400 * 1000);
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+}
+
+/** Convierte "DD/MM/YYYY" (o Date/ISO/serial numérico de Excel) a "YYYY-MM-DD"; null si no es fecha. */
 export function parseFechaBascula(value: unknown): string | null {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
+  }
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return excelSerialToIso(value);
   }
   const text = String(value ?? "").trim();
   const dmy = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
@@ -279,6 +317,226 @@ export function parseStockLotesRows(rows: unknown[][]): ParseStockLotesResult {
   return { lotes, descartadas };
 }
 
+// ─── Conciliación con el informe de cámara ("APROVECHAMIENTO STOCK LOTES") ──
+// Motivada por el cierre masivo por fecha del 2026-07-16 que cerró 97 lotes
+// que en realidad seguían físicamente en cámara (fruta que puede llevar 2-3
+// meses en cámara de forma legítima) y hubo que reabrir a mano contra el
+// informe real del programa de báscula. `parseInformeAprovechamientoStock` +
+// `conciliarStockConInforme` automatizan ese cuadre para que no vuelva a
+// pasar por las buenas: importar el informe real y ver qué no cuadra ANTES
+// de cerrar nada en bloque por fecha.
+
+export interface InformeAprovechamientoLote {
+  lote: string;
+  kgExistencia: number;
+  producto: string | null;
+  agricultor: string | null;
+  /** Fecha de creación del lote según el informe (ISO). */
+  fechaCreacion: string;
+}
+
+export interface ParseInformeAprovechamientoResult {
+  lotes: InformeAprovechamientoLote[];
+  descartadas: Array<{ fila: number; motivo: string }>;
+}
+
+/**
+ * Parsea el informe "APROVECHAMIENTO STOCK LOTES" del programa de báscula
+ * (columnas Creación/Lote/Producto/Agricultor/Kgr.Exist., con filas de
+ * subtotal por producto+agricultor —Creación y Lote en blanco— y una leyenda
+ * de colores al final, ambas descartadas en silencio). Es el MISMO layout que
+ * `parseStockLotesRows` (usado para sembrar el stock inicial de arranque), así
+ * que delega en él para no duplicar la localización de cabecera ni el
+ * criterio de fila válida — pero es una función aparte, con su propio nombre
+ * y forma de salida (camelCase, pensada para conciliación puntual, no para
+ * sembrar entradas), para no confundir los dos USOS: sembrado inicial
+ * (`buildEntradasDesdeStock`, escribe entradas_bascula nuevas) vs conciliación
+ * periódica (esta, solo compara contra lo que ya hay en la tabla).
+ */
+export function parseInformeAprovechamientoStock(rows: unknown[][]): ParseInformeAprovechamientoResult {
+  const { lotes, descartadas } = parseStockLotesRows(rows);
+  return {
+    lotes: lotes.map((l) => ({
+      lote: l.lote,
+      kgExistencia: l.kg_existentes,
+      producto: l.articulo,
+      agricultor: l.agricultor,
+      fechaCreacion: l.fecha,
+    })),
+    descartadas,
+  };
+}
+
+export interface ConciliacionCuadraItem {
+  lote: string;
+  articulo: string | null;
+  agricultor: string | null;
+  /** Kg en cámara según la herramienta (kg_entrada − procesado). */
+  kgHerramienta: number;
+  /** Kg existentes según el informe. */
+  kgInforme: number;
+  /** kgHerramienta − kgInforme (informativo; no dispara ninguna acción). */
+  deltaKg: number;
+}
+
+export interface ConciliacionSobranteItem {
+  lote: string;
+  articulo: string | null;
+  agricultor: string | null;
+  fechaEntrada: string;
+  kgEntrada: number;
+  kgProcesado: number;
+  kgEnCamara: number;
+  diasEnCamara: number;
+  /** Modo de cierre sugerido (criterioCierreModo) para cuando se cierre en bloque. */
+  modoSugerido: CierreModo;
+}
+
+export interface ConciliacionReabrirItem {
+  lote: string;
+  articulo: string | null;
+  agricultor: string | null;
+  kgEntrada: number;
+  /** Hueco (kg_entrada − procesado) que volvería a cámara si se reabre. */
+  kgHuecoNatural: number;
+  kgInforme: number;
+  cierreModo: CierreModo | null;
+}
+
+export interface ConciliacionConflictoItem {
+  lote: string;
+  articulo: string | null;
+  agricultor: string | null;
+  kgEntrada: number;
+  kgProcesado: number;
+  kgInforme: number;
+  ultimaFechaProcesado: string | null;
+}
+
+export interface ConciliacionSinEntradaItem {
+  lote: string;
+  producto: string | null;
+  agricultor: string | null;
+  kgInforme: number;
+  fechaCreacion: string;
+}
+
+export interface ConciliacionResultado {
+  /** Activos en la herramienta y presentes en el informe: solo delta informativo. */
+  cuadran: ConciliacionCuadraItem[];
+  /** Activos en la herramienta pero AUSENTES del informe: candidatos a cerrar. */
+  sobranEnHerramienta: ConciliacionSobranteItem[];
+  faltanEnHerramienta: {
+    /** En el informe y cerrados A MANO en la herramienta: candidatos a reabrir. */
+    reabrir: ConciliacionReabrirItem[];
+    /**
+     * En el informe pero "procesado" en la herramienta SIN cierre manual (el
+     * calibrador ya llegó al umbral por kg). Solo informativo: el informe
+     * puede ser de hace días y el lote haberse procesado DESPUÉS de la foto,
+     * así que esto no se reabre nunca automáticamente — solo se avisa del
+     * conflicto para que alguien lo revise a mano si hace falta.
+     */
+    conflicto: ConciliacionConflictoItem[];
+    /**
+     * En el informe pero sin ninguna fila en la herramienta (ni activa ni
+     * cerrada). Puramente informativo: no se puede reabrir lo que no existe.
+     * Incluye el caso de precalibrado/campo-cit (esas entradas se excluyen
+     * aguas arriba en useEntradasBascula, así que si el informe trae uno de
+     * esos lotes cae aquí, no en "reabrir" ni en "conflicto").
+     */
+    sinEntrada: ConciliacionSinEntradaItem[];
+  };
+}
+
+/**
+ * Concilia el stock calculado por la herramienta (`stockFilas`, tal cual sale
+ * de `buildStockEntradas`/`useEntradasBascula().stock.filas` — YA excluye
+ * precalibrado y campo/cit, ver la nota de useEntradasBascula.ts) contra el
+ * informe real de cámara del programa de báscula. Función PURA: no decide
+ * nada por sí sola, solo clasifica en los tres grupos que la UI necesita para
+ * proponer acciones (cerrar los que sobran, reabrir los cerrados que sí
+ * están) — el usuario confirma cada acción a mano.
+ */
+export function conciliarStockConInforme(
+  stockFilas: StockLoteRow[],
+  informeLotes: InformeAprovechamientoLote[],
+): ConciliacionResultado {
+  const informePorLote = new Map(informeLotes.map((l) => [l.lote, l]));
+  const stockPorLote = new Map(stockFilas.map((f) => [f.lote, f]));
+
+  const cuadran: ConciliacionCuadraItem[] = [];
+  const sobranEnHerramienta: ConciliacionSobranteItem[] = [];
+
+  for (const fila of stockFilas) {
+    if (fila.estado === "procesado") continue; // (a)/(b) son solo lotes activos
+    const informeLote = informePorLote.get(fila.lote);
+    if (informeLote) {
+      cuadran.push({
+        lote: fila.lote,
+        articulo: fila.articulo,
+        agricultor: fila.agricultor,
+        kgHerramienta: fila.kg_en_camara,
+        kgInforme: informeLote.kgExistencia,
+        deltaKg: fila.kg_en_camara - informeLote.kgExistencia,
+      });
+    } else {
+      sobranEnHerramienta.push({
+        lote: fila.lote,
+        articulo: fila.articulo,
+        agricultor: fila.agricultor,
+        fechaEntrada: fila.fecha_entrada,
+        kgEntrada: fila.kg_entrada,
+        kgProcesado: fila.kg_procesado,
+        kgEnCamara: fila.kg_en_camara,
+        diasEnCamara: fila.dias_en_camara,
+        modoSugerido: criterioCierreModo(fila.kg_entrada, fila.kg_procesado),
+      });
+    }
+  }
+
+  const reabrir: ConciliacionReabrirItem[] = [];
+  const conflicto: ConciliacionConflictoItem[] = [];
+  const sinEntrada: ConciliacionSinEntradaItem[] = [];
+
+  for (const informeLote of informeLotes) {
+    const fila = stockPorLote.get(informeLote.lote);
+    if (!fila) {
+      sinEntrada.push({
+        lote: informeLote.lote,
+        producto: informeLote.producto,
+        agricultor: informeLote.agricultor,
+        kgInforme: informeLote.kgExistencia,
+        fechaCreacion: informeLote.fechaCreacion,
+      });
+      continue;
+    }
+    if (fila.estado !== "procesado") continue; // ya está activo → cuenta en (a)/(b), no aquí
+    if (fila.cerrado_at) {
+      reabrir.push({
+        lote: fila.lote,
+        articulo: fila.articulo,
+        agricultor: fila.agricultor,
+        kgEntrada: fila.kg_entrada,
+        kgHuecoNatural: Math.max(0, fila.kg_entrada - fila.kg_procesado),
+        kgInforme: informeLote.kgExistencia,
+        cierreModo: fila.cierre_modo,
+      });
+    } else {
+      conflicto.push({
+        lote: fila.lote,
+        articulo: fila.articulo,
+        agricultor: fila.agricultor,
+        kgEntrada: fila.kg_entrada,
+        kgProcesado: fila.kg_procesado,
+        kgInforme: informeLote.kgExistencia,
+        ultimaFechaProcesado: fila.ultima_fecha_procesado,
+      });
+    }
+  }
+
+  return { cuadran, sobranEnHerramienta, faltanEnHerramienta: { reabrir, conflicto, sinEntrada } };
+}
+
 /**
  * Convierte los lotes del informe de stock en entradas sembradas:
  * kg_entrada = stock actual + kg ya procesados por el calibrador para ese lote.
@@ -323,11 +581,12 @@ export function buildEntradasDesdeStock(
  * Código de lote normalizado: los primeros 8 dígitos seguidos (AAMMDDNN).
  * El calibrador a veces guarda el lote con texto pegado ("26042712 + 7 BOX DE
  * RECICLAJE"); la báscula lo guarda limpio.
+ *
+ * Movida a src/lib/loteCodigo.ts (junto a la convención B, prefijoNumericoLote)
+ * para documentar en un único sitio por qué hay dos normalizaciones de lote
+ * distintas; se reexporta aquí para no romper los imports existentes.
  */
-export function normalizarLoteCodigo(value: string | null | undefined): string | null {
-  const match = String(value ?? "").match(/\d{8}/);
-  return match ? match[0] : null;
-}
+export { normalizarLoteCodigo };
 
 export interface LoteProcesadoInput {
   lote_codigo: string | null;
@@ -337,6 +596,65 @@ export interface LoteProcesadoInput {
 }
 
 export type StockEstado = "pendiente" | "parcial" | "procesado";
+
+/**
+ * Estado de un lote según qué fracción de sus kg de entrada ha "procesado"
+ * el calibrador (kg de lotes_dia + kg_ajuste_stock de conciliación). Mismo
+ * criterio (y mismo UMBRAL_PROCESADO) que usa buildStockEntradas; extraído
+ * como helper para que otros consumidores (p. ej. src/lib/mermaLote.ts) no
+ * dupliquen el umbral ni la fórmula de las 3 franjas.
+ *
+ * `cerradoManualmente` (entradas_bascula.cerrado_at, migración
+ * 20260715090000): el dueño puede dar un lote por terminado aunque no llegue
+ * al umbral normal (hay lotes que se quedan a ~94% para siempre porque parte
+ * del hueco es podrido de un contenedor que no se pesa a diario). Si es
+ * true, el lote siempre cuenta como "procesado" — el resto se reclasifica
+ * como merma en src/lib/mermaLote.ts y deja de contar como stock. Esto NO
+ * cambia según `cierre_modo` (ver más abajo): cerrado = procesado/0 en
+ * cámara en CUALQUIER modo, la distinción de modo solo afecta a si el hueco
+ * cuenta como pérdida real o se excluye del análisis (mermaLote.ts).
+ */
+export function estadoLotePorProcesado(kgEntrada: number, kgProcesadoTotal: number, cerradoManualmente = false): StockEstado {
+  if (cerradoManualmente) return "procesado";
+  const pct = kgEntrada > 0 ? kgProcesadoTotal / kgEntrada : 0;
+  return pct >= UMBRAL_PROCESADO ? "procesado" : pct > 0 ? "parcial" : "pendiente";
+}
+
+// ─── Modo del cierre manual (entradas_bascula.cierre_modo, migración ────────
+// 20260716120000_entradas_bascula_cierre_modo.sql) ───────────────────────────
+// Un lote cerrado a mano (cerrado_at) puede estarlo por dos motivos muy
+// distintos: (a) SÍ se procesó, solo que no llegó al umbral normal (el hueco
+// es merma/podrido real: "con_analisis"), o (b) su procesado NO consta bajo
+// este código —códigos compuestos que acreditan a otro lote, venta sin
+// procesar en la central— y el hueco no es una pérdida real, es un artefacto
+// de trazabilidad ("sin_registro"). Ver src/lib/mermaLote.ts para qué hace
+// cada modo con el hueco; este archivo solo aporta el tipo y el criterio de
+// preselección que usa la UI del diálogo de cierre.
+
+export type CierreModo = "con_analisis" | "sin_registro";
+
+/**
+ * Umbral (fracción de kg procesado sobre kg entrada) para sugerir
+ * "con_analisis" en el diálogo de cierre. NO es un umbral de negocio estricto
+ * como UMBRAL_PROCESADO (ese decide si un lote sigue en stock); este es solo
+ * una SUGERENCIA editable por el usuario en el momento de cerrar: por debajo
+ * del 85% procesado es más probable que el resto no sea pérdida real sino
+ * procesado que nunca se registró bajo este código.
+ */
+export const UMBRAL_CIERRE_CON_ANALISIS = 0.85;
+
+/**
+ * Preselección del modo de cierre: "con_analisis" si el lote ya lleva
+ * procesado el 85% o más de su entrada (el hueco restante es plausible como
+ * merma/podrido real), "sin_registro" en caso contrario (con tan poco
+ * procesado bajo su código, lo más probable es que el resto pasara por otro
+ * sitio, no que se perdiera). Función PURA: la UI la usa para sugerir, nunca
+ * para decidir sola — el usuario siempre puede elegir el otro modo.
+ */
+export function criterioCierreModo(kgEntrada: number, kgProcesadoTotal: number): CierreModo {
+  const pct = kgEntrada > 0 ? kgProcesadoTotal / kgEntrada : 0;
+  return pct >= UMBRAL_CIERRE_CON_ANALISIS ? "con_analisis" : "sin_registro";
+}
 
 export interface StockLoteRow {
   lote: string;
@@ -352,6 +670,10 @@ export interface StockLoteRow {
   /** Días desde la entrada hasta hoy (pendiente/parcial) o hasta el último procesado. */
   dias_en_camara: number;
   estado: StockEstado;
+  /** entradas_bascula.cerrado_at (migración 20260715090000), o null si el lote sigue abierto. Cuando no es null, `estado` es siempre "procesado" y `kg_en_camara` es 0 (ver estadoLotePorProcesado). */
+  cerrado_at: string | null;
+  /** entradas_bascula.cierre_modo (migración 20260716120000): solo informativo aquí (para el badge), no cambia estado/kg_en_camara — ver src/lib/mermaLote.ts para el efecto real del modo. `null` si el lote está abierto o si se cerró antes de que existiera esta columna (tratado como "con_analisis" en mermaLote.ts). */
+  cierre_modo: CierreModo | null;
 }
 
 export interface StockResumen {
@@ -363,7 +685,8 @@ export interface StockResumen {
   antiguedadMaxDias: number;
 }
 
-function diffDias(desde: string, hasta: string): number {
+/** Días naturales entre dos fechas ISO "YYYY-MM-DD" (hasta − desde, nunca negativo). Exportada para src/lib/mermaLote.ts (diasEnCamara). */
+export function diffDias(desde: string, hasta: string): number {
   const [y1, m1, d1] = desde.split("-").map(Number);
   const [y2, m2, d2] = hasta.split("-").map(Number);
   const ms = Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1);
@@ -371,7 +694,15 @@ function diffDias(desde: string, hasta: string): number {
 }
 
 export function buildStockEntradas(
-  entradas: Array<Pick<EntradaBasculaParsed, "lote" | "fecha" | "kg_entrada" | "finca" | "articulo" | "agricultor"> & { kg_ajuste_stock?: number | null }>,
+  entradas: Array<
+    Pick<EntradaBasculaParsed, "lote" | "fecha" | "kg_entrada" | "finca" | "articulo" | "agricultor"> & {
+      kg_ajuste_stock?: number | null;
+      /** Cierre manual (entradas_bascula.cerrado_at, migración 20260715090000): no-null fuerza estado "procesado" y kg_en_camara=0, aunque el calibrador no llegue al umbral normal. Opcional para no romper llamadas existentes. */
+      cerrado_at?: string | null;
+      /** entradas_bascula.cierre_modo (migración 20260716120000): pasa de largo a StockLoteRow.cierre_modo, no afecta a este cálculo (ver cabecera de estadoLotePorProcesado). Opcional para no romper llamadas existentes. */
+      cierre_modo?: CierreModo | null;
+    }
+  >,
   procesados: LoteProcesadoInput[],
   hoy: string,
 ): StockResumen {
@@ -393,8 +724,8 @@ export function buildStockEntradas(
     // procesado conocido; negativo devuelve stock.
     const kgProcesado = (procesado?.kg ?? 0) + (Number(entrada.kg_ajuste_stock) || 0);
     const kgEnCamara = Math.max(0, entrada.kg_entrada - kgProcesado);
-    const pct = entrada.kg_entrada > 0 ? kgProcesado / entrada.kg_entrada : 0;
-    const estado: StockEstado = pct >= UMBRAL_PROCESADO ? "procesado" : pct > 0 ? "parcial" : "pendiente";
+    const cerradoManualmente = Boolean(entrada.cerrado_at);
+    const estado: StockEstado = estadoLotePorProcesado(entrada.kg_entrada, kgProcesado, cerradoManualmente);
     const finDeCuenta = estado === "procesado" && procesado?.ultimaFecha ? procesado.ultimaFecha : hoy;
 
     return {
@@ -409,6 +740,8 @@ export function buildStockEntradas(
       ultima_fecha_procesado: procesado?.ultimaFecha ?? null,
       dias_en_camara: diffDias(entrada.fecha, finDeCuenta),
       estado,
+      cerrado_at: entrada.cerrado_at ?? null,
+      cierre_modo: entrada.cierre_modo ?? null,
     };
   });
 

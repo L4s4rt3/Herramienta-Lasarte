@@ -5,11 +5,11 @@
 // lote (AAMMDD+NN) es el mismo que llega al calibrador, así que el cruce con
 // lotes_dia da el stock en cámara por lote/finca/variedad y la trazabilidad
 // completa: finca → entrada → lote → procesado → clasificación → destino.
-import { useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import * as XLSX from "xlsx";
 import {
-  AlertTriangle, ArrowRight, CalendarDays, ChevronDown, FileSpreadsheet, Loader2, Package, Search, Trash2, Truck, Upload, Warehouse, X,
+  AlertTriangle, ArrowRight, CalendarDays, ChevronDown, FileSpreadsheet, GitCompare, Loader2, Lock, LockOpen, Package, Percent, Route, Search, Trash2, Truck, Upload, Users, Warehouse, X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,13 +17,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CerrarLoteDialog } from "@/components/CerrarLoteDialog";
+import { CerrarLotesEnBloqueDialog } from "@/components/CerrarLotesEnBloqueDialog";
+import { ConciliarInformeCamaraDialog } from "@/components/ConciliarInformeCamaraDialog";
 import { KPICard } from "@/components/KPICard";
+import { ProgressBarRow } from "@/components/ProgressBarRow";
+import { SortableTableHead, toggleSort, type SortDir } from "@/components/SortableColumn";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthProvider";
 import { useEntradasBascula } from "@/hooks/useEntradasBascula";
+import { useMermaLotes } from "@/hooks/useMermaLote";
+import { useProductoresCatalogo } from "@/hooks/useProductoresCatalogo";
 import {
   buildEntradasDesdeStock,
+  normalizarLoteCodigo,
   parseEntradasBasculaRows,
   parseStockLotesRows,
   type EntradaBasculaParsed,
@@ -31,7 +40,14 @@ import {
   type StockLoteRow,
 } from "@/lib/entradasBascula";
 import { errorMessage } from "@/lib/errorMessage";
-import { formatDate, formatKgCompact as formatKg, formatNumber } from "@/lib/format";
+import { formatDate, formatKgCompact as formatKg, formatNumber, formatPct, normalizarTexto } from "@/lib/format";
+import {
+  agruparPerdidaPorProductor,
+  type FuentePodrido,
+  type ItemPerdidaProductor,
+  type MermaLote,
+} from "@/lib/mermaLote";
+import { resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import { cn } from "@/lib/utils";
 
 const ESTADO_BADGE: Record<StockEstado, { label: string; className: string }> = {
@@ -47,11 +63,417 @@ function diasClass(dias: number, estado: StockEstado): string {
   return "text-foreground";
 }
 
-function normalizeText(value: string | null | undefined): string {
-  return String(value ?? "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "");
+/** Puntito de semáforo junto al nº de días, misma lógica que diasClass. */
+function diasDotClass(dias: number, estado: StockEstado): string {
+  if (estado === "procesado") return "bg-muted-foreground/40";
+  if (dias > 14) return "bg-destructive";
+  if (dias > 7) return "bg-warning";
+  return "bg-success";
+}
+
+type StockSortKey = "lote" | "fecha_entrada" | "finca" | "articulo" | "kg_entrada" | "kg_procesado" | "kg_en_camara" | "dias_en_camara" | "estado";
+
+function compareStockRows(a: StockLoteRow, b: StockLoteRow, key: StockSortKey): number {
+  switch (key) {
+    case "lote": return a.lote.localeCompare(b.lote);
+    case "fecha_entrada": return a.fecha_entrada.localeCompare(b.fecha_entrada);
+    case "finca": return (a.finca ?? "").localeCompare(b.finca ?? "");
+    case "articulo": return (a.articulo ?? "").localeCompare(b.articulo ?? "");
+    case "kg_entrada": return a.kg_entrada - b.kg_entrada;
+    case "kg_procesado": return a.kg_procesado - b.kg_procesado;
+    case "kg_en_camara": return a.kg_en_camara - b.kg_en_camara;
+    case "dias_en_camara": return a.dias_en_camara - b.dias_en_camara;
+    case "estado": return a.estado.localeCompare(b.estado);
+    default: return 0;
+  }
+}
+
+/** Nº de variedades que se muestran directamente en "Stock por variedad" antes de "ver todas". */
+const STOCK_VARIEDAD_LIMIT = 8;
+
+function VariedadRow({ variedad, totalKg }: { variedad: { variedad: string; kg: number; lotes: number }; totalKg: number }) {
+  const pct = totalKg > 0 ? (variedad.kg / totalKg) * 100 : 0;
+  return (
+    <ProgressBarRow
+      label={variedad.variedad}
+      pct={pct}
+      value={formatKg(variedad.kg)}
+      pctLabel={formatPct(pct)}
+      extra={(
+        <span className="hidden w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:inline">
+          {variedad.lotes} lote{variedad.lotes === 1 ? "" : "s"}
+        </span>
+      )}
+    />
+  );
+}
+
+// ─── Pestaña "Mermas y coste" ────────────────────────────────────────────────
+// Tabla de lotes PROCESADOS con merma natural (medida + desglose natural
+// estimada/sin justificar), podrido (real/≈estimado) y días en cámara — todo
+// en kg y %, sin €: el desglose económico vive en Económico → Costes (sección
+// "Pérdidas de fruta"), que sí puede mostrar € porque esa zona es solo admin.
+// Ver src/lib/mermaLote.ts para las fórmulas y src/hooks/useMermaLote.ts para
+// la carga de datos.
+
+/** "real" (Informe LOTE) en verde; "≈ est." (prorrateo) en gris; "sin dato" (parte del histórico sin podrido) en gris apagado — nunca se ocultan las estimaciones ni el hueco de dato. */
+function FuenteBadgeMini({ fuente }: { fuente: FuentePodrido }) {
+  if (fuente === "real") {
+    return (
+      <Badge variant="outline" className="border-emerald-600/35 bg-emerald-600/12 px-1 py-0 text-[10px] text-emerald-800 dark:text-emerald-200">
+        real
+      </Badge>
+    );
+  }
+  if (fuente === "desconocido") {
+    return (
+      <Badge variant="outline" className="border-[var(--glass-border)] px-1 py-0 text-[10px] text-muted-foreground/70">
+        sin dato
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="border-[var(--glass-border)] px-1 py-0 text-[10px] text-muted-foreground">
+      ≈ est.
+    </Badge>
+  );
+}
+
+/** Podrido pre-calibrador: ASUMIDO por el dueño (decisión 2026-07-15), tono ámbar propio (ni "real" ni "≈ est."). */
+function AsumidoBadgeMini() {
+  return (
+    <Badge variant="outline" className="border-amber-500/35 bg-amber-500/12 px-1 py-0 text-[10px] text-amber-800 dark:text-amber-200">
+      asumido
+    </Badge>
+  );
+}
+
+type MermaSortKey =
+  | "lote" | "kg_entrada" | "kg_calibrador" | "merma_kg" | "merma_pct" | "dias" | "podrido_pre"
+  | "podrido_cal" | "podrido_man";
+
+function compareMermaRows(a: MermaLote, b: MermaLote, key: MermaSortKey): number {
+  switch (key) {
+    case "lote": return a.lote.localeCompare(b.lote);
+    case "kg_entrada": return a.kgEntrada - b.kgEntrada;
+    case "kg_calibrador": return a.kgCalibrador - b.kgCalibrador;
+    case "merma_kg": return (a.mermaNaturalKg ?? 0) - (b.mermaNaturalKg ?? 0);
+    case "merma_pct": return (a.pctMermaSobreEntrada ?? 0) - (b.pctMermaSobreEntrada ?? 0);
+    case "dias": return (a.diasEnCamara ?? -1) - (b.diasEnCamara ?? -1);
+    case "podrido_pre": return (a.podridoPreCalibradorKg ?? -1) - (b.podridoPreCalibradorKg ?? -1);
+    case "podrido_cal": return (a.podridoCalibradorKg ?? 0) - (b.podridoCalibradorKg ?? 0);
+    case "podrido_man": return (a.podridoManualKg ?? 0) - (b.podridoManualKg ?? 0);
+    default: return 0;
+  }
+}
+
+/** Umbral VISUAL (no de negocio) para destacar "Podrido pre-calib." en la tabla: > 40% de la merma medida o > 500 kg. Mismo criterio que TrazabilidadLote.tsx. */
+function podridoPreCalibradorDestacado(l: MermaLote): boolean {
+  const medida = Math.max(0, l.mermaNaturalKg ?? 0);
+  const preCalibrador = l.podridoPreCalibradorKg ?? 0;
+  if (preCalibrador > 500) return true;
+  return medida > 0 && preCalibrador / medida > 0.4;
+}
+
+/** Fila de un mini-ranking: enlaza al lote, con una badge de "atención" (rojo). */
+function RankingLoteRow({ lote, valorLabel }: { lote: string; valorLabel: string }) {
+  return (
+    <Link
+      to={`/trazabilidad?lote=${encodeURIComponent(lote)}`}
+      className="flex items-center justify-between gap-2 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-sm transition-colors hover:bg-[var(--glass-bg-strong)]"
+    >
+      <span className="inline-flex items-center gap-1 font-medium tabular-nums">
+        {lote} <ArrowRight className="h-3 w-3 opacity-40" />
+      </span>
+      <Badge variant="outline" className="border-destructive/40 bg-destructive/10 px-1.5 py-0 text-[11px] font-semibold text-destructive">
+        {valorLabel}
+      </Badge>
+    </Link>
+  );
+}
+
+function RankingCard({ titulo, icon: Icon, vacio, children }: {
+  titulo: string;
+  icon: typeof AlertTriangle;
+  vacio: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card className="glass-accented">
+      <CardContent className="space-y-2 p-3.5">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+          <Icon className="h-3.5 w-3.5" /> {titulo}
+        </div>
+        {vacio ? (
+          <p className="py-3 text-center text-xs text-muted-foreground">Sin datos.</p>
+        ) : (
+          <div className="space-y-1.5">{children}</div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function MermasCosteTab() {
+  const { lotes, agregado, isLoading, error } = useMermaLotes();
+  const { entradas } = useEntradasBascula();
+  const { aliasPorNombreNormalizado, nombrePorProductorId } = useProductoresCatalogo();
+  const [sortKey, setSortKey] = useState<MermaSortKey>("merma_pct");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  // Excluye los cerrados sin registro (ver mermaLote.ts): su estado es
+  // "procesado" para el stock, pero no tienen merma/podrido calculable y no
+  // deben aparecer en esta tabla (el contador del pie los informa aparte).
+  const procesados = useMemo(() => lotes.filter((l) => l.estado === "procesado" && !l.cerradoSinRegistro), [lotes]);
+  const filasOrdenadas = useMemo(() => {
+    const ordenadas = [...procesados].sort((a, b) => compareMermaRows(a, b, sortKey));
+    if (sortDir === "desc") ordenadas.reverse();
+    return ordenadas;
+  }, [procesados, sortKey, sortDir]);
+
+  const handleToggleSort = (key: MermaSortKey) => toggleSort(key, sortKey, sortDir, setSortKey, setSortDir, "desc");
+
+  // ─── Atención especial: 2 rankings de lotes + 1 por agricultor (kg, no €) ──
+  // Total podrido del lote = calibrador + manual + pre-calibrador (asumido):
+  // los tres cuentan como PODRIDO en este ranking de atención, aunque en la
+  // tabla de abajo cada componente siga visible por separado con su etiqueta.
+  const topPodridoKg = useMemo(
+    () => procesados
+      .map((l) => ({ lote: l.lote, kg: (l.podridoCalibradorKg ?? 0) + (l.podridoManualKg ?? 0) + (l.podridoPreCalibradorKg ?? 0) }))
+      .filter((r) => r.kg > 0)
+      .sort((a, b) => b.kg - a.kg)
+      .slice(0, 5),
+    [procesados],
+  );
+
+  const topMermaPct = useMemo(
+    () => procesados
+      .filter((l) => l.pctMermaSobreEntrada != null)
+      .map((l) => ({ lote: l.lote, pct: l.pctMermaSobreEntrada! }))
+      .sort((a, b) => b.pct - a.pct)
+      .slice(0, 5),
+    [procesados],
+  );
+
+  const entradaPorLote = useMemo(() => new Map(entradas.map((e) => [e.lote, e])), [entradas]);
+
+  const topAgricultor = useMemo(() => {
+    const items: ItemPerdidaProductor[] = procesados.map((l) => {
+      const fila = entradaPorLote.get(l.lote);
+      const agricultor = fila?.agricultor ?? null;
+      // entradas_bascula.productor_id existe en BD (migración productores_canonicos)
+      // pero aún no está en los tipos generados de Supabase; mismo cast puntual
+      // que useTrazabilidadLote.ts.
+      const productorIdDirecto = (fila as { productor_id?: string | null } | undefined)?.productor_id ?? null;
+      const { key, productorId } = resolveProductorGroupKey(agricultor ?? "", productorIdDirecto, aliasPorNombreNormalizado);
+      const label = (productorId ? nombrePorProductorId.get(productorId) : null) ?? agricultor ?? "Sin agricultor";
+      const kgPerdido = Math.max(0, l.mermaNaturalKg ?? 0) + (l.podridoCalibradorKg ?? 0) + (l.podridoManualKg ?? 0);
+      return { productorKey: key, productorLabel: label, kgEntrada: l.kgEntrada, kgPerdido, eurPerdido: null };
+    });
+    return agruparPerdidaPorProductor(items)
+      .filter((r) => r.kgPerdido > 0)
+      .sort((a, b) => b.kgPerdido - a.kgPerdido)
+      .slice(0, 5);
+  }, [procesados, entradaPorLote, aliasPorNombreNormalizado, nombrePorProductorId]);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-28 w-full" />
+        <Skeleton className="h-96 w-full" />
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <Card className="glass-accented border-destructive/30">
+        <CardContent className="flex items-center gap-3 py-6 text-destructive">
+          <AlertTriangle className="h-5 w-5 shrink-0" />
+          <p className="text-sm font-semibold">{errorMessage(error)}</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const totales = {
+    kgEntrada: procesados.reduce((s, l) => s + l.kgEntrada, 0),
+    kgCalibrador: procesados.reduce((s, l) => s + l.kgCalibrador, 0),
+    merma: procesados.reduce((s, l) => s + (l.mermaNaturalKg ?? 0), 0),
+    podridoPreCalibrador: procesados.reduce((s, l) => s + (l.podridoPreCalibradorKg ?? 0), 0),
+    podridoCal: procesados.reduce((s, l) => s + (l.podridoCalibradorKg ?? 0), 0),
+    podridoMan: procesados.reduce((s, l) => s + (l.podridoManualKg ?? 0), 0),
+  };
+
+  return (
+    <div className="space-y-4">
+      {agregado.nConDatoARevisar > 0 && (
+        <div className="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {agregado.nConDatoARevisar} lote{agregado.nConDatoARevisar === 1 ? "" : "s"} con calibrador &gt; báscula — revisar pesajes
+        </div>
+      )}
+
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-3">
+        <KPICard
+          className="glass-accented"
+          label="Merma media ponderada"
+          value={agregado.mermaMediaPonderadaPct != null ? formatPct(agregado.mermaMediaPonderadaPct) : "—"}
+          hint={`Sobre ${formatKg(agregado.kgEntradaProcesados)} de lotes procesados`}
+          icon={Warehouse}
+          labelInfo="Σ merma natural (con signo) del conjunto de lotes procesados / Σ de sus kg de entrada."
+        />
+        <KPICard
+          className="glass-accented"
+          label="Podrido calibrador"
+          value={formatKg(agregado.kgPodridoCalibradorReal + agregado.kgPodridoCalibradorEstimado)}
+          hint={`${formatKg(agregado.kgPodridoCalibradorReal)} real · ${formatKg(agregado.kgPodridoCalibradorEstimado)} ≈ estimado`}
+          icon={Package}
+          labelInfo="Kg descartados en el calibrador. Real = suma del Informe LOTE cuando existe (28 de 398 lotes); estimado = prorrateo del podrido del parte por el peso de cada lote."
+        />
+        <KPICard
+          className="glass-accented"
+          label="Podrido manual"
+          value={formatKg(agregado.kgPodridoManualEstimado)}
+          hint="≈ estimado (prorrateo; no se registra por lote)"
+          icon={Package}
+        />
+      </section>
+
+      {agregado.nPendientesOParciales > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {agregado.nPendientesOParciales} lote{agregado.nPendientesOParciales === 1 ? "" : "s"} aún en cámara/parcial
+          {agregado.nPendientesOParciales === 1 ? "" : "es"} sin merma calculable (no aparecen en esta tabla).
+        </p>
+      )}
+
+      {agregado.nLotesCerradosSinRegistro > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {agregado.nLotesCerradosSinRegistro} lote{agregado.nLotesCerradosSinRegistro === 1 ? "" : "s"} cerrado
+          {agregado.nLotesCerradosSinRegistro === 1 ? "" : "s"} sin análisis ({formatKg(agregado.kgCerradosSinRegistro)}) — su
+          procesado no consta bajo su código, excluidos de mermas y forfait (sin inventar una pérdida).
+        </p>
+      )}
+
+      {/* ─── Atención especial ──────────────────────────────────────────── */}
+      <div>
+        <p className="panel-kicker mb-2">Atención especial</p>
+        <div className="grid gap-3 md:grid-cols-3">
+          <RankingCard titulo="Más kg en podrido" icon={Package} vacio={topPodridoKg.length === 0}>
+            {topPodridoKg.map((r) => <RankingLoteRow key={r.lote} lote={r.lote} valorLabel={formatKg(r.kg)} />)}
+          </RankingCard>
+          <RankingCard titulo="Más % merma" icon={Percent} vacio={topMermaPct.length === 0}>
+            {topMermaPct.map((r) => <RankingLoteRow key={r.lote} lote={r.lote} valorLabel={formatPct(r.pct)} />)}
+          </RankingCard>
+          <RankingCard titulo="Pérdida por agricultor" icon={Users} vacio={topAgricultor.length === 0}>
+            {topAgricultor.map((r) => (
+              <div key={r.key} className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate font-medium">{r.label}</span>
+                  <Badge variant="outline" className="border-destructive/40 bg-destructive/10 px-1.5 py-0 text-[11px] font-semibold text-destructive">
+                    {formatKg(r.kgPerdido)}
+                  </Badge>
+                </div>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">{formatKg(r.kgEntrada)} entrados · {r.nLotes} lote{r.nLotes === 1 ? "" : "s"}</p>
+              </div>
+            ))}
+          </RankingCard>
+        </div>
+      </div>
+
+      <Card className="glass-accented">
+        <CardContent className="max-h-[65vh] overflow-auto p-0">
+          {filasOrdenadas.length === 0 ? (
+            <p className="py-10 text-center text-sm text-muted-foreground">Ningún lote procesado todavía.</p>
+          ) : (
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-[var(--glass-bg-solid)] backdrop-blur-xl">
+                <TableRow>
+                  <SortableTableHead label="Lote" sk="lote" sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                  <SortableTableHead label="Entrada" sk="kg_entrada" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                  <SortableTableHead label="Calibrador" sk="kg_calibrador" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                  <SortableTableHead label="Días" sk="dias" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                  <SortableTableHead label="Merma" sk="merma_kg" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                  <SortableTableHead label="Merma %" sk="merma_pct" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                  <SortableTableHead label="Podrido pre-calib." sk="podrido_pre" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                  <SortableTableHead label="Podrido cal." sk="podrido_cal" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                  <SortableTableHead label="Podrido man." sk="podrido_man" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filasOrdenadas.map((l, i) => (
+                  <TableRow key={l.lote} className={i % 2 === 1 ? "bg-[var(--glass-bg)]/40" : undefined}>
+                    <TableCell className="whitespace-nowrap font-medium">
+                      <Link to={`/trazabilidad?lote=${encodeURIComponent(l.lote)}`} className="inline-flex items-center gap-1 hover:text-primary hover:underline">
+                        {l.lote} <ArrowRight className="h-3 w-3 opacity-50" />
+                      </Link>
+                      {l.cerradoManualmente && (
+                        <Badge variant="outline" className="ml-1.5 border-[var(--glass-border)] px-1 py-0 align-middle text-[9px] font-normal text-muted-foreground">
+                          <Lock className="mr-0.5 h-2.5 w-2.5" /> cerrado
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">{formatKg(l.kgEntrada)}</TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">{formatKg(l.kgCalibrador)}</TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">{l.diasEnCamara ?? "—"}</TableCell>
+                    <TableCell className={cn("text-right tabular-nums font-medium", l.calibradorSuperaEntrada && "text-warning")}>
+                      {l.mermaNaturalKg != null ? formatKg(l.mermaNaturalKg) : "—"}
+                      {l.calibradorSuperaEntrada && <AlertTriangle className="ml-1 inline h-3 w-3" />}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">{l.pctMermaSobreEntrada != null ? formatPct(l.pctMermaSobreEntrada) : "—"}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {l.podridoPreCalibradorKg != null ? (
+                        <span className="inline-flex items-center justify-end gap-1">
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "px-1.5 py-0 text-[11px] font-semibold tabular-nums",
+                              podridoPreCalibradorDestacado(l)
+                                ? "border-warning/40 bg-warning/10 text-warning"
+                                : "border-[var(--glass-border)] text-muted-foreground",
+                            )}
+                          >
+                            {formatKg(l.podridoPreCalibradorKg)}
+                          </Badge>
+                          <AsumidoBadgeMini />
+                        </span>
+                      ) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <span className="inline-flex items-center justify-end gap-1">
+                        {l.podridoCalibradorKg == null ? <span className="text-muted-foreground/70">sin dato</span> : formatKg(l.podridoCalibradorKg)}{" "}
+                        <FuenteBadgeMini fuente={l.podridoCalibradorFuente} />
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <span className="inline-flex items-center justify-end gap-1">
+                        {l.podridoManualKg == null ? <span className="text-muted-foreground/70">sin dato</span> : formatKg(l.podridoManualKg)}{" "}
+                        <FuenteBadgeMini fuente={l.podridoManualKg == null ? "desconocido" : "prorrateo"} />
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+              <TableFooter>
+                <TableRow>
+                  <TableCell>Total ({filasOrdenadas.length})</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatKg(totales.kgEntrada)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatKg(totales.kgCalibrador)}</TableCell>
+                  <TableCell />
+                  <TableCell className="text-right tabular-nums">{formatKg(totales.merma)}</TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {totales.kgEntrada > 0 ? formatPct((totales.merma / totales.kgEntrada) * 100) : "—"}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{formatKg(totales.podridoPreCalibrador)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatKg(totales.podridoCal)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatKg(totales.podridoMan)}</TableCell>
+                </TableRow>
+              </TableFooter>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 
 interface ImportPreview {
@@ -63,12 +485,60 @@ interface ImportPreview {
 }
 
 export default function EntradasBascula() {
-  const { entradas, stock, procesados, isLoading, error, importar, importarStock, eliminar } = useEntradasBascula();
+  const {
+    entradas, stock, procesados, movimientosPrecalibrado, derivadosCampoCit, isLoading, error,
+    importar, importarStock, eliminar, cerrarLote, reabrirLote, cerrarLotesEnBloque, reabrirLotesEnBloque,
+  } = useEntradasBascula();
+  const { role } = useAuth();
+  const isAdmin = role === "admin";
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [parseando, setParseando] = useState(false);
   const [search, setSearch] = useState("");
   const [soloActivos, setSoloActivos] = useState(true);
+  const [sortKey, setSortKey] = useState<StockSortKey>("fecha_entrada");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [activeTab, setActiveTab] = useState<"stock" | "dias" | "mermas">("stock");
+  const [highlightLote, setHighlightLote] = useState<string | null>(null);
+  const [bloqueDialogOpen, setBloqueDialogOpen] = useState(false);
+  const [conciliarDialogOpen, setConciliarDialogOpen] = useState(false);
+
+  // ─── Conectividad: llegada desde Trazabilidad con ?lote= ────────────────
+  // Prefiltra el buscador, se asegura de que la fila sea visible (aunque esté
+  // procesada) y limpia el parámetro de la URL para que el buscador quede
+  // editable con normalidad.
+  const loteParamAplicado = useRef(false);
+  useEffect(() => {
+    if (loteParamAplicado.current || isLoading) return;
+    const loteParam = normalizarLoteCodigo(searchParams.get("lote"));
+    loteParamAplicado.current = true;
+    if (!loteParam) return;
+    setSearch(loteParam);
+    setActiveTab("stock");
+    const fila = stock.filas.find((f) => f.lote === loteParam);
+    if (fila?.estado === "procesado") setSoloActivos(false);
+    setHighlightLote(loteParam);
+    const next = new URLSearchParams(searchParams);
+    next.delete("lote");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, stock.filas]);
+
+  // El resaltado de la fila se desvanece solo tras un momento.
+  useEffect(() => {
+    if (!highlightLote) return;
+    const t = setTimeout(() => setHighlightLote(null), 2200);
+    return () => clearTimeout(t);
+  }, [highlightLote]);
+
+  // Lleva la fila destacada a la vista una vez filtrada/renderizada.
+  useEffect(() => {
+    if (!highlightLote) return;
+    const el = document.getElementById(`stock-row-${highlightLote}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightLote]);
 
   const handleFile = async (file: File | null) => {
     if (!file) return;
@@ -142,22 +612,40 @@ export default function EntradasBascula() {
     });
   };
 
-  const searchLower = normalizeText(search).trim();
+  const searchLower = normalizarTexto(search).trim();
   const filasVisibles = useMemo(() => {
-    return stock.filas.filter((fila) => {
+    const filtradas = stock.filas.filter((fila) => {
       if (soloActivos && fila.estado === "procesado") return false;
       if (!searchLower) return true;
       return (
-        normalizeText(fila.lote).includes(searchLower)
-        || normalizeText(fila.finca).includes(searchLower)
-        || normalizeText(fila.articulo).includes(searchLower)
-        || normalizeText(fila.agricultor).includes(searchLower)
+        normalizarTexto(fila.lote).includes(searchLower)
+        || normalizarTexto(fila.finca).includes(searchLower)
+        || normalizarTexto(fila.articulo).includes(searchLower)
+        || normalizarTexto(fila.agricultor).includes(searchLower)
       );
     });
-  }, [stock.filas, soloActivos, searchLower]);
+    const ordenadas = [...filtradas].sort((a, b) => compareStockRows(a, b, sortKey));
+    if (sortDir === "desc") ordenadas.reverse();
+    return ordenadas;
+  }, [stock.filas, soloActivos, searchLower, sortKey, sortDir]);
+
+  const handleToggleSort = (key: StockSortKey) => toggleSort(key, sortKey, sortDir, setSortKey, setSortDir);
 
   const entradaPorLote = useMemo(() => new Map(entradas.map((e) => [e.lote, e])), [entradas]);
   const hayEntradas = entradas.length > 0;
+
+  // Lotes activos (pendiente/parcial) con su id real de entradas_bascula, para
+  // el diálogo de cierre en bloque (solo admin): StockLoteRow no trae `id`.
+  const lotesActivosParaBloque = useMemo(
+    () => stock.filas
+      .filter((f) => f.estado !== "procesado")
+      .map((f) => {
+        const row = entradaPorLote.get(f.lote);
+        return row ? { id: row.id, lote: f.lote, fecha_entrada: f.fecha_entrada, kg_entrada: f.kg_entrada, kg_procesado: f.kg_procesado } : null;
+      })
+      .filter((f): f is NonNullable<typeof f> => f != null),
+    [stock.filas, entradaPorLote],
+  );
 
   // Stock en cámara agrupado por variedad (solo lotes activos), para ver de un
   // vistazo cuánta fruta de cada tipo queda por procesar.
@@ -176,7 +664,8 @@ export default function EntradasBascula() {
       .sort((a, b) => b.kg - a.kg);
   }, [stock.filas]);
 
-  // Entradas agrupadas por día (vista "lo que entró cada día").
+  // Entradas agrupadas por día (vista "lo que entró cada día"), con el kg del
+  // día y el nº de fincas distintas para la jerarquía visual del listado.
   const entradasPorDia = useMemo(() => {
     const map = new Map<string, typeof entradas>();
     for (const e of entradas) {
@@ -184,8 +673,27 @@ export default function EntradasBascula() {
       arr.push(e);
       map.set(e.fecha, arr);
     }
-    return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+    const dias = Array.from(map.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([fecha, filasDia]) => ({
+        fecha,
+        filasDia,
+        kgDia: filasDia.reduce((s, e) => s + (Number(e.kg_entrada) || 0), 0),
+        fincas: new Set(filasDia.map((e) => e.finca).filter((f): f is string => Boolean(f))).size,
+      }));
+    const maxKgDia = Math.max(1, ...dias.map((d) => d.kgDia));
+    return { dias, maxKgDia };
   }, [entradas]);
+
+  // Resumen de una línea bajo el subtítulo: última entrada + fincas activas.
+  const resumenHeader = useMemo(() => {
+    if (entradas.length === 0) return null;
+    const ultimaFecha = entradas.reduce((max, e) => (e.fecha > max ? e.fecha : max), entradas[0].fecha);
+    const fincasActivas = new Set(
+      stock.filas.filter((f) => f.estado !== "procesado").map((f) => f.finca).filter((f): f is string => Boolean(f)),
+    ).size;
+    return { ultimaFecha, fincasActivas };
+  }, [entradas, stock.filas]);
 
   return (
     <div className="page-shell">
@@ -195,6 +703,14 @@ export default function EntradasBascula() {
           <p className="page-subtitle">
             Báscula → stock en cámara → calibrador: trazabilidad por lote desde la finca.
           </p>
+          {resumenHeader && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Última entrada <span className="font-medium text-foreground">{formatDate(resumenHeader.ultimaFecha)}</span>
+              {resumenHeader.fincasActivas > 0 && (
+                <> · fruta de <span className="font-medium text-foreground">{resumenHeader.fincasActivas}</span> finca{resumenHeader.fincasActivas === 1 ? "" : "s"} distinta{resumenHeader.fincasActivas === 1 ? "" : "s"} esperando en cámara</>
+              )}
+            </p>
+          )}
         </div>
         <Button
           className="glass glass-hover"
@@ -215,6 +731,28 @@ export default function EntradasBascula() {
           onChange={(e) => void handleFile(e.target.files?.[0] ?? null)}
         />
       </header>
+
+      {/* ─── Cierre masivo (solo admin) ──────────────────────────────────── */}
+      {isAdmin && (
+        <CerrarLotesEnBloqueDialog
+          open={bloqueDialogOpen}
+          onOpenChange={setBloqueDialogOpen}
+          filas={lotesActivosParaBloque}
+          cerrarLotesEnBloque={cerrarLotesEnBloque}
+        />
+      )}
+
+      {/* ─── Conciliación con el informe real de cámara (solo admin) ─────── */}
+      {isAdmin && (
+        <ConciliarInformeCamaraDialog
+          open={conciliarDialogOpen}
+          onOpenChange={setConciliarDialogOpen}
+          stockFilas={stock.filas}
+          entradas={entradas}
+          cerrarLotesEnBloque={cerrarLotesEnBloque}
+          reabrirLotesEnBloque={reabrirLotesEnBloque}
+        />
+      )}
 
       {/* ─── Previsualización del import ───────────────────────────────── */}
       {preview && previewStats && (
@@ -332,12 +870,13 @@ export default function EntradasBascula() {
             />
           </section>
 
-          <Tabs defaultValue="stock" className="space-y-4">
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "stock" | "dias" | "mermas")} className="space-y-4">
             <TabsList className="w-full flex-wrap sm:w-auto">
               <TabsTrigger value="stock">Stock en cámara</TabsTrigger>
               <TabsTrigger value="dias">
-                Entradas por día <Badge variant="secondary" className="ml-1.5 px-1.5 text-[10px]">{entradasPorDia.length}</Badge>
+                Entradas por día <Badge variant="secondary" className="ml-1.5 px-1.5 text-[10px]">{entradasPorDia.dias.length}</Badge>
               </TabsTrigger>
+              <TabsTrigger value="mermas">Mermas y coste</TabsTrigger>
             </TabsList>
 
             <TabsContent value="stock" className="mt-0 space-y-4">
@@ -352,21 +891,99 @@ export default function EntradasBascula() {
                     <p className="mt-0.5 text-xs text-muted-foreground">Fruta sin procesar en cámara, agrupada por artículo</p>
                   </div>
                 </div>
-                {stockPorVariedad.map((v) => {
-                  const pct = stock.kgEnCamara > 0 ? (v.kg / stock.kgEnCamara) * 100 : 0;
-                  return (
-                    <div key={v.variedad} className="flex items-center gap-3">
-                      <span className="w-44 shrink-0 truncate text-sm font-medium sm:w-56">{v.variedad}</span>
-                      <div className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
-                        <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
-                      </div>
-                      <span className="w-20 shrink-0 text-right text-sm font-semibold tabular-nums">{formatKg(v.kg)}</span>
-                      <span className="hidden w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:inline">
-                        {v.lotes} lote{v.lotes === 1 ? "" : "s"}
-                      </span>
-                    </div>
-                  );
-                })}
+                {stockPorVariedad.slice(0, STOCK_VARIEDAD_LIMIT).map((v) => (
+                  <VariedadRow key={v.variedad} variedad={v} totalKg={stock.kgEnCamara} />
+                ))}
+                {stockPorVariedad.length > STOCK_VARIEDAD_LIMIT && (
+                  <Collapsible>
+                    <CollapsibleContent className="space-y-2.5">
+                      {stockPorVariedad.slice(STOCK_VARIEDAD_LIMIT).map((v) => (
+                        <VariedadRow key={v.variedad} variedad={v} totalKg={stock.kgEnCamara} />
+                      ))}
+                    </CollapsibleContent>
+                    <CollapsibleTrigger className="group flex items-center gap-1 pt-0.5 text-xs font-medium text-primary hover:underline">
+                      <span className="group-data-[state=open]:hidden">Ver todas ({stockPorVariedad.length})</span>
+                      <span className="hidden group-data-[state=open]:inline">Ver menos</span>
+                      <ChevronDown className="h-3 w-3 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                    </CollapsibleTrigger>
+                  </Collapsible>
+                )}
+                <div className="flex items-center gap-3 border-t border-[var(--glass-border)] pt-2 text-xs font-semibold text-foreground">
+                  <span className="w-44 shrink-0 sm:w-56">Total en cámara</span>
+                  <div className="min-w-0 flex-1" />
+                  <span className="shrink-0 text-right tabular-nums">{formatKg(stock.kgEnCamara)}</span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {(movimientosPrecalibrado.count > 0 || derivadosCampoCit.count > 0) && (
+            <div className="space-y-1 px-1">
+              {movimientosPrecalibrado.count > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  Se excluyen {movimientosPrecalibrado.count} movimientos internos de precalibrado
+                  ({formatKg(movimientosPrecalibrado.kg)}) — fruta apartada que vuelve a entrar, no es entrada nueva.
+                </p>
+              )}
+              {derivadosCampoCit.count > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  {derivadosCampoCit.count} lote{derivadosCampoCit.count === 1 ? "" : "s"} derivado{derivadosCampoCit.count === 1 ? "" : "s"} a Cítrica
+                  {" "}({formatKg(derivadosCampoCit.kg)}) — fruta comprada que no se procesa en la central, ver detalle abajo.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* ─── Derivado a Cítrica (campo/cit): compra real que no procesa la central ── */}
+          {derivadosCampoCit.count > 0 && (
+            <Card className="glass-accented border-amber-500/25">
+              <CardContent className="space-y-2.5 p-4 sm:p-5">
+                <div className="flex items-center gap-3">
+                  <div className="h-7 w-1 shrink-0 rounded-full bg-amber-500" />
+                  <div>
+                    <p className="panel-kicker">Derivado a Cítrica (campo/cit)</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Fruta comprada que no se procesa en la central; no cuenta como stock ni como merma.
+                    </p>
+                  </div>
+                </div>
+                <div className="overflow-x-auto rounded-lg border border-[var(--glass-border)]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead>Lote</TableHead>
+                        <TableHead>Agricultor</TableHead>
+                        <TableHead>Variedad</TableHead>
+                        <TableHead className="text-right">Kg</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {derivadosCampoCit.filas.map((f) => (
+                        <TableRow key={f.id}>
+                          <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(f.fecha)}</TableCell>
+                          <TableCell className="whitespace-nowrap font-medium">
+                            <Link
+                              to={`/trazabilidad?lote=${encodeURIComponent(f.lote)}`}
+                              className="inline-flex items-center gap-1 hover:text-primary hover:underline"
+                            >
+                              {f.lote}
+                            </Link>
+                          </TableCell>
+                          <TableCell className="max-w-[180px] truncate">{f.agricultor ?? "—"}</TableCell>
+                          <TableCell className="max-w-[160px] truncate text-muted-foreground">{f.articulo ?? "—"}</TableCell>
+                          <TableCell className="text-right tabular-nums font-medium">{formatKg(Number(f.kg_entrada) || 0)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                    <TableFooter>
+                      <TableRow>
+                        <TableCell colSpan={4}>Total ({derivadosCampoCit.count})</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatKg(derivadosCampoCit.kg)}</TableCell>
+                      </TableRow>
+                    </TableFooter>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
           )}
@@ -382,6 +999,27 @@ export default function EntradasBascula() {
                   </CardTitle>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  {isAdmin && (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="glass glass-hover h-9 text-xs"
+                        onClick={() => setBloqueDialogOpen(true)}
+                      >
+                        <Lock className="h-3.5 w-3.5" /> Cerrar antiguos en bloque…
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="glass glass-hover h-9 text-xs"
+                        onClick={() => setConciliarDialogOpen(true)}
+                        title="Compara el stock activo contra el informe real de cámara del programa de báscula"
+                      >
+                        <GitCompare className="h-3.5 w-3.5" /> Conciliar con informe de cámara…
+                      </Button>
+                    </>
+                  )}
                   <div className="relative">
                     <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                     <Input
@@ -414,24 +1052,24 @@ export default function EntradasBascula() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="overflow-x-auto p-0">
+            <CardContent className="max-h-[65vh] overflow-auto p-0">
               {filasVisibles.length === 0 ? (
                 <p className="py-10 text-center text-sm text-muted-foreground">
                   {soloActivos ? "No queda fruta sin procesar con estos filtros. 🎉" : "Sin entradas que coincidan con la búsqueda."}
                 </p>
               ) : (
                 <Table>
-                  <TableHeader>
+                  <TableHeader className="sticky top-0 z-10 bg-[var(--glass-bg-solid)] backdrop-blur-xl">
                     <TableRow>
-                      <TableHead>Lote</TableHead>
-                      <TableHead>Entrada</TableHead>
-                      <TableHead>Finca</TableHead>
-                      <TableHead>Variedad</TableHead>
-                      <TableHead className="text-right">Kg entrada</TableHead>
-                      <TableHead className="text-right">Procesado</TableHead>
-                      <TableHead className="text-right">En cámara</TableHead>
-                      <TableHead className="text-right">Días</TableHead>
-                      <TableHead>Estado</TableHead>
+                      <SortableTableHead label="Lote" sk="lote" sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                      <SortableTableHead label="Entrada" sk="fecha_entrada" sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                      <SortableTableHead label="Finca" sk="finca" sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                      <SortableTableHead label="Variedad" sk="articulo" sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                      <SortableTableHead label="Kg entrada" sk="kg_entrada" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                      <SortableTableHead label="Procesado" sk="kg_procesado" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                      <SortableTableHead label="En cámara" sk="kg_en_camara" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                      <SortableTableHead label="Días" sk="dias_en_camara" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                      <SortableTableHead label="Estado" sk="estado" sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -439,11 +1077,22 @@ export default function EntradasBascula() {
                     {filasVisibles.map((fila: StockLoteRow, i) => {
                       const badge = ESTADO_BADGE[fila.estado];
                       const row = entradaPorLote.get(fila.lote);
+                      const destacada = highlightLote === fila.lote;
                       return (
-                        <TableRow key={fila.lote} className={cn(i % 2 === 1 && "bg-[var(--glass-bg)]/40")}>
+                        <TableRow
+                          key={fila.lote}
+                          id={`stock-row-${fila.lote}`}
+                          onClick={() => navigate(`/trazabilidad?lote=${encodeURIComponent(fila.lote)}`)}
+                          className={cn(
+                            "cursor-pointer transition-shadow duration-700 hover:bg-primary/5",
+                            i % 2 === 1 && "bg-[var(--glass-bg)]/40",
+                            destacada && "ring-1 ring-inset ring-info bg-info/5",
+                          )}
+                        >
                           <TableCell className="whitespace-nowrap font-medium">
                             <Link
                               to={`/trazabilidad?lote=${encodeURIComponent(fila.lote)}`}
+                              onClick={(e) => e.stopPropagation()}
                               className="inline-flex items-center gap-1 hover:text-primary hover:underline"
                               title="Ver la trazabilidad completa del lote"
                             >
@@ -461,29 +1110,99 @@ export default function EntradasBascula() {
                             {fila.estado === "procesado" ? "—" : formatKg(fila.kg_en_camara)}
                           </TableCell>
                           <TableCell className={cn("text-right tabular-nums", diasClass(fila.dias_en_camara, fila.estado))}>
-                            {fila.dias_en_camara}
+                            <span className="inline-flex items-center justify-end gap-1.5">
+                              <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", diasDotClass(fila.dias_en_camara, fila.estado))} />
+                              {fila.dias_en_camara}
+                            </span>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline" className={cn("px-1.5 py-0 text-[11px]", badge.className)}>{badge.label}</Badge>
+                            <div className="flex flex-wrap items-center gap-1">
+                              <Badge variant="outline" className={cn("px-1.5 py-0 text-[11px]", badge.className)}>{badge.label}</Badge>
+                              {fila.cerrado_at && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-[var(--glass-border)] bg-[var(--glass-bg)] px-1.5 py-0 text-[10px] text-muted-foreground"
+                                  title={fila.cierre_modo === "sin_registro" ? "Su procesado no consta bajo este código: excluido de mermas/podrido/forfait." : "El hueco cuenta como merma natural + podrido pre-calibrador."}
+                                >
+                                  <Lock className="mr-1 h-2.5 w-2.5" /> {fila.cierre_modo === "sin_registro" ? "Cerrado sin análisis" : "Cerrado a mano"}
+                                </Badge>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="text-right">
-                            {row && (
+                            <div className="flex items-center justify-end gap-1">
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-8 w-8 text-destructive hover:text-destructive"
-                                title="Borrar esta entrada"
-                                disabled={eliminar.isPending}
-                                onClick={() => {
-                                  eliminar.mutate(row.id, {
-                                    onSuccess: () => toast({ title: "Entrada borrada", description: `Lote ${fila.lote} eliminado del registro.` }),
-                                    onError: (e) => toast({ title: "Error", description: errorMessage(e), variant: "destructive" }),
-                                  });
+                                className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                title="Ver trazabilidad completa del lote"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/trazabilidad?lote=${encodeURIComponent(fila.lote)}`);
                                 }}
                               >
-                                <Trash2 className="h-4 w-4" />
+                                <Route className="h-4 w-4" />
                               </Button>
-                            )}
+                              {row && fila.cerrado_at && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                  title="Reabrir este lote"
+                                  disabled={reabrirLote.isPending}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    reabrirLote.mutate(row.id, {
+                                      onSuccess: () => toast({ title: "Lote reabierto", description: `El lote ${fila.lote} vuelve a estar activo.` }),
+                                      onError: (err) => toast({ title: "No se pudo reabrir el lote", description: errorMessage(err), variant: "destructive" }),
+                                    });
+                                  }}
+                                >
+                                  <LockOpen className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {row && !fila.cerrado_at && fila.estado !== "procesado" && (
+                                <CerrarLoteDialog
+                                  lote={fila.lote}
+                                  kgEntrada={fila.kg_entrada}
+                                  kgProcesado={fila.kg_procesado}
+                                  isPending={cerrarLote.isPending}
+                                  onConfirm={(cierreModo) => cerrarLote.mutate({ id: row.id, cierreModo }, {
+                                    onSuccess: () => toast({ title: "Lote cerrado", description: `El lote ${fila.lote} se ha dado por terminado.` }),
+                                    onError: (err) => toast({ title: "No se pudo cerrar el lote", description: errorMessage(err), variant: "destructive" }),
+                                  })}
+                                  trigger={(
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                      title="Cerrar este lote"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <Lock className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                />
+                              )}
+                              {row && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  title="Borrar esta entrada"
+                                  disabled={eliminar.isPending}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    eliminar.mutate(row.id, {
+                                      onSuccess: () => toast({ title: "Entrada borrada", description: `Lote ${fila.lote} eliminado del registro.` }),
+                                      onError: (err) => toast({ title: "Error", description: errorMessage(err), variant: "destructive" }),
+                                    });
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -497,12 +1216,12 @@ export default function EntradasBascula() {
 
             {/* ─── Entradas agrupadas por día ────────────────────────────── */}
             <TabsContent value="dias" className="mt-0 space-y-2">
-              {entradasPorDia.map(([fecha, filasDia], index) => {
-                const kgDia = filasDia.reduce((s, e) => s + (Number(e.kg_entrada) || 0), 0);
+              {entradasPorDia.dias.map(({ fecha, filasDia, kgDia, fincas }, index) => {
+                const pctBarraDia = (kgDia / entradasPorDia.maxKgDia) * 100;
                 return (
                   <Collapsible key={fecha} defaultOpen={index === 0}>
                     <div className="overflow-hidden rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)]">
-                      <CollapsibleTrigger className="group flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-[var(--glass-bg-strong)]">
+                      <CollapsibleTrigger className="group relative flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-[var(--glass-bg-strong)]">
                         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
                         <CalendarDays className="h-3.5 w-3.5 shrink-0 text-primary" />
                         <span className="shrink-0 text-sm font-semibold capitalize">
@@ -510,12 +1229,20 @@ export default function EntradasBascula() {
                         </span>
                         <span className="truncate text-[12px] text-muted-foreground">
                           {filasDia.length} entrada{filasDia.length === 1 ? "" : "s"} · {formatKg(kgDia)}
+                          {fincas > 0 && <> · {fincas} finca{fincas === 1 ? "" : "s"}</>}
                         </span>
+                        {/* Barra fina de kg del día relativa al mejor día visible: jerarquía visual de un vistazo. */}
+                        <div className="absolute inset-x-3 bottom-0 h-[2px] overflow-hidden rounded-full bg-transparent">
+                          <div
+                            className="h-full rounded-full bg-primary/40 transition-all duration-500"
+                            style={{ width: `${Math.max(2, pctBarraDia)}%` }}
+                          />
+                        </div>
                       </CollapsibleTrigger>
                       <CollapsibleContent>
                         <div className="divide-y divide-[var(--glass-border)] border-t border-[var(--glass-border)]">
                           {filasDia.map((e) => (
-                            <div key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+                            <div key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm transition-colors hover:bg-[var(--glass-bg-strong)]/50">
                               <Link
                                 to={`/trazabilidad?lote=${encodeURIComponent(e.lote)}`}
                                 className="w-24 shrink-0 font-medium tabular-nums hover:text-primary hover:underline"
@@ -558,6 +1285,11 @@ export default function EntradasBascula() {
                   </Collapsible>
                 );
               })}
+            </TabsContent>
+
+            {/* ─── Mermas y coste: lotes procesados, merma natural + podrido, € solo admin ── */}
+            <TabsContent value="mermas" className="mt-0">
+              <MermasCosteTab />
             </TabsContent>
           </Tabs>
 

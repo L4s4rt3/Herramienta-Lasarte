@@ -101,6 +101,17 @@ describe("computeProductoresHistorico", () => {
     expect(result.map((p) => p.productor)).toEqual(["Finca Alta", "Finca Baja"]);
   });
 
+  it("excluye el pseudo-productor PRECALIBRADO del ranking (no es un productor real, decisión del dueño 2026-07-15)", () => {
+    const lotes = [
+      { part_id: "p1", productor: "Finca A", lote_codigo: "L1", producto: "Naranja", kg_peso_total: 1000, toneladas_hora: 14, duracion_min: 60, peso_fruta_promedio_g: 150 },
+      { part_id: "p1", productor: "PRECALIBRADO", lote_codigo: "PREC DIA 08/11/25", producto: "Naranja", kg_peso_total: 5000, toneladas_hora: 14, duracion_min: 60, peso_fruta_promedio_g: 150 },
+      { part_id: "p2", productor: "  precalibrado ", lote_codigo: "25110707+25110606", producto: "Naranja", kg_peso_total: 3000, toneladas_hora: 14, duracion_min: 60, peso_fruta_promedio_g: 150 },
+    ];
+    const result = computeProductoresHistorico(lotes, pctPorDia, partesById);
+    expect(result.map((p) => p.productor)).toEqual(["Finca A"]);
+    expect(result[0].kg).toBe(1000); // los kg del precalibrado no se cuelan en ningún grupo
+  });
+
   it("agrupa lotes sin productor bajo 'Sin productor'", () => {
     const lotes = [
       { part_id: "p1", productor: null, lote_codigo: "L1", producto: "Naranja", kg_peso_total: 100, toneladas_hora: 14, duracion_min: 60, peso_fruta_promedio_g: 150 },

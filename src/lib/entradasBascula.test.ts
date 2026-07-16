@@ -2,10 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   buildEntradasDesdeStock,
   buildStockEntradas,
+  conciliarStockConInforme,
+  criterioCierreModo,
+  estadoLotePorProcesado,
   normalizarLoteCodigo,
   parseEntradasBasculaRows,
   parseFechaBascula,
+  parseInformeAprovechamientoStock,
   parseStockLotesRows,
+  UMBRAL_CIERRE_CON_ANALISIS,
 } from "./entradasBascula";
 
 // Cabecera real del export del programa de báscula ("entrada 2604.xlsx").
@@ -77,6 +82,15 @@ describe("parseFechaBascula", () => {
     expect(parseFechaBascula(new Date(2026, 3, 6))).toBe("2026-04-06");
     expect(parseFechaBascula("sin fecha")).toBeNull();
   });
+
+  it("acepta el serial numérico de Excel (celdas con formato de fecha real, no texto)", () => {
+    // Caso real del informe APROVECHAMIENTO STOCK LOTES: algunas filas de
+    // "Creación" vienen como número de serie de Excel en vez de texto
+    // "dd/mm/yyyy" (4 de los 117 lotes reales se perdían por esto).
+    expect(parseFechaBascula(46136)).toBe("2026-04-24");
+    expect(parseFechaBascula(46140)).toBe("2026-04-28");
+    expect(parseFechaBascula(46153)).toBe("2026-05-11");
+  });
 });
 
 describe("parseStockLotesRows — informe APROVECHAMIENTO STOCK LOTES", () => {
@@ -105,6 +119,105 @@ describe("parseStockLotesRows — informe APROVECHAMIENTO STOCK LOTES", () => {
     const { lotes, descartadas } = parseStockLotesRows([["otra", "cosa"]]);
     expect(lotes).toHaveLength(0);
     expect(descartadas[0].motivo).toContain("cabecera");
+  });
+});
+
+describe("parseInformeAprovechamientoStock — conciliación con el informe de cámara", () => {
+  // Fixture calcada de la estructura real del archivo de referencia: título,
+  // cabecera, subtotal (Creación/Lote en blanco), una fila con fecha en texto
+  // y otra con fecha como serial numérico de Excel (bug real corregido en
+  // parseFechaBascula), y la leyenda de colores al final.
+  const ROWS: unknown[][] = [
+    ["APROVECHAMIENTO STOCK LOTES", null, null, null, null, null, null, null, null, null],
+    ["Creación", "Lote", "Producto", "Agricultor", "Kgr.Exist.", "Envses", "APROVECHAMIENTO", "ACIDEZ", "KG MDNA", null],
+    [null, null, "NARANJA BARBERINA", "LASARTE EXPORT S.L. Carlos", 44060, 224, "SIN DATOS", null, null, null],
+    ["28/04/2026", "26042812", "NARANJA BARBERINA", "LASARTE EXPORT S.L. Carlos", 20960, 104, "SIN DATOS", null, null, null],
+    [46136, 26042408, "NARANJA BARBERINA", "LASARTE EXPORT S.L. Carlos", 20520, 104, "SIN DATOS", null, null, null],
+    ["Leyenda de colores por producto:", null, null, null, null, null, null, null, null, null],
+    [null, "NAR VAL DELTA SEEDLESS", null, null, "NARANJA BARBERINA", null, null, "NARANJA VALENCIA LATE", null, null],
+    [null, "% de aprovechamiento calculado", null, null, null, null, null, null, null, null],
+  ];
+
+  it("extrae solo los lotes de detalle, aceptando lote como número y fecha como serial de Excel", () => {
+    const { lotes, descartadas } = parseInformeAprovechamientoStock(ROWS);
+    expect(lotes).toHaveLength(2);
+    expect(lotes[0]).toEqual({
+      lote: "26042812", kgExistencia: 20960, producto: "NARANJA BARBERINA", agricultor: "LASARTE EXPORT S.L. Carlos", fechaCreacion: "2026-04-28",
+    });
+    expect(lotes[1]).toMatchObject({ lote: "26042408", kgExistencia: 20520, fechaCreacion: "2026-04-24" });
+    // Subtotal (sin fecha ni lote) y leyenda: descartados en silencio (sin motivo) salvo
+    // la fila con texto en la columna Lote ("% de aprovechamiento calculado").
+    expect(descartadas.some((d) => d.motivo.includes("no reconocible"))).toBe(true);
+  });
+});
+
+describe("conciliarStockConInforme — cuadre contra el informe real de cámara (2026-07-16)", () => {
+  // Construye StockLoteRow reales vía buildStockEntradas en vez de a mano,
+  // para que los 3 grupos se prueben sobre datos coherentes con el resto del
+  // módulo (mismo criterio de estado/cierre que usa la UI).
+  const entradas = [
+    { lote: "26060101", fecha: "2026-06-01", kg_entrada: 10000, finca: null, articulo: "NAVEL", agricultor: "Agricultor A" }, // activo, en informe
+    { lote: "26060102", fecha: "2026-06-02", kg_entrada: 5000, finca: null, articulo: "NAVEL", agricultor: "Agricultor B" }, // activo, NO en informe
+    {
+      lote: "26060103", fecha: "2026-05-01", kg_entrada: 8000, finca: null, articulo: "NAVEL", agricultor: "Agricultor C",
+      cerrado_at: "2026-07-15T00:00:00Z", cierre_modo: "con_analisis" as const,
+    }, // cerrado a mano, en informe → candidato a reabrir
+    { lote: "26060104", fecha: "2026-06-10", kg_entrada: 6000, finca: null, articulo: "NAVEL", agricultor: "Agricultor D" }, // procesado por kg (calibrador), SIN cierre manual, en informe → conflicto
+  ];
+  const procesados = [
+    { lote_codigo: "26060103", kg_peso_total: 7000, date: "2026-06-05" }, // 87.5%, no llegaría a "procesado" sin el cierre manual
+    { lote_codigo: "26060104", kg_peso_total: 6000, date: "2026-07-16" }, // 100%, procesado DESPUÉS de la foto del informe
+  ];
+  const stock = buildStockEntradas(entradas, procesados, "2026-07-16");
+
+  const informeLotes = [
+    { lote: "26060101", kgExistencia: 9800, producto: "NAVEL", agricultor: "Agricultor A", fechaCreacion: "2026-06-01" },
+    { lote: "26060103", kgExistencia: 900, producto: "NAVEL", agricultor: "Agricultor C", fechaCreacion: "2026-05-01" },
+    { lote: "26060104", kgExistencia: 6000, producto: "NAVEL", agricultor: "Agricultor D", fechaCreacion: "2026-06-10" },
+    { lote: "26060105", kgExistencia: 3000, producto: "LIMON", agricultor: "Agricultor E", fechaCreacion: "2026-06-15" }, // no existe en absoluto en la herramienta
+  ];
+
+  const resultado = conciliarStockConInforme(stock.filas, informeLotes);
+
+  it("cuadran: activos presentes en el informe, con el delta kg informativo", () => {
+    expect(resultado.cuadran).toHaveLength(1);
+    expect(resultado.cuadran[0]).toMatchObject({ lote: "26060101", kgHerramienta: 10000, kgInforme: 9800, deltaKg: 200 });
+  });
+
+  it("sobranEnHerramienta: activos SIN entrada en el informe → candidatos a cerrar con su modo sugerido", () => {
+    expect(resultado.sobranEnHerramienta).toHaveLength(1);
+    expect(resultado.sobranEnHerramienta[0]).toMatchObject({ lote: "26060102", kgEntrada: 5000, kgProcesado: 0, modoSugerido: "sin_registro" });
+  });
+
+  it("faltanEnHerramienta.reabrir: cerrados a mano que SÍ están en el informe", () => {
+    expect(resultado.faltanEnHerramienta.reabrir).toHaveLength(1);
+    expect(resultado.faltanEnHerramienta.reabrir[0]).toMatchObject({
+      lote: "26060103", kgEntrada: 8000, kgHuecoNatural: 1000, kgInforme: 900, cierreModo: "con_analisis",
+    });
+  });
+
+  it("faltanEnHerramienta.conflicto: procesado por kg SIN cierre manual (lote procesado después de la foto del informe) — solo informativo, nunca se reabre solo", () => {
+    expect(resultado.faltanEnHerramienta.conflicto).toHaveLength(1);
+    expect(resultado.faltanEnHerramienta.conflicto[0]).toMatchObject({ lote: "26060104", kgEntrada: 6000, kgProcesado: 6000, kgInforme: 6000 });
+    // Ninguno de los dos grupos de acción se lleva este lote.
+    expect(resultado.faltanEnHerramienta.reabrir.some((r) => r.lote === "26060104")).toBe(false);
+    expect(resultado.sobranEnHerramienta.some((r) => r.lote === "26060104")).toBe(false);
+  });
+
+  it("faltanEnHerramienta.sinEntrada: lote del informe sin ninguna fila en la herramienta — solo informativo", () => {
+    expect(resultado.faltanEnHerramienta.sinEntrada).toHaveLength(1);
+    expect(resultado.faltanEnHerramienta.sinEntrada[0]).toMatchObject({ lote: "26060105", kgInforme: 3000, producto: "LIMON" });
+  });
+
+  it("no se cuelan lotes de precalibrado/campo-cit por accidente: si no vienen en stockFilas (excluidos aguas arriba en useEntradasBascula), caen en sinEntrada", () => {
+    // Documenta la garantía: useEntradasBascula filtra esEntradaPrecalibrado/esEntradaCampoCit
+    // ANTES de construir buildStockEntradas, así que conciliarStockConInforme nunca los ve
+    // como filas activas/cerradas — si el informe trajera uno, es indistinguible de un lote
+    // que simplemente no existe en la BD, y por eso cae en sinEntrada (nunca en reabrir).
+    const soloInforme = [{ lote: "99999999", kgExistencia: 1000, producto: "PRECALIBRADO", agricultor: null, fechaCreacion: "2026-06-01" }];
+    const r = conciliarStockConInforme(stock.filas, soloInforme);
+    expect(r.faltanEnHerramienta.sinEntrada).toHaveLength(1);
+    expect(r.faltanEnHerramienta.reabrir).toHaveLength(0);
   });
 });
 
@@ -193,5 +306,92 @@ describe("buildStockEntradas", () => {
     expect(porLote.get("26040704")?.estado).toBe("parcial");
     expect(porLote.get("26040704")?.kg_en_camara).toBe(20000);
     expect(stock.kgEnCamara).toBe(20000);
+  });
+
+  it("cerrado_at fuerza estado 'procesado' y kg_en_camara 0, aunque el pct sea bajo, y lo excluye de los KPI de stock", () => {
+    // Caso real de referencia: 26061203, entrada 24.900 kg, calibrador 23.360
+    // kg (93,8%) -> sin cerrar sería "parcial" eterno.
+    const conCierre = [
+      { lote: "26061203", fecha: "2026-06-12", kg_entrada: 24900, finca: null, articulo: null, agricultor: null, cerrado_at: "2026-07-15T00:00:00Z" },
+      { lote: "26041004", fecha: "2026-04-10", kg_entrada: 25680, finca: null, articulo: null, agricultor: null }, // sin cerrar, de control
+    ];
+    const procesadosCierre = [{ lote_codigo: "26061203", kg_peso_total: 23360, date: "2026-07-12" }];
+    const stock = buildStockEntradas(conCierre, procesadosCierre, "2026-07-15");
+    const porLote = new Map(stock.filas.map((f) => [f.lote, f]));
+
+    const cerrado = porLote.get("26061203")!;
+    expect(cerrado.estado).toBe("procesado");
+    expect(cerrado.kg_en_camara).toBe(0);
+    expect(cerrado.cerrado_at).toBe("2026-07-15T00:00:00Z");
+
+    const control = porLote.get("26041004")!;
+    expect(control.estado).toBe("pendiente");
+    expect(control.cerrado_at).toBeNull();
+
+    // El cerrado no cuenta en los KPI de stock (kgEnCamara, lotesPendientes/Parciales).
+    expect(stock.kgEnCamara).toBe(control.kg_en_camara);
+    expect(stock.lotesPendientes).toBe(1);
+    expect(stock.lotesParciales).toBe(0);
+  });
+
+  it("reabrir (cerrado_at null) vuelve al estado calculado por el pct normal", () => {
+    const reabierto = [
+      { lote: "26061203", fecha: "2026-06-12", kg_entrada: 24900, finca: null, articulo: null, agricultor: null, cerrado_at: null },
+    ];
+    const procesadosCierre = [{ lote_codigo: "26061203", kg_peso_total: 23360, date: "2026-07-12" }];
+    const stock = buildStockEntradas(reabierto, procesadosCierre, "2026-07-15");
+    const fila = stock.filas[0];
+    expect(fila.estado).toBe("parcial"); // 93.8% < 97%, sin cierre manual
+    expect(fila.kg_en_camara).toBe(24900 - 23360);
+  });
+});
+
+describe("estadoLotePorProcesado — cerradoManualmente", () => {
+  it("fuerza 'procesado' aunque el pct sea 0 o bajo", () => {
+    expect(estadoLotePorProcesado(1000, 0, true)).toBe("procesado");
+    expect(estadoLotePorProcesado(1000, 500, true)).toBe("procesado");
+  });
+
+  it("sin cerradoManualmente (por defecto false) mantiene el criterio normal por umbral", () => {
+    expect(estadoLotePorProcesado(1000, 0)).toBe("pendiente");
+    expect(estadoLotePorProcesado(1000, 500)).toBe("parcial");
+    expect(estadoLotePorProcesado(1000, 980)).toBe("procesado");
+  });
+});
+
+describe("criterioCierreModo — umbral del 85% para sugerir el modo de cierre", () => {
+  it("sugiere 'con_analisis' con 85% o más procesado", () => {
+    expect(criterioCierreModo(1000, 850)).toBe("con_analisis"); // exactamente el umbral
+    expect(criterioCierreModo(1000, 900)).toBe("con_analisis");
+    expect(criterioCierreModo(1000, 1000)).toBe("con_analisis");
+  });
+
+  it("sugiere 'sin_registro' por debajo del 85% procesado", () => {
+    expect(criterioCierreModo(1000, 849)).toBe("sin_registro");
+    expect(criterioCierreModo(1000, 500)).toBe("sin_registro");
+    expect(criterioCierreModo(1000, 0)).toBe("sin_registro");
+  });
+
+  it("kgEntrada <= 0 no divide por 0: cae a 'sin_registro' (pct tratado como 0)", () => {
+    expect(criterioCierreModo(0, 0)).toBe("sin_registro");
+    expect(criterioCierreModo(-10, 5)).toBe("sin_registro");
+  });
+
+  it("usa exactamente UMBRAL_CIERRE_CON_ANALISIS como frontera (>=, no >)", () => {
+    const kgEntrada = 24900;
+    const enElUmbral = kgEntrada * UMBRAL_CIERRE_CON_ANALISIS;
+    expect(criterioCierreModo(kgEntrada, enElUmbral)).toBe("con_analisis");
+    expect(criterioCierreModo(kgEntrada, enElUmbral - 1)).toBe("sin_registro");
+  });
+
+  it("caso real: 121 lotes con procesado bajo (p.ej. 0%, código compuesto que acredita a otro lote) sugieren sin_registro", () => {
+    // Ejemplo real motivador de esta distinción: un lote con 24.900 kg de
+    // entrada y 0 kg de procesado bajo su propio código (pasó bajo un
+    // compuesto que acreditó a otro lote) no debe sugerir "con_analisis".
+    expect(criterioCierreModo(24900, 0)).toBe("sin_registro");
+  });
+
+  it("caso real: 53 lotes con procesado parcial alto (93.8%) sugieren con_analisis", () => {
+    expect(criterioCierreModo(24900, 23360)).toBe("con_analisis"); // 93.8%
   });
 });
