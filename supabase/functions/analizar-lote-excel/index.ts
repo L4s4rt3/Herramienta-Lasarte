@@ -103,6 +103,10 @@ Deno.serve(async (req) => {
       return json({ error: "No se encontraron filas de calibre/clase en el archivo" }, 400);
     }
 
+    // Convención B de normalización de lote (código base = dígitos iniciales
+    // del texto). Deno no puede importar de src/lib, así que esta función
+    // replica la lógica a mano; ver src/lib/loteCodigo.ts (prefijoNumericoLote)
+    // para la documentación completa de las dos convenciones y quién usa cada una.
     const loteCodigoBase = (header.lote_codigo.match(/^(\d+)/)?.[1]) ?? null;
 
     // Emparejar (best-effort) con un lote de lotes_dia del mismo parte, por código.
