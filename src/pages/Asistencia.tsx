@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { today, toISODateLocal } from "@/lib/format";
+import { today } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthProvider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,7 +37,7 @@ import {
   FMT_PCT,
   type ColumnaTabla,
 } from "@/lib/exportKit";
-import type { AsistenciaBajaLaboralRow, TrabajadorRow } from "@/lib/types";
+import type { TrabajadorRow } from "@/lib/types";
 import {
   buildAttendanceRecords,
   extractDailyAttendanceNames,
@@ -50,15 +49,6 @@ import {
   produccionRealParte,
   RENDIMIENTO_GRUPOS,
 } from "@/lib/asistenciaRendimiento";
-import {
-  previousIsoDate,
-  shouldApplyBajaLaboralToDate,
-} from "@/lib/asistenciaBajasLaborales";
-import {
-  ASISTENCIA_COMPARATIVA_RANGE_DAYS,
-  buildSemanasAsistenciaComparativa,
-  type SemanaComparativaData,
-} from "@/lib/asistenciaComparativa";
 import { exportEficienciaToExcel, exportEficienciaToPDF } from "@/lib/exportEficiencia";
 import {
   ASISTENCIA_GROUPS_STORAGE_KEY,
@@ -67,11 +57,21 @@ import {
   SIN_GRUPO_LABEL,
 } from "@/lib/asistenciaGrupos";
 import {
-  aplicarZonasOperativasTrabajadores,
   resolveTrabajadoresPorLista,
   type TrabajadorNoResuelto,
 } from "@/lib/asistenciaTrabajadores";
 import { useTrabajadoresAlias } from "@/hooks/useTrabajadoresAlias";
+import {
+  BAJA_LABORAL_MOTIVO,
+  cargarSemanasAsistenciaExportables,
+  useAsistenciaDia,
+  useAsistenciaEficiencia,
+  useAsistenciaSemana,
+  useAsistenciaTrabajadores,
+  useParteDelDia,
+  useUpsertAsistenciaRegistros,
+  type ProductoConfeccionDia,
+} from "@/hooks/useAsistencia";
 import {
   calcularRendimientoZonasAlmacen,
 } from "@/lib/asistenciaPlantilla";
@@ -97,7 +97,6 @@ import {
 
 type WorkerFilter = "todos" | "presentes" | "ausentes" | "bajaLaboral" | "sinRegistro" | "conKg" | "fueraKg";
 
-const BAJA_LABORAL_MOTIVO = "baja_laboral";
 const RENDIMIENTO_GROUP_LABELS: Record<string, string> = {
   Envasadoras: "Mesas",
   Industria: "Industria",
@@ -220,28 +219,6 @@ function inicialesTrabajador(nombre: string) {
   const partes = nombre.trim().split(/\s+/).filter(Boolean);
   if (partes.length === 0) return "?";
   return partes.slice(0, 2).map((parte) => parte[0]?.toLocaleUpperCase("es")).join("");
-}
-
-interface ParteDiarioRendimiento {
-  [key: string]: unknown;
-  id?: string;
-  resumen_ia?: unknown;
-  kg_produccion_calibrador?: number | null;
-  kg_industria_manual?: number | null;
-  kg_mujeres_calibrador?: number | null;
-  kg_reciclado_malla_z1?: number | null;
-  kg_reciclado_malla_z2?: number | null;
-  producto_dia?: ProductoConfeccionDia[];
-}
-
-interface ProductoConfeccionDia {
-  linea?: string | null;
-  producto?: string | null;
-  formato_caja?: string | null;
-  kg?: number | string | null;
-  kg_neto?: number | string | null;
-  n_cajas?: number | string | null;
-  grupo_destino?: string | null;
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
@@ -490,26 +467,31 @@ interface ImportacionPendiente {
 export default function Asistencia() {
   const { user } = useAuth();
   const { aliasPorNombre, guardarAlias } = useTrabajadoresAlias();
-  const [trabajadores, setTrabajadores] = useState<TrabajadorRow[]>([]);
+  const { trabajadores, crearTrabajador } = useAsistenciaTrabajadores();
   const [importacionPendiente, setImportacionPendiente] = useState<ImportacionPendiente | null>(null);
   const [nuevoTrabajadorZonaPorNombre, setNuevoTrabajadorZonaPorNombre] = useState<Record<string, string>>({});
   const [vinculandoNombre, setVinculandoNombre] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(today());
-  const [asistencia, setAsistencia] = useState<Record<string, boolean>>({});
-  const [asistenciaMotivos, setAsistenciaMotivos] = useState<Record<string, string | null>>({});
-  const [bajasLaborales, setBajasLaborales] = useState<AsistenciaBajaLaboralRow[]>([]);
-  const [loadingAsistencia, setLoadingAsistencia] = useState(false);
+  const {
+    data: asistenciaDiaData,
+    isFetching: loadingAsistencia,
+    toggleAsistencia: toggleAsistenciaMutation,
+    limpiarAsistenciaDia: limpiarAsistenciaDiaMutation,
+    marcarTodosPresentes: marcarTodosPresentesMutation,
+  } = useAsistenciaDia(selectedDate);
+  const asistencia = asistenciaDiaData?.asistencia ?? {};
+  const asistenciaMotivos = asistenciaDiaData?.asistenciaMotivos ?? {};
+  const upsertRegistros = useUpsertAsistenciaRegistros();
   const [grupos] = useState<string[]>(loadStoredGrupos);
   const [importingMode, setImportingMode] = useState<"daily" | "weekly" | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [workerFilter, setWorkerFilter] = useState<WorkerFilter>("todos");
   const [selectedGroup, setSelectedGroup] = useState("todos");
-  const [parteDelDia, setParteDelDia] = useState<ParteDiarioRendimiento | null>(null);
+  const { parteDelDia } = useParteDelDia(selectedDate);
   const [exportingAsistencia, setExportingAsistencia] = useState<"excel" | "pdf" | "lista" | "parte" | null>(null);
   const [viewMode, setViewMode] = useState<"daily" | "weekly">("daily");
   const [weekStart, setWeekStart] = useState(() => getWeekDates(today())[0]);
-  const [semanaData, setSemanaData] = useState<SemanaDataRaw | null>(null);
-  const [loadingSemana, setLoadingSemana] = useState(false);
+  const { semanaData, isFetching: loadingSemana } = useAsistenciaSemana(weekStart, viewMode === "weekly");
   const [incluirSabado, setIncluirSabado] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(INCLUIR_SABADO_STORAGE_KEY) === "true";
@@ -522,112 +504,11 @@ export default function Asistencia() {
     }
   }
 
-  // ─── Load trabajadores ──────────────────────────────────────────────────
-
-  async function loadTrabajadores() {
-    const { data, error } = await supabase
-      .from("trabajadores")
-      .select("*")
-      .order("nombre", { ascending: true });
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    } else {
-      setTrabajadores(aplicarZonasOperativasTrabajadores(data ?? []));
-    }
-  }
-
-  // ─── Load asistencia for date ──────────────────────────────────────────
-
-  async function loadAsistencia(date: string) {
-    if (!user) return;
-    setLoadingAsistencia(true);
-    const { data, error } = await supabase
-      .from("asistencia_detalle")
-      .select("trabajador_id, presente, motivo_ausencia")
-      .eq("date", date);
-    const { data: bajasData, error: bajasError } = await supabase
-      .from("asistencia_bajas_laborales")
-      .select("*")
-      .lte("fecha_inicio", date)
-      .or(`fecha_fin.is.null,fecha_fin.gte.${date}`);
-
-    if (error || bajasError) {
-      const message = error?.message ?? bajasError?.message ?? "Error desconocido";
-      toast({ title: "Error", description: message, variant: "destructive" });
-    } else {
-      const bajasDelDia = (bajasData ?? []).filter((baja) => shouldApplyBajaLaboralToDate(baja, date));
-      const map: Record<string, boolean> = {};
-      const motivos: Record<string, string | null> = {};
-      for (const r of data ?? []) {
-        map[r.trabajador_id] = r.presente;
-        motivos[r.trabajador_id] = r.motivo_ausencia ?? null;
-      }
-      for (const baja of bajasDelDia) {
-        if (map[baja.trabajador_id] !== true) {
-          map[baja.trabajador_id] = false;
-          motivos[baja.trabajador_id] = BAJA_LABORAL_MOTIVO;
-        }
-      }
-      setBajasLaborales(bajasDelDia);
-      setAsistencia(map);
-      setAsistenciaMotivos(motivos);
-    }
-    setLoadingAsistencia(false);
-  }
-
-  // ─── Load parte del día ──────────────────────────────────────────────────
-
-  async function loadParteDelDia(date: string) {
-    setParteDelDia(null);
-    const { data, error } = await supabase
-      .from("partes_diarios")
-      .select("id, resumen_ia, kg_produccion_calibrador, kg_industria_manual, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
-      .eq("date", date)
-      .maybeSingle();
-    if (!error && data) {
-      const { data: productoDia } = await supabase
-        .from("producto_dia")
-        .select("linea, producto, formato_caja, kg, n_cajas, grupo_destino")
-        .eq("part_id", data.id);
-      setParteDelDia({ ...data, producto_dia: productoDia ?? [] });
-    }
-  }
-
-  async function loadSemanasExportables(): Promise<SemanaComparativaData[]> {
-    const until = today();
-    const from = toISODateLocal(new Date(Date.now() - ASISTENCIA_COMPARATIVA_RANGE_DAYS * 24 * 60 * 60 * 1000));
-
-    const { data: attendance, error: attendanceError } = await supabase
-      .from("asistencia_detalle")
-      .select("date, presente, trabajador_id")
-      .gte("date", from)
-      .lte("date", until);
-    if (attendanceError) throw attendanceError;
-
-    const { data: trabajadoresExport, error: trabajadoresError } = await supabase
-      .from("trabajadores")
-      .select("id, zona");
-    if (trabajadoresError) throw trabajadoresError;
-
-    const { data: production, error: productionError } = await supabase
-      .from("partes_diarios")
-      .select("id, date, resumen_ia, kg_produccion_calibrador, kg_industria_manual, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
-      .gte("date", from)
-      .lte("date", until);
-    if (productionError) throw productionError;
-
-    return buildSemanasAsistenciaComparativa({
-      asistencia: attendance,
-      trabajadores: trabajadoresExport,
-      produccion: production,
-    });
-  }
-
   async function exportarAsistencia(tipo: "excel" | "pdf") {
     setExportingAsistencia(tipo);
 
     try {
-      const semanas = await loadSemanasExportables();
+      const semanas = await cargarSemanasAsistenciaExportables();
       if (semanas.length === 0) {
         toast({
           title: "Sin datos para exportar",
@@ -797,56 +678,6 @@ export default function Asistencia() {
     }
   }
 
-  async function loadSemanaData(weekStartDate: string) {
-    if (!user) return;
-    setLoadingSemana(true);
-    const dates = getWeekDates(weekStartDate);
-    const weekEnd = dates[dates.length - 1];
-
-    try {
-      const [asistenciaRes, bajasRes, trabajadoresRes, partesRes] = await Promise.all([
-        supabase.from("asistencia_detalle").select("trabajador_id, date, presente, motivo_ausencia").in("date", dates),
-        supabase.from("asistencia_bajas_laborales").select("*").lte("fecha_inicio", weekEnd).or(`fecha_fin.is.null,fecha_fin.gte.${dates[0]}`),
-        supabase.from("trabajadores").select("*").order("nombre", { ascending: true }),
-        supabase.from("partes_diarios").select("id, date, resumen_ia, kg_produccion_calibrador, kg_industria_manual, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2").in("date", dates),
-      ]);
-
-      if (asistenciaRes.error || bajasRes.error || trabajadoresRes.error || partesRes.error) {
-        toast({ title: "Error", description: "Error al cargar datos semanales", variant: "destructive" });
-        setLoadingSemana(false);
-        return;
-      }
-
-      const partesMap: Record<string, SemanaDataRaw["partes"][string]> = {};
-      for (const parte of partesRes.data ?? []) {
-        const { data: productoDia } = await supabase
-          .from("producto_dia")
-          .select("linea, producto, formato_caja, kg, n_cajas, grupo_destino")
-          .eq("part_id", parte.id);
-        partesMap[parte.date] = { ...parte, producto_dia: productoDia ?? [] };
-      }
-
-      const asistenciaMap: Record<string, { date: string; presente: boolean | null; motivo_ausencia: string | null }[]> = {};
-      for (const r of asistenciaRes.data ?? []) {
-        if (!asistenciaMap[r.trabajador_id]) asistenciaMap[r.trabajador_id] = [];
-        asistenciaMap[r.trabajador_id].push({ date: r.date, presente: r.presente, motivo_ausencia: r.motivo_ausencia });
-      }
-
-      setSemanaData({
-        weekStart: weekStartDate,
-        weekEnd,
-        days: dates,
-        trabajadores: aplicarZonasOperativasTrabajadores(trabajadoresRes.data ?? []),
-        asistencia: asistenciaMap,
-        bajasLaborales: bajasRes.data ?? [],
-        partes: partesMap,
-      });
-    } catch (err) {
-      toast({ title: "Error", description: "Error inesperado al cargar datos semanales", variant: "destructive" });
-    }
-    setLoadingSemana(false);
-  }
-
   async function exportarSemanaExcel() {
     if (!semanaData) {
       toast({ title: "Sin datos", description: "No hay datos semanales para exportar.", variant: "destructive" });
@@ -942,14 +773,6 @@ export default function Asistencia() {
     }
   }
 
-  useEffect(() => { loadTrabajadores(); loadEficiencia(); }, []);
-  useEffect(() => { loadAsistencia(selectedDate); }, [selectedDate, user]);
-  useEffect(() => { loadParteDelDia(selectedDate); }, [selectedDate]);
-  useEffect(() => {
-    if (viewMode === "weekly" && user) {
-      loadSemanaData(weekStart);
-    }
-  }, [viewMode, weekStart, user]);
   useEffect(() => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(ASISTENCIA_GROUPS_STORAGE_KEY, JSON.stringify(grupos));
@@ -985,11 +808,7 @@ export default function Asistencia() {
           presente: true,
           motivo_ausencia: null,
         }));
-        const { error } = await supabase
-          .from("asistencia_detalle")
-          .upsert(records, { onConflict: "date,trabajador_id" });
-        if (error) throw error;
-        if (fechas.includes(selectedDate)) await loadAsistencia(selectedDate);
+        await upsertRegistros.mutateAsync(records);
       }
 
       quitarNombrePendiente(nombre);
@@ -1006,14 +825,7 @@ export default function Asistencia() {
     setVinculandoNombre(nombre);
     try {
       const zona = nuevoTrabajadorZonaPorNombre[nombre] || null;
-      const { data, error } = await supabase
-        .from("trabajadores")
-        .insert({ user_id: user.id, nombre, zona })
-        .select("id")
-        .single();
-      if (error) throw error;
-
-      await loadTrabajadores();
+      const data = await crearTrabajador.mutateAsync({ userId: user.id, nombre, zona });
       await vincularNombrePendiente(nombre, data.id as string);
     } catch (err: unknown) {
       toast({ title: "Error al crear trabajador", description: errorMessage(err), variant: "destructive" });
@@ -1026,118 +838,18 @@ export default function Asistencia() {
 
   async function toggleAsistencia(trabajadorId: string, presente: boolean, motivoAusencia: string | null = null) {
     if (!user) return;
-
-    setAsistencia((prev) => ({ ...prev, [trabajadorId]: presente }));
-    setAsistenciaMotivos((prev) => ({ ...prev, [trabajadorId]: presente ? null : motivoAusencia }));
-
-    const { error } = await supabase
-      .from("asistencia_detalle")
-      .upsert(
-        {
-          user_id: user.id,
-          date: selectedDate,
-          trabajador_id: trabajadorId,
-          presente,
-          motivo_ausencia: presente ? null : motivoAusencia,
-        },
-        { onConflict: "date,trabajador_id" }
-      );
-
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      loadAsistencia(selectedDate);
-      return;
-    }
-
-    if (presente) {
-      await cerrarBajaLaboralAbierta(trabajadorId, selectedDate);
-    }
-  }
-
-  async function cerrarBajaLaboralAbierta(trabajadorId: string, date: string) {
-    const abiertas = bajasLaborales.filter((baja) =>
-      baja.trabajador_id === trabajadorId &&
-      baja.fecha_fin == null &&
-      baja.fecha_inicio <= date
-    );
-    if (abiertas.length === 0) return;
-
-    for (const baja of abiertas) {
-      if (baja.fecha_inicio >= date) {
-        const { error } = await supabase
-          .from("asistencia_bajas_laborales")
-          .delete()
-          .eq("id", baja.id);
-        if (error) {
-          toast({ title: "No se pudo cerrar la baja", description: error.message, variant: "destructive" });
-          return;
-        }
-      } else {
-        const { error } = await supabase
-          .from("asistencia_bajas_laborales")
-          .update({ fecha_fin: previousIsoDate(date) })
-          .eq("id", baja.id);
-        if (error) {
-          toast({ title: "No se pudo cerrar la baja", description: error.message, variant: "destructive" });
-          return;
-        }
-      }
-    }
-
-    setBajasLaborales((prev) => prev.filter((baja) => !abiertas.some((item) => item.id === baja.id)));
+    toggleAsistenciaMutation.mutate({ trabajadorId, presente, motivoAusencia, userId: user.id });
   }
 
   async function limpiarAsistenciaDia() {
     if (!user) return;
-
-    const previous = asistencia;
-    const previousMotivos = asistenciaMotivos;
-    setAsistencia({});
-    setAsistenciaMotivos({});
-
-    // Dataset compartido: se limpia el día completo (todas las cuentas),
-    // no solo los registros creados por el usuario actual.
-    const { error } = await supabase
-      .from("asistencia_detalle")
-      .delete()
-      .eq("date", selectedDate);
-
-    if (error) {
-      setAsistencia(previous);
-      setAsistenciaMotivos(previousMotivos);
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      loadAsistencia(selectedDate);
-      return;
-    }
-
-    toast({ title: "Asistencia del día limpiada" });
+    limpiarAsistenciaDiaMutation.mutate();
   }
 
   async function marcarTodosPresentes() {
     if (!user) return;
     const activos = trabajadores.filter((t) => t.activo);
-    const records = activos.map((t) => ({
-      user_id: user.id,
-      date: selectedDate,
-      trabajador_id: t.id,
-      presente: true,
-      motivo_ausencia: null,
-    }));
-    const { error } = await supabase
-      .from("asistencia_detalle")
-      .upsert(records, { onConflict: "date,trabajador_id" });
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      return;
-    }
-    const map: Record<string, boolean> = {};
-    for (const t of activos) map[t.id] = true;
-    setAsistencia(map);
-    setAsistenciaMotivos({});
-    for (const trabajador of activos) {
-      await cerrarBajaLaboralAbierta(trabajador.id, selectedDate);
-    }
-    toast({ title: "Todos marcados como presentes" });
+    marcarTodosPresentesMutation.mutate({ activos, userId: user.id });
   }
 
   // ─── XLSX Import ──────────────────────────────────────────────────────
@@ -1177,13 +889,7 @@ export default function Asistencia() {
       const records = buildAttendanceRecords(nombresImport, activos, user.id, selectedDate)
         .map((record) => ({ ...record, motivo_ausencia: null }));
 
-      const { error } = await supabase
-        .from("asistencia_detalle")
-        .upsert(records, { onConflict: "date,trabajador_id" });
-
-      if (error) throw error;
-
-      await loadAsistencia(selectedDate);
+      await upsertRegistros.mutateAsync(records);
 
       // Nunca se pierde un nombre en silencio: cualquier nombre del Excel que
       // no case con ningun trabajador activo (ni por nombre ni por alias) se
@@ -1217,7 +923,7 @@ export default function Asistencia() {
 
     setImportingMode(null);
     e.target.value = "";
-  }, [trabajadores, selectedDate, user, aliasPorNombre]);
+  }, [trabajadores, selectedDate, user, aliasPorNombre, upsertRegistros]);
 
   const handleWeeklyImportXLSX = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1257,12 +963,7 @@ export default function Asistencia() {
         return;
       }
 
-      const { error } = await supabase
-        .from("asistencia_detalle")
-        .upsert(records, { onConflict: "date,trabajador_id" });
-      if (error) throw error;
-
-      if (days.some((day) => day.date === selectedDate)) await loadAsistencia(selectedDate);
+      await upsertRegistros.mutateAsync(records);
 
       // Igual que en la importacion diaria: ningun nombre del Excel se
       // descarta en silencio. Se agrega por nombre normalizado a traves de
@@ -1305,7 +1006,7 @@ export default function Asistencia() {
 
     setImportingMode(null);
     e.target.value = "";
-  }, [trabajadores, selectedDate, user, aliasPorNombre]);
+  }, [trabajadores, selectedDate, user, aliasPorNombre, upsertRegistros]);
 
   // ─── Date navigation ──────────────────────────────────────────────────
 
@@ -1486,80 +1187,10 @@ export default function Asistencia() {
   const gruposVisibles = useMemo(() => groupByZona(trabajadoresVisibles), [groupByZona, trabajadoresVisibles]);
 
   // ─── Eficiencia histórica ──────────────────────────────────────────────
-
-  interface EficienciaRow {
-    rango: string;
-    dias: number;
-    kgMedia: number;
-    kgPorPersona: number;
-  }
-
-  const [eficiencia, setEficiencia] = useState<EficienciaRow[]>([]);
-  const [loadingEficiencia, setLoadingEficiencia] = useState(false);
   // Datos históricos calculados para uso futuro (aún sin panel de visualización dedicado).
+  const { eficiencia, isLoading: loadingEficiencia } = useAsistenciaEficiencia();
   void eficiencia;
   void loadingEficiencia;
-
-  async function loadEficiencia() {
-    setLoadingEficiencia(true);
-    const until = today();
-    const from = toISODateLocal(new Date(Date.now() - 60 * 24 * 60 * 60 * 1000));
-
-    const { data: attendance } = await supabase
-      .from("asistencia_detalle")
-      .select("date, presente")
-      .gte("date", from)
-      .lte("date", until);
-
-    const dayWorkers: Record<string, number> = {};
-    for (const r of attendance ?? []) {
-      if (r.presente) dayWorkers[r.date] = (dayWorkers[r.date] ?? 0) + 1;
-    }
-
-    const { data: production } = await supabase
-      .from("partes_diarios")
-      .select("date, resumen_ia, kg_produccion_calibrador, kg_industria_manual, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
-      .gte("date", from)
-      .lte("date", until);
-
-    const kgByDay: Record<string, number> = {};
-    for (const r of production ?? []) {
-      const kg = produccionRealParte(r) || Number(r.kg_produccion_calibrador) || 0;
-      if (kg > 0) kgByDay[r.date] = (kgByDay[r.date] ?? 0) + kg;
-    }
-
-    const buckets: Record<string, { days: number; totalKg: number; totalWorkers: number }> = {};
-    for (const [date, workers] of Object.entries(dayWorkers)) {
-      const kg = kgByDay[date] ?? 0;
-      if (kg === 0) continue;
-      let bucket: string;
-      if (workers <= 5) bucket = "1–5";
-      else if (workers <= 10) bucket = "6–10";
-      else if (workers <= 15) bucket = "11–15";
-      else if (workers <= 20) bucket = "16–20";
-      else if (workers <= 25) bucket = "21–25";
-      else bucket = "26+";
-      if (!buckets[bucket]) buckets[bucket] = { days: 0, totalKg: 0, totalWorkers: 0 };
-      buckets[bucket].days++;
-      buckets[bucket].totalKg += kg;
-      buckets[bucket].totalWorkers += workers;
-    }
-
-    const result = Object.entries(buckets)
-      .sort(([a], [b]) => {
-        const aMin = parseInt(a.replace(/\D/g, "")) || 0;
-        const bMin = parseInt(b.replace(/\D/g, "")) || 0;
-        return aMin - bMin;
-      })
-      .map(([rango, data]) => ({
-        rango,
-        dias: data.days,
-        kgMedia: data.days > 0 ? data.totalKg / data.days : 0,
-        kgPorPersona: data.totalWorkers > 0 ? data.totalKg / data.totalWorkers : 0,
-      }));
-    setEficiencia(result);
-    setLoadingEficiencia(false);
-  }
 
   const fechaDisplay = new Date(selectedDate + "T12:00:00").toLocaleDateString(
     "es-ES",

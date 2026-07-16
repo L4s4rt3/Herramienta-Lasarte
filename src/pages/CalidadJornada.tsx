@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -28,7 +28,6 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,9 +45,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/hooks/use-toast";
+import {
+  useCalidadHistoricoRango,
+  useCalidadJornadaDia,
+  useCalidadJornadaMutaciones,
+} from "@/hooks/useCalidadJornada";
 import { today } from "@/lib/format";
 import { addDays, format, parseISO } from "date-fns";
-import { campanaStartYear } from "@/lib/consumoPeriodoView";
 import { es } from "date-fns/locale";
 import {
   CALIDAD_OPTIONS,
@@ -374,7 +377,6 @@ export default function CalidadJornadaPage() {
   const [lotesDia, setLotesDia] = useState<LoteDiaImportable[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [comentarioDraft, setComentarioDraft] = useState("");
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -384,12 +386,30 @@ export default function CalidadJornadaPage() {
   const [tab, setTab] = useState<"jornada" | "historico">("jornada");
   const [previewArchivo, setPreviewArchivo] = useState<PreviewableArchivo | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [historicoRango, setHistoricoRango] = useState<CalidadLote[]>([]);
-  const [historicoLoading, setHistoricoLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const wordInputRef = useRef<HTMLInputElement | null>(null);
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const autosaveTimerRef = useRef<number | null>(null);
+  // Recuerda la última fecha ya volcada a estado local editable, para no
+  // pisar ediciones en curso (autoguardado con debounce, lote seleccionado...)
+  // cuando una mutación (addLote, deleteLote...) invalida y refresca el
+  // bundle del día en segundo plano. Ver cabecera de useCalidadJornada.ts.
+  const syncedFechaRef = useRef<string | null>(null);
+
+  const { data: diaData, isLoading: loading } = useCalidadJornadaDia(fecha);
+  const { data: historicoRango = [], isLoading: historicoLoading } = useCalidadHistoricoRango(tab === "historico");
+  const {
+    invalidate,
+    updateJornadaMutation,
+    updateLoteMutation,
+    insertProductorMutation,
+    deleteProductorMutation,
+    insertLoteMutation,
+    insertLotesBatchMutation,
+    deleteLoteMutation,
+    uploadAdjuntosMutation,
+    deleteAdjuntoMutation,
+  } = useCalidadJornadaMutaciones();
 
   const attachmentCounts = useMemo(() => attachmentCountMap(adjuntos), [adjuntos]);
   const summary = useMemo(() => calidadSummary(lotes, attachmentCounts), [lotes, attachmentCounts]);
@@ -429,134 +449,28 @@ export default function CalidadJornadaPage() {
   const canCreateProductor = normalizeCalidadName(productorSearch).length > 0
     && !productorOptions.some((productor) => sameCalidadName(productor.nombre, productorSearch));
 
-  const load = useCallback(async () => {
-    if (!user) return;
-    setLoading(true);
-    try {
-      const [{ data: calidadProductoresData }, { data: parteProductoresData }, jornadaResponse, historicoResponse, parteDelDiaResponse] = await Promise.all([
-        supabase.from("calidad_productores").select("*").order("nombre", { ascending: true }),
-        supabase.from("lotes_dia").select("productor").not("productor", "is", null).limit(5000),
-        supabase.from("calidad_jornadas").select("*").eq("fecha", fecha).maybeSingle(),
-        supabase
-          .from("calidad_lotes")
-          .select("*")
-          .eq("user_id", user.id)
-          .lt("fecha", fecha)
-          .order("fecha", { ascending: false })
-          .limit(300),
-        supabase.from("partes_diarios").select("id").eq("date", fecha).maybeSingle(),
-      ]);
-
-      // El cliente Supabase tipado no siempre infiere bien el resultado de
-      // `.maybeSingle()`/`.select("*")` en tablas nuevas: se castea vía
-      // `unknown` para recuperar el shape real de la fila (CalidadJornada).
-      let currentJornada = jornadaResponse.data as unknown as CalidadJornada | null;
-      if (jornadaResponse.error) throw jornadaResponse.error;
-      if (historicoResponse.error) throw historicoResponse.error;
-
-      if (!currentJornada) {
-        const fallbackResponsible = "Eusebio Rodríguez";
-        const { data: inserted, error } = await supabase
-          .from("calidad_jornadas")
-          .insert({ user_id: user.id, fecha, responsable: fallbackResponsible })
-          .select("*")
-          .single();
-        if (error) throw error;
-        currentJornada = inserted as unknown as CalidadJornada;
-      }
-
-      const { data: lotesData, error: lotesError } = await supabase
-        .from("calidad_lotes")
-        .select("*")
-        .eq("jornada_id", currentJornada.id)
-        .order("created_at", { ascending: true });
-      if (lotesError) throw lotesError;
-
-      const loadedLotes = (lotesData ?? []) as unknown as CalidadLote[];
-      let loadedAdjuntos: CalidadAdjunto[] = [];
-      if (loadedLotes.length > 0) {
-        const { data: adjuntosData, error: adjuntosError } = await supabase
-          .from("calidad_adjuntos")
-          .select("*")
-          .in("lote_id", loadedLotes.map((lote) => lote.id))
-          .order("created_at", { ascending: false });
-        if (adjuntosError) throw adjuntosError;
-
-        loadedAdjuntos = await Promise.all(
-          ((adjuntosData ?? []) as unknown as CalidadAdjunto[]).map(async (adjunto) => {
-            if (!adjunto.mime_type?.startsWith("image/")) return adjunto;
-            const { data } = await supabase.storage.from("partes-archivos").createSignedUrl(adjunto.file_path, 60 * 60);
-            return { ...adjunto, signedUrl: data?.signedUrl };
-          }),
-        );
-      }
-
-      // Lotes del parte de producción del mismo día, para "Importar lotes del
-      // parte" y el autocompletar de número de lote.
-      let lotesDiaDelParte: LoteDiaImportable[] = [];
-      const parteId = (parteDelDiaResponse.data as unknown as { id: string } | null)?.id;
-      if (parteId) {
-        const { data: lotesDiaData, error: lotesDiaError } = await supabase
-          .from("lotes_dia")
-          .select("lote_codigo, productor, producto, kg_peso_total, hora_inicio")
-          .eq("part_id", parteId)
-          .order("hora_inicio", { ascending: true });
-        if (lotesDiaError) throw lotesDiaError;
-        lotesDiaDelParte = (lotesDiaData ?? []) as LoteDiaImportable[];
-      }
-
-      const calidadProductores = (calidadProductoresData ?? []) as CalidadProductor[];
-      const importedProductores = ((parteProductoresData ?? []) as Array<{ productor: string | null }>).flatMap((row) => {
-        const nombre = normalizeCalidadName(row.productor ?? "");
-        return nombre ? [{ id: `db-${nombre}`, nombre }] : [];
-      });
-      setProductores([...calidadProductores, ...importedProductores]);
-      setHistoricalLotes((historicoResponse.data ?? []) as unknown as CalidadLote[]);
-      setJornada(currentJornada);
-      setResponsable(currentJornada.responsable || "");
-      setResponsableCustom(RESPONSABLES.includes(currentJornada.responsable as typeof RESPONSABLES[number]) ? "" : currentJornada.responsable || "");
-      setLotes(loadedLotes);
-      setAdjuntos(loadedAdjuntos);
-      setLotesDia(lotesDiaDelParte);
-      setSelectedId((current) => (current && loadedLotes.some((lote) => lote.id === current) ? current : loadedLotes[0]?.id ?? null));
-    } catch (error) {
-      toast({ title: "Error cargando Calidad", description: errorMessage(error), variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  }, [fecha, user]);
-
-  const loadHistorico = useCallback(async () => {
-    if (!user) return;
-    setHistoricoLoading(true);
-    try {
-      // Calidad es dato de empresa (RLS SELECT = todos los autenticados): se
-      // cargan TODOS los controles desde el inicio de la campaña citrícola
-      // actual (1 sep), sin filtrar por usuario, para poder navegarlos por
-      // semana/mes/campaña en el tab Histórico.
-      const startYear = campanaStartYear(new Date());
-      const desde = `${startYear}-09-01`;
-      const { data, error } = await supabase
-        .from("calidad_lotes")
-        .select("*")
-        .gte("fecha", desde)
-        .order("fecha", { ascending: true });
-      if (error) throw error;
-      setHistoricoRango((data ?? []) as unknown as CalidadLote[]);
-    } catch (error) {
-      toast({ title: "Error cargando histórico", description: errorMessage(error), variant: "destructive" });
-    } finally {
-      setHistoricoLoading(false);
-    }
-  }, [user]);
-
+  // Vuelca el bundle del día (jornada/lotes/adjuntos/lotesDia/productores/
+  // historicalLotes) a estado local editable, igual que hacía el `load()`
+  // original — pero SOLO la primera vez que llega para cada `fecha`. Las
+  // mutaciones (addLote, saveLote...) ya aplican su propio update optimista
+  // sobre el estado local; si este efecto se repitiera en cada refetch que
+  // dispara `invalidate()`, pisaría ediciones en curso de otros lotes (o el
+  // campo "Responsable" sin guardar) con la última foto del servidor.
   useEffect(() => {
-    if (tab === "historico") void loadHistorico();
-  }, [tab, loadHistorico]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+    if (!diaData || syncedFechaRef.current === fecha) return;
+    syncedFechaRef.current = fecha;
+    setProductores(diaData.productores);
+    setHistoricalLotes(diaData.historicalLotes);
+    setJornada(diaData.jornada);
+    setResponsable(diaData.jornada.responsable || "");
+    setResponsableCustom(
+      RESPONSABLES.includes(diaData.jornada.responsable as typeof RESPONSABLES[number]) ? "" : diaData.jornada.responsable || "",
+    );
+    setLotes(diaData.lotes);
+    setAdjuntos(diaData.adjuntos);
+    setLotesDia(diaData.lotesDia);
+    setSelectedId((current) => (current && diaData.lotes.some((lote) => lote.id === current) ? current : diaData.lotes[0]?.id ?? null));
+  }, [diaData, fecha]);
 
   useEffect(() => {
     setComentarioDraft(selected ? buildComentarioCalidad(selected) : "");
@@ -604,9 +518,7 @@ export default function CalidadJornadaPage() {
         reabierto_by: lote.reabierto_by,
         motivo_reapertura: lote.motivo_reapertura,
       };
-      const { data, error } = await supabase.from("calidad_lotes").update(payload).eq("id", lote.id).select("*").single();
-      if (error) throw error;
-      const saved = data as unknown as CalidadLote;
+      const saved = await updateLoteMutation.mutateAsync({ id: lote.id, payload });
       setLotes((items) => items.map((item) => (item.id === saved.id ? saved : item)));
       setAutosaveStatus("saved");
     } catch (error) {
@@ -630,13 +542,7 @@ export default function CalidadJornadaPage() {
     const existing = productores.find((productor) => !isHistoricalProductorId(productor.id) && sameCalidadName(productor.nombre, trimmed));
     if (existing) return existing;
 
-    const { data, error } = await supabase
-      .from("calidad_productores")
-      .insert({ user_id: user.id, nombre: trimmed })
-      .select("*")
-      .single();
-    if (error) throw error;
-    const created = data as unknown as CalidadProductor;
+    const created = await insertProductorMutation.mutateAsync({ userId: user.id, nombre: trimmed });
     setProductores((items) => [...items, created].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")));
     return created;
   }
@@ -667,8 +573,7 @@ export default function CalidadJornadaPage() {
     }
 
     try {
-      const { error } = await supabase.from("calidad_productores").delete().eq("id", productor.id);
-      if (error) throw error;
+      await deleteProductorMutation.mutateAsync(productor.id);
       setProductores((items) => items.filter((item) => item.id !== productor.id));
       if (selected?.productor_finca_id === productor.id || sameCalidadName(selected?.productor_finca_nombre ?? "", productor.nombre)) {
         patchSelected({ productor_finca_id: null, productor_finca_nombre: "" });
@@ -690,13 +595,7 @@ export default function CalidadJornadaPage() {
     if (!jornada || !user) return null;
     setSaving(true);
     try {
-      const { data, error } = await supabase
-        .from("calidad_lotes")
-        .insert(emptyLote(jornada, user.id, lotes.length, overrides))
-        .select("*")
-        .single();
-      if (error) throw error;
-      const created = data as unknown as CalidadLote;
+      const created = await insertLoteMutation.mutateAsync(emptyLote(jornada, user.id, lotes.length, overrides));
       setLotes((items) => [...items, created]);
       setSelectedId(created.id);
       return created;
@@ -732,9 +631,7 @@ export default function CalidadJornadaPage() {
     setImporting(true);
     try {
       const payload = nuevos.map((lote, index) => emptyLote(jornada, user.id, lotes.length + index, lote));
-      const { data, error } = await supabase.from("calidad_lotes").insert(payload).select("*");
-      if (error) throw error;
-      const created = (data ?? []) as unknown as CalidadLote[];
+      const created = await insertLotesBatchMutation.mutateAsync(payload);
       setLotes((items) => [...items, ...created]);
       if (created.length > 0 && !selectedId) setSelectedId(created[0].id);
       toast({ title: `${created.length} lote${created.length === 1 ? "" : "s"} importado${created.length === 1 ? "" : "s"}` });
@@ -762,11 +659,7 @@ export default function CalidadJornadaPage() {
     if (!jornada) return;
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from("calidad_jornadas")
-        .update({ responsable, estado: "guardada" })
-        .eq("id", jornada.id);
-      if (error) throw error;
+      await updateJornadaMutation.mutateAsync({ id: jornada.id, responsable });
       setJornada({ ...jornada, responsable, estado: "guardada" });
       toast({ title: "Jornada guardada", description: "Las anotaciones de calidad quedan disponibles para el parte de ese dia." });
     } catch (error) {
@@ -807,10 +700,12 @@ export default function CalidadJornadaPage() {
         reabierto_by: selected.reabierto_by,
         motivo_reapertura: selected.motivo_reapertura,
       };
-      const { data, error } = await supabase.from("calidad_lotes").update(payload).eq("id", selected.id).select("*").single();
-      if (error) throw error;
-      const saved = data as unknown as CalidadLote;
+      const saved = await updateLoteMutation.mutateAsync({ id: selected.id, payload });
       setLotes((items) => items.map((lote) => (lote.id === saved.id ? saved : lote)));
+      // Guardado explícito (a diferencia del autoguardado con debounce que
+      // también usa updateLoteMutation): aquí sí se invalida el bundle del
+      // día. Ver la cabecera de useCalidadJornada.ts para el porqué.
+      invalidate();
       toast({ title: "Lote guardado", description: selected.numero_lote ? `Lote ${selected.numero_lote}` : "Anotacion actualizada" });
     } catch (error) {
       toast({ title: "Error guardando lote", description: errorMessage(error), variant: "destructive" });
@@ -824,9 +719,7 @@ export default function CalidadJornadaPage() {
     try {
       const files = adjuntos.filter((adjunto) => adjunto.lote_id === lote.id);
       const paths = files.map((file) => file.file_path).filter(Boolean);
-      if (paths.length > 0) await supabase.storage.from("partes-archivos").remove(paths);
-      const { error } = await supabase.from("calidad_lotes").delete().eq("id", lote.id);
-      if (error) throw error;
+      await deleteLoteMutation.mutateAsync({ id: lote.id, filePaths: paths });
       setLotes((items) => items.filter((item) => item.id !== lote.id));
       setAdjuntos((items) => items.filter((item) => item.lote_id !== lote.id));
       setSelectedId((current) => (current === lote.id ? null : current));
@@ -844,25 +737,13 @@ export default function CalidadJornadaPage() {
     if (fileList.length === 0) return;
     setUploading(true);
     try {
-      const created: CalidadAdjunto[] = [];
-      for (const file of fileList) {
-        const path = `${user.id}/calidad/${jornada.id}/${selected.id}/${crypto.randomUUID()}-${cleanFileName(file.name)}`;
-        const { error: uploadError } = await supabase.storage.from("partes-archivos").upload(path, file);
-        if (uploadError) throw uploadError;
-        const { data, error } = await supabase
-          .from("calidad_adjuntos")
-          .insert({ lote_id: selected.id, user_id: user.id, file_name: file.name, file_path: path, mime_type: file.type, file_size: file.size })
-          .select("*")
-          .single();
-        if (error) throw error;
-        const adjunto = data as unknown as CalidadAdjunto;
-        if (adjunto.mime_type?.startsWith("image/")) {
-          const { data: signed } = await supabase.storage.from("partes-archivos").createSignedUrl(adjunto.file_path, 60 * 60);
-          created.push({ ...adjunto, signedUrl: signed?.signedUrl });
-        } else {
-          created.push(adjunto);
-        }
-      }
+      const created = await uploadAdjuntosMutation.mutateAsync({
+        files: fileList,
+        userId: user.id,
+        jornadaId: jornada.id,
+        loteId: selected.id,
+        cleanFileName,
+      });
       setAdjuntos((items) => [...created, ...items]);
       toast({ title: `${created.length} adjunto(s) subido(s)` });
     } catch (error) {
@@ -875,9 +756,7 @@ export default function CalidadJornadaPage() {
 
   async function deleteAdjunto(adjunto: CalidadAdjunto) {
     try {
-      await supabase.storage.from("partes-archivos").remove([adjunto.file_path]);
-      const { error } = await supabase.from("calidad_adjuntos").delete().eq("id", adjunto.id);
-      if (error) throw error;
+      await deleteAdjuntoMutation.mutateAsync({ id: adjunto.id, filePath: adjunto.file_path });
       setAdjuntos((items) => items.filter((item) => item.id !== adjunto.id));
       toast({ title: "Adjunto eliminado" });
     } catch (error) {
