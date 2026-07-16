@@ -4,12 +4,9 @@ import {
   AlertTriangle,
   ArrowLeft,
   BadgeCheck,
-  CalendarDays,
   Camera,
   Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Circle,
   Clock,
   Copy,
@@ -33,7 +30,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -51,8 +47,6 @@ import {
   useCalidadJornadaMutaciones,
 } from "@/hooks/useCalidadJornada";
 import { today } from "@/lib/format";
-import { addDays, format, parseISO } from "date-fns";
-import { es } from "date-fns/locale";
 import {
   CALIDAD_OPTIONS,
   DEFECTO_OPTIONS,
@@ -86,6 +80,7 @@ import {
   type LoteDiaImportable,
 } from "@/lib/calidad";
 import { cn } from "@/lib/utils";
+import { SelectorPeriodo } from "@/components/SelectorPeriodo";
 import { CalidadHistoricoTab } from "@/components/calidad/CalidadHistoricoTab";
 import { CalidadAdjuntoThumb } from "@/components/calidad/CalidadAdjuntoThumb";
 import { PartFilePreviewDialog, type PreviewableArchivo } from "@/components/PartFilePreviewDialog";
@@ -146,35 +141,6 @@ function isHistoricalProductorId(id: string | null | undefined) {
 
 function productorIdForDatabase(id: string | null | undefined) {
   return id && !isHistoricalProductorId(id) ? id : null;
-}
-
-function DateGlassPicker({ id, value, onChange }: { id: string; value: string; onChange: (value: string) => void }) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          id={id}
-          type="button"
-          variant="outline"
-          className="glass glass-hover h-11 w-full justify-start gap-2 rounded-xl border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] px-3 font-semibold"
-        >
-          <CalendarDays className="h-4 w-4 shrink-0 text-primary/75" />
-          <span className="tabular-nums">{value ? format(parseISO(value), "dd MMM yyyy", { locale: es }) : "Seleccionar..."}</span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-auto p-0 glass-accented" align="start">
-        <Calendar
-          mode="single"
-          selected={value ? parseISO(value) : undefined}
-          onSelect={(date) => {
-            if (date) onChange(format(date, "yyyy-MM-dd"));
-          }}
-          locale={es}
-          initialFocus
-        />
-      </PopoverContent>
-    </Popover>
-  );
 }
 
 const QUICK_TIMES = ["06:00", "07:00", "08:00", "09:00", "10:00", "12:00", "14:00", "16:00", "18:00"];
@@ -896,35 +862,12 @@ export default function CalidadJornadaPage() {
                 Fecha
               </Label>
               <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1 rounded-xl bg-[var(--glass-bg)] border border-[var(--glass-border)] px-1 py-1 shadow-[var(--glass-shadow)]">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 rounded-lg glass-hover"
-                    onClick={() => changeDate(format(addDays(parseISO(fecha), -1), "yyyy-MM-dd"))}
-                    aria-label="Día anterior"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 rounded-lg glass-hover"
-                    onClick={() => changeDate(format(addDays(parseISO(fecha), 1), "yyyy-MM-dd"))}
-                    disabled={fecha >= today()}
-                    aria-label="Día siguiente"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <DateGlassPicker id="fecha-calidad" value={fecha} onChange={changeDate} />
-                </div>
-                {fecha !== today() && (
-                  <Button variant="ghost" size="sm" className="h-7 shrink-0 text-xs text-muted-foreground" onClick={() => changeDate(today())}>
-                    Hoy
-                  </Button>
-                )}
+                <SelectorPeriodo
+                  bare
+                  value={{ modo: "dia", desde: fecha, hasta: fecha }}
+                  onChange={(next) => changeDate(next.desde)}
+                  canNavigateNext={fecha < today()}
+                />
               </div>
             </div>
             <div className="space-y-2">

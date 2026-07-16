@@ -27,11 +27,12 @@ import {
 } from "@/components/ui/table";
 import { KPICard } from "@/components/KPICard";
 import { ProgressBarRow } from "@/components/ProgressBarRow";
+import { SelectorPeriodo } from "@/components/SelectorPeriodo";
 import { useEconomicoPanel } from "@/hooks/useEconomico";
 import { useMermaLotes } from "@/hooks/useMermaLote";
 import { metodoLabel } from "@/components/mercadona/mercadonaAnalisis.helpers";
-import { buildPeriodoRange } from "@/lib/consumoPeriodoView";
-import { formatDate, formatKg, formatNumber, toISODateLocal } from "@/lib/format";
+import { periodoDeFecha, rangoPersonalizado, type PeriodoValue } from "@/lib/selectorPeriodo";
+import { formatDate, formatKg, formatNumber, today, toISODateLocal } from "@/lib/format";
 import { agregarMermaLotes, mermaLotesEnPeriodo } from "@/lib/mermaLote";
 import {
   C, CHART_CURSOR, CHART_PANEL_CLASS, GRID, GlassTooltip, MARGIN, XAXIS, YAXIS, barFill, legendStyle, lineStyle,
@@ -85,16 +86,12 @@ const ACCESOS_RAPIDOS = [
   { to: "/economico/precios", label: "Precios", desc: "Tarifas de agua, gasoil, luz y químicos", icon: Tag },
 ] as const;
 
-// ─── Selector de rango sencillo (Este mes / Últimas 4 semanas / Campaña) ────────
+// ─── Accesos rápidos de periodo (Este mes / Últimas 4 semanas / Campaña) ────────
+// El periodo en sí lo controla el SelectorPeriodo único (mes/campaña con
+// flechas + "Hoy" + saltar a fecha); estos 3 botones son atajos que lo fijan
+// de un toque, igual que antes de introducir el selector.
 
 type RangoPreset = "mes" | "ultimas4" | "campana";
-
-interface RangoSimple {
-  start: string; // ISO, inclusive
-  end: string;   // ISO, inclusive
-  label: string;
-  detail: string;
-}
 
 const PRESETS: { value: RangoPreset; label: string }[] = [
   { value: "mes", label: "Este mes" },
@@ -102,43 +99,34 @@ const PRESETS: { value: RangoPreset; label: string }[] = [
   { value: "campana", label: "Campaña" },
 ];
 
-function buildRango(preset: RangoPreset): RangoSimple {
-  if (preset === "mes") {
-    const r = buildPeriodoRange("mes", 0);
-    return { start: r.start, end: r.end, label: r.label, detail: r.detail };
-  }
-  if (preset === "campana") {
-    const r = buildPeriodoRange("campana", 0);
-    return { start: r.start, end: r.end, label: r.label, detail: r.detail };
-  }
-  // ultimas4: 4 semanas completas (28 dias) terminando hoy.
+function presetPeriodo(preset: RangoPreset): PeriodoValue {
+  if (preset === "mes") return periodoDeFecha("mes", today());
+  if (preset === "campana") return periodoDeFecha("campana", today());
+  // ultimas4: 4 semanas completas (28 dias) terminando hoy — no es una
+  // granularidad de SelectorPeriodo, así que se representa como "rango" libre.
   const end = new Date();
   const start = new Date();
   start.setDate(start.getDate() - 27);
-  const startIso = toISODateLocal(start);
-  const endIso = toISODateLocal(end);
-  return {
-    start: startIso,
-    end: endIso,
-    label: "Últimas 4 semanas",
-    detail: `${formatDate(startIso)} – ${formatDate(endIso)}`,
-  };
+  return rangoPersonalizado(toISODateLocal(start), toISODateLocal(end));
+}
+
+function mismoPeriodo(a: PeriodoValue, b: PeriodoValue): boolean {
+  return a.modo === b.modo && a.desde === b.desde && a.hasta === b.hasta;
 }
 
 export default function EconomicoPanel() {
-  const [preset, setPreset] = useState<RangoPreset>("mes");
-  const rango = useMemo(() => buildRango(preset), [preset]);
+  const [periodo, setPeriodo] = useState<PeriodoValue>(() => presetPeriodo("mes"));
 
-  const panel = useEconomicoPanel(rango.start, rango.end);
+  const panel = useEconomicoPanel(periodo.desde, periodo.hasta);
 
   // Pérdida de fruta (merma + podrido): DESGLOSE informativo de "Compra de
   // fruta" de arriba, calculado aparte (useMermaLotes) porque no forma parte
   // de useEconomicoPanel — nunca se resta del margen bruto ni de ningún total.
   const { lotes: mermaLotesTodos, isLoading: isLoadingMerma } = useMermaLotes();
   const perdidaFrutaAgregado = useMemo(() => {
-    const enRango = mermaLotesEnPeriodo(mermaLotesTodos, rango.start, rango.end).filter((l) => l.estado === "procesado");
+    const enRango = mermaLotesEnPeriodo(mermaLotesTodos, periodo.desde, periodo.hasta).filter((l) => l.estado === "procesado");
     return agregarMermaLotes(enRango);
-  }, [mermaLotesTodos, rango]);
+  }, [mermaLotesTodos, periodo]);
 
   const mostrarGrafico = panel.serieCombinada.length >= 2;
   const maxSerie = Math.max(...panel.serieCombinada.map((s) => Math.max(s.facturacion, s.coste)), 0);
@@ -181,14 +169,14 @@ export default function EconomicoPanel() {
       <div className="section-toolbar flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="flex items-center gap-1 rounded-xl bg-[var(--glass-bg)] border border-[var(--glass-border)] p-1 shadow-[var(--glass-shadow)]">
           {PRESETS.map((option) => {
-            const active = preset === option.value;
+            const active = mismoPeriodo(periodo, presetPeriodo(option.value));
             return (
               <Button
                 key={option.value}
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => setPreset(option.value)}
+                onClick={() => setPeriodo(presetPeriodo(option.value))}
                 className={cn(
                   "h-7 rounded-lg px-3 text-xs transition-all",
                   active
@@ -201,7 +189,12 @@ export default function EconomicoPanel() {
             );
           })}
         </div>
-        <p className="text-xs text-muted-foreground">{rango.detail}</p>
+        <SelectorPeriodo
+          bare
+          value={periodo}
+          onChange={setPeriodo}
+          canNavigateNext={periodo.desde <= today()}
+        />
       </div>
 
       {panel.tablesMissingVentas ? (

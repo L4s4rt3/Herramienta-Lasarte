@@ -7,7 +7,7 @@ import {
   Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  AlertTriangle, Boxes, ChevronLeft, ChevronRight, Euro, PackageCheck, ShoppingCart, TrendingUp, Upload,
+  AlertTriangle, Boxes, Euro, PackageCheck, ShoppingCart, TrendingUp, Upload,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KPICard } from "@/components/KPICard";
+import { PeriodoFlechas } from "@/components/SelectorPeriodo";
 import { MercadonaImportar } from "@/components/mercadona/MercadonaImportar";
 import { MercadonaExportar } from "@/components/mercadona/MercadonaExportar";
 import { MercadonaAnalisis } from "@/components/mercadona/MercadonaAnalisis";
@@ -256,11 +257,11 @@ function WeekNav({
   canNext: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl glass-accented p-3">
-      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={onPrev} disabled={!canPrev}>
-        <ChevronLeft className="h-4 w-4" />
-      </Button>
-      <div className="text-center">
+    <div className="flex items-center gap-3 rounded-xl glass-accented p-3">
+      {/* Navega por índice dentro de las semanas importadas (mercadona_semanas),
+          no por aritmética de fechas: solo se reutiliza el cromado de flechas. */}
+      <PeriodoFlechas onPrev={onPrev} onNext={onNext} canPrev={canPrev} canNext={canNext} />
+      <div>
         <p className="text-sm font-semibold">
           {semana ? `Semana ${semana.semana} · ${semana.anio}` : "Sin semana seleccionada"}
         </p>
@@ -268,9 +269,6 @@ function WeekNav({
           <p className="text-xs text-muted-foreground">{rangoLabel}</p>
         ) : null}
       </div>
-      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={onNext} disabled={!canNext}>
-        <ChevronRight className="h-4 w-4" />
-      </Button>
     </div>
   );
 }

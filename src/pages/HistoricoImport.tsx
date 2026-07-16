@@ -18,6 +18,7 @@ import * as XLSX from "xlsx";
 import { AlertTriangle, CheckCircle2, FileSpreadsheet, History, Loader2, PackageSearch, ShieldAlert, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { MiniKpi } from "@/components/MiniKpi";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
@@ -357,10 +358,10 @@ function HistoricoImportAdmin() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-                  <Stat label="Filas válidas" value={formatNumber(preview.resumen.filasValidas)} />
-                  <Stat label="Lotes distintos" value={formatNumber(preview.resumen.lotesDistintos)} />
-                  <Stat label="Kg totales" value={formatKg(preview.resumen.kgTotal)} />
-                  <Stat
+                  <MiniKpi variant="card" label="Filas válidas" value={formatNumber(preview.resumen.filasValidas)} />
+                  <MiniKpi variant="card" label="Lotes distintos" value={formatNumber(preview.resumen.lotesDistintos)} />
+                  <MiniKpi variant="card" label="Kg totales" value={formatKg(preview.resumen.kgTotal)} />
+                  <MiniKpi variant="card"
                     label="Rango de fechas"
                     value={
                       preview.resumen.fechaDesde && preview.resumen.fechaHasta
@@ -368,10 +369,10 @@ function HistoricoImportAdmin() {
                         : "—"
                     }
                   />
-                  <Stat label="Filas a insertar (fecha+lote)" value={formatNumber(preview.filasAInsertar)} />
-                  <Stat label="Filas ya existentes (se saltan)" value={formatNumber(preview.filasExistentes)} />
-                  <Stat label="Días con filas nuevas" value={formatNumber(preview.diasNuevos)} />
-                  <Stat label="Días sin filas nuevas" value={formatNumber(preview.diasSinNuevas)} />
+                  <MiniKpi variant="card" label="Filas a insertar (fecha+lote)" value={formatNumber(preview.filasAInsertar)} />
+                  <MiniKpi variant="card" label="Filas ya existentes (se saltan)" value={formatNumber(preview.filasExistentes)} />
+                  <MiniKpi variant="card" label="Días con filas nuevas" value={formatNumber(preview.diasNuevos)} />
+                  <MiniKpi variant="card" label="Días sin filas nuevas" value={formatNumber(preview.diasSinNuevas)} />
                 </div>
 
                 {(preview.declarado.lotesDeclarados != null || preview.declarado.kgDeclarados != null) && (
@@ -478,12 +479,12 @@ function HistoricoImportAdmin() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-                  <Stat label="Filas válidas" value={formatNumber(previewPalets.resumen.filasValidas)} />
-                  <Stat label="Palets únicos" value={formatNumber(previewPalets.resumen.paletsUnicos)} />
-                  <Stat label="Con lote / sin lote" value={`${formatNumber(previewPalets.resumen.paletsConLote)} / ${formatNumber(previewPalets.resumen.paletsSinLote)}`} />
-                  <Stat label="Kg netos totales" value={formatKg(previewPalets.resumen.kgNetoTotal)} />
-                  <Stat label="Clientes distintos" value={formatNumber(previewPalets.resumen.clientesDistintos)} />
-                  <Stat
+                  <MiniKpi variant="card" label="Filas válidas" value={formatNumber(previewPalets.resumen.filasValidas)} />
+                  <MiniKpi variant="card" label="Palets únicos" value={formatNumber(previewPalets.resumen.paletsUnicos)} />
+                  <MiniKpi variant="card" label="Con lote / sin lote" value={`${formatNumber(previewPalets.resumen.paletsConLote)} / ${formatNumber(previewPalets.resumen.paletsSinLote)}`} />
+                  <MiniKpi variant="card" label="Kg netos totales" value={formatKg(previewPalets.resumen.kgNetoTotal)} />
+                  <MiniKpi variant="card" label="Clientes distintos" value={formatNumber(previewPalets.resumen.clientesDistintos)} />
+                  <MiniKpi variant="card"
                     label="Rango de fechas"
                     value={
                       previewPalets.resumen.fechaDesde && previewPalets.resumen.fechaHasta
@@ -494,11 +495,11 @@ function HistoricoImportAdmin() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-2">
-                  <Stat
+                  <MiniKpi variant="card"
                     label="Días nuevos → se insertan"
                     value={`${formatNumber(previewPalets.diasAInsertar)} día(s) · ${formatNumber(previewPalets.paletsAInsertar)} palet(s)`}
                   />
-                  <Stat
+                  <MiniKpi variant="card"
                     label="Días ya cubiertos → solo backfill de lote"
                     value={`${formatNumber(previewPalets.diasABackfill)} día(s) · ${formatNumber(previewPalets.paletsABackfillEstimados)} palet(s) a casar`}
                   />
@@ -579,11 +580,3 @@ function HistoricoImportAdmin() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-2.5">
-      <p className="text-[11px] text-muted-foreground">{label}</p>
-      <p className="text-sm font-semibold tabular-nums">{value}</p>
-    </div>
-  );
-}

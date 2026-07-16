@@ -19,6 +19,7 @@ import { DeltaChip } from "@/components/DeltaChip";
 import { MiniKpi } from "@/components/MiniKpi";
 import { WeekSelector } from "@/components/WeekSelector";
 import { ColHead, toggleSort as toggleSortShared } from "@/components/SortableColumn";
+import { FuenteBadge, fuentePodridoAVariant } from "@/components/FuenteBadge";
 import { buildWeekRange } from "@/lib/analisisDiarioView";
 import type { Periodo } from "@/lib/analisisDiarioView";
 import { useAuth } from "@/contexts/AuthProvider";
@@ -29,7 +30,7 @@ import {
 import { useMermaLotes } from "@/hooks/useMermaLote";
 import { useEntradasBascula } from "@/hooks/useEntradasBascula";
 import { useCalidadReferencias, type CalidadReferenciaRow } from "@/hooks/useCalidadReferencias";
-import { mermaLotesEnPeriodo, type FuentePodrido, type MermaLotesAgregado } from "@/lib/mermaLote";
+import { mermaLotesEnPeriodo, type MermaLotesAgregado } from "@/lib/mermaLote";
 import { agregarMermaPorProductor, type ItemMermaAgrupable } from "@/lib/mermaPorProductor";
 import { resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import type { CalidadEstado } from "@/lib/calidad";
@@ -1127,41 +1128,9 @@ function ProductorDetalle({
 
 // ─── Pérdidas de fruta (merma + podrido, sin €) ───────────────────────────
 // Mismas etiquetas de fuente que la pestaña "Mermas y coste" de
-// EntradasBascula.tsx (real/≈est./asumido/sin dato): se REPLICA la
-// presentación aquí (ese archivo no exporta sus componentes) para que el
-// dossier se lea igual sin duplicar ninguna fórmula — todos los números
-// vienen de agregarMermaLotes (src/lib/mermaLote.ts) vía useMermaLotes().
-
-function FuenteBadge({ fuente }: { fuente: FuentePodrido }) {
-  if (fuente === "real") {
-    return (
-      <Badge variant="outline" className="border-emerald-600/35 bg-emerald-600/12 px-1 py-0 text-[10px] text-emerald-800 dark:text-emerald-200">
-        real
-      </Badge>
-    );
-  }
-  if (fuente === "desconocido") {
-    return (
-      <Badge variant="outline" className="border-[var(--glass-border)] px-1 py-0 text-[10px] text-muted-foreground/70">
-        sin dato
-      </Badge>
-    );
-  }
-  return (
-    <Badge variant="outline" className="border-[var(--glass-border)] px-1 py-0 text-[10px] text-muted-foreground">
-      ≈ est.
-    </Badge>
-  );
-}
-
-/** Podrido pre-calibrador: ASUMIDO por el dueño (decisión 2026-07-15), ni "real" ni "≈ est.". */
-function AsumidoBadge() {
-  return (
-    <Badge variant="outline" className="border-amber-500/35 bg-amber-500/12 px-1 py-0 text-[10px] text-amber-800 dark:text-amber-200">
-      asumido
-    </Badge>
-  );
-}
+// Badges de fuente de dato (podrido real/estimado/asumido/sin dato) se
+// importan de src/components/FuenteBadge.tsx — componente único compartido
+// con EntradasBascula.tsx, TrazabilidadLote.tsx, etc.
 
 function PerdidaFrutaCard({ agregado }: { agregado: MermaLotesAgregado | null }) {
   const podridoTotalKg = agregado
@@ -1223,10 +1192,10 @@ function PerdidaFrutaCard({ agregado }: { agregado: MermaLotesAgregado | null })
                   </span>
                 </div>
                 <p className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
-                  {formatKg(agregado.kgNaturalEstimadaTotal)} <FuenteBadge fuente="prorrateo" /> por días en cámara
+                  {formatKg(agregado.kgNaturalEstimadaTotal)} <FuenteBadge fuente={fuentePodridoAVariant("prorrateo")} size="sm" /> por días en cámara
                 </p>
                 <p className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
-                  {formatKg(agregado.kgPodridoPreCalibradorTotal)} <AsumidoBadge /> pre-calibrador
+                  {formatKg(agregado.kgPodridoPreCalibradorTotal)} <FuenteBadge fuente="asumido" size="sm" /> pre-calibrador
                 </p>
               </div>
               <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-2">
@@ -1237,10 +1206,10 @@ function PerdidaFrutaCard({ agregado }: { agregado: MermaLotesAgregado | null })
                   </span>
                 </div>
                 <p className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
-                  {formatKg(agregado.kgPodridoCalibradorReal)} <FuenteBadge fuente="real" /> · {formatKg(agregado.kgPodridoCalibradorEstimado)} <FuenteBadge fuente="prorrateo" /> calibrador
+                  {formatKg(agregado.kgPodridoCalibradorReal)} <FuenteBadge fuente={fuentePodridoAVariant("real")} size="sm" /> · {formatKg(agregado.kgPodridoCalibradorEstimado)} <FuenteBadge fuente={fuentePodridoAVariant("prorrateo")} size="sm" /> calibrador
                 </p>
                 <p className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
-                  {formatKg(agregado.kgPodridoManualEstimado)} <FuenteBadge fuente="prorrateo" /> manual
+                  {formatKg(agregado.kgPodridoManualEstimado)} <FuenteBadge fuente={fuentePodridoAVariant("prorrateo")} size="sm" /> manual
                 </p>
               </div>
             </div>
@@ -1283,9 +1252,7 @@ function PodridoReferenciaCard({ referencias }: { referencias: CalidadReferencia
             return (
               <div key={r.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
                 <span className="min-w-0 flex-1 truncate font-medium">{r.variedad || "Sin variedad"}</span>
-                <Badge variant="outline" className="border-emerald-600/35 bg-emerald-600/12 px-1 py-0 text-[10px] text-emerald-800 dark:text-emerald-200">
-                  real
-                </Badge>
+                <FuenteBadge fuente={fuentePodridoAVariant("real")} size="sm" />
                 <span className="tabular-nums font-semibold">{pct !== null ? formatPct(pct) : "—"}</span>
                 <span className="text-[11px] text-muted-foreground">{formatKg(r.kg_total)} kg medidos</span>
               </div>

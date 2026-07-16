@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Save } from "lucide-react";
-import { InfoTooltip } from "@/components/InfoTooltip";
+import { MiniKpi } from "@/components/MiniKpi";
 import { CHART_PANEL_CLASS, GlassTooltip, GRID, MARGIN, XAXIS, YAXIS, BAR_STYLE, C } from "@/lib/chartTheme";
 import { formatKg, formatNumber } from "@/lib/format";
 import { aggregateVentasCategoria } from "@/lib/ventasCategoria";
@@ -62,15 +62,18 @@ export function VentasCategoriaClienteDetail({ clienteCodigo, clienteNombre, all
       {/* Metricas en fila */}
       <div className="glass-accented rounded-xl">
         <div className="grid grid-cols-2 gap-x-2 gap-y-2 p-3 sm:flex sm:flex-nowrap sm:items-stretch sm:gap-0 sm:p-0">
-          <MiniMetric label="Kilos" value={formatKg(resumen.kilos)} />
-          <MiniMetric label="PM bruto" value={`${formatNumber(resumen.pm_venta, 3)} €/kg`} />
-          <MiniMetric
+          <MiniKpi label="Kilos" value={formatKg(resumen.kilos)} size="lg" />
+          <MiniKpi label="PM bruto" value={`${formatNumber(resumen.pm_venta, 3)} €/kg`} size="lg" />
+          <MiniKpi
             label="PM real"
             value={`${formatNumber(pmReal, 3)} €/kg`}
-            hint={ajuste ? "tras ajustes" : "sin ajustes"}
+            sub={ajuste ? "tras ajustes" : "sin ajustes"}
+            subBlock
             labelInfo="Precio medio tras aplicar la comision y el transporte configurados para este cliente."
+            labelInfoIcon
+            size="lg"
           />
-          <MiniMetric label="Base IVA" value={`${formatNumber(resumen.base_iva, 2)} €`} last />
+          <MiniKpi label="Base IVA" value={`${formatNumber(resumen.base_iva, 2)} €`} last size="lg" />
         </div>
       </div>
 
@@ -149,21 +152,6 @@ export function VentasCategoriaClienteDetail({ clienteCodigo, clienteNombre, all
           </CardContent>
         </Card>
       </div>
-    </div>
-  );
-}
-
-function MiniMetric({ label, value, hint, last = false, labelInfo }: {
-  label: string; value: string; hint?: string; last?: boolean; labelInfo?: string;
-}) {
-  return (
-    <div className={cn("min-w-0 px-3 py-2 sm:flex-1 sm:border-r sm:border-[var(--glass-border)]", last && "sm:border-r-0")}>
-      <div className="flex items-center gap-1">
-        <p className="panel-kicker truncate">{label}</p>
-        {labelInfo && <InfoTooltip iconClassName="h-3 w-3">{labelInfo}</InfoTooltip>}
-      </div>
-      <p className="mt-0.5 text-[18px] font-semibold leading-tight tabular-nums sm:text-[20px]">{value}</p>
-      {hint && <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>}
     </div>
   );
 }

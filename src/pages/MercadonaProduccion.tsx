@@ -20,12 +20,12 @@
 // resto en null/vacio (no existe una fila en mercadona_semanas para esta
 // semana "de produccion", y no hace falta: nunca se leen).
 import { useState } from "react";
-import { BadgeCheck, ChevronLeft, ChevronRight, PackageSearch, Percent, Scale, Timer } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { BadgeCheck, PackageSearch, Percent, Scale, Timer } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KPICard } from "@/components/KPICard";
+import { PeriodoFlechas } from "@/components/SelectorPeriodo";
 import { MercadonaLotes, MercadonaProductoresRanking } from "@/components/mercadona/MercadonaLotes";
 import { useMercadona } from "@/hooks/useMercadona";
 import { useMercadonaAprovechamiento } from "@/hooks/useMercadonaAprovechamiento";
@@ -94,17 +94,16 @@ export default function MercadonaProduccion() {
         </TabsList>
 
         <TabsContent value="lotes" className="space-y-4">
-          <div className="flex items-center justify-between gap-3 rounded-xl glass-accented p-3">
-            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => navigate(-1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <div className="text-center">
+          <div className="flex items-center gap-3 rounded-xl glass-accented p-3">
+            {/* Semana Mercadona (lunes-sábado, numeración propia): NO es la
+                semana ISO estándar de SelectorPeriodo, así que aquí solo se
+                reutiliza el cromado de flechas — la fecha/etiqueta siguen
+                calculándose con la lógica propia (shiftSemanaMercadona). */}
+            <PeriodoFlechas onPrev={() => navigate(-1)} onNext={() => navigate(1)} />
+            <div>
               <p className="text-sm font-semibold">Semana {efectiva.semana} · {efectiva.anio}</p>
               <p className="text-xs text-muted-foreground">{rangoLabel}</p>
             </div>
-            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => navigate(1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
           </div>
 
           {sinProduccion ? (

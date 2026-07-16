@@ -1,7 +1,16 @@
+// src/components/consumos/ConsumoPeriodoSelector.tsx
+// Wrapper fino de SelectorPeriodo (src/components/SelectorPeriodo.tsx),
+// FASE 1 del rediseño del lenguaje temporal. Se mantiene la API externa
+// intacta (tipo/onTipoChange/range/onNavigate/onToday/isCurrent/canNavigateNext)
+// porque la consume EconomicoCostes.tsx, que no se toca en esta fase: por eso
+// el segmentado Semana|Mes|Campaña y el botón "Hoy" siguen usando exactamente
+// los mismos callbacks que antes, y solo el par de flechas + etiqueta delega
+// en SelectorPeriodo (que por debajo reutiliza buildPeriodoRange).
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ConsumoPeriodoTipo, PeriodoRange } from "@/lib/consumoPeriodoView";
+import { SelectorPeriodo } from "@/components/SelectorPeriodo";
+import type { PeriodoValue } from "@/lib/selectorPeriodo";
 
 interface ConsumoPeriodoSelectorProps {
   tipo: ConsumoPeriodoTipo;
@@ -22,6 +31,12 @@ const TIPO_OPTIONS: { value: ConsumoPeriodoTipo; label: string }[] = [
 export function ConsumoPeriodoSelector({
   tipo, onTipoChange, range, onNavigate, onToday, isCurrent, canNavigateNext = true,
 }: ConsumoPeriodoSelectorProps) {
+  // Adaptador: SelectorPeriodo trabaja con un PeriodoValue completo, pero este
+  // wrapper solo puede comunicar "avanza"/"retrocede" (onNavigate(±1)) — el
+  // signo de la nueva fecha "desde" contra la actual basta para saber la
+  // dirección, sin necesitar que el wrapper calcule fechas por su cuenta.
+  const value: PeriodoValue = { modo: tipo, desde: range.start, hasta: range.end };
+
   return (
     <div className="section-toolbar flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
       {/* Segmentado Semana | Mes | Campaña */}
@@ -48,32 +63,15 @@ export function ConsumoPeriodoSelector({
         })}
       </div>
 
-      {/* Navegación ‹ › */}
-      <div className="flex items-center gap-1 rounded-xl bg-[var(--glass-bg)] border border-[var(--glass-border)] px-1.5 py-1 shadow-[var(--glass-shadow)]">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 rounded-lg glass-hover"
-          onClick={() => onNavigate(-1)}
-          title="Periodo anterior"
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <div className="min-w-[168px] px-1 text-center">
-          <p className="text-xs font-semibold leading-tight">{range.label}</p>
-          <p className="text-[10.5px] leading-tight text-muted-foreground">{range.detail}</p>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 rounded-lg glass-hover"
-          onClick={() => onNavigate(1)}
-          disabled={!canNavigateNext}
-          title="Periodo siguiente"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </Button>
-      </div>
+      {/* Navegación ‹ › + etiqueta (delegado en SelectorPeriodo) */}
+      <SelectorPeriodo
+        bare
+        value={value}
+        onChange={(next) => onNavigate(next.desde > value.desde ? 1 : -1)}
+        canNavigateNext={canNavigateNext}
+        showHoy={false}
+        showDatePicker={false}
+      />
 
       {/* Hoy */}
       <Button

@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FuenteBadge } from "@/components/FuenteBadge";
 import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -641,23 +642,6 @@ function formatPrecioMalla(precioMalla: number | null): string {
   return precioMalla != null ? `${formatNumber(precioMalla, 2)} €/malla` : "—";
 }
 
-function FuentePrecioBadge({ fuente }: { fuente: "envasado" | "manual" | null }) {
-  if (!fuente) return null;
-  return (
-    <Badge
-      variant="outline"
-      className={cn(
-        "rounded-md px-2 py-0 text-[10px]",
-        fuente === "envasado"
-          ? "border-primary/40 bg-primary/10 text-primary"
-          : "border-muted-foreground/30 text-muted-foreground",
-      )}
-    >
-      {fuente === "envasado" ? "Del envasado" : "Manual"}
-    </Badge>
-  );
-}
-
 function MallasRotasSection({ mallas }: { mallas: ReturnType<typeof useMallasConfig> }) {
   const {
     vigentePorZona, precioEfectivoPorZona, historicoPorZona, hayDatosFaltantes, isLoading, crear,
@@ -744,9 +728,9 @@ function MallasRotasSection({ mallas }: { mallas: ReturnType<typeof useMallasCon
                             <Badge variant="outline" className="border-warning/40 bg-warning/10 text-[10px] text-warning">
                               Sin config
                             </Badge>
-                          ) : (
-                            <FuentePrecioBadge fuente={efectivo.fuente} />
-                          )}
+                          ) : efectivo.fuente ? (
+                            <FuenteBadge fuente={efectivo.fuente} size="md" className="rounded-md px-2" />
+                          ) : null}
                         </div>
                         <div className="flex items-center gap-4">
                           <div className="text-right">

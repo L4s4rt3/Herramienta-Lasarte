@@ -18,8 +18,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { KPICard } from "@/components/KPICard";
+import { SelectorPeriodo } from "@/components/SelectorPeriodo";
 import { toast } from "@/hooks/use-toast";
 import { useAsistenciaTrabajadores } from "@/hooks/useAsistencia";
 import {
@@ -306,7 +306,12 @@ export default function LimpiezaBox() {
             {/* Fecha */}
             <div className="space-y-1">
               <p className="text-xs font-medium text-muted-foreground">Fecha</p>
-              <GlassDatePicker value={fecha} onChange={setFecha} disabled={guardando} />
+              <SelectorPeriodo
+                bare
+                value={{ modo: "dia", desde: fecha, hasta: fecha }}
+                onChange={(next) => setFecha(next.desde)}
+                disabled={guardando}
+              />
             </div>
             {/* Turno */}
             <div className="space-y-1">

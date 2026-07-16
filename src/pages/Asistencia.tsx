@@ -15,17 +15,14 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Calendar as DatePickerCalendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { SelectorPeriodo } from "@/components/SelectorPeriodo";
 import {
-  Plus, Upload, ChevronLeft, ChevronRight, UserCheck, UserX,
+  Plus, Upload, UserCheck, UserX,
   Users, Calendar as CalendarIcon, CalendarDays, Search, Eraser,
   PackageCheck, FileText, Download, ChevronDown, X,
   ShieldOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
 import * as XLSX from "xlsx";
 import { appendRowsSheet, createWorkbook, saveWorkbook } from "@/lib/exportWorkbook";
 import {
@@ -86,7 +83,6 @@ import {
   type SemanaDataRaw,
   getWeekDates,
   getWeekLabel,
-  shiftWeek,
   buildFaltasSemanales as buildFaltasSemanalesFnc,
   calcularKgPersonaSemanal,
   calcularRendimientoGrupoSemanal,
@@ -222,38 +218,6 @@ function inicialesTrabajador(nombre: string) {
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-
-function AsistenciaDatePicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  const selected = value ? new Date(`${value}T12:00:00`) : undefined;
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          className="glass glass-hover h-9 min-w-[154px] justify-start gap-2 rounded-xl border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] px-3 text-sm font-semibold"
-        >
-          <CalendarDays className="h-4 w-4 shrink-0 text-primary/75" />
-          <span className="tabular-nums">
-            {selected ? format(selected, "dd MMM yyyy", { locale: es }) : "Seleccionar..."}
-          </span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-auto p-0 glass-accented" align="end">
-        <DatePickerCalendar
-          mode="single"
-          selected={selected}
-          onSelect={(date) => {
-            if (date) onChange(format(date, "yyyy-MM-dd"));
-          }}
-          locale={es}
-          initialFocus
-        />
-      </PopoverContent>
-    </Popover>
-  );
-}
 
 // ─── Vista semanal: solo asistencia/ausencias ──────────────────────────────
 // El dueño pidió que la vista en formato semanal se centre exclusivamente en
@@ -1008,14 +972,6 @@ export default function Asistencia() {
     e.target.value = "";
   }, [trabajadores, selectedDate, user, aliasPorNombre, upsertRegistros]);
 
-  // ─── Date navigation ──────────────────────────────────────────────────
-
-  function shiftDate(delta: number) {
-    const d = new Date(`${selectedDate}T12:00:00`);
-    d.setDate(d.getDate() + delta);
-    setSelectedDate(format(d, "yyyy-MM-dd"));
-  }
-
   // ─── Computed ─────────────────────────────────────────────────────────
 
   const gruposDisponibles = useMemo(
@@ -1337,28 +1293,17 @@ export default function Asistencia() {
       <div className="section-toolbar glass-overlay sticky top-14 z-10 flex flex-wrap items-center gap-2 sm:top-16">
         <div className="flex flex-wrap items-center gap-2">
           {viewMode === "daily" ? (
-            <>
-              <Button variant="outline" size="sm" onClick={() => shiftDate(-1)} className="glass glass-hover">
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <AsistenciaDatePicker value={selectedDate} onChange={setSelectedDate} />
-              <Button variant="outline" size="sm" onClick={() => shiftDate(1)} className="glass glass-hover">
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </>
+            <SelectorPeriodo
+              bare
+              value={{ modo: "dia", desde: selectedDate, hasta: selectedDate }}
+              onChange={(next) => setSelectedDate(next.desde)}
+            />
           ) : (
-            <>
-              <Button variant="outline" size="sm" onClick={() => setWeekStart(shiftWeek(weekStart, -1))} className="glass glass-hover">
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" className="glass glass-hover h-9 min-w-[200px] justify-start gap-2 rounded-xl border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] px-3 text-sm font-semibold">
-                <CalendarDays className="h-4 w-4 shrink-0 text-primary/75" />
-                <span>{getWeekLabel(getWeekDates(weekStart))}</span>
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setWeekStart(shiftWeek(weekStart, 1))} className="glass glass-hover">
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </>
+            <SelectorPeriodo
+              bare
+              value={{ modo: "semana", desde: weekStart, hasta: getWeekDates(weekStart)[6] }}
+              onChange={(next) => setWeekStart(next.desde)}
+            />
           )}
         </div>
 

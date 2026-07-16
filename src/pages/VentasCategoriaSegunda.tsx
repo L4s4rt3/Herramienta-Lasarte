@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { KPICard } from "@/components/KPICard";
 import { InfoTooltip } from "@/components/InfoTooltip";
+import { MiniKpi } from "@/components/MiniKpi";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 import { useVentasCategoria, type VentasCategoriaAjusteInput } from "@/hooks/useVentasCategoria";
@@ -480,10 +481,10 @@ export function VentasCategoriaPage({ categoriaNombre, titulo, subtitulo }: Vent
                   </InfoTooltip>
                 </div>
                 <div className="grid grid-cols-2 gap-x-2 gap-y-2 sm:flex sm:flex-nowrap sm:items-stretch sm:gap-0">
-                  <MiniMetric label="PM bruto" value={`${formatNumber(ajusteImpacto.pmBrutoMedio, 3)} €/kg`} />
-                  <MiniMetric label="PM real" value={`${formatNumber(ajusteImpacto.pmRealMedio, 3)} €/kg`} />
-                  <MiniMetric label="Impacto" value={`-${formatNumber(ajusteImpacto.impactoPct, 1)}%`} />
-                  <MiniMetric label="Clientes con ajuste" value={formatNumber(ajusteImpacto.clientesConAjuste)} last />
+                  <MiniKpi size="lg" label="PM bruto" value={`${formatNumber(ajusteImpacto.pmBrutoMedio, 3)} €/kg`} />
+                  <MiniKpi size="lg" label="PM real" value={`${formatNumber(ajusteImpacto.pmRealMedio, 3)} €/kg`} />
+                  <MiniKpi size="lg" label="Impacto" value={`-${formatNumber(ajusteImpacto.impactoPct, 1)}%`} />
+                  <MiniKpi size="lg" label="Clientes con ajuste" value={formatNumber(ajusteImpacto.clientesConAjuste)} last />
                 </div>
               </CardContent>
             </Card>
@@ -1024,15 +1025,6 @@ function RankBars({ rows, onSelect }: {
           </div>
         </button>
       ))}
-    </div>
-  );
-}
-
-function MiniMetric({ label, value, last = false }: { label: string; value: string; last?: boolean }) {
-  return (
-    <div className={cn("min-w-0 px-3 py-2 sm:flex-1 sm:border-r sm:border-[var(--glass-border)]", last && "sm:border-r-0")}>
-      <p className="panel-kicker truncate">{label}</p>
-      <p className="mt-0.5 text-[18px] font-semibold leading-tight tabular-nums sm:text-[20px]">{value}</p>
     </div>
   );
 }

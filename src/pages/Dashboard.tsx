@@ -10,6 +10,7 @@ import { InfoTooltip } from "@/components/InfoTooltip";
 import { DsjScale } from "@/components/DsjScale";
 import { Sparkline } from "@/components/Sparkline";
 import { AutoWeekFallbackNotice } from "@/components/AutoWeekFallbackNotice";
+import { SelectorPeriodo } from "@/components/SelectorPeriodo";
 import { getSemaforo, DJPMN_HELP } from "@/lib/semaforo";
 import { detectarTipoClasificacion, GRUPO_COLORS } from "@/lib/destinoClasificacion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,7 +29,7 @@ import { cn } from "@/lib/utils";
 import {
   Truck, Package, TrendingDown, BarChart3,
   Gauge, Droplet, Plus, ShoppingCart,
-  ChevronLeft, ChevronRight, Recycle, Trash2,
+  Recycle, Trash2,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -310,25 +311,15 @@ export default function Dashboard() {
             {!loading && <SemaforoPill dsjPct={currentWeekData.dsj_pct} />}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-0.5 rounded-lg bg-[var(--glass-bg)] border border-[var(--glass-border)] px-1 py-0.5 shadow-[var(--glass-shadow)]">
-              <button
-                type="button"
-                onClick={() => handleWeekOffsetChange((o) => o - 1)}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--glass-bg-strong)] hover:text-foreground"
-                aria-label="Semana anterior"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleWeekOffsetChange((o) => Math.min(0, o + 1))}
-                disabled={isCurrentWeek}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--glass-bg-strong)] hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
-                aria-label="Semana siguiente"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
+            <SelectorPeriodo
+              bare
+              showLabel={false}
+              showHoy={false}
+              showDatePicker={false}
+              canNavigateNext={!isCurrentWeek}
+              value={{ modo: "semana", desde: currentWeek.start, hasta: currentWeek.end }}
+              onChange={(next) => handleWeekOffsetChange((o) => (next.desde > currentWeek.start ? Math.min(0, o + 1) : o - 1))}
+            />
             <p className="page-subtitle !mt-0">
               Semana {currentWeek.weekNumber} · {currentWeek.rangeLabel} · últimas {WEEKS_IN_PANEL} semanas
             </p>

@@ -19,6 +19,7 @@ import {
 import {
   Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
+import { FuenteBadge } from "@/components/FuenteBadge";
 import { KPICard } from "@/components/KPICard";
 import { ConsumoPeriodoSelector } from "@/components/consumos/ConsumoPeriodoSelector";
 import { toast } from "@/hooks/use-toast";
@@ -85,15 +86,15 @@ function formatEuro(value: number | null | undefined, digits = 2): string {
   return `${formatNumber(value, digits)} €`;
 }
 
-// Fuente del precio de malla usado en el desglose ("del envasado" es la fuente
+// Fuente del precio de malla usado en el desglose ("envasado" es la fuente
 // única real; "manual" es el respaldo de economico_mallas_config) — para que
 // no haya que ir a Económico → Tarifas a comprobar de dónde sale el gasto.
 function fuentePrecioMallaHint(zona: ZonaMallaResultado) {
   if (zona.precioMalla == null) return null;
-  const fuenteLabel = zona.fuentePrecio === "envasado" ? "del envasado" : zona.fuentePrecio === "manual" ? "manual" : null;
   return (
-    <p className="mt-1 text-[11px] text-muted-foreground">
-      precio: {formatNumber(zona.precioMalla, 2)} €/malla{fuenteLabel ? ` · ${fuenteLabel}` : ""}
+    <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+      precio: {formatNumber(zona.precioMalla, 2)} €/malla
+      {zona.fuentePrecio && <FuenteBadge fuente={zona.fuentePrecio} size="sm" />}
     </p>
   );
 }

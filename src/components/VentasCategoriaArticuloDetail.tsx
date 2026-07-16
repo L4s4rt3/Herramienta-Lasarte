@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card, CardContent } from "@/components/ui/card";
+import { MiniKpi } from "@/components/MiniKpi";
 import { CHART_PANEL_CLASS, GlassTooltip, GRID, MARGIN, XAXIS, YAXIS, BAR_STYLE, C } from "@/lib/chartTheme";
 import { formatKg, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -55,9 +56,9 @@ export function VentasCategoriaArticuloDetail({ articulo, referencia, allLines }
       {/* Metricas en fila */}
       <div className="glass-accented rounded-xl">
         <div className="grid grid-cols-3 gap-x-2 gap-y-2 p-3 sm:flex sm:flex-nowrap sm:items-stretch sm:gap-0 sm:p-0">
-          <MiniMetric label="Kilos" value={formatKg(totalKilos)} />
-          <MiniMetric label="PM" value={`${formatNumber(totalKilos > 0 ? totalBase / totalKilos : 0, 3)} €/kg`} />
-          <MiniMetric label="Lineas" value={String(lineCount)} last />
+          <MiniKpi label="Kilos" value={formatKg(totalKilos)} size="lg" />
+          <MiniKpi label="PM" value={`${formatNumber(totalKilos > 0 ? totalBase / totalKilos : 0, 3)} €/kg`} size="lg" />
+          <MiniKpi label="Lineas" value={String(lineCount)} last size="lg" />
         </div>
       </div>
 
@@ -108,15 +109,6 @@ export function VentasCategoriaArticuloDetail({ articulo, referencia, allLines }
           </div>
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-function MiniMetric({ label, value, last = false }: { label: string; value: string; last?: boolean }) {
-  return (
-    <div className={cn("min-w-0 px-3 py-2 sm:flex-1 sm:border-r sm:border-[var(--glass-border)]", last && "sm:border-r-0")}>
-      <p className="panel-kicker truncate">{label}</p>
-      <p className="mt-0.5 text-[18px] font-semibold leading-tight tabular-nums sm:text-[20px]">{value}</p>
     </div>
   );
 }
