@@ -1330,8 +1330,8 @@ export type Database = {
           kg_palets_brutos: number
           kg_palets_campo: number
           kg_palets_egipto: number
-          kg_podrido_bolsa_basura: number
-          kg_podrido_calibrador_auto: number
+          kg_podrido_bolsa_basura: number | null
+          kg_podrido_calibrador_auto: number | null
           kg_produccion_calibrador: number
           kg_reciclado_malla_z1: number
           kg_reciclado_malla_z2: number
@@ -1354,8 +1354,8 @@ export type Database = {
           kg_palets_brutos?: number
           kg_palets_campo?: number
           kg_palets_egipto?: number
-          kg_podrido_bolsa_basura?: number
-          kg_podrido_calibrador_auto?: number
+          kg_podrido_bolsa_basura?: number | null
+          kg_podrido_calibrador_auto?: number | null
           kg_produccion_calibrador?: number
           kg_reciclado_malla_z1?: number
           kg_reciclado_malla_z2?: number
@@ -1378,8 +1378,8 @@ export type Database = {
           kg_palets_brutos?: number
           kg_palets_campo?: number
           kg_palets_egipto?: number
-          kg_podrido_bolsa_basura?: number
-          kg_podrido_calibrador_auto?: number
+          kg_podrido_bolsa_basura?: number | null
+          kg_podrido_calibrador_auto?: number | null
           kg_produccion_calibrador?: number
           kg_reciclado_malla_z1?: number
           kg_reciclado_malla_z2?: number
