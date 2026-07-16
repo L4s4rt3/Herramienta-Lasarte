@@ -138,7 +138,7 @@ export default function EconomicoPanel() {
       <div className="page-shell">
         <header className="page-header">
           <div>
-            <p className="panel-kicker text-seccion-texto">Económico</p>
+            <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Económico</p>
             <h1 className="page-title">Panel económico</h1>
             <p className="page-subtitle">Facturación, costes y margen bruto estimado del periodo elegido.</p>
           </div>
@@ -162,7 +162,7 @@ export default function EconomicoPanel() {
     <div className="page-shell">
       <header className="page-header">
         <div>
-          <p className="panel-kicker text-seccion-texto">Económico</p>
+          <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Económico</p>
           <h1 className="page-title">Panel económico</h1>
           <p className="page-subtitle">Facturación, costes y margen bruto estimado del periodo elegido.</p>
         </div>

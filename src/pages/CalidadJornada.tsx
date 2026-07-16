@@ -809,7 +809,7 @@ export default function CalidadJornadaPage() {
       <header className="page-header">
         <div>
           {/* Kicker con el acento de Producción (--seccion-acento-texto, FASE 2 del rediseño). */}
-          <p className="panel-kicker text-seccion-texto">Departamento de Calidad</p>
+          <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Departamento de Calidad</p>
           <h1 className="page-title">Jornada de Calidad</h1>
           <p className="max-w-2xl text-sm text-muted-foreground">
             Notas de lotes para informes diarios, conectadas con el parte de la misma fecha.

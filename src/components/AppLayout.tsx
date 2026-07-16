@@ -190,9 +190,11 @@ function AppLayoutContent() {
                     key={ws.id}
                     className={cn("py-1", activo && "border-l-2 border-seccion/50")}
                   >
-                    {/* Sección activa: acento del workspace (--seccion-acento,
-                        fijado por AppLayout vía data-seccion), no el
-                        sidebar-primary genérico — FASE 2 del rediseño. */}
+                    {/* Sección activa: el filete de 2px (border-seccion en el
+                        SidebarGroup, arriba) es la única marca por workspace
+                        que sobrevive a la calibración de color 2026-07-17; el
+                        texto del encabezado vuelve al sidebar-primary
+                        estándar (marino/índigo), igual para las 4 secciones. */}
                     <button
                       type="button"
                       onClick={() => setSeccionesAbiertas((prev) => ({ ...prev, [ws.id]: !abierta }))}
@@ -201,7 +203,7 @@ function AppLayoutContent() {
                       className={cn(
                         "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
                         activo
-                          ? "text-seccion"
+                          ? "text-sidebar-primary"
                           : "text-sidebar-foreground/60 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground",
                       )}
                     >

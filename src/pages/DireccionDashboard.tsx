@@ -92,7 +92,7 @@ export default function DireccionDashboard() {
       <header className="page-header">
         <div>
           {/* Acento de Dirección (--seccion-acento-texto, FASE 3 del rediseño). */}
-          <p className="panel-kicker text-seccion-texto">Dirección</p>
+          <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Dirección</p>
           <h1 className="page-title">Panel de dirección</h1>
           <p className="page-subtitle">
             Un vistazo a las 4 áreas: producción, comercial, RRHH y económico.

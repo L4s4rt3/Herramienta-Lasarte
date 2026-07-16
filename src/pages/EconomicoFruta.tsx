@@ -754,7 +754,7 @@ export default function EconomicoFruta() {
     <div className="page-shell">
       <header className="page-header">
         <div>
-          <p className="panel-kicker text-seccion-texto">Económico</p>
+          <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Económico</p>
           <h1 className="page-title">Compra de fruta</h1>
           <p className="page-subtitle">
             Detalle de las entradas de báscula del periodo: por lote, por agricultor y por variedad.

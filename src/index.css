@@ -15,9 +15,12 @@
     --popover: 38 20% 96%;
     --popover-foreground: 150 18% 14%;
 
-    --primary: 24 95% 53%;
+    /* Acento corporativo único: azul marino del logo LASARTE (#2B2E6E),
+       decisión del dueño (jul 2026) — reemplaza el naranja como acento
+       global de botones/enlaces/foco en toda la app. */
+    --primary: 238 44% 30%;
     --primary-foreground: 0 0% 100%;
-    --primary-glow: 28 100% 62%;
+    --primary-glow: 233 40% 52%;
 
     --secondary: 38 28% 88%;
     --secondary-foreground: 150 18% 14%;
@@ -41,22 +44,22 @@
 
     --border: 38 25% 82%;
     --input: 38 20% 85%;
-    --ring: 24 95% 53%;
+    --ring: 238 44% 30%;
 
     --radius: 0.625rem;
 
     --sidebar-background: 150 30% 14% / 0.85;
     --sidebar-foreground: 40 20% 92%;
-    --sidebar-primary: 24 95% 53%;
-    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-primary: 236 45% 76%;
+    --sidebar-primary-foreground: 236 45% 18%;
     --sidebar-accent: 150 25% 22%;
     --sidebar-accent-foreground: 40 25% 95%;
     --sidebar-border: 150 20% 22%;
-    --sidebar-ring: 24 95% 53%;
+    --sidebar-ring: 236 45% 76%;
 
     --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
     --glass-border: hsl(38 30% 75% / 0.35);
-    --glass-border-accent: hsl(24 95% 53% / 0.22);
+    --glass-border-accent: hsl(var(--primary) / 0.22);
     --glass-bg: hsl(38 45% 98% / 0.38);
     --glass-bg-strong: hsl(38 45% 98% / 0.60);
     /* Superficie opaca para elementos SUPERPUESTOS (dialogs, sheets, popovers,
@@ -64,7 +67,7 @@
     --glass-bg-solid: hsl(38 50% 98% / 0.94);
     --glass-shadow: 0 4px 16px hsl(150 18% 14% / 0.07), 0 1px 3px hsl(150 18% 14% / 0.05);
     --glass-shadow-lg: 0 8px 30px hsl(150 18% 14% / 0.10), 0 2px 6px hsl(150 18% 14% / 0.06);
-    --glass-glow: 0 0 24px hsl(24 95% 53% / 0.07);
+    --glass-glow: 0 0 24px hsl(var(--primary) / 0.07);
     --shadow-card: var(--glass-shadow);
     --shadow-elegant: var(--glass-shadow-lg);
 
@@ -85,64 +88,68 @@
     --auth-muted: #6B756A;
     --auth-green: #173A27;
     --auth-olive: #8A9A5B;
-    --auth-orange: #F97316;
-    --auth-orange-hover: #EA580C;
+    --auth-accent: #2B2E6E;
+    --auth-accent-hover: #21254F;
     --auth-border: #E5E2D8;
     --auth-input-bg: #FFFFFF;
 
-    /* ── Acento por sección (FASE 2 del rediseño, jul 2026) ──────────
+    /* ── Acento por sección (FASE 2-3 del rediseño, jul 2026) ─────────
        Un color de acento por workspace, derivado del logo (ver
        public/branding/lasarte-logo-horizontal.jpg), para que cada gran
-       sección tenga su propia identidad visual sin tocar el primary global
-       (naranja: se queda para acciones/enlaces en TODA la app). Mecanismo:
-       AppLayout fija data-seccion="<workspace>" en el wrapper de
-       SidebarProvider según workspaceDeRuta(location.pathname); las reglas
-       [data-seccion=...] de abajo pisan estas 3 variables para toda la
-       página (sidebar, TopBar, contenido).
-       - --seccion-acento: color crudo del logo — para iconos/bordes/fondos
-         con opacidad (bg-seccion/10, border-seccion/40...) y para texto
-         SOBRE FONDO SIEMPRE OSCURO (la sidebar no cambia con el tema).
+       sección tenga una marca mínima sin competir con el --primary global
+       (azul marino: el acento de acciones/enlaces en TODA la app desde la
+       calibración de color 2026-07-17). Mecanismo: AppLayout fija
+       data-seccion="<workspace>" en el wrapper de SidebarProvider según
+       workspaceDeRuta(location.pathname); las reglas [data-seccion=...] de
+       abajo pisan estas 3 variables para toda la página.
+       - --seccion-acento: color crudo del logo (desaturado ~45% respecto al
+         original de fase 2 para que no compita con el primary) — para
+         iconos/bordes/fondos con opacidad (bg-seccion/10, border-seccion/40)
+         y para texto SOBRE FONDO SIEMPRE OSCURO (la sidebar no cambia con
+         el tema).
        - --seccion-acento-texto: el mismo color ajustado a contraste, para
          TEXTO sobre el fondo de página (que sí cambia claro/oscuro).
        - --seccion-acento-suave: tinte de fondo ya con alfa, listo para usar
          directo (background: var(--seccion-acento-suave)), como
          --glass-border-accent.
-       FASE 2 (jul 2026): solo Producción los consume de forma visible (chip
-       del TopBar, indicador activo de la sidebar, kickers de sus páginas,
-       nodos del timeline de Trazabilidad). El resto de secciones quedan
-       definidas y listas para las fases 3-4. */
-    --seccion-acento: 85 54% 51%;
-    --seccion-acento-texto: 87 65% 34%;
-    --seccion-acento-suave: hsl(85 54% 51% / 0.12);
+       CALIBRACIÓN 2026-07-17: uso restringido a chip del TopBar, filete de
+       2px del ítem activo de la sidebar y el puntito del kicker de
+       page-header — ver src/components/TopBar.tsx, src/components/AppLayout.tsx
+       y los usos de bg-seccion-texto en panel-kicker. El timeline de
+       Trazabilidad y la pastilla de EconomicoSubnav volvieron al primary. */
+    --seccion-acento: 85 30% 51%;
+    --seccion-acento-texto: 87 36% 34%;
+    --seccion-acento-suave: hsl(85 30% 51% / 0.12);
   }
 
-  /* Producción · verde manzana del logo (#8DC63F crudo / #5C8F1E texto claro). */
+  /* Producción · verde manzana del logo, desaturado (#8DC63F/#5C8F1E crudos). */
   [data-seccion="produccion"] {
-    --seccion-acento: 85 54% 51%;
-    --seccion-acento-texto: 87 65% 34%;
-    --seccion-acento-suave: hsl(85 54% 51% / 0.12);
+    --seccion-acento: 85 30% 51%;
+    --seccion-acento-texto: 87 36% 34%;
+    --seccion-acento-suave: hsl(85 30% 51% / 0.12);
   }
 
-  /* Comercial · azul del logo (#1B75BB crudo / #16639F texto claro). */
+  /* Comercial · azul del logo, desaturado (#1B75BB/#16639F crudos). */
   [data-seccion="comercial"] {
-    --seccion-acento: 206 75% 42%;
-    --seccion-acento-texto: 206 76% 36%;
-    --seccion-acento-suave: hsl(206 75% 42% / 0.12);
+    --seccion-acento: 206 41% 42%;
+    --seccion-acento-texto: 206 42% 36%;
+    --seccion-acento-suave: hsl(206 41% 42% / 0.12);
   }
 
-  /* RRHH · naranja del logo (#F07822 crudo / #D9660D texto claro) — distinto
-     del --primary naranja global (24 95% 53%), aunque queden cerca. */
+  /* RRHH · naranja del logo, desaturado (#F07822/#D9660D crudos) — distinto
+     del --primary (marino) global. */
   [data-seccion="rrhh"] {
-    --seccion-acento: 25 87% 54%;
-    --seccion-acento-texto: 26 89% 45%;
-    --seccion-acento-suave: hsl(25 87% 54% / 0.12);
+    --seccion-acento: 25 48% 54%;
+    --seccion-acento-texto: 26 49% 40%;
+    --seccion-acento-suave: hsl(25 48% 54% / 0.12);
   }
 
-  /* Dirección · azul marino del logo (#2B2E6E, crudo = texto claro: ya es lo bastante oscuro). */
+  /* Dirección · azul marino del logo, desaturado (mismo tono de familia que
+     el --primary global, pero un punto más apagado para diferenciarlo). */
   [data-seccion="direccion"] {
-    --seccion-acento: 238 44% 30%;
-    --seccion-acento-texto: 238 44% 30%;
-    --seccion-acento-suave: hsl(238 44% 30% / 0.12);
+    --seccion-acento: 238 24% 30%;
+    --seccion-acento-texto: 238 24% 30%;
+    --seccion-acento-suave: hsl(238 24% 30% / 0.12);
   }
 
   .dark {
@@ -152,9 +159,9 @@
     --card-foreground: 40 20% 92%;
     --popover: 150 20% 13%;
     --popover-foreground: 40 20% 92%;
-    --primary: 24 95% 58%;
-    --primary-foreground: 0 0% 100%;
-    --primary-glow: 28 100% 65%;
+    --primary: 236 45% 72%;
+    --primary-foreground: 236 45% 18%;
+    --primary-glow: 234 55% 82%;
     --secondary: 150 15% 20%;
     --secondary-foreground: 40 20% 92%;
     --muted: 150 15% 18%;
@@ -169,17 +176,17 @@
     --destructive-foreground: 0 0% 100%;
     --border: 150 15% 22%;
     --input: 150 15% 22%;
-    --ring: 24 95% 58%;
+    --ring: 236 45% 72%;
     --sidebar-background: 150 30% 12% / 0.8;
     --sidebar-foreground: 40 20% 92%;
-    --sidebar-primary: 24 95% 58%;
-    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-primary: 236 45% 76%;
+    --sidebar-primary-foreground: 236 45% 18%;
     --sidebar-accent: 150 25% 20%;
     --sidebar-accent-foreground: 40 25% 95%;
     --sidebar-border: 150 20% 20%;
-    --sidebar-ring: 24 95% 58%;
+    --sidebar-ring: 236 45% 76%;
     --glass-border: hsl(0 0% 100% / 0.08);
-    --glass-border-accent: hsl(24 95% 58% / 0.15);
+    --glass-border-accent: hsl(var(--primary) / 0.15);
     --glass-bg: hsl(150 20% 13% / 0.7);
     --glass-bg-strong: hsl(150 20% 13% / 0.85);
     /* Superficie opaca para elementos SUPERPUESTOS (dialogs, sheets, popovers,
@@ -187,7 +194,7 @@
     --glass-bg-solid: hsl(150 22% 12% / 0.95);
     --glass-shadow: 0 4px 20px hsl(0 0% 0% / 0.15);
     --glass-shadow-lg: 0 8px 32px hsl(0 0% 0% / 0.2);
-    --glass-glow: 0 0 20px hsl(24 95% 58% / 0.08);
+    --glass-glow: 0 0 20px hsl(var(--primary) / 0.08);
     --shadow-card: var(--glass-shadow);
     --shadow-elegant: var(--glass-shadow-lg);
 
@@ -208,33 +215,34 @@
     --auth-muted: #6B756A;
     --auth-green: #173A27;
     --auth-olive: #8A9A5B;
-    --auth-orange: #F97316;
-    --auth-orange-hover: #EA580C;
+    --auth-accent: #2B2E6E;
+    --auth-accent-hover: #21254F;
     --auth-border: #E5E2D8;
     --auth-input-bg: #FFFFFF;
 
     /* ── Acento por sección (dark): --seccion-acento-texto usa la variante
-       clara del par (más legible sobre fondo oscuro); --seccion-acento se
-       mantiene igual (ya es el color crudo, sirve en ambos temas). */
-    --seccion-acento-texto: 85 60% 60%;
-    --seccion-acento-suave: hsl(85 54% 51% / 0.18);
+       clara del par (más legible sobre fondo oscuro, y ya desaturada como el
+       resto de la calibración 2026-07-17); --seccion-acento se mantiene
+       igual (ya es el color crudo, sirve en ambos temas). */
+    --seccion-acento-texto: 85 33% 60%;
+    --seccion-acento-suave: hsl(85 30% 51% / 0.18);
   }
 
   .dark [data-seccion="produccion"] {
-    --seccion-acento-texto: 85 60% 60%;
-    --seccion-acento-suave: hsl(85 54% 51% / 0.18);
+    --seccion-acento-texto: 85 33% 60%;
+    --seccion-acento-suave: hsl(85 30% 51% / 0.18);
   }
   .dark [data-seccion="comercial"] {
-    --seccion-acento-texto: 205 64% 62%;
-    --seccion-acento-suave: hsl(206 75% 42% / 0.18);
+    --seccion-acento-texto: 205 35% 62%;
+    --seccion-acento-suave: hsl(206 41% 42% / 0.18);
   }
   .dark [data-seccion="rrhh"] {
-    --seccion-acento-texto: 27 89% 64%;
-    --seccion-acento-suave: hsl(25 87% 54% / 0.18);
+    --seccion-acento-texto: 27 49% 64%;
+    --seccion-acento-suave: hsl(25 48% 54% / 0.18);
   }
   .dark [data-seccion="direccion"] {
-    --seccion-acento-texto: 236 62% 76%;
-    --seccion-acento-suave: hsl(238 44% 30% / 0.22);
+    --seccion-acento-texto: 236 34% 76%;
+    --seccion-acento-suave: hsl(238 24% 30% / 0.22);
   }
 }
 

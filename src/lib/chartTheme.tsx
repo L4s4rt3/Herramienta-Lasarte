@@ -22,8 +22,20 @@ export const C = {
   muted:       "hsl(var(--muted-foreground))",
 } as const;
 
-// Paleta para series múltiples (máx 5 series)
-export const SERIES_PALETTE = [C.primary, C.info, C.success, C.warning, C.destructive];
+// Paleta para series múltiples (máx 5 series) — SIN significado semántico:
+// no reutiliza success/warning/destructive (esos colores siguen atados a su
+// significado allí donde se usan). Escala derivada del marino corporativo
+// (calibración de color 2026-07-17): marino, índigo medio, azul-gris, verde
+// apagado, neutro cálido — coherente en claro y oscuro porque el primer tono
+// es el token --primary (reacciona al tema) y el resto son medios tonos
+// pensados para verse bien sobre glass claro y oscuro por igual.
+export const SERIES_PALETTE = [
+  "hsl(var(--primary))",  // marino
+  "hsl(230 38% 58%)",     // índigo medio
+  "hsl(205 20% 52%)",     // azul-gris
+  "hsl(160 15% 48%)",     // verde apagado
+  "hsl(30 20% 52%)",      // neutro cálido
+];
 
 // Colores de destino de producción — fuente única de verdad para toda la app
 // (Dashboard, LoteDetailSheet, DailyListTable, Productores, AnalisisDiario...).
@@ -39,15 +51,16 @@ export const DEST_COLORS = {
   otro:          C.muted,
 } as const;
 
-// Para charts que necesitan 7 colores (días de semana)
+// Para charts que necesitan 7 colores (días de semana) — misma escala
+// derivada del marino que SERIES_PALETTE, sin colores semánticos.
 export const WEEK_PALETTE = [
-  "hsl(var(--primary))",
-  "hsl(var(--info))",
-  "hsl(var(--success))",
-  "hsl(var(--warning))",
-  "hsl(var(--destructive))",
-  "hsl(199 89% 65%)",   // info más claro
-  "hsl(24 95% 72%)",    // primary más claro
+  "hsl(var(--primary))",  // marino
+  "hsl(230 38% 58%)",     // índigo medio
+  "hsl(205 20% 52%)",     // azul-gris
+  "hsl(160 15% 48%)",     // verde apagado
+  "hsl(30 20% 52%)",      // neutro cálido
+  "hsl(245 26% 42%)",     // marino oscuro
+  "hsl(210 14% 62%)",     // azul-gris claro
 ];
 
 // ─── Props compartidos para recharts ─────────────────────────────────────────

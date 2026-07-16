@@ -472,7 +472,7 @@ export default function EconomicoCostes() {
       <div className="page-shell">
         <header className="page-header">
           <div>
-            <p className="panel-kicker text-seccion-texto">Económico</p>
+            <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Económico</p>
             <h1 className="page-title">Costes del periodo</h1>
             <p className="page-subtitle">Coste total y por kg producido, según las tarifas vigentes.</p>
           </div>
@@ -496,7 +496,7 @@ export default function EconomicoCostes() {
     <div className="page-shell">
       <header className="page-header">
         <div>
-          <p className="panel-kicker text-seccion-texto">Económico</p>
+          <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Económico</p>
           <h1 className="page-title">Costes del periodo</h1>
           <p className="page-subtitle">Coste total y por kg producido, según las tarifas vigentes.</p>
         </div>
@@ -675,7 +675,7 @@ export default function EconomicoCostes() {
       <div className="flex items-center gap-3 pt-2">
         <div className="h-7 w-1 rounded-full bg-primary" />
         <div>
-          <p className="panel-kicker text-seccion-texto">Económico</p>
+          <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Económico</p>
           <h2 className="text-xl font-semibold tracking-tight">Coste de mallas rotas</h2>
           <p className="text-sm text-muted-foreground">Reciclado de malla de cada zona / kg por malla = mallas rotas, × precio por malla = gasto.</p>
         </div>
@@ -749,7 +749,7 @@ export default function EconomicoCostes() {
       <div className="flex items-center gap-3 pt-2">
         <div className="h-7 w-1 rounded-full bg-primary" />
         <div>
-          <p className="panel-kicker text-seccion-texto">Económico</p>
+          <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Económico</p>
           <h2 className="text-xl font-semibold tracking-tight">Coste de personal</h2>
           <p className="text-sm text-muted-foreground">Coste por hora × horas trabajadas, agrupado por zona — de la mano de RRHH.</p>
         </div>
@@ -951,7 +951,7 @@ export default function EconomicoCostes() {
         <div className="flex items-center gap-3">
           <div className="h-7 w-1 rounded-full bg-primary" />
           <div>
-            <p className="panel-kicker text-seccion-texto">Económico</p>
+            <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Económico</p>
             <h2 className="text-xl font-semibold tracking-tight">Coste de compra de fruta</h2>
             <p className="text-sm text-muted-foreground">
               Entradas de báscula del periodo: importe_total si viene relleno del export, si no la suma de
@@ -1065,7 +1065,7 @@ export default function EconomicoCostes() {
       <div className="flex items-center gap-3 pt-2">
         <div className="h-7 w-1 rounded-full bg-primary" />
         <div>
-          <p className="panel-kicker text-seccion-texto">Económico</p>
+          <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Económico</p>
           <h2 className="text-xl font-semibold tracking-tight">Pérdidas de fruta (merma y podrido)</h2>
           <p className="text-sm text-muted-foreground">
             DESGLOSE del coste de compra de fruta de arriba — no es un gasto adicional, no se suma a ningún total de costes ni al margen.

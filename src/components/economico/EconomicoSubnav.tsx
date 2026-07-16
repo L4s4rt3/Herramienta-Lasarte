@@ -31,7 +31,7 @@ export function EconomicoSubnav() {
             className={cn(
               "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
               active
-                ? "border-seccion/40 bg-seccion/10 text-seccion-texto"
+                ? "border-primary/40 bg-primary/10 text-primary"
                 : "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground hover:bg-[var(--glass-bg-strong)] hover:text-foreground",
             )}
           >

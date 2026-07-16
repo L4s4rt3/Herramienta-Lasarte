@@ -82,8 +82,9 @@ export default function MercadonaProduccion() {
         <div>
           {/* Kicker-enlace de vuelta al panel de producción, con el acento de
               la sección (--seccion-acento-texto, FASE 2 del rediseño). */}
-          <p className="panel-kicker">
-            <Link to="/produccion" className="text-seccion-texto transition-colors hover:underline">
+          <p className="panel-kicker flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />
+            <Link to="/produccion" className="text-muted-foreground transition-colors hover:text-foreground hover:underline">
               Producción
             </Link>
           </p>

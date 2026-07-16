@@ -149,7 +149,7 @@ export default function Auth() {
           <div
             className="absolute top-0 left-6 right-6 h-[2px] rounded-full"
             style={{
-              background: "linear-gradient(90deg, transparent, #F97316, transparent)",
+              background: "linear-gradient(90deg, transparent, #2B2E6E, transparent)",
             }}
           />
 
@@ -188,9 +188,9 @@ export default function Auth() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="h-12 transition-shadow duration-300 focus:shadow-[0_0_0_4px_rgba(249,115,22,0.15)]"
+                  className="h-12 transition-shadow duration-300 focus:shadow-[0_0_0_4px_rgba(43,46,110,0.15)]"
                   style={inputStyle}
-                  onFocus={(e) => { e.target.style.borderColor = "#F97316"; e.target.style.boxShadow = "0 0 0 4px rgba(249,115,22,0.15)"; }}
+                  onFocus={(e) => { e.target.style.borderColor = "#2B2E6E"; e.target.style.boxShadow = "0 0 0 4px rgba(43,46,110,0.15)"; }}
                   onBlur={(e) => { e.target.style.borderColor = "var(--auth-border)"; e.target.style.boxShadow = "none"; }}
                 />
               </div>
@@ -200,7 +200,7 @@ export default function Auth() {
                   <button
                     type="button"
                     className="text-xs font-medium transition-colors hover:brightness-110"
-                    style={{ color: "var(--auth-orange)" }}
+                    style={{ color: "var(--auth-accent)" }}
                     onClick={(e) => {
                       e.preventDefault();
                       toast({
@@ -220,7 +220,7 @@ export default function Auth() {
                   required
                   className="h-12 transition-shadow duration-300"
                   style={inputStyle}
-                  onFocus={(e) => { e.target.style.borderColor = "#F97316"; e.target.style.boxShadow = "0 0 0 4px rgba(249,115,22,0.15)"; }}
+                  onFocus={(e) => { e.target.style.borderColor = "#2B2E6E"; e.target.style.boxShadow = "0 0 0 4px rgba(43,46,110,0.15)"; }}
                   onBlur={(e) => { e.target.style.borderColor = "var(--auth-border)"; e.target.style.boxShadow = "none"; }}
                 />
               </div>
@@ -229,7 +229,7 @@ export default function Auth() {
                   type="submit"
                   disabled={loading}
                   className="relative h-12 w-full overflow-hidden rounded-[10px] text-base font-semibold text-white transition-all duration-200 hover:brightness-110 active:scale-[0.98]"
-                  style={{ backgroundColor: "var(--auth-orange)" }}
+                  style={{ backgroundColor: "var(--auth-accent)" }}
                 >
                   {loading ? "..." : "Iniciar sesión"}
                   {!loading && (
@@ -248,7 +248,7 @@ export default function Auth() {
                 <button
                   type="button"
                   className="font-medium transition-colors hover:brightness-110"
-                  style={{ color: "var(--auth-orange)" }}
+                  style={{ color: "var(--auth-accent)" }}
                   onClick={() => setIsSignUp(true)}
                 >
                   Crear cuenta
@@ -267,7 +267,7 @@ export default function Auth() {
                   maxLength={100}
                   className="h-12 transition-shadow duration-300"
                   style={inputStyle}
-                  onFocus={(e) => { e.target.style.borderColor = "#F97316"; e.target.style.boxShadow = "0 0 0 4px rgba(249,115,22,0.15)"; }}
+                  onFocus={(e) => { e.target.style.borderColor = "#2B2E6E"; e.target.style.boxShadow = "0 0 0 4px rgba(43,46,110,0.15)"; }}
                   onBlur={(e) => { e.target.style.borderColor = "var(--auth-border)"; e.target.style.boxShadow = "none"; }}
                 />
               </div>
@@ -281,7 +281,7 @@ export default function Auth() {
                   required
                   className="h-12 transition-shadow duration-300"
                   style={inputStyle}
-                  onFocus={(e) => { e.target.style.borderColor = "#F97316"; e.target.style.boxShadow = "0 0 0 4px rgba(249,115,22,0.15)"; }}
+                  onFocus={(e) => { e.target.style.borderColor = "#2B2E6E"; e.target.style.boxShadow = "0 0 0 4px rgba(43,46,110,0.15)"; }}
                   onBlur={(e) => { e.target.style.borderColor = "var(--auth-border)"; e.target.style.boxShadow = "none"; }}
                 />
               </div>
@@ -296,7 +296,7 @@ export default function Auth() {
                   minLength={6}
                   className="h-12 transition-shadow duration-300"
                   style={inputStyle}
-                  onFocus={(e) => { e.target.style.borderColor = "#F97316"; e.target.style.boxShadow = "0 0 0 4px rgba(249,115,22,0.15)"; }}
+                  onFocus={(e) => { e.target.style.borderColor = "#2B2E6E"; e.target.style.boxShadow = "0 0 0 4px rgba(43,46,110,0.15)"; }}
                   onBlur={(e) => { e.target.style.borderColor = "var(--auth-border)"; e.target.style.boxShadow = "none"; }}
                 />
               </div>
@@ -305,7 +305,7 @@ export default function Auth() {
                   type="submit"
                   disabled={loading}
                   className="relative h-12 w-full overflow-hidden rounded-[10px] text-base font-semibold text-white transition-all duration-200 hover:brightness-110 active:scale-[0.98]"
-                  style={{ backgroundColor: "var(--auth-orange)" }}
+                  style={{ backgroundColor: "var(--auth-accent)" }}
                 >
                   {loading ? "..." : "Crear cuenta"}
                   {!loading && (
@@ -324,7 +324,7 @@ export default function Auth() {
                 <button
                   type="button"
                   className="font-medium transition-colors hover:brightness-110"
-                  style={{ color: "var(--auth-orange)" }}
+                  style={{ color: "var(--auth-accent)" }}
                   onClick={() => setIsSignUp(false)}
                 >
                   Iniciar sesión

@@ -282,7 +282,7 @@ export default function EconomicoFacturacion() {
       <div className="page-shell">
         <header className="page-header">
           <div>
-            <p className="panel-kicker text-seccion-texto">Económico</p>
+            <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Económico</p>
             <h1 className="page-title">Facturación</h1>
             <p className="page-subtitle">Facturación de Mercadona por semana y por método.</p>
           </div>
@@ -308,7 +308,7 @@ export default function EconomicoFacturacion() {
     <div className="page-shell">
       <header className="page-header">
         <div>
-          <p className="panel-kicker text-seccion-texto">Económico</p>
+          <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Económico</p>
           <h1 className="page-title">Facturación</h1>
           <p className="page-subtitle">
             Facturación de Mercadona por semana y por método. Las ventas de categoría segunda se muestran aparte

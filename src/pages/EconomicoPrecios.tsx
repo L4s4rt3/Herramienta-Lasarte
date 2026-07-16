@@ -215,7 +215,7 @@ export default function EconomicoPrecios() {
       <div className="page-shell">
         <header className="page-header">
           <div>
-            <p className="panel-kicker text-seccion-texto">Económico</p>
+            <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Económico</p>
             <h1 className="page-title">Tarifas de recursos</h1>
             <p className="page-subtitle">Precio por unidad de agua, electricidad, gasoil y químicos.</p>
           </div>
@@ -240,7 +240,7 @@ export default function EconomicoPrecios() {
       <header className="page-header">
         <div>
           <div className="flex items-center gap-2">
-            <p className="panel-kicker text-seccion-texto">Económico</p>
+            <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Económico</p>
             <Badge variant="outline" className="rounded-md px-2 py-0 text-xs">
               {recursos.length} recurso(s)
             </Badge>
@@ -668,7 +668,7 @@ function MallasRotasSection({ mallas }: { mallas: ReturnType<typeof useMallasCon
       <div className="flex items-center gap-3 pt-2">
         <div className="h-7 w-1 rounded-full bg-primary" />
         <div>
-          <p className="panel-kicker text-seccion-texto">Económico</p>
+          <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Económico</p>
           <h2 className="text-xl font-semibold tracking-tight">Mallas rotas (Z1/Z2)</h2>
           <p className="text-sm text-muted-foreground">
             En Z1 se usa un tipo de malla y en Z2 otro: peso de fruta por malla y precio por malla, para calcular el gasto de mallas rotas.
@@ -950,7 +950,7 @@ function EmpaqueSection({ empaque }: { empaque: ReturnType<typeof useEmpaquePrec
       <div className="flex items-center gap-3 pt-2">
         <div className="h-7 w-1 rounded-full bg-primary" />
         <div>
-          <p className="panel-kicker text-seccion-texto">Económico</p>
+          <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Económico</p>
           <h2 className="text-xl font-semibold tracking-tight">Costes de envasado</h2>
           <p className="text-sm text-muted-foreground">
             Precios de materiales de packaging (etiqueta, caja, palet, malla, banda, fleje, asa) por tipo de malla.
