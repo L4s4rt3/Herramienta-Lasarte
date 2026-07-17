@@ -1,5 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { normalizarTexto } from "./format";
+import { formatEuro, formatEurKg, normalizarTexto } from "./format";
+
+describe("formatEuro", () => {
+  // Valores < 1000 a propósito: Node sin full-icu no aplica el separador de
+  // miles es-ES en este entorno de test (ver comentario en src/lib/pdfKit.ts) —
+  // no es lo que este test quiere fijar, solo el comportamiento de formatEuro.
+  it("formatea con 2 decimales por defecto", () => {
+    expect(formatEuro(123.5)).toBe("123,50 €");
+  });
+
+  it("respeta un digits explicito (p.ej. DireccionDashboard con digits=0)", () => {
+    expect(formatEuro(123.6, 0)).toBe("124 €");
+  });
+
+  it("da — para null/undefined/NaN, no 0,00 EUR", () => {
+    expect(formatEuro(null)).toBe("—");
+    expect(formatEuro(undefined)).toBe("—");
+    expect(formatEuro(NaN)).toBe("—");
+  });
+});
+
+describe("formatEurKg", () => {
+  it("formatea con 3 decimales por defecto", () => {
+    expect(formatEurKg(0.1234)).toBe("0,123 €/kg");
+  });
+
+  it("da — para null/undefined/NaN", () => {
+    expect(formatEurKg(null)).toBe("—");
+    expect(formatEurKg(undefined)).toBe("—");
+  });
+});
 
 describe("normalizarTexto", () => {
   it("quita tildes y diacríticos", () => {

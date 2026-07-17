@@ -725,6 +725,17 @@ export function useEconomicoPanel(desde: string, hasta: string): EconomicoPanelD
     const mesesSet = new Set(mesesDelRango);
     const filas = (segunda.mensualClienteQuery.data ?? []).filter((r) => r.mes != null && mesesSet.has(r.mes));
     return {
+      // TODO-decisión-dueño (jul 2026): esto suma base_iva, es decir
+      // facturación BRUTA. El CMV (src/lib/cmv.ts: ventasCategoriaDelMes +
+      // facturacionNetaCategoriasDelMes, usado por useCmv.ts) valora la misma
+      // categoría con kilos × pm_real — facturación NETA de comisión y
+      // transporte de venta — y además incluye categoría PRIMERA (aquí no).
+      // Los dos números del margen (este Panel vs el CMV) DIVERGEN a
+      // propósito por esas dos diferencias; el dueño no ha decidido todavía
+      // si el Panel debe pasarse a NETO/incluir 1ª — hasta que lo haga, NO
+      // cambiar esta cifra para "hacerla coincidir" con el CMV (ver la nota
+      // cruzada en EconomicoCmv.tsx y el labelInfo del margen en
+      // EconomicoPanel.tsx).
       total: filas.reduce((sum, r) => sum + (r.base_iva ?? 0), 0),
       isLoading: segunda.categoriasQuery.isLoading || segunda.mensualClienteQuery.isLoading,
       disponible: segunda.categoriaId != null,

@@ -28,6 +28,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { errorMessage, toError } from "@/lib/errorMessage";
 import { idCortoStorage, sanearNombreArchivo } from "@/lib/cmrArchivo";
 import { casarPaginaConTrabajador, type PaginaNomina, type TrabajadorNominaCandidato } from "@/lib/nominasPdf";
+import { isPermissionError } from "@/lib/supabaseErrors";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
@@ -37,21 +38,10 @@ const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const BUCKET = "rrhh-docs";
 
-const PERMISSION_ERROR_CODES = new Set(["42501", "PGRST301", "PGRST302"]);
-
-/** Distingue "sin permiso RLS" (degradar con aviso) de otros errores (relanzar). */
-export function isPermissionError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const record = error as { code?: string; message?: string; status?: number };
-  if (record.code && PERMISSION_ERROR_CODES.has(record.code)) return true;
-  if (record.status === 401 || record.status === 403) return true;
-  const message = (record.message ?? "").toLowerCase();
-  return (
-    message.includes("permission denied") ||
-    message.includes("row-level security") ||
-    message.includes("row level security")
-  );
-}
+// isPermissionError: extraído a src/lib/supabaseErrors.ts (consolidación
+// parcial, hallazgo de auditoría del CMV) — se re-exporta tal cual para no
+// romper el punto de importación de quien ya lo traía desde este módulo.
+export { isPermissionError };
 
 export interface TrabajadorActivo {
   id: string;

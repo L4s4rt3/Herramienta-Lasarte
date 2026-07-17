@@ -604,6 +604,17 @@ export interface KgVendidosDerivadosResult {
  * (useConsumosFisicos/ConsumoCostes) le pasa los datos ya cargados de
  * useMercadonaVentas/useVentasCategoria("Categoria segunda").
  */
+/**
+ * REFERENCIA CRUZADA: src/lib/economico.ts tiene `prorratearVentasMercadonaEnRango`,
+ * el mismo prorrateo de semanas Mercadona por solape de días (extraído de
+ * useCmv.ts). Esta función NO se migró a esa por una diferencia de semántica
+ * a propósito: aquí se mide kg FÍSICOS vendidos (no facturación), así que las
+ * semanas SIN base_iva (histórico) también cuentan — tienen `vendido_kg`
+ * válido aunque no traigan €. `prorratearVentasMercadonaEnRango` con
+ * `soloConBaseIva=true` (el criterio del CMV) las excluiría, infravalorando
+ * los kg físicos de un periodo con semanas históricas. Si esta función
+ * cambia, revisar si el cambio también aplica a la de economico.ts.
+ */
 export function kgVendidosDerivados(
   rango: KgVendidosRango,
   semanasMercadona: KgVendidosSemanaMercadonaInput[],

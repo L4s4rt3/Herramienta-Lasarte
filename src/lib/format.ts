@@ -13,6 +13,23 @@ export const formatPct = (v: number | null | undefined, digits = 1) =>
 export const formatNumber = (v: number | null | undefined, digits = 0) =>
   (digits === 0 ? _nf : _nfCustom(digits)).format(Number(v || 0));
 
+// Euros con "—" para null/NaN (en vez de "0,00 €", que sugeriría un dato real
+// de cero en vez de "sin dato"). Única fuente: antes había 6 copias locales
+// idénticas en EconomicoPanel/Cmv/Costes/Fruta/Facturacion/DireccionDashboard
+// — cada copia respeta su propio digits por defecto en la llamada (la de
+// DireccionDashboard usaba digits=0, el resto digits=2).
+export const formatEuro = (value: number | null | undefined, digits = 2): string => {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${formatNumber(value, digits)} €`;
+};
+
+// €/kg con 3 decimales por defecto: en cítricos los céntimos por kg son la
+// diferencia entre ganar y perder (ver Económico → CMV).
+export const formatEurKg = (value: number | null | undefined, digits = 3): string => {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${formatNumber(value, digits)} €/kg`;
+};
+
 // Kg compactos para tablas y paneles densos (Análisis diario, Productores…):
 // a partir de 1 t se muestra en toneladas con un decimal ("45,7 t"); por
 // debajo, kg enteros ("980 kg"). Única fuente: antes había 5 copias locales.

@@ -61,17 +61,12 @@ import {
   C, GRID, GlassTooltip, MARGIN, XAXIS, YAXIS, barFill, CHART_PANEL_CLASS, CHART_CURSOR,
 } from "@/lib/chartTheme";
 import { errorMessage } from "@/lib/errorMessage";
-import { formatDate, formatKg, formatNumber, formatPct, today } from "@/lib/format";
+import { formatDate, formatEuro, formatKg, formatNumber, formatPct, today } from "@/lib/format";
 import {
   añadirHojaTabla, crearLibroLasarte, descargarLibro, FMT_EUR, FMT_EUR_KG, FMT_INT, FMT_KG, FMT_PCT,
   type ColumnaTabla,
 } from "@/lib/exportKit";
 import { buildLasarteFilename } from "@/lib/reportKit";
-
-function formatEuro(value: number | null | undefined, digits = 2): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return `${formatNumber(value, digits)} €`;
-}
 
 // Fecha "YYYY-MM-DD" anclada al mediodía local, igual que el resto de exports
 // Lasarte (ver EconomicoPrecios.tsx) — evita el desplazamiento de zona horaria

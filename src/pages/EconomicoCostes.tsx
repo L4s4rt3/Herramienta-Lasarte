@@ -51,7 +51,7 @@ import {
   C, GRID, GlassTooltip, MARGIN, XAXIS, YAXIS, barFill, CHART_PANEL_CLASS, CHART_CURSOR,
 } from "@/lib/chartTheme";
 import { errorMessage } from "@/lib/errorMessage";
-import { formatDate, formatKg, formatNumber, formatPct, today } from "@/lib/format";
+import { formatDate, formatEuro, formatKg, formatNumber, formatPct, today } from "@/lib/format";
 import {
   añadirHojaTabla, crearLibroLasarte, descargarLibro, FMT_EUR, FMT_EUR_KG, FMT_INT, FMT_KG, FMT_PCT,
   type ColumnaTabla,
@@ -81,11 +81,6 @@ const RECURSO_ICON: Record<string, LucideIcon> = {
 
 function recursoLabel(recurso: string): string {
   return RECURSO_LABEL[recurso] ?? recurso.charAt(0).toUpperCase() + recurso.slice(1);
-}
-
-function formatEuro(value: number | null | undefined, digits = 2): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return `${formatNumber(value, digits)} €`;
 }
 
 // Fuente del precio de malla usado en el desglose ("envasado" es la fuente

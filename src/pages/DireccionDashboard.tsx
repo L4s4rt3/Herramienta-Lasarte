@@ -33,15 +33,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KPICard } from "@/components/KPICard";
 import { useDireccionDashboard } from "@/hooks/useDireccionDashboard";
-import { formatKg, formatNumber, formatPct } from "@/lib/format";
+import { formatEuro, formatKg, formatNumber, formatPct } from "@/lib/format";
 import {
   BAR_STYLE, C, CHART_PANEL_CLASS, GlassTooltip, GRID, lineStyle, MARGIN, XAXIS, YAXIS,
 } from "@/lib/chartTheme";
-
-function formatEuro(value: number | null | undefined, digits = 0): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return `${formatNumber(value, digits)} €`;
-}
 
 function cumplimientoAccent(pct: number): "success" | "warning" | "destructive" {
   if (pct >= 95) return "success";
@@ -240,7 +235,7 @@ export default function DireccionDashboard() {
                 }
                 hint={
                   comercial.hasAccessCategorias && comercial.mesAnterior.hayDatos
-                    ? `${formatEuro(comercial.mesAnterior.baseIva)} base IVA · mes pasado`
+                    ? `${formatEuro(comercial.mesAnterior.baseIva, 0)} base IVA · mes pasado`
                     : `Mes pasado sin importar (${comercial.mesAnterior.label})`
                 }
                 icon={Layers}
@@ -353,7 +348,7 @@ export default function DireccionDashboard() {
                     <KPICard
                       className="glass-accented"
                       label={`Facturación (${economico.periodoLabel})`}
-                      value={formatEuro(economico.facturacionPeriodo)}
+                      value={formatEuro(economico.facturacionPeriodo, 0)}
                       icon={Euro}
                       labelInfo="Mercadona (base IVA de las semanas del periodo) + ventas de categoría segunda a clientes fijos. Mismo dato que 'Facturación (Mercadona + 2ª)' del Panel Económico."
                       to="/economico/facturacion"
@@ -361,7 +356,7 @@ export default function DireccionDashboard() {
                     <KPICard
                       className="glass-accented"
                       label="Costes totales"
-                      value={formatEuro(economico.costeTotal)}
+                      value={formatEuro(economico.costeTotal, 0)}
                       icon={Receipt}
                       labelInfo="Consumos (agua, gasoil, electricidad, químicos) + mallas rotas + compra de fruta + coste de personal. Mismo total que usa el Panel Económico para el margen bruto."
                       to="/economico/costes"
@@ -369,7 +364,7 @@ export default function DireccionDashboard() {
                     <KPICard
                       className="glass-accented"
                       label="Margen bruto estimado"
-                      value={formatEuro(economico.margenBruto)}
+                      value={formatEuro(economico.margenBruto, 0)}
                       accent={economico.margenBruto >= 0 ? "success" : "destructive"}
                       icon={TrendingUp}
                       labelInfo="Facturación (Mercadona + 2ª) − consumos − mallas − compra de fruta − coste de personal. Mismo cálculo y mismo número que el Panel Económico para este periodo."

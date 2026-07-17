@@ -15,7 +15,7 @@ import {
   Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  AlertTriangle, ArrowRight, Citrus, Droplet, Euro, FlaskConical, Fuel, Info, PackageX, Receipt, Scale,
+  AlertTriangle, ArrowRight, Calculator, Citrus, Droplet, Euro, FlaskConical, Fuel, Info, PackageX, Receipt, Scale,
   ShieldAlert, ShoppingCart, Tag, TrendingUp, Users, Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -32,10 +32,12 @@ import { ReferenciaMedia } from "@/components/charts/ReferenciaMedia";
 import { EconomicoSubnav } from "@/components/economico/EconomicoSubnav";
 import { useEconomicoPanel } from "@/hooks/useEconomico";
 import { useMermaLotes } from "@/hooks/useMermaLote";
+import { useCmvCostesMensuales } from "@/hooks/useCmv";
 import { metodoLabel } from "@/components/mercadona/mercadonaAnalisis.helpers";
 import { periodoDeFecha, rangoPersonalizado, type PeriodoValue } from "@/lib/selectorPeriodo";
-import { formatDate, formatKg, formatNumber, today, toISODateLocal } from "@/lib/format";
+import { formatDate, formatEuro, formatKg, formatNumber, today, toISODateLocal } from "@/lib/format";
 import { agregarMermaLotes, mermaLotesEnPeriodo } from "@/lib/mermaLote";
+import { mesesEnRango } from "@/lib/economico";
 import {
   C, CHART_CURSOR, CHART_PANEL_CLASS, GRID, GlassTooltip, MARGIN, XAXIS, YAXIS, barFill, legendStyle, lineStyle,
 } from "@/lib/chartTheme";
@@ -59,11 +61,6 @@ function recursoLabel(recurso: string): string {
   return RECURSO_LABEL[recurso] ?? recurso.charAt(0).toUpperCase() + recurso.slice(1);
 }
 
-function formatEuro(value: number | null | undefined, digits = 2): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return `${formatNumber(value, digits)} €`;
-}
-
 /** Formato compacto para los ticks del eje Y (evita números crudos sin separador de miles). */
 function formatEuroCompact(value: number): string {
   if (!Number.isFinite(value)) return "";
@@ -83,6 +80,7 @@ function fuenteMallasResumen(fuenteZ1: "envasado" | "manual" | null, fuenteZ2: "
 }
 
 const ACCESOS_RAPIDOS = [
+  { to: "/economico/cmv", label: "CMV", desc: "Coste medio por kg vendido y margen", icon: Calculator },
   { to: "/economico/facturacion", label: "Facturación", desc: "Semanas y métodos de Mercadona", icon: Euro },
   { to: "/economico/costes", label: "Costes", desc: "Consumos vs tarifas por periodo", icon: Receipt },
   { to: "/economico/fruta", label: "Compra de fruta", desc: "Detalle por lote, agricultor y forfait", icon: Citrus },
@@ -130,6 +128,18 @@ export default function EconomicoPanel() {
     const enRango = mermaLotesEnPeriodo(mermaLotesTodos, periodo.desde, periodo.hasta).filter((l) => l.estado === "procesado");
     return agregarMermaLotes(enRango);
   }, [mermaLotesTodos, periodo]);
+
+  // Aviso: ¿hay coste de personal REAL registrado en el CMV (cmv_costes_mensuales)
+  // para algún mes que solape este periodo? Este margen (useEconomicoPanel →
+  // useCostePersonal) siempre usa la ESTIMACIÓN por asistencia, nunca el
+  // apunte manual del CMV — se avisa para que no se lea como "personal real"
+  // por error. Reutiliza la query cacheada de useCmvCostesMensuales (misma
+  // clave que ya usa Económico → CMV) en vez de duplicar el fetch.
+  const manualesCmv = useCmvCostesMensuales();
+  const mesesPersonalRealEnPeriodo = useMemo(() => {
+    const meses = new Set(mesesEnRango(periodo.desde, periodo.hasta));
+    return manualesCmv.rows.filter((r) => r.tipo === "personal_real" && meses.has(r.mes));
+  }, [manualesCmv.rows, periodo]);
 
   const mostrarGrafico = panel.serieCombinada.length >= 2;
   const maxSerie = Math.max(...panel.serieCombinada.map((s) => Math.max(s.facturacion, s.coste)), 0);
@@ -270,6 +280,20 @@ export default function EconomicoPanel() {
         </Card>
       )}
 
+      {mesesPersonalRealEnPeriodo.length > 0 && (
+        <Card className="glass border-info/30 bg-info/6">
+          <CardContent className="flex flex-wrap items-center gap-3 pt-6">
+            <Info className="h-5 w-5 shrink-0 text-info" />
+            <p className="flex-1 text-sm">
+              Hay coste de personal REAL registrado en CMV para este periodo; este margen usa la estimación por asistencia.
+            </p>
+            <Button asChild size="sm" variant="outline" className="glass glass-hover">
+              <Link to="/economico/cmv">Ver CMV</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ─── KPIs ─────────────────────────────────────────────────────────── */}
       {panel.isLoading || isLoadingMerma ? (
         <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
@@ -343,6 +367,7 @@ export default function EconomicoPanel() {
             icon={TrendingUp}
             accent={panel.margenBruto >= 0 ? "success" : "destructive"}
             hint="Facturación (Mercadona + 2ª) − consumos − mallas − fruta − personal"
+            labelInfo="Facturación BRUTA (base IVA) de Mercadona + categoría segunda, menos consumos, mallas rotas, compra de fruta y personal. Para el escandallo por kg con facturación NETA (tras comisión/transporte de venta, 1ª + 2ª categoría), ver Económico → CMV — los dos márgenes difieren a propósito."
             /* --vivo: KPI principal de este dashboard (dato vivo, ajuste 2026-07-16) */
             valueClassName="text-vivo"
           />

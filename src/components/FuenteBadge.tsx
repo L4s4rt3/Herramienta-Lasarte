@@ -27,7 +27,9 @@ export type FuenteBadgeVariant =
   | "sin_dato"
   | "mixto"
   | "manual"
-  | "envasado";
+  | "envasado"
+  | "modulo"
+  | "calculado";
 
 export type FuenteBadgeSize = "sm" | "md";
 
@@ -39,6 +41,10 @@ const VARIANT_LABEL: Record<FuenteBadgeVariant, Record<FuenteBadgeSize, string>>
   mixto: { sm: "mixto", md: "mixto" },
   manual: { sm: "Manual", md: "Manual" },
   envasado: { sm: "Del envasado", md: "Del envasado" },
+  // "modulo"/"calculado": añadidas para el escandallo del CMV (Económico →
+  // CMV), que sustituyó su propio FuenteChip local por este badge único.
+  modulo: { sm: "auto", md: "automático" },
+  calculado: { sm: "calc.", md: "calculado" },
 };
 
 // Colores: verde = real, gris = estimado/sin dato, ámbar = asumido — tal
@@ -54,6 +60,8 @@ const VARIANT_CLASS: Record<FuenteBadgeVariant, string> = {
   mixto: "border-info/30 bg-info/10 text-info",
   manual: "border-muted-foreground/30 text-muted-foreground",
   envasado: "border-primary/40 bg-primary/10 text-primary",
+  modulo: "border-sky-500/35 bg-sky-500/12 text-sky-800 dark:text-sky-200",
+  calculado: "border-violet-500/35 bg-violet-500/12 text-violet-800 dark:text-violet-200",
 };
 
 const VARIANT_TITLE: Record<FuenteBadgeVariant, string> = {
@@ -64,6 +72,8 @@ const VARIANT_TITLE: Record<FuenteBadgeVariant, string> = {
   mixto: "Combina datos reales y estimados en el mismo periodo.",
   manual: "Precio introducido a mano: no hay coste de envasado configurado para este tipo.",
   envasado: "Precio calculado a partir del coste total de envasado por malla.",
+  modulo: "Dato calculado automáticamente por la herramienta a partir de sus propios módulos (consumos, mallas, fruta, personal).",
+  calculado: "Resultado calculado a partir de otros datos del sistema (p. ej. envasado de la fruta vendida).",
 };
 
 const SIZE_CLASS: Record<FuenteBadgeSize, string> = {

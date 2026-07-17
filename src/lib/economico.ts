@@ -340,3 +340,108 @@ export function solapeCantidadEnRango(
 
   return overlapDias > 0 ? cantidad * (overlapDias / totalDias) : 0;
 }
+
+// ─── Prorrateo de ventas Mercadona por solape de días con un rango ──────────
+//
+// Mercadona reporta por semana (lunes-sábado, mercadonaWeekDateRange); varias
+// pantallas necesitan atribuir esa venta semanal a un rango de días distinto
+// (el mes natural del CMV, un periodo cualquiera de Consumos) prorrateando
+// por solape de días con `solapeCantidadEnRango`. Esta función centraliza ese
+// prorrateo para kg + facturación + kg por método (antes vivía inline en
+// useCmv.ts). Los dos usos existentes difieren en si necesitan facturación y
+// si filtran las semanas sin base_iva (ver `ProrratearVentasMercadonaOpciones`):
+//  - useCmv.ts (CMV mensual): SÍ filtra por base_iva (soloConBaseIva=true) y
+//    SÍ necesita facturación/kilosPorMetodo (conFacturacion=true) — el CMV
+//    necesita €, y una semana sin base_iva no aporta ni kg fiables ni €.
+//  - src/lib/consumosFisicos.ts (kgVendidosDerivados): mide kg FÍSICOS
+//    vendidos, no facturación — por eso NO filtra por base_iva (semanas
+//    históricas sin base_iva sí tienen vendido_kg válido) y no necesita el
+//    desglose por método. Mantiene su propio prorrateo (mismo cálculo, otra
+//    semántica) en vez de llamar aquí con conFacturacion=false — ver el
+//    comentario cruzado en su cabecera (sección "kg vendidos DERIVADOS").
+
+export interface VentaMercadonaSemanaProrrateoInput {
+  /** Lunes de la semana (rango L-S de Mercadona, mercadonaWeekDateRange). */
+  desde: string;
+  /** Sábado de la semana. */
+  hasta: string;
+  /** true si la semana trae base_iva real (tieneBaseIvaSemana de useEconomico.ts). */
+  tieneBaseIva: boolean;
+  vendidoKg: number;
+  /** Suma de base_iva de los métodos de la semana. */
+  baseIvaMetodos: number;
+  ajustesBaseIva: number;
+  metodos: { metodo: string; kilos: number }[];
+}
+
+export interface VentaMercadonaMetodoKilos {
+  metodo: string;
+  kilos: number;
+}
+
+export interface VentasMercadonaProrrateadas {
+  kg: number;
+  facturacion: number;
+  /** Nº de semanas que aportaron algo al rango (kg o facturación > 0). */
+  semanas: number;
+  kilosPorMetodo: VentaMercadonaMetodoKilos[];
+}
+
+export interface ProrratearVentasMercadonaOpciones {
+  /** Excluye del todo las semanas sin base_iva (no cuentan ni kg ni €). */
+  soloConBaseIva: boolean;
+  /** Si false, no calcula facturación ni kilosPorMetodo (kg físico puro, sin €). */
+  conFacturacion: boolean;
+}
+
+/**
+ * Prorratea kg + facturación + kg por método de varias semanas Mercadona por
+ * solape de días con [rangoDesde, rangoHasta]. Ver cabecera de esta sección
+ * para el porqué de `opciones` y quién usa cada combinación.
+ */
+export function prorratearVentasMercadonaEnRango(
+  semanas: VentaMercadonaSemanaProrrateoInput[],
+  rangoDesde: string,
+  rangoHasta: string,
+  opciones: ProrratearVentasMercadonaOpciones,
+): VentasMercadonaProrrateadas {
+  let kg = 0;
+  let facturacion = 0;
+  let semanasCount = 0;
+  const porMetodo = new Map<string, number>();
+
+  for (const semana of semanas) {
+    if (opciones.soloConBaseIva && !semana.tieneBaseIva) continue;
+
+    const kgMes = solapeCantidadEnRango(semana.desde, semana.hasta, semana.vendidoKg, rangoDesde, rangoHasta);
+
+    let netoMes = 0;
+    if (opciones.conFacturacion) {
+      const netoSemana = semana.baseIvaMetodos + semana.ajustesBaseIva;
+      netoMes = netoSemana === 0
+        ? 0
+        : Math.sign(netoSemana) * solapeCantidadEnRango(semana.desde, semana.hasta, Math.abs(netoSemana), rangoDesde, rangoHasta);
+    }
+
+    if (kgMes <= 0 && netoMes === 0) continue;
+    semanasCount += 1;
+    kg += kgMes;
+    facturacion += netoMes;
+
+    if (opciones.conFacturacion) {
+      for (const metodo of semana.metodos) {
+        const kilosMes = solapeCantidadEnRango(semana.desde, semana.hasta, metodo.kilos, rangoDesde, rangoHasta);
+        if (kilosMes <= 0) continue;
+        const clave = metodo.metodo.toUpperCase();
+        porMetodo.set(clave, (porMetodo.get(clave) ?? 0) + kilosMes);
+      }
+    }
+  }
+
+  return {
+    kg,
+    facturacion,
+    semanas: semanasCount,
+    kilosPorMetodo: Array.from(porMetodo.entries()).map(([metodo, kilos]) => ({ metodo, kilos })),
+  };
+}

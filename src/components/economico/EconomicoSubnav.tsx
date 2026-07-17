@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 
 const ECONOMICO_LINKS = [
   { to: "/economico", label: "Panel" },
+  { to: "/economico/cmv", label: "CMV" },
   { to: "/economico/facturacion", label: "Facturación" },
   { to: "/economico/costes", label: "Costes" },
   { to: "/economico/fruta", label: "Compra de fruta" },

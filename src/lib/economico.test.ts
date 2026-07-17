@@ -8,11 +8,13 @@ import {
   importeEntradaFruta,
   mesesEnRango,
   precioVigente,
+  prorratearVentasMercadonaEnRango,
   solapeCantidadEnRango,
   tarifaVigente,
   type CosteEntrada,
   type CosteFrutaEntradaInput,
   type EconomicoPrecioInput,
+  type VentaMercadonaSemanaProrrateoInput,
 } from "./economico";
 
 const PRECIOS_AGUA: EconomicoPrecioInput[] = [
@@ -224,6 +226,97 @@ describe("agregarCosteFruta", () => {
     expect(resultado.totalImporte).toBe(0);
     expect(resultado.kgTotales).toBe(0);
     expect(resultado.serieSemanal).toEqual([]);
+  });
+});
+
+describe("prorratearVentasMercadonaEnRango", () => {
+  // Semana L-S completa dentro de julio 2026 (14-19 jul).
+  const semanaCompleta: VentaMercadonaSemanaProrrateoInput = {
+    desde: "2026-07-13",
+    hasta: "2026-07-18",
+    tieneBaseIva: true,
+    vendidoKg: 6000, // 1000 kg/dia * 6 dias
+    baseIvaMetodos: 3000,
+    ajustesBaseIva: 0,
+    metodos: [{ metodo: "ma3kgc", kilos: 6000 }],
+  };
+
+  // Semana que cruza de mes: mitad en julio (3 dias: 29-31), mitad en agosto (3 dias: 1-3).
+  const semanaCruzada: VentaMercadonaSemanaProrrateoInput = {
+    desde: "2026-07-29",
+    hasta: "2026-08-03",
+    tieneBaseIva: true,
+    vendidoKg: 1200,
+    baseIvaMetodos: 600,
+    ajustesBaseIva: 60,
+    metodos: [{ metodo: "MA5KGC", kilos: 1200 }],
+  };
+
+  it("cuenta entera una semana que cae completa dentro del rango", () => {
+    const result = prorratearVentasMercadonaEnRango(
+      [semanaCompleta],
+      "2026-07-01",
+      "2026-07-31",
+      { soloConBaseIva: true, conFacturacion: true },
+    );
+    expect(result.kg).toBeCloseTo(6000);
+    expect(result.facturacion).toBeCloseTo(3000);
+    expect(result.semanas).toBe(1);
+    expect(result.kilosPorMetodo).toEqual([{ metodo: "MA3KGC", kilos: 6000 }]);
+  });
+
+  it("prorratea por solape de dias una semana que cruza de mes (mitad julio, mitad agosto)", () => {
+    const result = prorratearVentasMercadonaEnRango(
+      [semanaCruzada],
+      "2026-07-01",
+      "2026-07-31",
+      { soloConBaseIva: true, conFacturacion: true },
+    );
+    // 3 de 6 dias caen en julio -> mitad de kg, base_iva y ajustes.
+    expect(result.kg).toBeCloseTo(600);
+    expect(result.facturacion).toBeCloseTo(330); // (600+60)/2
+    expect(result.kilosPorMetodo).toEqual([{ metodo: "MA5KGC", kilos: 600 }]);
+  });
+
+  it("con soloConBaseIva=true excluye del todo las semanas sin base_iva", () => {
+    const semanaSinBaseIva: VentaMercadonaSemanaProrrateoInput = {
+      ...semanaCompleta,
+      tieneBaseIva: false,
+    };
+    const result = prorratearVentasMercadonaEnRango(
+      [semanaSinBaseIva],
+      "2026-07-01",
+      "2026-07-31",
+      { soloConBaseIva: true, conFacturacion: true },
+    );
+    expect(result.kg).toBe(0);
+    expect(result.semanas).toBe(0);
+  });
+
+  it("con soloConBaseIva=false SI cuenta las semanas sin base_iva (kg fisico puro)", () => {
+    const semanaSinBaseIva: VentaMercadonaSemanaProrrateoInput = {
+      ...semanaCompleta,
+      tieneBaseIva: false,
+    };
+    const result = prorratearVentasMercadonaEnRango(
+      [semanaSinBaseIva],
+      "2026-07-01",
+      "2026-07-31",
+      { soloConBaseIva: false, conFacturacion: false },
+    );
+    expect(result.kg).toBeCloseTo(6000);
+  });
+
+  it("con conFacturacion=false no calcula facturacion ni kilosPorMetodo", () => {
+    const result = prorratearVentasMercadonaEnRango(
+      [semanaCompleta],
+      "2026-07-01",
+      "2026-07-31",
+      { soloConBaseIva: true, conFacturacion: false },
+    );
+    expect(result.kg).toBeCloseTo(6000);
+    expect(result.facturacion).toBe(0);
+    expect(result.kilosPorMetodo).toEqual([]);
   });
 });
 
