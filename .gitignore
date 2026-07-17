@@ -13,6 +13,7 @@ outputs/
 # Local agent artifacts
 .commandcode/
 .superpowers/
+.playwright-cli/
 
 node_modules
 dist
