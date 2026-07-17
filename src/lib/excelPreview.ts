@@ -241,8 +241,12 @@ export function formatMetricValue(label: string, value: string): string {
   if (isNumericLikeString(trimmed) && !/^\d+$/.test(trimmed)) {
     // Solo reformatea si ya trae signos de número "de verdad" (decimales o
     // separadores); un entero corto suelto ("8", "96") se deja tal cual para
-    // no convertir códigos/IDs en "8,00" o similar.
-    return formatNumberEs(parseLooseNumber(trimmed) ?? 0);
+    // no convertir códigos/IDs en "8,00" o similar. `isNumericLikeString`
+    // también reconoce el patrón anotado "N (N)*" (ver ANNOTATED_NUMBER_RE)
+    // que `parseLooseNumber` NO puede parsear — en ese caso se deja el texto
+    // tal cual en vez de colapsarlo a "0,00" (antes: `?? 0` perdía el valor).
+    const n = parseLooseNumber(trimmed);
+    if (n !== null) return formatNumberEs(n);
   }
   return trimmed;
 }
@@ -272,9 +276,27 @@ export function parseLooseNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Patrón "N (N)*"/"N (M)*" de los informes de calidad del calibrador
+ * (p.ej. "216,84 (216,84)*", "1.035,58 (1.035,58)*"): un valor seguido del
+ * mismo valor u otro relacionado entre paréntesis con un asterisco de nota al
+ * pie ("* el primer número se calcula sobre las categorías totalizadoras...").
+ * `parseLooseNumber` NO lo reconoce (el paréntesis rompe el parseo), así que
+ * sin este patrón, filas enteras de pares etiqueta→valor con este tipo de
+ * valor (ej. "Toneladas / Hora | 14,89 (14,89)* | Cartons | 1.655,49
+ * (1.655,49)*") no se detectaban como fila kv y colaban como CABECERA DE
+ * COLUMNA (bug real verificado en "Informe 26043013.xlsx"/"Informe
+ * 26042912.xlsx": el visor mostraba columnas literalmente llamadas "14,89
+ * (14,89)*" o "1.655,49 (1.655,49)*"). Solo se usa para CLASIFICAR (¿es esto
+ * numérico?), nunca para reformatear el valor — no se toca `parseLooseNumber`
+ * para no arriesgar perder el segundo número al mostrarlo.
+ */
+const ANNOTATED_NUMBER_RE = /^-?[\d.,]*\d\s*\([\d.,]*\d\)\*?$/;
+
 function isNumericLikeString(s: string): boolean {
   if (!s) return false;
-  return parseLooseNumber(s) !== null && /\d/.test(s);
+  if (parseLooseNumber(s) !== null && /\d/.test(s)) return true;
+  return ANNOTATED_NUMBER_RE.test(s.trim());
 }
 
 // ─── Formateo por tipo (usa los formateadores es-ES existentes) ─────────
@@ -570,6 +592,29 @@ function isFootnoteRow(row: string[]): boolean {
   return false;
 }
 
+/**
+ * Fila de CAMBIO DE SECCIÓN incrustada a mitad de tabla ("Clase: (B) Extra 2
+ * | Grupo de Clasificación: EXPORTACION"): caso real verificado en "Informe
+ * 26043013.xlsx" — el informe de Tamaño/Clase/Producto agrupa sus filas de
+ * tamaño en bloques por Clase, y cada bloque nuevo mete esta fila de
+ * pares etiqueta→valor EN MEDIO de las filas de dato. `extractFourCellKvPairs`
+ * no la reconoce como kv (sus "valores" — "(B) Extra 2", "EXPORTACION" — son
+ * texto, no `looksLikeKvValue`), así que sin este detector colaba como fila
+ * de dato garabateada ("Tamaño: Clase:, Piezas: (B) Extra 2..."). La señal
+ * fiable aquí es posicional: tras colapsar por tramos (`rowRuns`), un número
+ * PAR de tramos donde CADA tramo de posición par termina en ":" es
+ * inequívocamente una fila de pares etiqueta→valor, sea cual sea el
+ * contenido del valor.
+ */
+function isInlineSectionHeaderRow(row: string[]): boolean {
+  const runs = rowRuns(row);
+  if (runs.length < 2 || runs.length % 2 !== 0) return false;
+  for (let i = 0; i < runs.length; i += 2) {
+    if (!runs[i].trim().endsWith(":")) return false;
+  }
+  return true;
+}
+
 function matchSummaryRow(row: string[]): { label: string; value: string } | null {
   const nonEmpty = row.map((c, i) => ({ c, i })).filter((x) => x.c.length > 0);
   if (nonEmpty.length < 2) return null;
@@ -797,6 +842,26 @@ export function parseSheet(grid: unknown[][], filename: string, sheetName: strin
   }
   const pickRow = (row: string[]): string[] => originalIdx.map((i) => row[i] ?? "");
 
+  /**
+   * ¿Esta fila de dato (ya reducida a las columnas usadas) es literalmente
+   * una REPETICIÓN de la fila de cabecera? Caso real verificado en "Informe
+   * 26043013.xlsx": el informe reimprime "Tamaño | Piezas | % Piezas | Peso
+   * (kg)..." cada vez que empieza un nuevo bloque de Clase, colándose como
+   * fila de dato garabateada en vez de descartarse.
+   */
+  function isRepeatedHeaderRow(pickedRow: string[]): boolean {
+    let checked = 0;
+    let matches = 0;
+    for (let i = 0; i < headers.length; i++) {
+      if (placeholders[i]) continue;
+      const cell = (pickedRow[i] ?? "").trim();
+      if (!cell) continue;
+      checked++;
+      if (cell === headers[i]) matches++;
+    }
+    return checked >= 2 && matches === checked;
+  }
+
   const dataRowsRaw: Array<{ row: string[]; rowNumber: number }> = [];
   let totalRow: string[] | undefined;
   const summaryRows: Metric[] = [];
@@ -836,8 +901,26 @@ export function parseSheet(grid: unknown[][], filename: string, sheetName: strin
     const rowNumber = i + 1;
     if (row.every((c) => !c)) continue;
 
+    if (isInlineSectionHeaderRow(row)) {
+      const preview = rowRuns(row).join(" | ");
+      discarded.push({ rowNumber, reason: "Cambio de sección (Clase/Grupo) incrustado en la tabla", preview: preview.slice(0, 80) });
+      continue;
+    }
+
+    if (isRepeatedHeaderRow(pickRow(row))) {
+      discarded.push({ rowNumber, reason: "Cabecera repetida a mitad de informe (nuevo bloque)", preview: rowRuns(row).join(" | ").slice(0, 80) });
+      continue;
+    }
+
     if (isFootnoteRow(row)) {
-      const text = row.filter((c) => c.length > 0).join(" ");
+      // rowRuns (no `row.filter(...).join`) para no duplicar el texto: una
+      // leyenda combinada a lo ancho de la hoja (caso real de "Informe
+      // PRODUCCION"/"26043013": la nota "* El primer número se calcula..."
+      // ocupa un merge de hasta 42 columnas) llega aquí ya rellenada por
+      // mergeFillGrid en TODAS esas columnas — sin colapsar los tramos
+      // idénticos, `join(" ")` repetía la misma frase decenas de veces
+      // seguidas dentro de una sola nota.
+      const text = rowRuns(row).join(" ");
       notes.push(text);
       discarded.push({ rowNumber, reason: "Leyenda/nota de pie de informe", preview: text.slice(0, 80) });
       continue;
@@ -996,7 +1079,19 @@ export function parseSheet(grid: unknown[][], filename: string, sheetName: strin
 
 // ─── Métricas automáticas (sumas por columna, con atribución) ───────────
 
-/** Suma columnas numéricas/porcentuales reales (excluye columnas placeholder) y etiqueta cada métrica con su columna de origen. */
+/**
+ * Columnas cuya CABECERA ya declara que su valor es un promedio por fila
+ * ("Peso de Fruta Promedio (g)", "Conteo de Empaques Promedio", "Peso de
+ * Empaque Promedio"...). Sumarlas across N filas no tiene sentido — el
+ * resultado no es una cantidad real de nada (verificado en "Informe
+ * PRODUCCION 1SEP14JUL.xlsx": Σ de "Peso de Fruta Promedio (g)" en 1.187
+ * lotes daba "282.378,622", un número sin significado; lo útil es la MEDIA
+ * de esas medias). Aquí se calcula la media en vez de la suma y se etiqueta
+ * "Media X" en vez de "Σ X" para que quede claro que no es un total.
+ */
+const AVERAGE_HEADER_RE = /promedio|\bmedi[ao]\b|\baverage\b|\bavg\b/i;
+
+/** Agrega columnas numéricas reales (excluye columnas placeholder): suma para cantidades, media para columnas "Promedio"; etiqueta cada métrica con su columna de origen. */
 export function computeAutoMetrics(columns: ParsedColumn[], rawRows: string[][], columnTypes: ColumnType[]): Metric[] {
   const metrics: Metric[] = [];
   for (const col of columns) {
@@ -1012,7 +1107,11 @@ export function computeAutoMetrics(columns: ParsedColumn[], rawRows: string[][],
       }
     }
     if (count === 0) continue;
-    metrics.push({ label: `Σ ${col.header}`, value: formatNumberEs(sum), category: "Auto" });
+    if (AVERAGE_HEADER_RE.test(col.header)) {
+      metrics.push({ label: `Media ${col.header}`, value: formatNumberEs(sum / count), category: "Auto" });
+    } else {
+      metrics.push({ label: `Σ ${col.header}`, value: formatNumberEs(sum), category: "Auto" });
+    }
   }
   return metrics.slice(0, 8);
 }

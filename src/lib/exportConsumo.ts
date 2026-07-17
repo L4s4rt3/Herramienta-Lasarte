@@ -16,6 +16,7 @@ import {
   FMT_PCT,
   type ColumnaTabla,
 } from "./exportKit";
+import { lineaExportInfo, pdfTablaDesdeColumnas } from "./pdfKit";
 import {
   buildLasarteFilename,
   drawReportCover,
@@ -534,12 +535,45 @@ function drawHeader(doc: jsPDF, pageIndex: number, subtitle?: string) {
   drawExportHeader(doc, pageIndex, "Consumos fisicos", subtitle);
 }
 
+// Identificador de exportación del documento en curso (mismo id en el pie de
+// todas las páginas, paridad con el pie del Excel). Se fija en exportConsumoToPDF.
+let currentExportInfo: string | undefined;
+
 function drawFooter(doc: jsPDF) {
-  drawExportFooter(doc, { clasificacion: "Interno" });
+  drawExportFooter(doc, { clasificacion: "Interno", exportInfo: currentExportInfo });
 }
+
+// ─── Columnas PDF de la tabla principal (subconjunto de las columnas Excel) ──
+// Vista condensada a proposito (19 columnas de la hoja "Consumos por
+// periodo" no caben legibles en una pagina PDF), pero cada campo que SI se
+// muestra usa el MISMO numFmt que su columna homonima en `periodosColumnas`
+// (Excel) — antes el PDF recalculaba estos mismos ratios con
+// `formatNumber(x, 2)` suelto (2 decimales, sin sufijo de unidad), mientras
+// el Excel muestra 3-4 decimales + " L/kg"/"kWh/kg" via numFmt (FMT_LKG,
+// FMT_KWHKG): mismo dato, precision y unidad distintas entre ambos exports.
+const PERIODOS_PDF_COLUMNAS: ColumnaTabla[] = [
+  { header: "Periodo", key: "periodo", width: 24 },
+  { header: "Confianza", key: "confianza", width: 20 },
+  { header: "Kg base", key: "kgBase", numFmt: FMT_KG, align: "right", width: 24 },
+  { header: "Kg palets", key: "kgPalets", numFmt: FMT_KG, align: "right", width: 24 },
+  { header: "Agua L/kg", key: "aguaLKg", numFmt: FMT_LKG, align: "right", width: 20 },
+  { header: "kWh/kg", key: "electricidadKwhKg", numFmt: FMT_KWHKG, align: "right", width: 20 },
+  { header: "Gasoil mL/kg", key: "gasoilMlKg", numFmt: FMT_MLKG, align: "right", width: 22 },
+  { header: "Químicos mL/kg", key: "quimicosMlKg", numFmt: FMT_MLKG, align: "right", width: 24 },
+];
+
+const SESIONES_PDF_COLUMNAS: ColumnaTabla[] = [
+  { header: "Periodo", key: "periodo", width: 46 },
+  { header: "Kg", key: "kg", numFmt: FMT_KG, align: "right", width: 24 },
+  { header: "Agua L/kg", key: "aguaLKg", numFmt: FMT_LKG, align: "right", width: 22 },
+  { header: "kWh/kg", key: "electricidadKwhKg", numFmt: FMT_KWHKG, align: "right", width: 20 },
+  { header: "Gasoil mL/kg", key: "gasoilMlKg", numFmt: FMT_MLKG, align: "right", width: 24 },
+  { header: "Químicos mL/kg", key: "quimicosMlKg", numFmt: FMT_MLKG, align: "right", width: 24 },
+];
 
 export async function exportConsumoToPDF(data: ExportData) {
   await ensureExportLogoLoaded();
+  currentExportInfo = lineaExportInfo();
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageIndex = 1;
   const summary = buildConsumoReportSummary(data);
@@ -555,29 +589,31 @@ export async function exportConsumoToPDF(data: ExportData) {
     hasPeriodos ? "Ratios normalizados por kg base y confianza del periodo" : "Ratios normalizados por kg procesado en cada sesion",
   );
 
-  const body = hasPeriodos
-    ? periodos.map((row) => [
-      row.periodo,
-      confianzaLabel[row.confianza],
-      formatNumber(row.kgBase, 0),
-      formatNumber(row.kgPalets, 0),
-      row.aguaLKg == null ? "-" : formatNumber(row.aguaLKg, 2),
-      row.electricidadKwhKg == null ? "-" : formatNumber(row.electricidadKwhKg, 3),
-      row.gasoilMlKg == null ? "-" : formatNumber(row.gasoilMlKg, 1),
-      row.quimicosMlKg == null ? "-" : formatNumber(row.quimicosMlKg, 1),
-    ])
-    : data.sesiones.map((s) => {
-      const kg = s.kg_procesados || 0;
-      const aguaTotal = (s.agua_linea_l || 0) + (s.agua_drencher_l || 0);
-      return [
-        s.fecha_inicio === s.fecha_fin ? formatDate(s.fecha_inicio) : `${formatDate(s.fecha_inicio)} - ${formatDate(s.fecha_fin)}`,
-        formatNumber(kg, 0),
-        kg > 0 ? formatNumber(aguaTotal / kg, 2) : "-",
-        kg > 0 ? formatNumber((s.electricidad_total_kwh || 0) / kg, 3) : "-",
-        kg > 0 ? formatNumber(((s.gasoil_l || 0) * 1000) / kg, 1) : "-",
-        kg > 0 ? formatNumber(((s.quimicos_drencher_l || 0) * 1000) / kg, 1) : "-",
-      ];
-    });
+  // Filas + ColumnaTabla (numFmt FMT_KG/FMT_LKG/FMT_KWHKG/FMT_MLKG, las
+  // MISMAS constantes que usa la hoja Excel "Consumos por periodo" para los
+  // mismos campos): mismo dato, misma precisión y misma unidad en PDF y Excel.
+  const filasPeriodos = periodos.map((row) => ({
+    periodo: row.periodo,
+    confianza: confianzaLabel[row.confianza],
+    kgBase: row.kgBase,
+    kgPalets: row.kgPalets,
+    aguaLKg: row.aguaLKg,
+    electricidadKwhKg: row.electricidadKwhKg,
+    gasoilMlKg: row.gasoilMlKg,
+    quimicosMlKg: row.quimicosMlKg,
+  }));
+  const filasSesiones = data.sesiones.map((s) => {
+    const kg = s.kg_procesados || 0;
+    const aguaTotal = (s.agua_linea_l || 0) + (s.agua_drencher_l || 0);
+    return {
+      periodo: s.fecha_inicio === s.fecha_fin ? formatDate(s.fecha_inicio) : `${formatDate(s.fecha_inicio)} - ${formatDate(s.fecha_fin)}`,
+      kg,
+      aguaLKg: kg > 0 ? aguaTotal / kg : null,
+      electricidadKwhKg: kg > 0 ? (s.electricidad_total_kwh || 0) / kg : null,
+      gasoilMlKg: kg > 0 ? ((s.gasoil_l || 0) * 1000) / kg : null,
+      quimicosMlKg: kg > 0 ? ((s.quimicos_drencher_l || 0) * 1000) / kg : null,
+    };
+  });
 
   const pageIndexRef = { value: pageIndex };
   const onDrawPage = (subtitle?: string) => () => {
@@ -589,13 +625,10 @@ export async function exportConsumoToPDF(data: ExportData) {
     }
   };
 
-  autoTable(doc, {
+  pdfTablaDesdeColumnas(doc, {
+    columnas: hasPeriodos ? PERIODOS_PDF_COLUMNAS : SESIONES_PDF_COLUMNAS,
+    filas: hasPeriodos ? filasPeriodos : filasSesiones,
     startY: y,
-    head: hasPeriodos
-      ? [["Periodo", "Confianza", "Kg base", "Kg palets", "Agua L/kg", "kWh/kg", "Gasoil mL/kg", "Quimicos mL/kg"]]
-      : [["Periodo", "Kg", "Agua L/kg", "kWh/kg", "Gasoil mL/kg", "Quimicos mL/kg"]],
-    body,
-    ...pdfTableTheme(),
     didDrawPage: onDrawPage(),
   });
 

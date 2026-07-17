@@ -17,20 +17,16 @@ import jsPDF from "jspdf";
 import { drawExportFooter, drawLogoOrFallback, finalizeExportPageNumbers, PDF_THEME } from "./exportTheme";
 import { ensureExportLogoLoaded, formatReportDate } from "./reportKit";
 import { formatDate } from "./format";
+import { safeText } from "./pdfKit";
 
-// jsPDF no soporta acentos/ñ con la fuente helvetica estandar sin incrustar
-// una fuente propia: igual que exportPartes.ts, se normaliza el texto a ASCII
-// antes de escribirlo para evitar caracteres corruptos en el PDF. Esto SOLO
-// aplica al motor jsPDF (Hoja de ruta); el CMR se rellena con pdf-lib sobre
-// la plantilla real, que sí soporta acentos (WinAnsiEncoding) sin problema.
-function safePdf(value: unknown): string {
-  return String(value ?? "")
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^\x20-\x7E]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+// jsPDF con la fuente estándar "helvetica" SI soporta acentos/ñ (verificado
+// con un PDF real: "Producción", "áéíóú ÁÉÍÓÚ ñÑ" salen perfectos) — el
+// `safePdf()` que había aquí antes los eliminaba ("Descripción" ->
+// "Descripcion"), innecesario y dañino para la paridad con Excel (que sí
+// conserva las tildes). Esto SOLO aplica al motor jsPDF (Hoja de ruta); el
+// CMR se rellena con pdf-lib sobre la plantilla real (WinAnsiEncoding), sin
+// pasar por esta función.
+const safePdf = safeText;
 
 const PAGE_W = 210;
 const PAGE_H = 297;
@@ -52,10 +48,18 @@ export const LASARTE_REMITENTE_DEFECTO =
 export const ORIGEN_DEFECTO = "ÉCIJA";
 
 function drawDocHeader(doc: jsPDF, tituloDocumento: string, numero?: string | null, subLinea?: string) {
-  doc.setFillColor(...PDF_THEME.cream);
+  // Cabecera corporativa común (mismo patrón que drawExportHeader en
+  // exportTheme.ts, spec §0.3): fondo blanco + banda azul + línea verde fina.
+  // Antes esta cabecera usaba el estilo antiguo (fondo crema + banda naranja),
+  // desalineado del resto de exports. SOLO afecta a la Hoja de Ruta (dibujada
+  // con jsPDF); el CMR se rellena con pdf-lib sobre la plantilla oficial y no
+  // pasa por aquí.
+  doc.setFillColor(...PDF_THEME.white);
   doc.rect(0, 0, PAGE_W, 26, "F");
-  doc.setFillColor(...PDF_THEME.primary);
+  doc.setFillColor(...PDF_THEME.primaryDark);
   doc.rect(0, 0, PAGE_W, 3, "F");
+  doc.setFillColor(...PDF_THEME.success);
+  doc.rect(0, 3, PAGE_W, 1, "F");
 
   const logoWidth = drawLogoOrFallback(doc, MARGIN, 7, 13, { x: MARGIN, yBaseline: 16, fontSize: 12 });
   const textX = logoWidth > 0 ? MARGIN + logoWidth + 5 : MARGIN;

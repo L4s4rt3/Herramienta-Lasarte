@@ -5,6 +5,7 @@ import {
   detectHeaderRowIndex,
   formatByType,
   formatDateValue,
+  formatMetricValue,
   formatNumberValue,
   formatPercentValue,
   mergeFillGrid,
@@ -353,5 +354,136 @@ describe("parseWorkbookBytes", () => {
   it("lanza un error legible si el archivo no es un Excel/CSV/HTML válido", () => {
     const bytes = new TextEncoder().encode("esto no es un excel ni tiene comas");
     expect(() => parseWorkbookBytes(bytes, "roto.xlsx")).toThrow();
+  });
+});
+
+// ─── Barrido diagnóstico sobre archivos reales (2026-07-17) ───────────────
+// Encargo del dueño: "el preview de los archivos aún necesita más cariño, se
+// equivoca en el resumen, y los encabezados a veces cogen cosas raras".
+// Cada describe de aquí abajo reproduce en miniatura UN fallo real encontrado
+// al barrer con un script de diagnóstico (scripts/_diag_excelPreview.mjs,
+// temporal, no forma parte de la suite) los archivos de calibrador/báscula
+// reales: "Informe 26043013.xlsx", "Informe 26042912.xlsx", "Informe
+// PRODUCCION 1SEP14JUL.xlsx", "Informe PRODUCTO.xlsx", MORATALLA/INVERMARMELO
+// *.xlsx. Antes/después medido con ese mismo script — ver informe de la
+// tarea.
+
+describe("detectHeaderRowIndex — valores anotados '(N)*' de los informes de calidad NO deben colar como cabecera", () => {
+  // Fallo real verificado en "Informe 26043013.xlsx"/"Informe 26042912.xlsx":
+  // el bloque de totales de calidad trae filas de pares etiqueta→valor donde
+  // el VALOR es "14,89 (14,89)*" (footnote de doble cálculo, ver nota al pie
+  // del propio informe). `parseLooseNumber` no reconoce ese patrón (el
+  // paréntesis rompe el parseo), así que antes esa fila colaba como cabecera
+  // de columna: el visor mostraba columnas literalmente llamadas "14,89
+  // (14,89)*" o "1.655,49 (1.655,49)*" en vez de las columnas reales
+  // (Tamaño, Piezas, % Piezas, Peso (kg)...).
+  it("no elige como cabecera una fila de 4 pares etiqueta→valor con valores anotados '(N)*'", () => {
+    const rows = [
+      ["Toneladas / Hora", "", "14,89 (14,89)*", "", "Cartons", "", "1.655,49 (1.655,49)*"],
+      ["Porcentaje de Rechazo", "", "0", "", "Cartons / Hora", "", "1.035,58 (1.035,58)*"],
+      ["Tamaño", "Piezas", "% Piezas", "Peso (kg)", "% Peso", "Cartons", "% Cartons"],
+      ["(13) 1/36", "2", "0%", "0,713", "0%", "0,054", "0%"],
+    ];
+    expect(detectHeaderRowIndex(rows)).toBe(2);
+  });
+});
+
+describe("formatMetricValue — valores anotados '(N)*' no se colapsan a '0'", () => {
+  // Antes de este fix, una vez `isNumericLikeString` reconoce el patrón
+  // anotado (necesario para el fix de arriba), `formatMetricValue` los
+  // detectaba como "numérico" pero `parseLooseNumber` seguía sin poder
+  // parsearlos → `parseLooseNumber(trimmed) ?? 0` los convertía en "0,00"
+  // (perdiendo el valor real). El texto original ya viene formateado es-ES
+  // desde el propio informe: se deja tal cual.
+  it("deja el valor original en vez de colapsarlo a 0 cuando no se puede reparsear", () => {
+    expect(formatMetricValue("Peso de Fruta Promedio (g)", "216,84 (216,84)*")).toBe("216,84 (216,84)*");
+    expect(formatMetricValue("Peso (kg)", "20.255.407,69 (20.255.407,69)*")).toBe("20.255.407,69 (20.255.407,69)*");
+  });
+  it("sigue reformateando un número normal con separadores es-ES", () => {
+    expect(formatMetricValue("Peso", "1234.5")).toBe("1.234,5");
+  });
+});
+
+describe("parseSheet — nota de pie duplicada N veces por el propio merge-fill", () => {
+  // Fallo real en TODOS los informes de calibrador (PRODUCCION, PRODUCTO,
+  // 26043013, MORATALLA/INVERMARMELO *): la leyenda "- Packed Fruit" viene
+  // combinada a lo ancho de hasta 14+ columnas; tras `mergeFillGrid` el mismo
+  // texto queda en cada una de esas columnas, y `row.filter(...).join(" ")`
+  // (sin colapsar tramos) las concatenaba TODAS — la nota final repetía la
+  // misma frase 14, 27, incluso 42 veces seguidas.
+  it("no repite el texto de la leyenda una vez por cada columna combinada", () => {
+    const wideFootnote = Array(14).fill("- Packed Fruit");
+    const grid: unknown[][] = [
+      ["Lote", "Peso"],
+      ["A", "100"],
+      wideFootnote,
+    ];
+    const parsed = parseSheet(grid, "Informe PRODUCCION 1SEP14JUL.xlsx", "Hoja1");
+    expect(parsed.notes).toEqual(["- Packed Fruit"]);
+  });
+});
+
+describe("computeAutoMetrics — columnas 'Promedio' se promedian, no se suman", () => {
+  // Fallo real en "Informe PRODUCCION 1SEP14JUL.xlsx" (1.187 lotes): el
+  // resumen mostraba "Σ Peso de Fruta Promedio (g)" = 282.378,622 (la SUMA de
+  // 1.187 medias de peso de fruta, un número sin significado). Lo mismo en
+  // "Informe PRODUCTO.xlsx" con "Peso de Empaque Promedio"/"Conteo de
+  // Empaques Promedio". Ahora se calcula la MEDIA y se etiqueta "Media X" en
+  // vez de "Σ X" para dejar claro que no es un total.
+  it("etiqueta 'Media X' y calcula el promedio para una columna cuya cabecera dice 'Promedio'", () => {
+    const metrics = computeAutoMetrics(
+      [{ index: 0, header: "Peso de Fruta Promedio (g)", type: "number", isPlaceholder: false }],
+      [["200"], ["300"], ["400"]],
+      ["number"]
+    );
+    expect(metrics).toHaveLength(1);
+    expect(metrics[0].label).toBe("Media Peso de Fruta Promedio (g)");
+    expect(metrics[0].value).toBe("300");
+  });
+
+  it("sigue sumando (Σ) una columna de cantidad normal que no es un promedio", () => {
+    const metrics = computeAutoMetrics(
+      [{ index: 0, header: "Peso (kg)", type: "number", isPlaceholder: false }],
+      [["200"], ["300"]],
+      ["number"]
+    );
+    expect(metrics[0].label).toBe("Σ Peso (kg)");
+    expect(metrics[0].value).toBe("500");
+  });
+});
+
+describe("parseSheet — informe multi-sección (Clase/Grupo incrustado + cabecera repetida)", () => {
+  // Fallo real en "Informe 26043013.xlsx"/MORATALLA-INVERMARMELO TAMAÑOS: el
+  // informe de Tamaño se divide en varios bloques por Clase ("(B) Extra 2",
+  // "(C) Cat1 A"...), y cada bloque nuevo repite DOS filas basura en medio de
+  // los datos: 1) "Clase: (B) Extra 2 | Grupo de Clasificación: EXPORTACION"
+  // (pares etiqueta→valor, no dato) y 2) la propia cabecera de columnas
+  // reimpresa ("Tamaño | Piezas | % Piezas..."). Antes de este fix ambas
+  // colaban como filas de dato garabateadas en la tabla.
+  function buildGrid(): unknown[][] {
+    const header = ["Tamaño", "Piezas", "% Piezas", "Peso (kg)", "% Peso", "Cartons", "% Cartons"];
+    return [
+      header,
+      ["(01) CITRICA", "170", "0,06%", "15,159", "0,02%", "1,172", "0,02%"],
+      ["(02) 9/130", "116", "0,04%", "12,691", "0,02%", "0,847", "0,02%"],
+      ["Clase:", "(B) Extra 2", "", "Grupo de Clasificación:", "EXPORTACION", "", ""],
+      header,
+      ["(13) 1/36", "2", "0%", "0,713", "0%", "0,054", "0%"],
+    ];
+  }
+
+  it("descarta la fila 'Clase: ... | Grupo de Clasificación: ...' como cambio de sección, no como dato", () => {
+    const parsed = parseSheet(buildGrid(), "Informe 26043013.xlsx", "Hoja1");
+    const table = parsed.tables[0];
+    expect(table.discarded.some((d) => d.reason.includes("Cambio de sección"))).toBe(true);
+    expect(table.rows.every((r) => !r.cells.some((c) => c.includes("Extra 2") || c.includes("EXPORTACION")))).toBe(true);
+  });
+
+  it("descarta la cabecera reimpresa a mitad de tabla, no la muestra como fila de dato", () => {
+    const parsed = parseSheet(buildGrid(), "Informe 26043013.xlsx", "Hoja1");
+    const table = parsed.tables[0];
+    expect(table.discarded.some((d) => d.reason.includes("Cabecera repetida"))).toBe(true);
+    // Las 3 filas de dato reales (2 antes del corte de sección + 1 después).
+    expect(table.rows).toHaveLength(3);
   });
 });

@@ -1,6 +1,5 @@
 import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
-import { drawExportHeader, drawExportFooter, finalizeExportPageNumbers, pdfTableTheme } from "./exportTheme";
+import { drawExportHeader, drawExportFooter, finalizeExportPageNumbers } from "./exportTheme";
 import { formatDate } from "./format";
 import {
   añadirHojaTabla,
@@ -11,6 +10,7 @@ import {
   FMT_PCT,
   type ColumnaTabla,
 } from "./exportKit";
+import { lineaExportInfo, pdfTablaDesdeColumnas } from "./pdfKit";
 import {
   buildLasarteFilename,
   drawReportCover,
@@ -106,8 +106,18 @@ const DETALLE_DIARIO_COLUMNAS: ColumnaTabla[] = [
   { header: "Kg/persona", key: "kgPersona", numFmt: FMT_KG, align: "right", width: 14 },
 ];
 
-export async function exportEficienciaToExcel(data: SemanaData[], _optimo: string) {
-  const resumenSemanalRows = data.map((sem) => {
+/**
+ * Filas de la hoja/tabla "Resumen semanal": fuente ÚNICA compartida por
+ * Excel (`añadirHojaTabla` + RESUMEN_SEMANAL_COLUMNAS) y PDF
+ * (`pdfTablaDesdeColumnas` + las MISMAS RESUMEN_SEMANAL_COLUMNAS) — antes el
+ * PDF recalculaba estos mismos números con su propio `head`/`body` manual
+ * (Intl.NumberFormat suelto, cabeceras abreviadas distintas de las del
+ * Excel: "Media pers/dia" vs "Media personas/día"), con riesgo real de que
+ * ambos exports mostrasen cifras o cabeceras ligeramente distintas para el
+ * mismo periodo.
+ */
+function buildResumenSemanalRows(data: SemanaData[]): Record<string, ExportCell>[] {
+  return data.map((sem) => {
     const stats = weekStats(sem);
     const row: Record<string, ExportCell> = {
       semana: `Semana del ${sem.label}`,
@@ -125,6 +135,10 @@ export async function exportEficienciaToExcel(data: SemanaData[], _optimo: strin
     }
     return row;
   });
+}
+
+export async function exportEficienciaToExcel(data: SemanaData[], _optimo: string) {
+  const resumenSemanalRows = buildResumenSemanalRows(data);
 
   const detalleRows = data.flatMap((sem) =>
     DAY_KEYS.map((key, i) => {
@@ -223,12 +237,17 @@ function drawHeader(doc: jsPDF, pageIndex: number) {
   drawExportHeader(doc, pageIndex, "Comparativa semanal", "Kg/persona por dia");
 }
 
+// Identificador de exportación del documento en curso (mismo id en el pie de
+// todas las páginas, paridad con el pie del Excel). Se fija en exportEficienciaToPDF.
+let currentExportInfo: string | undefined;
+
 function drawFooter(doc: jsPDF) {
-  drawExportFooter(doc, { clasificacion: "RRHH" });
+  drawExportFooter(doc, { clasificacion: "RRHH", exportInfo: currentExportInfo });
 }
 
 export async function exportEficienciaToPDF(data: SemanaData[], _optimo: string) {
   await ensureExportLogoLoaded();
+  currentExportInfo = lineaExportInfo();
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   let pageIndex = 0;
 
@@ -261,35 +280,16 @@ export async function exportEficienciaToPDF(data: SemanaData[], _optimo: string)
 
   y = drawReportSectionTitle(doc, "Detalle semanal", y, "Kg/persona por dia y resumen de asistencia media");
 
-  const head = ["Semana", "Kg total", "Media pers/dia", "Dias", ...DAYS, "Kg/persona"];
-  const body = data.map((sem) => {
-    const stats = weekStats(sem);
-    const cells = [
-      `Semana del ${sem.label}`,
-      new Intl.NumberFormat("es-ES").format(Math.round(stats.kg)),
-      new Intl.NumberFormat("es-ES", { maximumFractionDigits: 1, minimumFractionDigits: 1 }).format(stats.personasDia),
-      String(stats.dias),
-    ];
-    for (const dk of DAY_KEYS) {
-      const dia = sem.days[dk];
-      cells.push(dia ? new Intl.NumberFormat("es-ES").format(Math.round(dia.kgPorPersona)) : "-");
-    }
-    cells.push(new Intl.NumberFormat("es-ES").format(Math.round(stats.kgPersona)));
-    return cells;
-  });
-
-  autoTable(doc, {
+  // Misma ColumnaTabla[] (RESUMEN_SEMANAL_COLUMNAS) y las mismas filas
+  // (buildResumenSemanalRows) que usa la hoja "Resumen semanal" del Excel:
+  // cabeceras, alineación y formato numérico es-ES quedan garantizados
+  // idénticos entre PDF y Excel para esta tabla (antes: cabeceras
+  // abreviadas distintas y formateo manual con Intl.NumberFormat suelto).
+  pdfTablaDesdeColumnas(doc, {
+    columnas: RESUMEN_SEMANAL_COLUMNAS,
+    filas: buildResumenSemanalRows(data),
     startY: y,
-    head: [head],
-    body,
-    ...pdfTableTheme(),
-    columnStyles: {
-      0: { cellWidth: 42 },
-      1: { halign: "right" },
-      2: { halign: "right" },
-      3: { halign: "right" },
-      11: { halign: "right", fontStyle: "bold" },
-    },
+    columnStyles: { 0: { cellWidth: 42 } },
     didDrawPage: () => {
       const pages = doc.getNumberOfPages();
       if (pages > pageIndex) {

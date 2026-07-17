@@ -59,6 +59,15 @@ const LASARTE_LOGO_PATH = "/branding/lasarte-logo-horizontal.jpg";
 const LASARTE_LOGO_ASPECT = 900 / 357;
 
 let logoDataUrlPromise: Promise<string | null> | null = null;
+// Valor YA resuelto del logo, escrito por la propia promesa al completarse.
+// Imprescindible para el acceso síncrono: un `.then()` nunca ejecuta su
+// callback de forma síncrona (ni con la promesa ya resuelta, por spec de
+// microtasks), así que el patrón anterior ("let cached=null; promise.then(url
+// => cached=url); return cached") devolvía SIEMPRE null — el logo no se
+// dibujaba en NINGÚN PDF aunque el export hubiera hecho await de
+// ensureExportLogoLoaded() (bug verificado generando un PDF real: todas las
+// cabeceras caían al texto de fallback).
+let logoDataUrlResuelto: string | null = null;
 
 // Carga el logo corporativo UNA sola vez por sesion de módulo y lo cachea como
 // dataURL para poder llamarlo de forma sincrona (jsPDF.addImage no es async)
@@ -81,22 +90,21 @@ export function preloadExportLogo(): Promise<string | null> {
       } catch {
         return null;
       }
-    })();
+    })().then((url) => {
+      logoDataUrlResuelto = url;
+      return url;
+    });
   }
   return logoDataUrlPromise;
 }
 
 function getCachedLogoDataUrl(): string | null {
-  // Si ya se resolvio la promesa antes (p.ej. tras preloadExportLogo en el
-  // arranque del export), esto devuelve el valor sin esperar. Si no se ha
-  // llamado a preloadExportLogo, no bloqueamos el dibujo sincrono del PDF:
-  // se dispara la carga en background para la proxima pagina y se hace
-  // fallback a texto en esta.
-  let cached: string | null = null;
-  preloadExportLogo().then((url) => {
-    cached = url;
-  });
-  return cached;
+  // Devuelve el logo si su carga YA terminó (los exports hacen `await
+  // ensureExportLogoLoaded()` antes de dibujar, así que en el flujo normal
+  // está disponible). Si nadie lo precargó, dispara la carga en background
+  // para la próxima página y esta cae al fallback de texto.
+  if (logoDataUrlResuelto === null) void preloadExportLogo();
+  return logoDataUrlResuelto;
 }
 
 /**
@@ -177,8 +185,17 @@ export function drawExportHeader(doc: jsPDF, pageIndex: number, title: string, s
  * llama a `drawExportFooter(doc)` sin ese argumento sigue viendo exactamente el
  * mismo pie de siempre; los exports que se migren pueden pasar la clasificación
  * del documento para añadir el texto legal correspondiente (RGPD, dirección, etc.).
+ * `exportInfo` (también opcional/retrocompatible) añade el identificador de
+ * exportación + fecha al pie ("Exportación: LST-... · dd/mm/aaaa hh:mm"),
+ * igual que la línea de pie que el motor Excel (exportKit.construirLineasPie)
+ * pone en todas sus hojas — paridad PDF/Excel pedida por el dueño. Se acepta
+ * como string ya construido (ver pdfKit.lineaExportInfo) para no acoplar este
+ * módulo de tema al motor Excel.
  */
-export function drawExportFooter(doc: jsPDF, options: { clasificacion?: ExportClasificacion } = {}) {
+export function drawExportFooter(
+  doc: jsPDF,
+  options: { clasificacion?: ExportClasificacion; exportInfo?: string } = {},
+) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   doc.setDrawColor(...PDF_THEME.border);
@@ -186,7 +203,8 @@ export function drawExportFooter(doc: jsPDF, options: { clasificacion?: ExportCl
   doc.setFont("helvetica", "normal");
   doc.setFontSize(6);
   doc.setTextColor(...PDF_THEME.muted);
-  doc.text(EXPORT_FOOTER_TEXT, pageWidth / 2, pageHeight - 7, { align: "center" });
+  const centro = options.exportInfo ? `${EXPORT_FOOTER_TEXT} · ${options.exportInfo}` : EXPORT_FOOTER_TEXT;
+  doc.text(centro, pageWidth / 2, pageHeight - 7, { align: "center" });
   if (options.clasificacion) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(5.5);

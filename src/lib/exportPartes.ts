@@ -14,6 +14,7 @@ import {
   type ColumnaTabla,
   type ExcelWorkbookCtx,
 } from "./exportKit";
+import { lastAutoTableY, lineaExportInfo, PDF_TABLE_MARGIN, safeText } from "./pdfKit";
 import {
   appendReportCoverSheet,
   buildLasarteFilename,
@@ -102,14 +103,12 @@ function kg(value: number, digits = 0) {
   return +value.toFixed(digits);
 }
 
-function safePdf(value: unknown): string {
-  return String(value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\x20-\x7E]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+// safePdf() ELIMINABA tildes/e\u00f1es ("Producci\u00f3n" -> "Produccion") \u2014 corregido:
+// jsPDF con la fuente est\u00e1ndar "helvetica" SI las soporta (verificado con un
+// PDF real: "Producci\u00f3n", "\u00e1\u00e9\u00ed\u00f3\u00fa \u00c1\u00c9\u00cd\u00d3\u00da \u00f1\u00d1" salen perfectos), as\u00ed que quitarlas
+// solo romp\u00eda la paridad visual con Excel (que las conserva). `safeText`
+// (pdfKit.ts) solo recorta espacios/caracteres de control.
+const safePdf = safeText;
 
 function pdfDate(value: string | Date) {
   return safePdf(formatDate(value));
@@ -124,8 +123,9 @@ function pdfKg(value: number, digits = 0) {
   return safePdf(formatKg(value, digits));
 }
 
-function lastAutoTableY(doc: jsPDF, fallback: number) {
-  return (doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? fallback;
+/** Porcentaje con signo y coma decimal es-ES ("+2,37%") — antes `toFixed` dejaba el punto anglosajón ("+2.37%"), inconsistente con el resto de números del documento. */
+function pdfPct(value: number) {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2).replace(".", ",")}%`;
 }
 
 function semLabel(s: "verde" | "amarillo" | "rojo"): string {
@@ -218,7 +218,7 @@ export function buildPartesReportSummary(partes: ParteRow[], from: string, to: s
   if (worst) {
     insights.push({
       label: "Dia a revisar",
-      value: `${formatDate(worst.p.date)} · ${worst.c.dsj_pct >= 0 ? "+" : ""}${worst.c.dsj_pct.toFixed(2)}% DJPMN`,
+      value: `${formatDate(worst.p.date)} · ${pdfPct(worst.c.dsj_pct)} DJPMN`,
       tone: Math.abs(worst.c.dsj_pct) > 5 ? "danger" : Math.abs(worst.c.dsj_pct) > 3 ? "warning" : "success",
     });
   }
@@ -232,7 +232,7 @@ export function buildPartesReportSummary(partes: ParteRow[], from: string, to: s
     kpis: [
       { label: "Produccion real", value: formatKg(totalProd, 0), sub: `${partes.length} parte(s)`, tone: "info" },
       { label: "Palets ajustados", value: formatKg(totalPalets, 0), sub: "alta neta", tone: "neutral" },
-      { label: "DJPMN total", value: formatKg(totalDsj, 0), sub: `${dsjPctGlobal >= 0 ? "+" : ""}${dsjPctGlobal.toFixed(2)}% global`, tone: Math.abs(dsjPctGlobal) > 5 ? "danger" : Math.abs(dsjPctGlobal) > 3 ? "warning" : "success" },
+      { label: "DJPMN total", value: formatKg(totalDsj, 0), sub: `${pdfPct(dsjPctGlobal)} global`, tone: Math.abs(dsjPctGlobal) > 5 ? "danger" : Math.abs(dsjPctGlobal) > 3 ? "warning" : "success" },
       { label: "Mermas totales", value: formatKg(totalMermas, 0), sub: "podrido manual", tone: "neutral" },
       { label: "Dias OK", value: nOk, sub: "<= 3%", tone: "success" },
       { label: "Dias criticos", value: nCrit, sub: "> 5%", tone: nCrit > 0 ? "danger" : "success" },
@@ -527,11 +527,17 @@ function drawHeader(doc: jsPDF, pageIndex: number, from: string, to: string, tit
   drawExportHeader(doc, pageIndex, "Partes diarios", safePdf(`${pdfDate(from)} - ${pdfDate(to)}${title ? ` - ${title}` : ""}`));
 }
 
+// Identificador de exportación del documento PDF en curso (mismo id en el
+// pie de TODAS las páginas, paridad con el pie del Excel). Se fija una vez
+// al principio de exportPartesToPDF.
+let currentExportInfo: string | undefined;
+
 function drawFooter(doc: jsPDF) {
-  drawExportFooter(doc, { clasificacion: "Interno" });
+  drawExportFooter(doc, { clasificacion: "Interno", exportInfo: currentExportInfo });
 }
 
-const PDF_TABLE_MARGIN = { top: 30, bottom: 18, left: 8, right: 8 };
+// PDF_TABLE_MARGIN se importa de pdfKit.ts (antes duplicado aquí con el
+// mismo valor exacto: {top:30, bottom:18, left:8, right:8}).
 
 function addAutoTablePageHeader(doc: jsPDF, pageIndexRef: { value: number }, from: string, to: string, title: string) {
   const pages = doc.getNumberOfPages();
@@ -544,6 +550,7 @@ function addAutoTablePageHeader(doc: jsPDF, pageIndexRef: { value: number }, fro
 
 export async function exportPartesToPDF(partes: ParteRow[], from: string, to: string) {
   await ensureExportLogoLoaded();
+  currentExportInfo = lineaExportInfo();
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const enriched = partes.map((p) => ({ p, c: buildCascade(p) }));
   const pageIndex = { value: 1 };
@@ -592,10 +599,10 @@ export async function exportPartesToPDF(partes: ParteRow[], from: string, to: st
         pdfKg(c.diferencia_bruta),
         pdfKg(c.mermas_totales),
         pdfKg(c.dsj),
-        `${c.dsj_pct >= 0 ? "+" : ""}${c.dsj_pct.toFixed(2)}%`,
+        pdfPct(c.dsj_pct),
         semLabel(c.semaforo),
       ]),
-      ["TOTAL", `${partes.length} partes`, pdfKg(totalProd), pdfKg(totalPalets), "", pdfKg(totalMermas), pdfKg(totalDsj), `${dsjPctGlobal >= 0 ? "+" : ""}${dsjPctGlobal.toFixed(2)}%`, ""],
+      ["TOTAL", `${partes.length} partes`, pdfKg(totalProd), pdfKg(totalPalets), "", pdfKg(totalMermas), pdfKg(totalDsj), pdfPct(dsjPctGlobal), ""],
     ],
     margin: PDF_TABLE_MARGIN,
     ...pdfTableTheme(),
@@ -644,7 +651,7 @@ export async function exportPartesToPDF(partes: ParteRow[], from: string, to: st
     doc.setTextColor(...PDF_THEME.white);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(13);
-    doc.text(`${c.dsj_pct >= 0 ? "+" : ""}${c.dsj_pct.toFixed(2)}%`, 260.5, 34, { align: "center" });
+    doc.text(pdfPct(c.dsj_pct), 260.5, 34, { align: "center" });
     doc.setFontSize(6.5);
     doc.text("DJPMN", 260.5, 38, { align: "center" });
 
@@ -672,7 +679,7 @@ export async function exportPartesToPDF(partes: ParteRow[], from: string, to: st
       ["Mermas y DJPMN", "Diferencia bruta", "=", pdfKg(c.diferencia_bruta)],
       ["Mermas y DJPMN", "Podrido manual", "-", pdfKg(c.podrido_manual)],
       ["Mermas y DJPMN", "Mermas totales", "=", pdfKg(c.mermas_totales)],
-      ["Resultado", "DJPMN", "=", `${pdfKg(c.dsj)} (${c.dsj_pct >= 0 ? "+" : ""}${c.dsj_pct.toFixed(2)}%)`],
+      ["Resultado", "DJPMN", "=", `${pdfKg(c.dsj)} (${pdfPct(c.dsj_pct)})`],
     ];
 
     autoTable(doc, {

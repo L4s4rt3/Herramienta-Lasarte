@@ -13,6 +13,7 @@ import {
 import { drawExportFooter, drawExportHeader, finalizeExportPageNumbers, PDF_THEME } from "@/lib/exportTheme";
 import { buildLasarteFilename, ensureExportLogoLoaded } from "@/lib/reportKit";
 import { formatDate } from "@/lib/format";
+import { lineaExportInfo, safeText } from "@/lib/pdfKit";
 
 export const CALIDAD_OPTIONS = ["Excelente", "Bueno", "Regular", "Deficiente", "Pésimo"] as const;
 export type CalidadEstado = typeof CALIDAD_OPTIONS[number];
@@ -540,14 +541,10 @@ export function buildCalidadAttachmentRows(jornada: CalidadJornada, lotes: Calid
   });
 }
 
-function safePdf(value: unknown): string {
-  return String(value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\x20-\x7E]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+// safePdf() ELIMINABA tildes/e\u00f1es ("Com\u00fan" -> "Comun") \u2014 corregido: jsPDF con
+// la fuente est\u00e1ndar "helvetica" SI las soporta (verificado con un PDF real).
+// `safeText` (pdfKit.ts) solo recorta espacios/caracteres de control.
+const safePdf = safeText;
 
 const QUALITY_PDF_COLORS: Record<CalidadEstado, [number, number, number]> = {
   Excelente: PDF_THEME.success,
@@ -600,6 +597,10 @@ function drawCalidadFooterLegend(doc: jsPDF) {
 // el resto de exports PDF ya migrados (drawExportHeader/drawExportFooter de
 // exportTheme.ts) en vez de dibujar una banda propia; el pie legal usa la nota
 // de trazabilidad de calidad en vez del texto generico de "Interno".
+// Identificador de exportación del documento en curso (mismo id en el pie de
+// todas las páginas, paridad con el pie del Excel). Se fija en exportCalidadToPDF.
+let currentExportInfo: string | undefined;
+
 function drawCalidadHeader(doc: jsPDF, jornada: CalidadJornada, summary: CalidadSummary, pageIndex: number) {
   drawExportHeader(
     doc,
@@ -607,7 +608,7 @@ function drawCalidadHeader(doc: jsPDF, jornada: CalidadJornada, summary: Calidad
     "Departamento de Calidad",
     safePdf(`${formatCalidadDate(jornada.fecha)} - ${summary.total} lotes anotados`),
   );
-  drawExportFooter(doc);
+  drawExportFooter(doc, { exportInfo: currentExportInfo });
   drawCalidadFooterLegend(doc);
 }
 
@@ -814,6 +815,7 @@ export async function exportCalidadToPDF(
   options: { mode?: "borrador" | "oficial" } = {},
 ) {
   await ensureExportLogoLoaded();
+  currentExportInfo = lineaExportInfo();
   const mode = options.mode ?? "borrador";
   const filteredLotes = mode === "oficial" ? lotes.filter((l) => l.informe_estado === "validado") : lotes;
   const counts = attachmentCountMap(adjuntos);
