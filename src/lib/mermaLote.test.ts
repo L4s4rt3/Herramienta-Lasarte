@@ -281,6 +281,47 @@ describe("computeMermaLotes — Informe LOTE real: no se suma además el prorrat
     expect(resultado.podridoCalibradorFuente).toBe("real");
     expect(resultado.podridoCalibradorKg).toBe(0); // real 0, no 80 (que sería su cuota de prorrateo)
   });
+
+  it("lote REPARADO por el import de Informes de lote (useHistoricoImport): la fila de lotes_dia creada desde el informe + su clasificación real computan procesado y podrido real sin lógica extra", () => {
+    // Escenario real que motiva el import (jul 2026): lote con entrada por
+    // báscula y expedición pero SIN registro de procesado. El import inserta
+    // (a) UNA fila de lotes_dia con kg = Σ Peso(kg) del informe, colgada de un
+    // parte sintético (podrido del parte a null, "desconocido") y (b) las
+    // filas de lote_clasificacion del informe. Este test documenta que ese
+    // par basta para que el lote pase a "procesado" con podrido REAL: no hay
+    // ningún camino especial para lotes reparados en computeMermaLotes.
+    const entradas = [entrada({ lote: "26043013", kg_entrada: 24000, fecha: "2026-04-30" })];
+    const lotesDia: LoteDiaKgInput[] = [
+      // La fila insertada por el import (kg del informe real de referencia).
+      { lote_codigo: "26043013", kg_peso_total: 23802.5, part_id: "p-sintetico" },
+    ];
+    // Parte sintético del histórico: SIN dato de podrido (null, no 0).
+    const partes: ParteMermaInput[] = [
+      { part_id: "p-sintetico", kg_podrido_calibrador_auto: null, kg_podrido_bolsa_basura: null, date: "2026-07-15" },
+    ];
+    const clasificacion: ClasificacionLoteInput[] = [
+      { lote_codigo: "26043013", clase: "(A) Extra 1", peso_kg: 23545.77 },
+      { lote_codigo: "26043013", clase: "(J) Podrido", peso_kg: 256.73 },
+    ];
+    const [resultado] = computeMermaLotes(entradas, lotesDia, clasificacion, partes);
+
+    // El lote deja de ser stock fantasma: procesado con la fila del informe.
+    expect(resultado.estado).toBe("procesado"); // 23802.5/24000 = 99,2%
+    expect(resultado.kgCalibrador).toBeCloseTo(23802.5);
+    expect(resultado.mermaNaturalKg).toBeCloseTo(24000 - 23802.5);
+
+    // Podrido de calibrador REAL del informe, aunque el parte no traiga dato.
+    expect(resultado.podridoCalibradorFuente).toBe("real");
+    expect(resultado.podridoCalibradorKg).toBeCloseTo(256.73);
+
+    // El podrido MANUAL (bolsa de basura) sigue sin dato (parte sintético a
+    // null): null y marcado como desconocido — el informe no lo cubre.
+    expect(resultado.podridoManualKg).toBeNull();
+    expect(resultado.podridoDesconocido).toBe(true);
+
+    // diasEnCamara sale de la fecha del parte sintético (la del informe).
+    expect(resultado.diasEnCamara).toBe(76); // 2026-04-30 -> 2026-07-15
+  });
 });
 
 describe("computeMermaLotes — sin coste", () => {

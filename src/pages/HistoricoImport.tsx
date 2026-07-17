@@ -1,6 +1,6 @@
 /**
  * HistoricoImport — "Importar histórico": carga el histórico de campaña
- * completa en dos pestañas:
+ * completa en tres pestañas:
  *   - Producción: export "Informe PRODUCCION" del calibrador (ver
  *     src/lib/historicoProduccion.ts / src/hooks/useHistoricoImport.ts,
  *     import a partes_diarios/lotes_dia).
@@ -8,16 +8,22 @@
  *     src/lib/historicoPalets.ts / src/hooks/useHistoricoImport.ts, import a
  *     partes_diarios/palets_dia con dedup a dos niveles: insert en fechas sin
  *     palets previos, backfill de lote_codigo en fechas que ya los tienen).
+ *   - Informes de lote: "Informe LOTE" del calibrador, UN archivo por pasada
+ *     de lote, subidos por tandas de 50+ (ver src/lib/informeLote.ts /
+ *     useInformesLoteImport en useHistoricoImport.ts): clasificación real a
+ *     lote_clasificacion + reparación de lotes expedidos-sin-procesado en
+ *     lotes_dia.
  *
  * Gate interno de admin (no en RoleRoute): el espacio de producción ya
  * permite admin+operario, pero este import de campaña completa es una
  * operación delicada (crea partes/palets históricos) — solo administración.
  */
-import { useRef, useState } from "react";
+import { useRef, useState, type DragEvent } from "react";
 import * as XLSX from "xlsx";
-import { AlertTriangle, CheckCircle2, FileSpreadsheet, History, Loader2, PackageSearch, ShieldAlert, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileSpreadsheet, FileStack, History, Loader2, PackageSearch, ShieldAlert, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { FuenteBadge } from "@/components/FuenteBadge";
 import { MiniKpi } from "@/components/MiniKpi";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,11 +31,17 @@ import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthProvider";
 import {
   agruparFilasProduccionPorFechaLote,
+  planImportInformesLote,
   useHistoricoImport,
   useHistoricoImportPalets,
+  useInformesLoteImport,
+  type ArchivoInformeLote,
   type ImportarHistoricoPaletsResumen,
   type ImportarHistoricoResumen,
+  type ImportarInformesLoteResumen,
+  type PlanImportInformesLote,
 } from "@/hooks/useHistoricoImport";
+import { parseInformeLoteRows } from "@/lib/informeLote";
 import {
   extraerResumenDeclaradoInforme,
   parseInformeProduccionRows,
@@ -74,6 +86,17 @@ interface PreviewPalets {
   paletsABackfillEstimados: number;
 }
 
+interface PreviewInformesLote {
+  /** Informes reconocidos (con lote y filas), en el orden de subida. */
+  archivos: ArchivoInformeLote[];
+  /** Archivos que ni siquiera se reconocieron como Informe LOTE (o no se pudieron leer), con motivo. */
+  descartadosParse: Array<{ fileName: string; motivo: string }>;
+  /** Avisos de estructura no reconocida en archivos que SÍ se parsearon (nunca se ocultan). */
+  avisos: string[];
+  /** Decisión por informe contra el estado actual de BD (misma función pura que usará la mutación). */
+  plan: PlanImportInformesLote;
+}
+
 export default function HistoricoImport() {
   const { role } = useAuth();
   const isAdmin = role === "admin";
@@ -107,7 +130,7 @@ export default function HistoricoImport() {
 }
 
 function HistoricoImportAdmin() {
-  const [activeTab, setActiveTab] = useState<"produccion" | "palets">("produccion");
+  const [activeTab, setActiveTab] = useState<"produccion" | "palets" | "informes">("produccion");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [parseando, setParseando] = useState(false);
@@ -122,6 +145,19 @@ function HistoricoImportAdmin() {
   const [progresoPalets, setProgresoPalets] = useState<{ hechos: number; total: number } | null>(null);
   const [resumenFinalPalets, setResumenFinalPalets] = useState<ImportarHistoricoPaletsResumen | null>(null);
   const { fechasCubiertas, isLoadingFechasCubiertas, importar: importarPalets } = useHistoricoImportPalets();
+
+  const fileInputRefInformes = useRef<HTMLInputElement>(null);
+  const [parseandoInformes, setParseandoInformes] = useState<{ hechos: number; total: number } | null>(null);
+  const [previewInformes, setPreviewInformes] = useState<PreviewInformesLote | null>(null);
+  const [progresoInformes, setProgresoInformes] = useState<{ hechos: number; total: number } | null>(null);
+  const [resumenFinalInformes, setResumenFinalInformes] = useState<ImportarInformesLoteResumen | null>(null);
+  const {
+    clasificacionCubierta,
+    isLoadingClasificacionCubierta,
+    lotesCubiertos,
+    isLoadingLotesCubiertos,
+    importar: importarInformes,
+  } = useInformesLoteImport();
 
   const handleFile = async (file: File | null) => {
     if (!file) return;
@@ -291,6 +327,82 @@ function HistoricoImportAdmin() {
     );
   };
 
+  // ─── Informes de lote: multi-archivo (tandas de 50+), parse secuencial ─────
+  const handleFilesInformes = async (files: FileList | File[] | null) => {
+    const lista = Array.from(files ?? []).filter((f) => /\.xlsx?$/i.test(f.name));
+    if (lista.length === 0) return;
+    setResumenFinalInformes(null);
+    setParseandoInformes({ hechos: 0, total: lista.length });
+    try {
+      const archivos: ArchivoInformeLote[] = [];
+      const descartadosParse: Array<{ fileName: string; motivo: string }> = [];
+      const avisos: string[] = [];
+
+      for (let i = 0; i < lista.length; i++) {
+        const file = lista[i];
+        setParseandoInformes({ hechos: i, total: lista.length });
+        try {
+          const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null }) as unknown[][];
+          const { informe, descartadas } = parseInformeLoteRows(rows);
+          if (!informe) {
+            descartadosParse.push({ fileName: file.name, motivo: descartadas[0] ?? "Archivo no reconocido." });
+            continue;
+          }
+          for (const d of descartadas) avisos.push(`${file.name}: ${d}`);
+          archivos.push({ fileName: file.name, informe });
+        } catch (e) {
+          descartadosParse.push({ fileName: file.name, motivo: `No se pudo leer: ${errorMessage(e)}` });
+        }
+      }
+
+      // MISMA función pura que ejecutará la mutación (con datos frescos):
+      // preview y import ven exactamente las mismas decisiones por informe.
+      const plan = planImportInformesLote(
+        archivos,
+        clasificacionCubierta?.clasificacionPorFecha ?? new Map(),
+        lotesCubiertos?.clavesPorFecha ?? new Map(),
+      );
+      setPreviewInformes({ archivos, descartadosParse, avisos, plan });
+    } finally {
+      setParseandoInformes(null);
+      if (fileInputRefInformes.current) fileInputRefInformes.current.value = "";
+    }
+  };
+
+  const onDropInformes = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (parseandoInformes || importarInformes.isPending) return;
+    void handleFilesInformes(e.dataTransfer.files);
+  };
+
+  const confirmarImportInformes = () => {
+    if (!previewInformes) return;
+    setProgresoInformes({ hechos: 0, total: 0 });
+    importarInformes.mutate(
+      {
+        archivos: previewInformes.archivos,
+        onProgress: (hechos, total) => setProgresoInformes({ hechos, total }),
+      },
+      {
+        onSuccess: (resumen) => {
+          setResumenFinalInformes(resumen);
+          setPreviewInformes(null);
+          setProgresoInformes(null);
+          toast({
+            title: "Informes de lote importados",
+            description: `${resumen.clasificacionesInsertadas} clasificación(es) nueva(s) (${resumen.filasClasificacion} fila(s)), ${resumen.yaTenianInforme} ya existente(s), ${resumen.lotesDiaReparados} lote(s) reparado(s) (${formatKg(resumen.kgReparados)}).`,
+          });
+        },
+        onError: (e) => {
+          setProgresoInformes(null);
+          toast({ title: "Error al importar", description: errorMessage(e), variant: "destructive" });
+        },
+      },
+    );
+  };
+
   return (
     <div className="page-shell space-y-4">
       <header className="page-header">
@@ -302,7 +414,7 @@ function HistoricoImportAdmin() {
             Carga el histórico de PRODUCCIÓN de toda la campaña desde el export del calibrador ("Informe PRODUCCION").
           </p>
         </div>
-        {activeTab === "produccion" ? (
+        {activeTab === "produccion" && (
           <Button
             className="glass glass-hover"
             variant="outline"
@@ -314,7 +426,8 @@ function HistoricoImportAdmin() {
             {parseando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
             Importar Excel
           </Button>
-        ) : (
+        )}
+        {activeTab === "palets" && (
           <Button
             className="glass glass-hover"
             variant="outline"
@@ -325,6 +438,19 @@ function HistoricoImportAdmin() {
           >
             {parseandoPalets ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
             Importar Excel
+          </Button>
+        )}
+        {activeTab === "informes" && (
+          <Button
+            className="glass glass-hover"
+            variant="outline"
+            size="sm"
+            onClick={() => fileInputRefInformes.current?.click()}
+            disabled={Boolean(parseandoInformes) || importarInformes.isPending || isLoadingClasificacionCubierta || isLoadingLotesCubiertos}
+            title="Informes LOTE del calibrador: puedes seleccionar 50+ archivos de golpe"
+          >
+            {parseandoInformes ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            Importar Excel(s)
           </Button>
         )}
         <input
@@ -341,12 +467,21 @@ function HistoricoImportAdmin() {
           className="hidden"
           onChange={(e) => void handleFilePalets(e.target.files?.[0] ?? null)}
         />
+        <input
+          ref={fileInputRefInformes}
+          type="file"
+          accept=".xlsx,.xls"
+          multiple
+          className="hidden"
+          onChange={(e) => void handleFilesInformes(e.target.files)}
+        />
       </header>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "produccion" | "palets")}>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "produccion" | "palets" | "informes")}>
         <TabsList>
           <TabsTrigger value="produccion">Producción</TabsTrigger>
           <TabsTrigger value="palets">Palets</TabsTrigger>
+          <TabsTrigger value="informes">Informes de lote</TabsTrigger>
         </TabsList>
 
         <TabsContent value="produccion" className="space-y-4">
@@ -571,6 +706,187 @@ function HistoricoImportAdmin() {
                 </div>
                 <Button className="glass glass-hover mt-2" variant="outline" onClick={() => fileInputRefPalets.current?.click()}>
                   <Upload className="h-4 w-4" /> Importar Excel
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="informes" className="space-y-4">
+          {parseandoInformes && (
+            <Card className="glass-accented border-info/30">
+              <CardContent className="space-y-1 p-4">
+                <Progress value={parseandoInformes.total > 0 ? (parseandoInformes.hechos / parseandoInformes.total) * 100 : 0} />
+                <p className="text-xs text-muted-foreground">
+                  Leyendo archivo {parseandoInformes.hechos + 1} de {parseandoInformes.total}…
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {previewInformes && !parseandoInformes && (
+            <Card className="glass-accented border-info/30">
+              <CardContent className="space-y-3 p-4">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <FileStack className="h-4 w-4 text-info" />
+                  {formatNumber(previewInformes.archivos.length + previewInformes.descartadosParse.length)} archivo(s) leído(s)
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+                  <MiniKpi variant="card" label="Informes válidos" value={formatNumber(previewInformes.plan.items.length)} />
+                  <MiniKpi
+                    variant="card"
+                    label="Descartados"
+                    value={formatNumber(previewInformes.descartadosParse.length + previewInformes.plan.descartados.length)}
+                    tone={previewInformes.descartadosParse.length + previewInformes.plan.descartados.length > 0 ? "warning" : "neutral"}
+                  />
+                  <MiniKpi
+                    variant="card"
+                    label="Clasificación nueva (fecha+lote)"
+                    value={formatNumber(previewInformes.plan.nClasificacionesNuevas)}
+                    labelInfo="Informes cuya combinación fecha+lote todavía no tiene filas en lote_clasificacion: se insertan."
+                  />
+                  <MiniKpi
+                    variant="card"
+                    label="Ya tenían informe (se saltan)"
+                    value={formatNumber(previewInformes.plan.nYaTenianInforme)}
+                    labelInfo="La misma fecha+lote ya tiene clasificación (de la edge function o de una tanda anterior): reimportar no duplica nada."
+                  />
+                  <MiniKpi
+                    variant="card"
+                    label="Reparan procesado faltante"
+                    value={formatNumber(previewInformes.plan.nReparaciones)}
+                    sub={formatKg(previewInformes.plan.kgReparados)}
+                    tone={previewInformes.plan.nReparaciones > 0 ? "success" : "neutral"}
+                    labelInfo="Lotes SIN ninguna fila de procesado para esa fecha: se crea una fila de lotes_dia con el kg del informe — esos kg salen del stock fantasma."
+                  />
+                  <MiniKpi
+                    variant="card"
+                    label="Podrido real de los informes nuevos"
+                    value={formatKg(previewInformes.plan.kgPodridoRealNuevo)}
+                    labelInfo="Suma de las clases 'Podrido' de los informes con clasificación nueva: entra como dato real (no prorrateo) en el análisis de mermas."
+                  />
+                </div>
+
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  El podrido de estos informes pasa a contar como
+                  <FuenteBadge fuente="real" size="sm" />
+                  en mermas y costes (sustituye al prorrateo para esos lotes).
+                </p>
+
+                {(previewInformes.descartadosParse.length > 0 || previewInformes.plan.descartados.length > 0) && (
+                  <div className="space-y-0.5 text-xs text-warning">
+                    {[...previewInformes.descartadosParse, ...previewInformes.plan.descartados].map((d, i) => (
+                      <p key={i} className="flex items-start gap-1.5">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span><span className="font-medium">{d.fileName}</span>: {d.motivo}</span>
+                      </p>
+                    ))}
+                  </div>
+                )}
+
+                {previewInformes.avisos.length > 0 && (
+                  <details className="text-xs text-muted-foreground">
+                    <summary className="cursor-pointer">
+                      {previewInformes.avisos.length} aviso(s) de estructura no reconocida (los archivos se importan igualmente)
+                    </summary>
+                    <div className="mt-1 space-y-0.5">
+                      {previewInformes.avisos.map((a, i) => (
+                        <p key={i}>{a}</p>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
+                {progresoInformes && (
+                  <div className="space-y-1">
+                    <Progress value={progresoInformes.total > 0 ? (progresoInformes.hechos / progresoInformes.total) * 100 : 0} />
+                    <p className="text-xs text-muted-foreground">
+                      Importando informe {progresoInformes.hechos} de {progresoInformes.total}…
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    onClick={confirmarImportInformes}
+                    disabled={importarInformes.isPending || (previewInformes.plan.nClasificacionesNuevas === 0 && previewInformes.plan.nReparaciones === 0)}
+                  >
+                    {importarInformes.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    Confirmar import
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setPreviewInformes(null)} disabled={importarInformes.isPending}>
+                    Cancelar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => fileInputRefInformes.current?.click()}
+                    disabled={importarInformes.isPending}
+                    title="Sustituye la tanda cargada por otra selección de archivos"
+                  >
+                    Elegir otros archivos
+                  </Button>
+                </div>
+                {previewInformes.plan.nClasificacionesNuevas === 0 && previewInformes.plan.nReparaciones === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Todos los informes de esta tanda (por fecha+lote) ya están importados: no hay nada nuevo que hacer.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {resumenFinalInformes && !previewInformes && !parseandoInformes && (
+            <Card className="glass-accented border-success/30">
+              <CardContent className="space-y-2 p-4">
+                <div className="flex items-center gap-3">
+                  <CheckCircle2 className="h-5 w-5 shrink-0 text-success" />
+                  <p className="text-sm">
+                    <span className="font-semibold tabular-nums">{resumenFinalInformes.clasificacionesInsertadas}</span> informe(s) con clasificación nueva{" "}
+                    (<span className="font-semibold tabular-nums">{resumenFinalInformes.filasClasificacion}</span> fila(s)),{" "}
+                    <span className="font-semibold tabular-nums">{resumenFinalInformes.yaTenianInforme}</span> ya existente(s) (fecha+lote),{" "}
+                    <span className={cn("font-semibold tabular-nums", resumenFinalInformes.lotesDiaReparados > 0 && "text-success")}>
+                      {resumenFinalInformes.lotesDiaReparados}
+                    </span>{" "}
+                    lote(s) con procesado reparado ({formatKg(resumenFinalInformes.kgReparados)}).
+                  </p>
+                </div>
+                <p className="flex items-center gap-1.5 pl-8 text-xs text-muted-foreground">
+                  Podrido real incorporado: <span className="font-medium tabular-nums text-foreground">{formatKg(resumenFinalInformes.kgPodridoReal)}</span>
+                  <FuenteBadge fuente="real" size="sm" />
+                </p>
+                {resumenFinalInformes.descartados.length > 0 && (
+                  <div className="space-y-0.5 pl-8 text-xs text-warning">
+                    {resumenFinalInformes.descartados.map((d, i) => (
+                      <p key={i}>{d.fileName}: {d.motivo}</p>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {!previewInformes && !resumenFinalInformes && !parseandoInformes && (
+            <Card
+              className="glass-accented"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={onDropInformes}
+            >
+              <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+                <FileStack className="h-10 w-10 text-muted-foreground/30" />
+                <div>
+                  <p className="font-semibold">Importa los informes de lote</p>
+                  <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+                    Arrastra aquí (o selecciona) los "Informe LOTE" del calibrador — un Excel por pasada de lote,
+                    50 o más de golpe. Cada informe aporta la clasificación real (podrido incluido) de su lote y,
+                    si el lote no tenía registro de procesado para esa fecha, lo repara con los kg del informe.
+                    Reimportar la misma tanda no duplica nada (dedup por fecha+lote).
+                  </p>
+                </div>
+                <Button className="glass glass-hover mt-2" variant="outline" onClick={() => fileInputRefInformes.current?.click()}>
+                  <Upload className="h-4 w-4" /> Seleccionar archivos
                 </Button>
               </CardContent>
             </Card>

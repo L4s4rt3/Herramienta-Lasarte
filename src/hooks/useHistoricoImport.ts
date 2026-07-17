@@ -1,6 +1,7 @@
 /**
- * useHistoricoImport — importa el histórico de PRODUCCIÓN y de PALETS de
- * toda la campaña a partes_diarios/lotes_dia/palets_dia.
+ * useHistoricoImport — importa el histórico de PRODUCCIÓN, de PALETS y de
+ * INFORMES DE LOTE de toda la campaña a partes_diarios/lotes_dia/palets_dia/
+ * lote_clasificacion.
  *
  * ── Producción (export "Informe PRODUCCION" del calibrador, ver
  * src/lib/historicoProduccion.ts) ───────────────────────────────────────────
@@ -50,6 +51,37 @@
  *      SOLO si estaba NULL. Lo que no case se cuenta y se reporta (nunca se
  *      inserta, para no arriesgar duplicados). Requiere la migración
  *      20260715110000_palets_dia_lote_codigo.sql (columna `lote_codigo`).
+ *
+ * ── Informes de lote ("Informe LOTE" del calibrador, uno por PASADA de lote;
+ * ver src/lib/informeLote.ts para el formato) ───────────────────────────────
+ * El dueño extrae a mano ~962 informes (a ~50/día) con doble objetivo:
+ * (1) podrido REAL y clasificación por destino de cada lote (lote_clasificacion
+ * — mermaLote.ts ya prefiere la fuente "real" sobre el prorrateo con solo que
+ * exista alguna fila) y (2) REPARAR los lotes con expedición pero sin registro
+ * de procesado: el informe trae la fecha de comienzo y el kg de la pasada, que
+ * es la prueba de procesado que les falta.
+ *
+ * La identidad de un informe es (fecha de comienzo, lote de 8 dígitos vía
+ * claveLoteDedup) — NUNCA solo el lote: un lote puede tener varios informes
+ * (pasadas en días distintos, micro-pasadas de pocos kg incluidas). Dedup
+ * INDEPENDIENTE por tabla, ambas por esa misma clave (ver
+ * planImportInformesLote, función PURA compartida por preview y mutación):
+ *   a) lote_clasificacion: si YA hay filas para (fecha, clave) — fecha por la
+ *      columna `fecha` del informe original, part→date solo como fallback
+ *      (ver indexarClasificacionPorFecha) — no se inserta clasificación
+ *      (contador "ya tenía informe"); si no, se insertan
+ *      las filas del informe con las MISMAS columnas que la edge function
+ *      analizar-lote-excel (lote_codigo_base = prefijoNumericoLote, fecha,
+ *      productor, toneladas_hora…), colgadas del parte de esa fecha
+ *      (existente o sintético, mismos helpers que producción/palets).
+ *   b) lotes_dia: SOLO si esa (fecha, clave) no tiene NINGUNA fila (ni real ni
+ *      histórica) se inserta UNA fila con kg = Σ Peso(kg) del informe — esto
+ *      es lo que repara los expedidos-sin-procesado. Si ya hay filas NO se
+ *      toca lotes_dia (el informe no debe duplicar kg ya contados).
+ *   El trigger lotes_dia_asignar_productor_id de la BD (migración
+ *   20260714090000) enlaza el productor canónico solo, como en producción.
+ * Reimportar la misma tanda es idempotente: ambas claves ya existen y no se
+ * inserta nada.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -58,15 +90,18 @@ import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
-import { normalizarLoteCodigo } from "@/lib/loteCodigo";
+import { normalizarLoteCodigo, prefijoNumericoLote } from "@/lib/loteCodigo";
 import { PARTES_QUERY_KEY } from "@/hooks/usePartes";
 import type { FilaInformeProduccion } from "@/lib/historicoProduccion";
 import { normalizarPaletIdParaCasar, type FilaInformePalets } from "@/lib/historicoPalets";
+import type { InformeLote } from "@/lib/informeLote";
 
 const CHUNK = 200;
 const NOTA_PARTE_HISTORICO = "Histórico de campaña importado (Informe PRODUCCION del calibrador).";
 const NOTA_LOTE_HISTORICO = "Import histórico de campaña";
 const NOTA_PARTE_HISTORICO_PALETS = "Histórico de campaña importado (export de palets; sin Informe PRODUCCION asociado para este día).";
+const NOTA_PARTE_HISTORICO_INFORMES = "Histórico de campaña importado (Informe LOTE del calibrador; sin parte previo para este día).";
+const NOTA_LOTE_REPARADO_INFORME = "Procesado reconstruido desde Informe LOTE (import histórico): kg = suma de Peso (kg) del informe de esta fecha.";
 
 // palets_dia.lote_codigo todavía no está en el Database generado (migración
 // 20260715110000_palets_dia_lote_codigo.sql pendiente de aplicar). Mismo
@@ -589,6 +624,376 @@ export function useHistoricoImportPalets() {
   return {
     fechasCubiertas: fechasCubiertasQuery.data ?? null,
     isLoadingFechasCubiertas: fechasCubiertasQuery.isLoading,
+    importar,
+  };
+}
+
+// ─── Informes de lote ("Informe LOTE" del calibrador) ───────────────────────
+// Ver el bloque "Informes de lote" de la cabecera del archivo para el diseño
+// (identidad (fecha, clave), dedup independiente clasificación/lotes_dia,
+// reparación de expedidos-sin-procesado).
+
+/** Un archivo ya parseado por parseInformeLoteRows (src/lib/informeLote.ts), con su nombre para poder reportar por archivo. */
+export interface ArchivoInformeLote {
+  fileName: string;
+  informe: InformeLote;
+}
+
+export interface PlanInformeLoteItem {
+  fileName: string;
+  /** Fecha de comienzo del informe (fecha del PROCESADO de la pasada). */
+  fecha: string;
+  /** claveLoteDedup del código crudo del informe (8 dígitos, o "raw:" si no los trae). */
+  clave: string;
+  loteCodigo: string;
+  /** true si (fecha, clave) NO tenía todavía filas en lote_clasificacion: se insertará la clasificación. */
+  insertaClasificacion: boolean;
+  /** true si (fecha, clave) NO tenía NINGUNA fila en lotes_dia: se insertará UNA fila con el kg del informe (reparación de expedido-sin-procesado). */
+  reparaLotesDia: boolean;
+  nFilasClasificacion: number;
+  kgTotal: number;
+  kgPodrido: number;
+  informe: InformeLote;
+}
+
+export interface PlanImportInformesLote {
+  items: PlanInformeLoteItem[];
+  /** Archivos que no se pueden importar, con motivo (sin fecha, sin filas…). Los descartes de PARSE (archivo no reconocido) los reporta la página aparte. */
+  descartados: Array<{ fileName: string; motivo: string }>;
+  /** Informes cuya clasificación se insertará ((fecha, clave) sin filas previas en lote_clasificacion). */
+  nClasificacionesNuevas: number;
+  /** Informes que ya tenían clasificación para su (fecha, clave): no tocan lote_clasificacion. */
+  nYaTenianInforme: number;
+  /** Informes que insertarán la fila de lotes_dia que faltaba (reparación de procesado). */
+  nReparaciones: number;
+  /** Σ kgTotal de los informes que reparan lotes_dia: kg que saldrán del "stock fantasma". */
+  kgReparados: number;
+  /** Σ kgPodrido de los informes con clasificación nueva: podrido REAL que ganará el análisis de mermas. */
+  kgPodridoRealNuevo: number;
+}
+
+/**
+ * Decide qué hará el import con cada informe parseado, contra el estado
+ * actual de lote_clasificacion y lotes_dia (ambos como fecha→Set<clave>).
+ * Función PURA y sin efectos sobre sus argumentos (copia los sets antes de
+ * marcar): la preview de la página y la mutación usan EXACTAMENTE esta misma
+ * lógica, así que ven la misma unidad de trabajo. Dos informes de la misma
+ * (fecha, clave) dentro de la MISMA tanda: el primero decide, el segundo se
+ * trata como "ya tenía" (dedup también dentro de la tanda).
+ */
+export function planImportInformesLote(
+  archivos: ArchivoInformeLote[],
+  clasificacionPorFecha: Map<string, Set<string>>,
+  lotesDiaPorFecha: Map<string, Set<string>>,
+): PlanImportInformesLote {
+  // Copias locales: el plan no debe mutar la cache de React Query.
+  const clasif = new Map<string, Set<string>>();
+  for (const [f, s] of clasificacionPorFecha) clasif.set(f, new Set(s));
+  const lotes = new Map<string, Set<string>>();
+  for (const [f, s] of lotesDiaPorFecha) lotes.set(f, new Set(s));
+
+  const items: PlanInformeLoteItem[] = [];
+  const descartados: Array<{ fileName: string; motivo: string }> = [];
+
+  for (const { fileName, informe } of archivos) {
+    if (!informe.fechaComienzo) {
+      descartados.push({ fileName, motivo: "El informe no trae 'Fecha y Hora de Comienzo' legible." });
+      continue;
+    }
+    if (informe.clasificacion.length === 0 || informe.kgTotal <= 0) {
+      descartados.push({ fileName, motivo: "El informe no trae ninguna fila de clasificación con kg." });
+      continue;
+    }
+    const fecha = informe.fechaComienzo;
+    const clave = claveLoteDedup(informe.loteCodigo);
+
+    const setClasif = clasif.get(fecha) ?? new Set<string>();
+    clasif.set(fecha, setClasif);
+    const insertaClasificacion = !setClasif.has(clave);
+    if (insertaClasificacion) setClasif.add(clave);
+
+    const setLotes = lotes.get(fecha) ?? new Set<string>();
+    lotes.set(fecha, setLotes);
+    const reparaLotesDia = !setLotes.has(clave);
+    if (reparaLotesDia) setLotes.add(clave);
+
+    items.push({
+      fileName,
+      fecha,
+      clave,
+      loteCodigo: informe.loteCodigo,
+      insertaClasificacion,
+      reparaLotesDia,
+      nFilasClasificacion: informe.clasificacion.length,
+      kgTotal: informe.kgTotal,
+      kgPodrido: informe.kgPodrido,
+      informe,
+    });
+  }
+
+  const nuevas = items.filter((i) => i.insertaClasificacion);
+  const reparan = items.filter((i) => i.reparaLotesDia);
+  return {
+    items,
+    descartados,
+    nClasificacionesNuevas: nuevas.length,
+    nYaTenianInforme: items.length - nuevas.length,
+    nReparaciones: reparan.length,
+    kgReparados: reparan.reduce((s, i) => s + i.kgTotal, 0),
+    kgPodridoRealNuevo: nuevas.reduce((s, i) => s + i.kgPodrido, 0),
+  };
+}
+
+interface FilaClasificacionExistente {
+  part_id: string;
+  lote_codigo: string | null;
+  lote_codigo_base: string | null;
+  /** lote_clasificacion.fecha: la fecha de COMIENZO del informe original (la puso la edge function o este import). */
+  fecha: string | null;
+}
+
+/**
+ * fecha -> Set<clave> de las filas YA existentes en lote_clasificacion. La
+ * fecha preferente es la columna `fecha` (la de comienzo del informe): las
+ * filas subidas vía edge function (analizar-lote-excel) cuelgan del parte al
+ * que se adjuntó el ARCHIVO, que puede no ser el día del informe — usar solo
+ * part→date dejaría de ver esos ~28 lotes y reimportarlos duplicaría su
+ * podrido real. part→date queda como fallback si `fecha` viniera null.
+ * Se añade también la clave del código base (defensivo: normalmente coincide
+ * con la del crudo, pero cubre crudos sin 8 dígitos reconocibles).
+ */
+function indexarClasificacionPorFecha(
+  clasif: FilaClasificacionExistente[],
+  fechaPorParte: Map<string, string>,
+): Map<string, Set<string>> {
+  const porFecha = new Map<string, Set<string>>();
+  for (const c of clasif) {
+    const fecha = c.fecha ?? fechaPorParte.get(c.part_id);
+    if (!fecha) continue;
+    const set = porFecha.get(fecha) ?? new Set<string>();
+    set.add(claveLoteDedup(c.lote_codigo));
+    if (c.lote_codigo_base) set.add(claveLoteDedup(c.lote_codigo_base));
+    porFecha.set(fecha, set);
+  }
+  return porFecha;
+}
+
+export interface ClavesInformesLoteCubiertas {
+  /** fecha (columna `fecha` del informe, o part→date como fallback) -> Set de claves (claveLoteDedup) con filas YA existentes en lote_clasificacion. */
+  clasificacionPorFecha: Map<string, Set<string>>;
+}
+
+/** Claves (fecha+lote) que YA tienen filas en lote_clasificacion (de cualquier usuario): lo que el import de informes debe saltar. */
+export function useClavesInformesLoteCubiertas() {
+  return useQuery({
+    queryKey: ["historico-informes-lote", "claves-cubiertas"],
+    queryFn: async (): Promise<ClavesInformesLoteCubiertas> => {
+      // lote_clasificacion tiene 8.685+ filas: muy por encima del max-rows
+      // del servidor, se pagina con fetchAllRows (ver src/lib/fetchAllRows.ts).
+      const [partes, clasif] = await Promise.all([
+        fetchPartesDiarios(),
+        fetchAllRows<FilaClasificacionExistente>(
+          (from, to) => supabase.from("lote_clasificacion").select("part_id, lote_codigo, lote_codigo_base, fecha").order("id").range(from, to),
+        ),
+      ]);
+      const { fechaPorParte } = indexarPartesPorFecha(partes);
+      return { clasificacionPorFecha: indexarClasificacionPorFecha(clasif, fechaPorParte) };
+    },
+  });
+}
+
+export interface ImportarInformesLoteVariables {
+  archivos: ArchivoInformeLote[];
+  /** Progreso por INFORME procesado (útil con tandas de 50+ archivos). */
+  onProgress?: (hechos: number, total: number) => void;
+}
+
+export interface ImportarInformesLoteResumen {
+  /** Informes válidos procesados (con o sin nada que insertar). */
+  informesProcesados: number;
+  /** Archivos descartados por el plan (sin fecha / sin filas), con motivo. */
+  descartados: Array<{ fileName: string; motivo: string }>;
+  /** Informes cuya clasificación se insertó. */
+  clasificacionesInsertadas: number;
+  /** Filas de lote_clasificacion insertadas en total. */
+  filasClasificacion: number;
+  /** Informes que ya tenían clasificación para su (fecha, lote): saltados. */
+  yaTenianInforme: number;
+  /** Filas de lotes_dia insertadas (lotes reparados: tenían expedición pero no registro de procesado en esa fecha). */
+  lotesDiaReparados: number;
+  /** Σ kg de esas filas: kg que salen del "stock fantasma". */
+  kgReparados: number;
+  /** Σ kg de podrido REAL de los informes con clasificación insertada. */
+  kgPodridoReal: number;
+}
+
+export function useInformesLoteImport() {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+
+  const clasificacionCubiertaQuery = useClavesInformesLoteCubiertas();
+  // lotes_dia por (fecha, clave): la MISMA query que usa el import de
+  // producción (React Query la dedupe por queryKey — no es un fetch extra).
+  const lotesCubiertosQuery = useClavesProduccionCubiertas();
+
+  const importar = useMutation({
+    mutationFn: async ({ archivos, onProgress }: ImportarInformesLoteVariables): Promise<ImportarInformesLoteResumen> => {
+      if (!user) throw new Error("No auth");
+      if (archivos.length === 0) throw new Error("No hay informes para importar.");
+
+      // Lectura FRESCA (no la cache de React Query) justo antes de escribir,
+      // mismo motivo que producción/palets: minimizar la ventana de carrera.
+      // Se piden también los ids de lotes_dia para el enlace best-effort
+      // lote_clasificacion.lote_dia_id (mismo criterio que la edge function
+      // analizar-lote-excel: emparejar por código dentro del mismo parte/fecha).
+      const [partes, lotesExist, clasifExist] = await Promise.all([
+        fetchPartesDiarios(),
+        fetchAllRows<{ id: string; part_id: string; lote_codigo: string | null }>((from, to) =>
+          supabase.from("lotes_dia").select("id, part_id, lote_codigo").order("id").range(from, to),
+        ),
+        fetchAllRows<FilaClasificacionExistente>((from, to) =>
+          supabase.from("lote_clasificacion").select("part_id, lote_codigo, lote_codigo_base, fecha").order("id").range(from, to),
+        ),
+      ]);
+
+      const { fechaPorParte, partesPorFecha } = indexarPartesPorFecha(partes);
+
+      const lotesPorFecha = new Map<string, Set<string>>();
+      const loteDiaIdPorFechaClave = new Map<string, string>(); // `${fecha}::${clave}` -> primer id (best-effort)
+      for (const l of lotesExist) {
+        const fecha = fechaPorParte.get(l.part_id);
+        if (!fecha) continue;
+        const clave = claveLoteDedup(l.lote_codigo);
+        const set = lotesPorFecha.get(fecha) ?? new Set<string>();
+        set.add(clave);
+        lotesPorFecha.set(fecha, set);
+        const key = `${fecha}::${clave}`;
+        if (!loteDiaIdPorFechaClave.has(key)) loteDiaIdPorFechaClave.set(key, l.id);
+      }
+
+      const clasifPorFecha = indexarClasificacionPorFecha(clasifExist, fechaPorParte);
+
+      // El MISMO plan puro que vio la preview, recalculado con datos frescos.
+      const plan = planImportInformesLote(archivos, clasifPorFecha, lotesPorFecha);
+
+      let clasificacionesInsertadas = 0;
+      let filasClasificacion = 0;
+      let lotesDiaReparados = 0;
+      let kgReparados = 0;
+      let kgPodridoReal = 0;
+
+      for (let i = 0; i < plan.items.length; i++) {
+        const item = plan.items[i];
+        onProgress?.(i, plan.items.length);
+        if (!item.insertaClasificacion && !item.reparaLotesDia) continue;
+
+        const inf = item.informe;
+
+        // Parte del día del informe: existente (real o sintético de cualquier
+        // import anterior) o sintético nuevo — mismos helpers que producción.
+        let partId = (partesPorFecha.get(item.fecha) ?? [])[0];
+        if (!partId) {
+          partId = await crearParteSintetico(item.fecha, user.id, NOTA_PARTE_HISTORICO_INFORMES);
+          partesPorFecha.set(item.fecha, [partId]);
+        }
+
+        // b) Reparación de lotes_dia ANTES de la clasificación, para poder
+        //    enlazar lote_dia_id con la fila recién creada.
+        let loteDiaId = loteDiaIdPorFechaClave.get(`${item.fecha}::${item.clave}`) ?? null;
+        if (item.reparaLotesDia) {
+          const { data: nuevoLote, error: loteErr } = await supabase
+            .from("lotes_dia")
+            .insert({
+              part_id: partId,
+              user_id: user.id,
+              source: "manual" as const,
+              producto: inf.variedad,
+              lote_codigo: inf.loteCodigo,
+              kg_peso_total: inf.kgTotal,
+              toneladas_hora: inf.toneladasHora,
+              duracion_min: inf.duracionLoteMin,
+              peso_fruta_promedio_g: inf.pesoFrutaPromedioG,
+              productor: inf.productorNombre,
+              notas: NOTA_LOTE_REPARADO_INFORME,
+            })
+            .select("id")
+            .single();
+          if (loteErr) throw toError(loteErr);
+          loteDiaId = (nuevoLote as { id: string }).id;
+          loteDiaIdPorFechaClave.set(`${item.fecha}::${item.clave}`, loteDiaId);
+          lotesDiaReparados += 1;
+          kgReparados += inf.kgTotal;
+        }
+
+        // a) Clasificación: mismas columnas que la edge function
+        //    analizar-lote-excel (part_id/lote_codigo/lote_codigo_base/fecha/
+        //    productor/toneladas_hora/…); archivo_id queda null (no hay
+        //    partes_archivos: el Excel no se sube al bucket en este flujo).
+        if (item.insertaClasificacion) {
+          const rows = inf.clasificacion.map((f) => ({
+            part_id: partId,
+            user_id: user.id,
+            archivo_id: null,
+            lote_dia_id: loteDiaId,
+            lote_codigo: inf.loteCodigo,
+            lote_codigo_base: prefijoNumericoLote(inf.loteCodigo),
+            productor: inf.productorNombre,
+            fecha: item.fecha,
+            toneladas_hora: inf.toneladasHora,
+            peso_fruta_promedio_g: inf.pesoFrutaPromedioG,
+            duracion_min: inf.duracionLoteMin,
+            producto: f.producto,
+            calidad: f.calidad,
+            clase: f.clase,
+            grupo_destino: f.grupoDestino,
+            tamano: f.tamano,
+            piezas: f.piezas,
+            pct_piezas: f.pctPiezas,
+            peso_kg: f.pesoKg,
+            pct_peso: f.pctPeso,
+            cartons: f.cartons,
+            pct_cartons: f.pctCartons,
+          }));
+          for (let j = 0; j < rows.length; j += CHUNK) {
+            const chunk = rows.slice(j, j + CHUNK);
+            const { error: clasifErr } = await supabase.from("lote_clasificacion").insert(chunk);
+            if (clasifErr) throw toError(clasifErr);
+          }
+          clasificacionesInsertadas += 1;
+          filasClasificacion += rows.length;
+          kgPodridoReal += inf.kgPodrido;
+        }
+      }
+
+      onProgress?.(plan.items.length, plan.items.length);
+
+      return {
+        informesProcesados: plan.items.length,
+        descartados: plan.descartados,
+        clasificacionesInsertadas,
+        filasClasificacion,
+        yaTenianInforme: plan.nYaTenianInforme,
+        lotesDiaReparados,
+        kgReparados,
+        kgPodridoReal,
+      };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: PARTES_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ["historico-informes-lote"] });
+      // lotes_dia nuevas cambian dedup de producción, stock y mermas.
+      queryClient.invalidateQueries({ queryKey: ["historico-produccion"] });
+      queryClient.invalidateQueries({ queryKey: ["merma-lote"] });
+      queryClient.invalidateQueries({ queryKey: ["entradas_bascula"] });
+      queryClient.invalidateQueries({ queryKey: ["trazabilidad-lote"] });
+    },
+  });
+
+  return {
+    clasificacionCubierta: clasificacionCubiertaQuery.data ?? null,
+    isLoadingClasificacionCubierta: clasificacionCubiertaQuery.isLoading,
+    lotesCubiertos: lotesCubiertosQuery.data ?? null,
+    isLoadingLotesCubiertos: lotesCubiertosQuery.isLoading,
     importar,
   };
 }
