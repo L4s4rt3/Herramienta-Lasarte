@@ -32,10 +32,12 @@ import {
   Upload,
   Brush,
   History,
+  Send,
 } from "lucide-react";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useAuth } from "@/contexts/AuthProvider";
 import { useVentasCategoriaAccess } from "@/hooks/useVentasCategoria";
+import { useComunicacionesCampoAccess } from "@/hooks/useComunicacionesCampo";
 
 // Rutas del espacio Comercial: solo visibles para "ventas" y "admin".
 const VENTAS_Y_ADMIN_ONLY = new Set(["/comercial", "/comercial/ventas-mes", "/ventas/categoria-primera", "/comercial/mercadona", "/cmr"]);
@@ -68,6 +70,7 @@ const PAGES = [
   { to: "/ventas/categoria-segunda", label: "Categoría segunda", icon: FileSpreadsheet, keywords: "ventas comercial categoria segunda clientes productos precios" },
   { to: "/ventas/categoria-primera", label: "Categoría primera", icon: FileSpreadsheet, keywords: "ventas comercial categoria primera clientes productos precios" },
   { to: "/cmr", label: "CMR y Hojas de ruta", icon: Truck, keywords: "cmr hojas de ruta transporte logistica" },
+  { to: "/campo/comunicaciones", label: "Comunicaciones de campaña", icon: Send, keywords: "campo campaña comunicaciones comunicados agricultores proveedores correos emails jesus" },
   { to: "/costes/consumos", label: "Consumos", icon: Droplet, keywords: "consumos costes agua energia gasoil" },
   { to: "/limpieza", label: "Limpieza de box", icon: Brush, keywords: "limpieza box pies escaleras turnos trabajadores horas partes" },
   { to: "/historico", label: "Importar histórico", icon: History, keywords: "historico produccion campaña import excel calibrador informe" },
@@ -81,6 +84,7 @@ const PAGES = [
   { to: "/rrhh/comunicaciones", label: "Comunicaciones (RRHH)", icon: Mail, keywords: "rrhh comunicaciones correos emails avisos horas vacaciones" },
   { to: "/rrhh/mercadona", label: "Mercadona (facturas)", icon: ShoppingCart, keywords: "rrhh mercadona facturas precios kg" },
   { to: "/economico", label: "Panel económico", icon: Banknote, keywords: "economico euros facturacion costes margen admin direccion" },
+  { to: "/economico/cmv", label: "CMV (Económico)", icon: Banknote, keywords: "economico cmv coste medio venta kg vendido escandallo margen direccion" },
   { to: "/economico/facturacion", label: "Facturación (Económico)", icon: Banknote, keywords: "economico facturacion base iva mercadona euros direccion" },
   { to: "/economico/costes", label: "Costes (Económico)", icon: Banknote, keywords: "economico costes consumos coste por kg euros direccion" },
   { to: "/economico/fruta", label: "Compra de fruta (Económico)", icon: Banknote, keywords: "economico fruta bascula compra agricultor productor variedad lote euros direccion" },
@@ -92,6 +96,7 @@ const PAGES = [
 const ECONOMICO_ADMIN_ONLY = new Set([
   "/direccion",
   "/economico",
+  "/economico/cmv",
   "/economico/facturacion",
   "/economico/costes",
   "/economico/fruta",
@@ -128,6 +133,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const { data: searchResults, isLoading } = useGlobalSearch(searchQuery);
   const { role } = useAuth();
   const ventasCategoriaAccess = useVentasCategoriaAccess();
+  const comunicacionesCampoAccess = useComunicacionesCampoAccess();
   const isVentas = role === "ventas";
   // El rol rrhh vive solo en su espacio (igual que ventas en el suyo).
   const isRrhh = role === "rrhh";
@@ -138,6 +144,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     if (isVentas) return VENTAS_ALLOWED.has(page.to);
     if (isRrhh) return RRHH_Y_ADMIN_ONLY.has(page.to);
     if (page.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
+    // Comunicaciones de campaña: exclusiva de Jesús y admin (RPC de acceso).
+    if (page.to === "/campo/comunicaciones") return comunicacionesCampoAccess.hasAccess;
     // Categoria primera, Edeka y CMR son solo para admin y ventas.
     if (VENTAS_Y_ADMIN_ONLY.has(page.to)) return role === "admin";
     // El caso rrhh ya retorno arriba; aqui solo puede quedar admin/operario.

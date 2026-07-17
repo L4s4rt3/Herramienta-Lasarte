@@ -10,6 +10,7 @@ import {
   BarChart3,
   Brush,
   Building2,
+  Calculator,
   CalendarOff,
   Citrus,
   ClipboardCheck,
@@ -22,6 +23,7 @@ import {
   Mail,
   Plane,
   Receipt,
+  Send,
   ShoppingCart,
   Sprout,
   Tags,
@@ -154,6 +156,17 @@ export const NAV_GROUPS: Array<{ label: string; workspace: WorkspaceId; items: N
     ],
   },
   {
+    // Comunicaciones de campaña: exclusiva de Jesús (jesus@lasartesat.es) y
+    // admin. El ítem solo se pinta si la RPC can_access_comunicaciones_campo
+    // da true (lo filtran AppLayout, CommandPalette y MapaHerramienta, igual
+    // que el caso especial de Categoría segunda).
+    label: "Campo",
+    workspace: "produccion",
+    items: [
+      { to: "/campo/comunicaciones", label: "Comunicaciones de campaña", icon: Send },
+    ],
+  },
+  {
     label: "Comercial",
     workspace: "comercial",
     items: [
@@ -190,6 +203,7 @@ export const NAV_GROUPS: Array<{ label: string; workspace: WorkspaceId; items: N
     workspace: "direccion",
     items: [
       { to: "/economico", label: "Panel económico", icon: Euro, match: (path) => path === "/economico" },
+      { to: "/economico/cmv", label: "CMV", icon: Calculator },
       { to: "/economico/facturacion", label: "Facturación", icon: Receipt },
       { to: "/economico/costes", label: "Costes", icon: Droplet },
       { to: "/economico/fruta", label: "Compra de fruta", icon: Citrus },

@@ -9,12 +9,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ROUTE_META } from "@/components/TopBar";
 import { useAuth } from "@/contexts/AuthProvider";
 import { useVentasCategoriaAccess } from "@/hooks/useVentasCategoria";
+import { useComunicacionesCampoAccess } from "@/hooks/useComunicacionesCampo";
 import { preloadRoute } from "@/lib/routePreload";
 import { NAV_GROUPS, WORKSPACES, WORKSPACE_DISPLAY_ORDER } from "@/lib/workspaces";
 
 export default function MapaHerramienta() {
   const { role } = useAuth();
   const ventasCategoriaAccess = useVentasCategoriaAccess();
+  const comunicacionesCampoAccess = useComunicacionesCampoAccess();
 
   const secciones = WORKSPACE_DISPLAY_ORDER
     .map((id) => WORKSPACES.find((w) => w.id === id))
@@ -24,7 +26,11 @@ export default function MapaHerramienta() {
       items: NAV_GROUPS
         .filter((group) => group.workspace === ws.id)
         .flatMap((group) => group.items)
-        .filter((item) => (item.to === "/ventas/categoria-segunda" ? ventasCategoriaAccess.hasAccess : true)),
+        .filter((item) => {
+          if (item.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
+          if (item.to === "/campo/comunicaciones") return comunicacionesCampoAccess.hasAccess;
+          return true;
+        }),
     }))
     .filter(({ items }) => items.length > 0);
 

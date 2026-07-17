@@ -42,6 +42,7 @@ const DireccionDashboard = lazy(pageLoaders.direccionDashboard);
 const MercadonaProduccion = lazy(pageLoaders.mercadonaProduccion);
 const VentasMensualImport = lazy(pageLoaders.ventasMensualImport);
 const EconomicoPanel = lazy(pageLoaders.economicoPanel);
+const EconomicoCmv = lazy(pageLoaders.economicoCmv);
 const EconomicoFacturacion = lazy(pageLoaders.economicoFacturacion);
 const EconomicoCostes = lazy(pageLoaders.economicoCostes);
 const EconomicoFruta = lazy(pageLoaders.economicoFruta);
@@ -51,6 +52,7 @@ const EntradasBascula = lazy(pageLoaders.entradas);
 const TrazabilidadLote = lazy(pageLoaders.trazabilidad);
 const LimpiezaBox = lazy(pageLoaders.limpiezaBox);
 const HistoricoImport = lazy(pageLoaders.historicoImport);
+const ComunicacionesCampo = lazy(pageLoaders.comunicacionesCampo);
 const ExcelViewerPage = lazy(() => import("@/pages/ExcelViewerPage"));
 
 const LoadingFallback = () => (
@@ -99,6 +101,10 @@ const App = () => (
                       <Route path="/costes/asistencia" element={<Asistencia />} />
                       <Route path="/costes/asistencia/comparativa" element={<AsistenciaComparativa />} />
                       <Route path="/productores" element={<Productores />} />
+                      {/* Comunicaciones de campaña: exclusiva de Jesús (jesus@lasartesat.es)
+                          y admin — el gate real es la RPC can_access_comunicaciones_campo
+                          dentro de la propia página/hook (patrón Categoría segunda). */}
+                      <Route path="/campo/comunicaciones" element={<ComunicacionesCampo />} />
                       <Route path="/analisis/diario" element={<AnalisisDiario />} />
                       <Route path="/ventas/categoria-segunda" element={<VentasCategoriaSegunda />} />
                       <Route path="/ventas/categoria-primera" element={<VentasCategoriaPrimera />} />
@@ -119,6 +125,7 @@ const App = () => (
                       <Route path="/rrhh/nominas" element={<RrhhNominas />} />
                       <Route path="/rrhh/comunicaciones" element={<RrhhComunicaciones />} />
                       <Route path="/economico" element={<EconomicoPanel />} />
+                      <Route path="/economico/cmv" element={<EconomicoCmv />} />
                       <Route path="/economico/facturacion" element={<EconomicoFacturacion />} />
                       <Route path="/economico/costes" element={<EconomicoCostes />} />
                       <Route path="/economico/fruta" element={<EconomicoFruta />} />

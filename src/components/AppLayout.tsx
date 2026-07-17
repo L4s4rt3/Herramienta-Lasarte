@@ -34,6 +34,7 @@ import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
 import { ChatBot } from "@/components/ChatBot";
 import { useDataWarmup } from "@/hooks/useDataWarmup";
 import { useVentasCategoriaAccess } from "@/hooks/useVentasCategoria";
+import { useComunicacionesCampoAccess } from "@/hooks/useComunicacionesCampo";
 import { preloadRoute } from "@/lib/routePreload";
 import { TourGuiado } from "@/components/tour/TourGuiado";
 import { getVisibleTourSteps, tourStorageKey } from "@/components/tour/tourSteps";
@@ -70,6 +71,9 @@ export default function AppLayout() {
 function AppLayoutContent() {
   const { signOut, user, role } = useAuth();
   const ventasCategoriaAccess = useVentasCategoriaAccess();
+  // Comunicaciones de campaña (exclusiva de Jesús + admin): mismo mecanismo de
+  // ítem condicionado por RPC que Categoría segunda.
+  const comunicacionesCampoAccess = useComunicacionesCampoAccess();
   const { isMobile, setOpenMobile } = useSidebar();
   useDataWarmup();
 
@@ -183,7 +187,11 @@ function AppLayoutContent() {
                 const items = navGroups
                   .filter((group) => group.workspace === ws.id)
                   .flatMap((group) => group.items)
-                  .filter((item) => (item.to === "/ventas/categoria-segunda" ? ventasCategoriaAccess.hasAccess : true));
+                  .filter((item) => {
+                    if (item.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
+                    if (item.to === "/campo/comunicaciones") return comunicacionesCampoAccess.hasAccess;
+                    return true;
+                  });
                 if (items.length === 0) return null;
                 return (
                   <SidebarGroup
@@ -259,6 +267,7 @@ function AppLayoutContent() {
                 // queda el mecanismo histórico de Categoría segunda (allowlist/rol).
                 const visibleItems = group.items.filter((item) => {
                   if (item.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
+                  if (item.to === "/campo/comunicaciones") return comunicacionesCampoAccess.hasAccess;
                   return true;
                 });
                 // Un grupo sin items visibles (p.ej. "Comercial" sin acceso) no pinta ni su etiqueta.

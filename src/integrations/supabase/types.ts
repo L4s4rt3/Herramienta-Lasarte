@@ -382,6 +382,56 @@ export type Database = {
         }
         Relationships: []
       }
+      calidad_referencias_productor: {
+        Row: {
+          created_at: string
+          fuente: string
+          id: string
+          kg_podrido: number
+          kg_total: number
+          productor_id: string | null
+          productor_nombre: string
+          rango_desde: string | null
+          rango_hasta: string | null
+          user_id: string
+          variedad: string | null
+        }
+        Insert: {
+          created_at?: string
+          fuente?: string
+          id?: string
+          kg_podrido: number
+          kg_total: number
+          productor_id?: string | null
+          productor_nombre: string
+          rango_desde?: string | null
+          rango_hasta?: string | null
+          user_id: string
+          variedad?: string | null
+        }
+        Update: {
+          created_at?: string
+          fuente?: string
+          id?: string
+          kg_podrido?: number
+          kg_total?: number
+          productor_id?: string | null
+          productor_nombre?: string
+          rango_desde?: string | null
+          rango_hasta?: string | null
+          user_id?: string
+          variedad?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calidad_referencias_productor_productor_id_fkey"
+            columns: ["productor_id"]
+            isOneToOne: false
+            referencedRelation: "calidad_productores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chat_conversations: {
         Row: {
           content: string
@@ -535,6 +585,39 @@ export type Database = {
         }
         Relationships: []
       }
+      cmv_costes_mensuales: {
+        Row: {
+          concepto: string | null
+          created_at: string
+          id: string
+          importe: number
+          mes: string
+          notas: string | null
+          tipo: string
+          user_id: string | null
+        }
+        Insert: {
+          concepto?: string | null
+          created_at?: string
+          id?: string
+          importe: number
+          mes: string
+          notas?: string | null
+          tipo: string
+          user_id?: string | null
+        }
+        Update: {
+          concepto?: string | null
+          created_at?: string
+          id?: string
+          importe?: number
+          mes?: string
+          notas?: string | null
+          tipo?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       code_embeddings: {
         Row: {
           content: string
@@ -562,6 +645,45 @@ export type Database = {
           id?: string
           metadata?: Json | null
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      comunicaciones_campo: {
+        Row: {
+          asunto: string
+          created_at: string
+          cuerpo: string
+          destinatarios: Json
+          enviados: number
+          estado: string
+          fallidos: Json | null
+          id: string
+          provider_ids: Json | null
+          user_id: string | null
+        }
+        Insert: {
+          asunto: string
+          created_at?: string
+          cuerpo: string
+          destinatarios?: Json
+          enviados?: number
+          estado: string
+          fallidos?: Json | null
+          id?: string
+          provider_ids?: Json | null
+          user_id?: string | null
+        }
+        Update: {
+          asunto?: string
+          created_at?: string
+          cuerpo?: string
+          destinatarios?: Json
+          enviados?: number
+          estado?: string
+          fallidos?: Json | null
+          id?: string
+          provider_ids?: Json | null
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -682,6 +804,50 @@ export type Database = {
         }
         Relationships: []
       }
+      contactos_campo: {
+        Row: {
+          activo: boolean
+          created_at: string
+          email: string
+          id: string
+          nombre: string
+          notas: string | null
+          productor_id: string | null
+          tipo: string
+          user_id: string | null
+        }
+        Insert: {
+          activo?: boolean
+          created_at?: string
+          email: string
+          id?: string
+          nombre: string
+          notas?: string | null
+          productor_id?: string | null
+          tipo: string
+          user_id?: string | null
+        }
+        Update: {
+          activo?: boolean
+          created_at?: string
+          email?: string
+          id?: string
+          nombre?: string
+          notas?: string | null
+          productor_id?: string | null
+          tipo?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contactos_campo_productor_id_fkey"
+            columns: ["productor_id"]
+            isOneToOne: false
+            referencedRelation: "calidad_productores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       costes_diarios: {
         Row: {
           cantidad: number
@@ -718,6 +884,42 @@ export type Database = {
         }
         Relationships: []
       }
+      economico_mallas_config: {
+        Row: {
+          created_at: string
+          id: string
+          kg_por_malla: number | null
+          notas: string | null
+          precio_malla: number | null
+          tipo_malla: string | null
+          user_id: string
+          vigente_desde: string
+          zona: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kg_por_malla?: number | null
+          notas?: string | null
+          precio_malla?: number | null
+          tipo_malla?: string | null
+          user_id?: string
+          vigente_desde?: string
+          zona: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kg_por_malla?: number | null
+          notas?: string | null
+          precio_malla?: number | null
+          tipo_malla?: string | null
+          user_id?: string
+          vigente_desde?: string
+          zona?: string
+        }
+        Relationships: []
+      }
       economico_precios: {
         Row: {
           created_at: string
@@ -751,12 +953,47 @@ export type Database = {
         }
         Relationships: []
       }
+      empaque_precios: {
+        Row: {
+          componente: string
+          created_at: string
+          id: string
+          notas: string | null
+          precio_malla: number
+          tipo_malla: string
+          user_id: string | null
+          vigente_desde: string
+        }
+        Insert: {
+          componente: string
+          created_at?: string
+          id?: string
+          notas?: string | null
+          precio_malla?: number
+          tipo_malla: string
+          user_id?: string | null
+          vigente_desde: string
+        }
+        Update: {
+          componente?: string
+          created_at?: string
+          id?: string
+          notas?: string | null
+          precio_malla?: number
+          tipo_malla?: string
+          user_id?: string | null
+          vigente_desde?: string
+        }
+        Relationships: []
+      }
       entradas_bascula: {
         Row: {
           agricultor: string | null
           articulo: string | null
+          cerrado_at: string | null
           certificada: boolean
           certificado_ggn: string | null
+          cierre_modo: string | null
           comision_kg: number | null
           coste_recoleccion: number | null
           created_at: string
@@ -764,8 +1001,8 @@ export type Database = {
           fecha: string
           finca: string | null
           id: string
-          importe_compra: number | null
           importe_comision: number | null
+          importe_compra: number | null
           importe_total: number | null
           importe_transporte: number | null
           kg_ajuste_stock: number
@@ -775,6 +1012,7 @@ export type Database = {
           origen: string
           parcela: string | null
           precio_compra_kg: number | null
+          productor_id: string | null
           recol_kg: number | null
           tipo_envase: string | null
           user_id: string
@@ -782,8 +1020,10 @@ export type Database = {
         Insert: {
           agricultor?: string | null
           articulo?: string | null
+          cerrado_at?: string | null
           certificada?: boolean
           certificado_ggn?: string | null
+          cierre_modo?: string | null
           comision_kg?: number | null
           coste_recoleccion?: number | null
           created_at?: string
@@ -791,8 +1031,8 @@ export type Database = {
           fecha: string
           finca?: string | null
           id?: string
-          importe_compra?: number | null
           importe_comision?: number | null
+          importe_compra?: number | null
           importe_total?: number | null
           importe_transporte?: number | null
           kg_ajuste_stock?: number
@@ -802,6 +1042,7 @@ export type Database = {
           origen?: string
           parcela?: string | null
           precio_compra_kg?: number | null
+          productor_id?: string | null
           recol_kg?: number | null
           tipo_envase?: string | null
           user_id: string
@@ -809,8 +1050,10 @@ export type Database = {
         Update: {
           agricultor?: string | null
           articulo?: string | null
+          cerrado_at?: string | null
           certificada?: boolean
           certificado_ggn?: string | null
+          cierre_modo?: string | null
           comision_kg?: number | null
           coste_recoleccion?: number | null
           created_at?: string
@@ -818,8 +1061,8 @@ export type Database = {
           fecha?: string
           finca?: string | null
           id?: string
-          importe_compra?: number | null
           importe_comision?: number | null
+          importe_compra?: number | null
           importe_total?: number | null
           importe_transporte?: number | null
           kg_ajuste_stock?: number
@@ -829,11 +1072,20 @@ export type Database = {
           origen?: string
           parcela?: string | null
           precio_compra_kg?: number | null
+          productor_id?: string | null
           recol_kg?: number | null
           tipo_envase?: string | null
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "entradas_bascula_productor_id_fkey"
+            columns: ["productor_id"]
+            isOneToOne: false
+            referencedRelation: "calidad_productores"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       gstock_entries: {
         Row: {
@@ -878,6 +1130,90 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      limpieza_parte_trabajadores: {
+        Row: {
+          created_at: string
+          horas: number
+          id: string
+          nombre: string
+          parte_id: string
+          trabajador_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          horas: number
+          id?: string
+          nombre: string
+          parte_id: string
+          trabajador_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          horas?: number
+          id?: string
+          nombre?: string
+          parte_id?: string
+          trabajador_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "limpieza_parte_trabajadores_parte_id_fkey"
+            columns: ["parte_id"]
+            isOneToOne: false
+            referencedRelation: "limpieza_partes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "limpieza_parte_trabajadores_trabajador_id_fkey"
+            columns: ["trabajador_id"]
+            isOneToOne: false
+            referencedRelation: "trabajadores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      limpieza_partes: {
+        Row: {
+          box: number
+          created_at: string
+          escaleras: number | null
+          fecha: string
+          id: string
+          observaciones: string | null
+          pies: number | null
+          turno: number
+          unidad: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          box: number
+          created_at?: string
+          escaleras?: number | null
+          fecha: string
+          id?: string
+          observaciones?: string | null
+          pies?: number | null
+          turno?: number
+          unidad: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          box?: number
+          created_at?: string
+          escaleras?: number | null
+          fecha?: string
+          id?: string
+          observaciones?: string | null
+          pies?: number | null
+          turno?: number
+          unidad?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       lote_clasificacion: {
         Row: {
@@ -996,6 +1332,7 @@ export type Database = {
           peso_fruta_promedio_g: number | null
           producto: string | null
           productor: string | null
+          productor_id: string | null
           source: Database["public"]["Enums"]["data_source"]
           toneladas_hora: number | null
           user_id: string
@@ -1013,6 +1350,7 @@ export type Database = {
           peso_fruta_promedio_g?: number | null
           producto?: string | null
           productor?: string | null
+          productor_id?: string | null
           source?: Database["public"]["Enums"]["data_source"]
           toneladas_hora?: number | null
           user_id: string
@@ -1030,6 +1368,7 @@ export type Database = {
           peso_fruta_promedio_g?: number | null
           producto?: string | null
           productor?: string | null
+          productor_id?: string | null
           source?: Database["public"]["Enums"]["data_source"]
           toneladas_hora?: number | null
           user_id?: string
@@ -1040,6 +1379,13 @@ export type Database = {
             columns: ["part_id"]
             isOneToOne: false
             referencedRelation: "partes_diarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lotes_dia_productor_id_fkey"
+            columns: ["productor_id"]
+            isOneToOne: false
+            referencedRelation: "calidad_productores"
             referencedColumns: ["id"]
           },
         ]
@@ -1223,6 +1569,7 @@ export type Database = {
           egipto: boolean
           id: string
           kg_neto: number
+          lote_codigo: string | null
           n_cajas: number | null
           palet_id: string | null
           part_id: string
@@ -1239,6 +1586,7 @@ export type Database = {
           egipto?: boolean
           id?: string
           kg_neto?: number
+          lote_codigo?: string | null
           n_cajas?: number | null
           palet_id?: string | null
           part_id: string
@@ -1255,6 +1603,7 @@ export type Database = {
           egipto?: boolean
           id?: string
           kg_neto?: number
+          lote_codigo?: string | null
           n_cajas?: number | null
           palet_id?: string | null
           part_id?: string
@@ -1486,6 +1835,41 @@ export type Database = {
           },
         ]
       }
+      productores_alias: {
+        Row: {
+          alias: string
+          alias_normalizado: string
+          created_at: string
+          id: string
+          origen: string
+          productor_id: string
+        }
+        Insert: {
+          alias: string
+          alias_normalizado: string
+          created_at?: string
+          id?: string
+          origen?: string
+          productor_id: string
+        }
+        Update: {
+          alias?: string
+          alias_normalizado?: string
+          created_at?: string
+          id?: string
+          origen?: string
+          productor_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "productores_alias_productor_id_fkey"
+            columns: ["productor_id"]
+            isOneToOne: false
+            referencedRelation: "calidad_productores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -1559,6 +1943,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      rrhh_comunicaciones: {
+        Row: {
+          asunto: string
+          created_at: string
+          cuerpo: string
+          destinatarios: Json
+          detalle_envio: Json | null
+          enviado_at: string | null
+          estado: string
+          id: string
+          tipo: string
+          user_id: string
+        }
+        Insert: {
+          asunto: string
+          created_at?: string
+          cuerpo: string
+          destinatarios?: Json
+          detalle_envio?: Json | null
+          enviado_at?: string | null
+          estado?: string
+          id?: string
+          tipo?: string
+          user_id?: string
+        }
+        Update: {
+          asunto?: string
+          created_at?: string
+          cuerpo?: string
+          destinatarios?: Json
+          detalle_envio?: Json | null
+          enviado_at?: string | null
+          estado?: string
+          id?: string
+          tipo?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       rrhh_horas: {
         Row: {
@@ -1774,10 +2197,14 @@ export type Database = {
           activo: boolean
           categoria_profesional: string | null
           computa_kg_persona: boolean | null
+          coste_hora: number | null
           created_at: string
+          dni: string | null
+          email: string | null
           fecha_alta: string | null
           id: string
           nombre: string
+          telefono: string | null
           user_id: string
           vacaciones_dias_anuales: number
           zona: string | null
@@ -1786,10 +2213,14 @@ export type Database = {
           activo?: boolean
           categoria_profesional?: string | null
           computa_kg_persona?: boolean | null
+          coste_hora?: number | null
           created_at?: string
+          dni?: string | null
+          email?: string | null
           fecha_alta?: string | null
           id?: string
           nombre: string
+          telefono?: string | null
           user_id: string
           vacaciones_dias_anuales?: number
           zona?: string | null
@@ -1798,10 +2229,14 @@ export type Database = {
           activo?: boolean
           categoria_profesional?: string | null
           computa_kg_persona?: boolean | null
+          coste_hora?: number | null
           created_at?: string
+          dni?: string | null
+          email?: string | null
           fecha_alta?: string | null
           id?: string
           nombre?: string
+          telefono?: string | null
           user_id?: string
           vacaciones_dias_anuales?: number
           zona?: string | null
@@ -2091,6 +2526,29 @@ export type Database = {
         }
         Relationships: []
       }
+      lote_clasificacion_podrido_agg: {
+        Row: {
+          kg_podrido: number | null
+          kg_total: number | null
+          lote8: string | null
+          n_filas: number | null
+        }
+        Relationships: []
+      }
+      lote_clasificacion_productor_agg: {
+        Row: {
+          cartons: number | null
+          clase: string | null
+          fecha: string | null
+          grupo_destino: string | null
+          n_filas: number | null
+          peso_kg: number | null
+          piezas: number | null
+          productor: string | null
+          tamano: string | null
+        }
+        Relationships: []
+      }
       precios_dashboard_mensual: {
         Row: {
           ano: number | null
@@ -2268,6 +2726,7 @@ export type Database = {
       }
     }
     Functions: {
+      can_access_comunicaciones_campo: { Args: never; Returns: boolean }
       can_access_ventas_categoria: { Args: never; Returns: boolean }
       has_role:
         | {
@@ -2278,6 +2737,7 @@ export type Database = {
             Returns: boolean
           }
         | { Args: { _role: string; _user_id: string }; Returns: boolean }
+      normalizar_nombre_productor: { Args: { nombre: string }; Returns: string }
       search_code: {
         Args: {
           match_count?: number

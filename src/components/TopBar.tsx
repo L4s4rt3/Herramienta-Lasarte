@@ -90,6 +90,12 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/rrhh",
     parentLabel: "RRHH",
   },
+  "/campo/comunicaciones": {
+    label: "Comunicaciones de campaña",
+    subtitle: "Comunicados a agricultores y proveedores para la campaña que entra (exclusivo de Jesús)",
+    parent: "/produccion",
+    parentLabel: "Producción",
+  },
   "/ventas/categoria-segunda": {
     label: "Categoría segunda",
     subtitle: "Ventas por cliente, producto, artículo, precio medio y ajustes reales de comisión/transporte.",
@@ -192,6 +198,12 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
   "/economico": {
     label: "Panel económico",
     subtitle: "Facturación, costes y margen bruto estimado (solo administración)",
+    parent: "/direccion",
+    parentLabel: "Dirección",
+  },
+  "/economico/cmv": {
+    label: "CMV",
+    subtitle: "Coste medio por kg vendido y margen del mes (solo administración)",
     parent: "/direccion",
     parentLabel: "Dirección",
   },

@@ -1,9 +1,9 @@
 /**
  * useRrhhComunicaciones — sección "RRHH → Comunicaciones": avisos automáticos
  * (horas acumuladas, saldo de vacaciones) y correos personalizados a la
- * plantilla, enviados vía la Edge Function `enviar-comunicacion` (Resend).
+ * plantilla, enviados vía la Edge Function `enviar-comunicacion` (Brevo o Resend).
  *
- * Si el dueño todavía no ha dado de alta la API key de Resend, la función
+ * Si el dueño todavía no ha configurado un proveedor de correo, la función
  * responde { enviado:false, motivo:"no_configurado" } — no es un error: la
  * comunicación se guarda igualmente en `rrhh_comunicaciones` con estado
  * "borrador" para que se pueda enviar en cuanto se active el servicio.

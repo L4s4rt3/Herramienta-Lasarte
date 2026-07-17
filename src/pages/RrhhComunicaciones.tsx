@@ -1,8 +1,8 @@
 // src/pages/RrhhComunicaciones.tsx
 // Sección "RRHH → Comunicaciones": avisos automáticos (horas acumuladas,
 // saldo de vacaciones) y correos personalizados a una o varias personas,
-// enviados por correo real vía Resend (Edge Function `enviar-comunicacion`).
-// Si Resend todavía no está configurado, la comunicación se guarda igual
+// enviados por correo real vía Brevo o Resend (Edge Function `enviar-comunicacion`).
+// Si el proveedor de correo todavía no está configurado, la comunicación se guarda igual
 // como borrador — no bloquea la sección.
 import { useMemo, useState } from "react";
 import {
@@ -162,7 +162,7 @@ export default function RrhhComunicaciones() {
       } else if (resultado.estado === "borrador") {
         toast({
           title: "Guardado como borrador",
-          description: "El envío de correos aún no está activo. Se enviará cuando se configure Resend.",
+          description: "El envío de correos aún no está activo. Se enviará cuando se configure el proveedor de correo.",
         });
         resetFormulario();
       } else {
