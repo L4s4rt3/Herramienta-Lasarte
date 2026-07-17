@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Download, Loader2, FileImage, FileText } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { formatSize } from "@/components/ExcelViewerDialog";
+import { formatSize } from "@/lib/excelPreview";
 
 const STORAGE_BUCKET = "partes-archivos";
 const SIGNED_URL_TTL_SECONDS = 60 * 10;

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Inbox } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Inbox, FileSearch, Table2 } from "lucide-react";
 import {
   PreviewHeader,
   MetricsStrip,
@@ -8,16 +8,16 @@ import {
   KeyValueGrid,
   SummaryRowsStrip,
   NotesList,
-  type ParsedExcel,
-  type SheetData,
+  RawGridView,
 } from "./excel-preview";
+import type { ParsedSheet } from "./excel-preview";
 import { cn } from "@/lib/utils";
 
-export type { ParsedExcel, Metric, DataTable, KeyValueBlock } from "./excel-preview/types";
+export type { ParsedSheet, Metric, KeyValueBlock, ParsedTable } from "./excel-preview/types";
 
 interface ExcelPreviewerProps {
-  data: ParsedExcel;
-  sheets?: SheetData[];
+  data: ParsedSheet;
+  sheets?: Array<{ name: string }>;
   activeSheetIndex?: number;
   onSheetChange?: (index: number) => void;
   mimeType?: string | null;
@@ -39,14 +39,16 @@ export default function ExcelPreviewer({
     rowIndex: number;
   } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Modo crudo SIN heurísticas, para auditar el archivo original — la
+  // robustez incluye poder desconfiar del propio visor.
+  const [rawMode, setRawMode] = useState(false);
 
   const handleRowSelect = (tableIndex: number, rowIndex: number) => {
     setSelectedRow({ tableIndex, rowIndex });
     setDrawerOpen(true);
   };
 
-  const sheetList =
-    sheets?.map((s, i) => ({ name: s.name, index: i })) ?? [];
+  const sheetList = sheets?.map((s, i) => ({ name: s.name, index: i })) ?? [];
 
   const hasAnyData =
     data.metrics.length > 0 ||
@@ -55,10 +57,22 @@ export default function ExcelPreviewer({
     (data.summaryRows?.length ?? 0) > 0 ||
     (data.notes?.length ?? 0) > 0;
 
-  // Dimensiones de la hoja activa: filas × columnas totales sumando todas
-  // las tablas detectadas en la hoja (normalmente hay una sola tabla por hoja).
   const rowCount = data.tables.reduce((sum, t) => sum + t.rows.length, 0);
-  const colCount = data.tables.reduce((max, t) => Math.max(max, t.headers.length), 0);
+  const colCount = data.tables.reduce((max, t) => Math.max(max, t.columns.length), 0);
+
+  // Métricas del informe + métricas automáticas (sumas de columnas numéricas,
+  // etiquetadas con su columna de origen: "Σ Peso (kg)").
+  const stripMetrics = useMemo(
+    () => [...data.metrics, ...(data.autoMetrics ?? [])],
+    [data.metrics, data.autoMetrics]
+  );
+
+  const autoMetrics = data.autoMetrics ?? [];
+  const selectedTable = selectedRow !== null ? data.tables[selectedRow.tableIndex] : undefined;
+  const selectedTableRow =
+    selectedTable && selectedRow !== null
+      ? selectedTable.rows.find((r) => r.rowIndex === selectedRow.rowIndex)
+      : undefined;
 
   return (
     <div className="h-full flex flex-col gap-4 min-h-0">
@@ -70,13 +84,40 @@ export default function ExcelPreviewer({
         sheets={sheetList}
         activeSheetIndex={activeSheetIndex}
         onSheetChange={onSheetChange}
-        rowCount={hasAnyData ? rowCount : undefined}
-        colCount={hasAnyData ? colCount : undefined}
+        rowCount={hasAnyData && !rawMode ? rowCount : undefined}
+        colCount={hasAnyData && !rawMode ? colCount : undefined}
         onDownload={onDownload}
         downloadDisabled={downloadDisabled}
       />
 
-      {!hasAnyData ? (
+      {data.rawGrid.length > 0 && (
+        <div className="shrink-0 flex items-center justify-end -mt-2">
+          <button
+            type="button"
+            onClick={() => setRawMode((v) => !v)}
+            className={cn(
+              "inline-flex h-7 items-center gap-1.5 px-2.5 rounded-lg text-[10px] font-semibold border transition-colors",
+              rawMode
+                ? "bg-primary/10 text-primary border-primary/30"
+                : "bg-[var(--glass-bg)] text-muted-foreground border-[var(--glass-border)] hover:bg-[var(--glass-bg-strong)]"
+            )}
+            title={
+              rawMode
+                ? "Volver a la vista interpretada (cabeceras, tipos, filas descartadas)"
+                : "Ver la hoja tal cual viene del archivo, sin ninguna heurística"
+            }
+          >
+            {rawMode ? <Table2 className="h-3 w-3" /> : <FileSearch className="h-3 w-3" />}
+            {rawMode ? "Vista interpretada" : "Ver todo en bruto"}
+          </button>
+        </div>
+      )}
+
+      {rawMode ? (
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-midas flex flex-col gap-4 pr-1">
+          <RawGridView grid={data.rawGrid} />
+        </div>
+      ) : !hasAnyData ? (
         <div
           className={cn(
             "flex-1 min-h-0 flex flex-col items-center justify-center gap-2",
@@ -88,19 +129,18 @@ export default function ExcelPreviewer({
           <p>El archivo no contiene datos legibles.</p>
         </div>
       ) : (
-        <div
-          className={cn(
-            "flex-1 min-h-0 overflow-y-auto scrollbar-midas",
-            "flex flex-col gap-4 pr-1"
-          )}
-        >
-          {/* Sección 2: bloques clave-valor de la cabecera del informe.
-              Si el parser no agrupó bloques (kvBlocks) pero sí hay métricas
-              sueltas (rutas legacy), se usa el strip plano como fallback. */}
+        <div className={cn("flex-1 min-h-0 overflow-y-auto scrollbar-midas", "flex flex-col gap-4 pr-1")}>
+          {/* Sección 2: bloques clave-valor de la cabecera del informe. Si el
+              parser no agrupó bloques (kvBlocks) pero sí hay métricas sueltas,
+              se usa el strip plano como fallback. Las métricas automáticas
+              (sumas por columna, etiqueta "Σ <columna>") van siempre en el strip. */}
           {data.kvBlocks && data.kvBlocks.length > 0 ? (
-            <KeyValueGrid blocks={data.kvBlocks} />
+            <>
+              <KeyValueGrid blocks={data.kvBlocks} />
+              {autoMetrics.length > 0 && <MetricsStrip metrics={autoMetrics} />}
+            </>
           ) : (
-            data.metrics.length > 0 && <MetricsStrip metrics={data.metrics} />
+            stripMetrics.length > 0 && <MetricsStrip metrics={stripMetrics} />
           )}
 
           {/* Sección 3: tabla(s) principales, con fila de total como pie. */}
@@ -117,22 +157,20 @@ export default function ExcelPreviewer({
           })}
 
           {/* Sección 4: filas-resumen tipo mini-KPI tras la tabla. */}
-          {data.summaryRows && data.summaryRows.length > 0 && (
-            <SummaryRowsStrip rows={data.summaryRows} />
-          )}
+          {data.summaryRows && data.summaryRows.length > 0 && <SummaryRowsStrip rows={data.summaryRows} />}
 
           {/* Sección 5: notas sueltas, al final. */}
           {data.notes && data.notes.length > 0 && <NotesList notes={data.notes} />}
         </div>
       )}
 
-      {selectedRow && data.tables[selectedRow.tableIndex] && (
+      {selectedTable && selectedTableRow && selectedRow && (
         <RowDetailDrawer
           open={drawerOpen}
           onOpenChange={setDrawerOpen}
           rowIndex={selectedRow.rowIndex}
-          headers={data.tables[selectedRow.tableIndex].headers}
-          row={data.tables[selectedRow.tableIndex].rows[selectedRow.rowIndex]}
+          headers={selectedTable.columns.map((c) => c.header)}
+          row={selectedTableRow.cells}
         />
       )}
     </div>

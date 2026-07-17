@@ -7,6 +7,7 @@ export { PreviewSkeleton } from "./PreviewSkeleton";
 export { KeyValueGrid } from "./KeyValueGrid";
 export { SummaryRowsStrip } from "./SummaryRowsStrip";
 export { NotesList } from "./NotesList";
+export { RawGridView } from "./RawGridView";
 export {
   isNumericCell,
   isNumericColumn,
@@ -20,10 +21,13 @@ export {
   fillEmptyHeaders,
 } from "./formatters";
 export type {
-  Metric,
-  DataTable as DataTableShape,
-  ParsedExcel,
-  SheetData,
-  StatusKey,
+  ColumnType,
+  DataTableRow,
+  DiscardedRow,
   KeyValueBlock,
+  Metric,
+  ParsedColumn,
+  ParsedSheet,
+  ParsedTable,
+  StatusKey,
 } from "./types";
