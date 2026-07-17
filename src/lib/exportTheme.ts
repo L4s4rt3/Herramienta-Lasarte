@@ -108,6 +108,18 @@ function getCachedLogoDataUrl(): string | null {
 }
 
 /**
+ * true si el logo corporativo YA está cacheado como imagen y `drawLogoOrFallback`
+ * dibujará el PNG/JPG real (no el fallback de texto) en la próxima llamada.
+ * Necesario para la cabecera FORMAL (`cabeceraDocumento`, pdfKit.ts): el
+ * fallback de texto YA escribe "Lasarte Cítricos S.L." por su cuenta, así que
+ * quien llama solo debe volver a escribir la razón social aparte cuando SÍ
+ * hay imagen (si no, saldría duplicada — verificado generando un PDF real).
+ */
+export function logoImagenDisponible(): boolean {
+  return getCachedLogoDataUrl() !== null;
+}
+
+/**
  * Dibuja el logo Lasarte SAT anclado por su esquina superior-izquierda
  * (x, yTop) si ya esta cacheado, y devuelve el ancho ocupado en mm. Si el
  * logo aun no esta disponible (no se ha precargado o fallo la carga), dibuja

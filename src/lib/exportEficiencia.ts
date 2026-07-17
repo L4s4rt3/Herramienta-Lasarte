@@ -1,5 +1,4 @@
 import jsPDF from "jspdf";
-import { drawExportHeader, drawExportFooter, finalizeExportPageNumbers } from "./exportTheme";
 import { formatDate } from "./format";
 import {
   añadirHojaTabla,
@@ -8,17 +7,28 @@ import {
   FMT_INT,
   FMT_KG,
   FMT_PCT,
+  generarExportId,
   type ColumnaTabla,
 } from "./exportKit";
-import { lineaExportInfo, pdfTablaDesdeColumnas } from "./pdfKit";
+import {
+  cabeceraDocumento,
+  cierreAtestacion,
+  crearNumeradorSecciones,
+  dibujarKpisEnGrid,
+  finalizarPaginacionFormal,
+  lastAutoTableY,
+  pdfTablaDesdeColumnas,
+  pieLegal,
+  portadaFormal,
+  tituloSeccionNumerada,
+  type MetadatoItem,
+} from "./pdfKit";
 import {
   buildLasarteFilename,
-  drawReportCover,
   drawReportInsights,
-  drawReportSectionTitle,
   ensureExportLogoLoaded,
-  type ReportMeta,
 } from "./reportKit";
+import { CLASIFICACION_TEXTO_PDF } from "./exportTheme";
 
 interface DiaData {
   date: string;
@@ -233,25 +243,33 @@ function eficienciaDateRange(data: SemanaData[]): { from?: string; to?: string }
   return { from: dates[0], to: dates[dates.length - 1] };
 }
 
-function drawHeader(doc: jsPDF, pageIndex: number) {
-  drawExportHeader(doc, pageIndex, "Comparativa semanal", "Kg/persona por dia");
+// Cabecera/pie del REGISTRO FORMAL (encargo jul-2026): "DOCUMENTO Nº" +
+// "FECHA EMISIÓN" + razón social/CIF/dirección en TODAS las páginas
+// (cabeceraDocumento, pdfKit.ts) y el pie legal de 3 líneas con la Ref. El
+// aviso legal de clasificación "RRHH" (antes en el pie vía
+// `drawExportFooter({clasificacion:"RRHH"})`) se traslada al bloque de
+// metadatos de la portada (ver `metadatosExtra` en `exportEficienciaToPDF`)
+// para no romper el formato de 3 líneas fijas del pie legal del PDF de muestra.
+function drawHeader(doc: jsPDF) {
+  cabeceraDocumento(doc, { documentoNumero: currentExportId ?? "", fechaEmision: currentGeneradoEn });
 }
 
-// Identificador de exportación del documento en curso (mismo id en el pie de
-// todas las páginas, paridad con el pie del Excel). Se fija en exportEficienciaToPDF.
-let currentExportInfo: string | undefined;
+// Identificador y fecha de emisión del documento en curso (mismos en TODAS
+// las páginas: cabecera, pie y cierre de atestación). Se fijan en exportEficienciaToPDF.
+let currentExportId: string | undefined;
+let currentGeneradoEn: Date | undefined;
 
 function drawFooter(doc: jsPDF) {
-  drawExportFooter(doc, { clasificacion: "RRHH", exportInfo: currentExportInfo });
+  pieLegal(doc, { exportId: currentExportId ?? "" });
 }
 
 export async function exportEficienciaToPDF(data: SemanaData[], _optimo: string) {
   await ensureExportLogoLoaded();
-  currentExportInfo = lineaExportInfo();
+  currentGeneradoEn = new Date();
+  currentExportId = generarExportId(currentGeneradoEn);
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  let pageIndex = 0;
+  let pageIndex = 1;
 
-  pageIndex++;
   const allDias = data.flatMap((sem) => Object.values(sem.days));
   const totalKg = allDias.reduce((s, d) => s + d.kg, 0);
   const totalWorkers = allDias.reduce((s, d) => s + d.workers, 0);
@@ -259,13 +277,19 @@ export async function exportEficienciaToPDF(data: SemanaData[], _optimo: string)
   const mediaKgDia = allDias.length > 0 ? totalKg / allDias.length : 0;
   const globalEfic = Math.round(kgPersonaDesdeMedias(mediaKgDia, mediaPersonasDia));
   const bestDay = allDias.reduce<DiaData | null>((best, d) => (!best || d.kgPorPersona > best.kgPorPersona ? d : best), null);
-  const reportMeta: ReportMeta = {
-    title: "Informe semanal operativo",
-    subtitle: "Produccion y asistencia",
-    periodLabel: `${data.length} semana(s) · ${allDias.length} dia(s) con datos`,
-  };
 
-  let y = drawReportCover(doc, reportMeta, [
+  // OBJETO/PERIODO del bloque de metadatos formales (portada) y del párrafo
+  // de cierre/atestación (última página) — el MISMO texto en ambos sitios.
+  const objeto = "la producción y la asistencia semanal (kg por persona) del periodo exportado";
+  const periodoTexto = `${data.length} semana(s) · ${allDias.length} dia(s) con datos`;
+  const metadatosExtra: MetadatoItem[] = [{ etiqueta: "CLASIFICACIÓN", valor: CLASIFICACION_TEXTO_PDF.RRHH }];
+  const siguienteSeccion = crearNumeradorSecciones();
+
+  drawHeader(doc);
+  let y = portadaFormal(doc, 26, { titulo: "Informe semanal operativo", objeto, periodo: periodoTexto, metadatosExtra });
+
+  y = tituloSeccionNumerada(doc, y, siguienteSeccion(), "Indicadores principales", "KPIs globales del periodo exportado");
+  y = dibujarKpisEnGrid(doc, y, [
     { label: "TOTAL KG", value: `${totalKg.toLocaleString("es-ES")} kg`, sub: `${allDias.length} dia(s)`, tone: "info" },
     { label: "ASISTENCIA MEDIA", value: mediaPersonasDia.toLocaleString("es-ES", { maximumFractionDigits: 1, minimumFractionDigits: 1 }), sub: "personas/dia" },
     { label: "KG/PERSONA GLOBAL", value: globalEfic.toLocaleString("es-ES"), sub: "media global", tone: "success" },
@@ -278,7 +302,7 @@ export async function exportEficienciaToPDF(data: SemanaData[], _optimo: string)
     { label: "Lectura", value: "Kg/persona semanal calculado desde kg medio/dia dividido entre media personas/dia.", tone: "info" },
   ], 8, y, 281) + 4;
 
-  y = drawReportSectionTitle(doc, "Detalle semanal", y, "Kg/persona por dia y resumen de asistencia media");
+  y = tituloSeccionNumerada(doc, y, siguienteSeccion(), "Detalle semanal", "Kg/persona por dia y resumen de asistencia media");
 
   // Misma ColumnaTabla[] (RESUMEN_SEMANAL_COLUMNAS) y las mismas filas
   // (buildResumenSemanalRows) que usa la hoja "Resumen semanal" del Excel:
@@ -293,14 +317,25 @@ export async function exportEficienciaToPDF(data: SemanaData[], _optimo: string)
     didDrawPage: () => {
       const pages = doc.getNumberOfPages();
       if (pages > pageIndex) {
-        pageIndex++;
-        drawHeader(doc, pageIndex);
+        pageIndex = pages;
+        drawHeader(doc);
         drawFooter(doc);
       }
     },
   });
 
+  // CIERRE (última página): párrafo de atestación + línea de emisión
+  // electrónica, con el MISMO objeto/periodo que la portada.
+  let cierreY = lastAutoTableY(doc, y) + 8;
+  if (cierreY > 160) {
+    doc.addPage();
+    pageIndex = doc.getNumberOfPages();
+    drawHeader(doc);
+    cierreY = 30;
+  }
+  cierreAtestacion(doc, cierreY, { objeto, periodo: periodoTexto, generadoEn: currentGeneradoEn });
+
   drawFooter(doc);
-  finalizeExportPageNumbers(doc);
+  finalizarPaginacionFormal(doc);
   doc.save(buildLasarteFilename("Eficiencia", "pdf", eficienciaDateRange(data)));
 }

@@ -7,13 +7,24 @@ import {
   crearLibroLasarte,
   descargarLibro,
   FMT_INT,
+  generarExportId,
   LASARTE_COLORS,
   type ColumnaTabla,
 } from "@/lib/exportKit";
-import { drawExportFooter, drawExportHeader, finalizeExportPageNumbers, PDF_THEME } from "@/lib/exportTheme";
+import { PDF_THEME } from "@/lib/exportTheme";
 import { buildLasarteFilename, ensureExportLogoLoaded } from "@/lib/reportKit";
 import { formatDate } from "@/lib/format";
-import { lineaExportInfo, safeText } from "@/lib/pdfKit";
+import {
+  cabeceraDocumento,
+  cierreAtestacion,
+  crearNumeradorSecciones,
+  finalizarPaginacionFormal,
+  pieLegal,
+  portadaFormal,
+  safeText,
+  tituloSeccionNumerada,
+  type MetadatoItem,
+} from "@/lib/pdfKit";
 
 export const CALIDAD_OPTIONS = ["Excelente", "Bueno", "Regular", "Deficiente", "Pésimo"] as const;
 export type CalidadEstado = typeof CALIDAD_OPTIONS[number];
@@ -577,39 +588,25 @@ function drawQualityPill(doc: jsPDF, x: number, y: number, label: string, color:
   doc.text(safePdf(label), x + width / 2, y + 4.8, { align: "center" });
 }
 
-// Nota de trazabilidad de calidad (spec §0.4 "Calidad/trazabilidad"): sustituye
-// al texto legal generico de clasificacion "Interno" en el pie de cada pagina,
-// porque este informe es control de produccion/trazabilidad agroalimentaria,
-// no un documento interno cualquiera.
+// Nota de trazabilidad de calidad (spec §0.4 "Calidad/trazabilidad"): antes se
+// dibujaba como una 4ª línea del pie de página; el pie legal del registro
+// FORMAL (pieLegal, pdfKit.ts) tiene exactamente 3 líneas fijas (spec del PDF
+// de muestra), así que esta nota se traslada al bloque de metadatos de la
+// portada (ver `metadatosExtra` en `exportCalidadToPDF`) en vez de al pie.
 const CALIDAD_TRAZABILIDAD_NOTE =
-  "Documento de control interno asociado a produccion, calidad y trazabilidad agroalimentaria.";
+  "Documento de control interno asociado a producción, calidad y trazabilidad agroalimentaria.";
 
-function drawCalidadFooterLegend(doc: jsPDF) {
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(5.5);
-  doc.setTextColor(...PDF_THEME.destructive);
-  doc.text(CALIDAD_TRAZABILIDAD_NOTE, pageWidth / 2, pageHeight - 4, { align: "center", maxWidth: pageWidth - 16 });
-}
+// Cabecera/pie del REGISTRO FORMAL (encargo jul-2026): "DOCUMENTO Nº" +
+// "FECHA EMISIÓN" + razón social/CIF/dirección en TODAS las páginas
+// (cabeceraDocumento, pdfKit.ts) y el pie legal de 3 líneas con la Ref.
+// Identificador y fecha de emisión del documento en curso (mismos en TODAS
+// las páginas: cabecera, pie y cierre de atestación). Se fijan en exportCalidadToPDF.
+let currentExportId: string | undefined;
+let currentGeneradoEn: Date | undefined;
 
-// Cabecera/pie con marca comun LASARTE (spec §0.3/§0.4): usa el mismo motor que
-// el resto de exports PDF ya migrados (drawExportHeader/drawExportFooter de
-// exportTheme.ts) en vez de dibujar una banda propia; el pie legal usa la nota
-// de trazabilidad de calidad en vez del texto generico de "Interno".
-// Identificador de exportación del documento en curso (mismo id en el pie de
-// todas las páginas, paridad con el pie del Excel). Se fija en exportCalidadToPDF.
-let currentExportInfo: string | undefined;
-
-function drawCalidadHeader(doc: jsPDF, jornada: CalidadJornada, summary: CalidadSummary, pageIndex: number) {
-  drawExportHeader(
-    doc,
-    pageIndex,
-    "Departamento de Calidad",
-    safePdf(`${formatCalidadDate(jornada.fecha)} - ${summary.total} lotes anotados`),
-  );
-  drawExportFooter(doc, { exportInfo: currentExportInfo });
-  drawCalidadFooterLegend(doc);
+function drawCalidadHeader(doc: jsPDF) {
+  cabeceraDocumento(doc, { documentoNumero: currentExportId ?? "", fechaEmision: currentGeneradoEn });
+  pieLegal(doc, { exportId: currentExportId ?? "" });
 }
 
 function drawMetricTile(doc: jsPDF, x: number, y: number, w: number, label: string, value: string, sub: string, accent: [number, number, number]) {
@@ -632,17 +629,16 @@ function drawMetricTile(doc: jsPDF, x: number, y: number, w: number, label: stri
   doc.text(sub, x + 6.5, y + 18.5);
 }
 
-function addPdfPage(doc: jsPDF, jornada: CalidadJornada, summary: CalidadSummary, pageIndexRef: { value: number }) {
+function addPdfPage(doc: jsPDF) {
   doc.addPage();
-  pageIndexRef.value += 1;
-  drawCalidadHeader(doc, jornada, summary, pageIndexRef.value);
+  drawCalidadHeader(doc);
 }
 
-function ensurePdfSpace(doc: jsPDF, y: number, needed: number, jornada: CalidadJornada, summary: CalidadSummary, pageIndexRef: { value: number }) {
+function ensurePdfSpace(doc: jsPDF, y: number, needed: number) {
   const pageHeight = doc.internal.pageSize.getHeight();
   if (y + needed <= pageHeight - 14) return y;
-  addPdfPage(doc, jornada, summary, pageIndexRef);
-  return 25;
+  addPdfPage(doc);
+  return 26;
 }
 
 // Calcula el layout de texto de la ficha de un lote (observacion/accion, alto de
@@ -815,39 +811,31 @@ export async function exportCalidadToPDF(
   options: { mode?: "borrador" | "oficial" } = {},
 ) {
   await ensureExportLogoLoaded();
-  currentExportInfo = lineaExportInfo();
+  currentGeneradoEn = new Date();
+  currentExportId = generarExportId(currentGeneradoEn);
   const mode = options.mode ?? "borrador";
   const filteredLotes = mode === "oficial" ? lotes.filter((l) => l.informe_estado === "validado") : lotes;
   const counts = attachmentCountMap(adjuntos);
   const summary = calidadSummary(filteredLotes, counts);
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  const pageRef = { value: 1 };
-  drawCalidadHeader(doc, jornada, summary, pageRef.value);
+  drawCalidadHeader(doc);
 
-  doc.setFillColor(...PDF_THEME.forest);
-  doc.roundedRect(10, 25, 277, 34, 2, 2, "F");
-  doc.setFillColor(...PDF_THEME.primary);
-  doc.roundedRect(10, 25, 277, 3, 1, 1, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.setTextColor(...PDF_THEME.white);
-  doc.text("Jornada de Calidad", 18, 40);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.text(safePdf("Notas de lotes, incidencias y trazabilidad diaria"), 18, 49);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.text(safePdf(formatCalidadDate(jornada.fecha)), 278, 39, { align: "right" });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-  doc.text(safePdf(`Responsable: ${jornada.responsable || "-"}`), 278, 47, { align: "right" });
+  // OBJETO/PERIODO del bloque de metadatos formales (portada) y del párrafo
+  // de cierre/atestación (última página) — el MISMO texto en ambos sitios.
+  // La nota de trazabilidad agroalimentaria y el responsable de la jornada
+  // (antes en el pie/banner propios) se trasladan aquí como metadatos extra.
+  const objeto = "las anotaciones de calidad y trazabilidad de la jornada de producción";
+  const periodoTexto = `${formatCalidadDate(jornada.fecha)} · ${summary.total} lote(s) anotados`;
+  const metadatosExtra: MetadatoItem[] = [
+    { etiqueta: "RESPONSABLE", valor: jornada.responsable || "-" },
+    { etiqueta: "TRAZABILIDAD", valor: CALIDAD_TRAZABILIDAD_NOTE },
+  ];
+  if (mode === "oficial") metadatosExtra.push({ etiqueta: "ESTADO", valor: "INFORME OFICIAL - VALIDADO" });
+  const siguienteSeccion = crearNumeradorSecciones();
 
-  if (mode === "oficial") {
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7);
-    doc.setTextColor(...PDF_THEME.success);
-    doc.text("INFORME OFICIAL - VALIDADO", 278, 54, { align: "right" });
-  }
+  let y = portadaFormal(doc, 26, { titulo: "Informe de calidad", objeto, periodo: periodoTexto, metadatosExtra });
+
+  y = tituloSeccionNumerada(doc, y, siguienteSeccion(), "Indicadores principales", "Lotes anotados, Aerobotics y distribucion por calidad de la jornada");
 
   [
     { label: "LOTES", value: String(summary.total), sub: "anotados", color: PDF_THEME.forest },
@@ -855,29 +843,28 @@ export async function exportCalidadToPDF(
     { label: "BUENO", value: String(summary.byQuality.Bueno), sub: percentageLabel(summary.byQuality.Bueno, summary.total), color: PDF_THEME.success },
     { label: "REVISAR", value: String(summary.byQuality.Regular + summary.byQuality.Deficiente + summary.byQuality.Pésimo), sub: "con seguimiento", color: PDF_THEME.warning },
     { label: "FOTOS", value: String(summary.fotos), sub: "adjuntas", color: PDF_THEME.primary },
-  ].forEach((metric, index) => drawMetricTile(doc, 10 + index * 56.4, 66, 52, metric.label, metric.value, metric.sub, metric.color));
+  ].forEach((metric, index) => drawMetricTile(doc, 10 + index * 56.4, y, 52, metric.label, metric.value, metric.sub, metric.color));
+  y += 25;
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
   doc.setTextColor(...PDF_THEME.primaryDark);
-  doc.text("Distribucion por calidad", 10, 97);
+  doc.text("Distribucion por calidad", 10, y);
+  y += 4;
   let qualityX = 10;
   CALIDAD_OPTIONS.forEach((quality) => {
     const value = summary.byQuality[quality];
-    drawQualityPill(doc, qualityX, 101, `${quality}: ${value}`, QUALITY_PDF_COLORS[quality], QUALITY_SOFT_COLORS[quality], 38);
+    drawQualityPill(doc, qualityX, y, `${quality}: ${value}`, QUALITY_PDF_COLORS[quality], QUALITY_SOFT_COLORS[quality], 38);
     qualityX += 42;
   });
+  y += 14;
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(...PDF_THEME.text);
-  doc.text("Detalle de lotes", 10, 119);
+  y = tituloSeccionNumerada(doc, y, siguienteSeccion(), "Detalle de lotes", "Ficha por lote: observacion, accion recomendada y defectos");
 
-  let y = 124;
   filteredLotes.forEach((lote, index) => {
     const photoCount = counts[lote.id] ?? 0;
     const { cardHeight: needed } = computeLoteCardLayout(doc, lote);
-    y = ensurePdfSpace(doc, y, needed + 6, jornada, summary, pageRef);
+    y = ensurePdfSpace(doc, y, needed + 6);
     const height = drawLoteCard(doc, lote, index, photoCount, 10, y, 277);
     y += height + 6;
   });
@@ -889,7 +876,17 @@ export async function exportCalidadToPDF(
     doc.setFontSize(9);
     doc.setTextColor(...PDF_THEME.muted);
     doc.text("No hay lotes anotados para esta jornada.", 148.5, y + 14, { align: "center" });
+    y += 24;
   }
+
+  // CIERRE (última página): párrafo de atestación + línea de emisión
+  // electrónica, con el MISMO objeto/periodo que la portada.
+  let cierreY = y + 8;
+  if (cierreY > 160) {
+    addPdfPage(doc);
+    cierreY = 30;
+  }
+  cierreAtestacion(doc, cierreY, { objeto, periodo: periodoTexto, generadoEn: currentGeneradoEn });
 
   if (mode === "borrador") {
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -903,7 +900,7 @@ export async function exportCalidadToPDF(
     }
   }
 
-  finalizeExportPageNumbers(doc);
+  finalizarPaginacionFormal(doc);
   const suffix = mode === "oficial" ? "Oficial" : "Borrador";
   doc.save(buildLasarteFilename(`Calidad-${suffix}`, "pdf", { from: jornada.fecha }));
 }

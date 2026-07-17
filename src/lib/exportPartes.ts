@@ -2,7 +2,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { computeCascade, CascadeInput, CascadeResult } from "./cascade";
 import { formatDate, formatKg } from "./format";
-import { PDF_THEME, drawExportHeader, drawExportFooter, drawKpiCard, finalizeExportPageNumbers, pdfTableTheme } from "./exportTheme";
+import { PDF_THEME, drawKpiCard, pdfTableTheme } from "./exportTheme";
 import { appendDictionarySheet, appendRowsSheet, createWorkbook, excelText, splitExcelText } from "./exportWorkbook";
 import {
   añadirHojaTabla,
@@ -11,14 +11,26 @@ import {
   FMT_INT,
   FMT_KG,
   FMT_PCT,
+  generarExportId,
   type ColumnaTabla,
   type ExcelWorkbookCtx,
 } from "./exportKit";
-import { lastAutoTableY, lineaExportInfo, PDF_TABLE_MARGIN, safeText } from "./pdfKit";
+import {
+  cabeceraDocumento,
+  cierreAtestacion,
+  crearNumeradorSecciones,
+  dibujarKpisEnGrid,
+  finalizarPaginacionFormal,
+  lastAutoTableY,
+  PDF_TABLE_MARGIN,
+  pieLegal,
+  portadaFormal,
+  safeText,
+  tituloSeccionNumerada,
+} from "./pdfKit";
 import {
   appendReportCoverSheet,
   buildLasarteFilename,
-  drawReportCover,
   drawReportInsights,
   drawReportSectionTitle,
   ensureExportLogoLoaded,
@@ -523,34 +535,44 @@ export async function exportPartesToExcel(partes: ParteRow[], from: string, to: 
   await descargarLibro(ctx, buildLasarteFilename("Partes", "xlsx", { from, to }));
 }
 
-function drawHeader(doc: jsPDF, pageIndex: number, from: string, to: string, title?: string) {
-  drawExportHeader(doc, pageIndex, "Partes diarios", safePdf(`${pdfDate(from)} - ${pdfDate(to)}${title ? ` - ${title}` : ""}`));
+// Cabecera/pie del REGISTRO FORMAL (encargo jul-2026): "DOCUMENTO Nº" +
+// "FECHA EMISIÓN" + razón social/CIF/dirección en TODAS las páginas
+// (cabeceraDocumento, pdfKit.ts) y el pie legal de 3 líneas con la Ref.
+// (pieLegal). Sustituye a drawExportHeader/drawExportFooter para este
+// informe — el footprint de cabeceraDocumento (24mm, contenido desde y=26)
+// es deliberadamente compatible con las coordenadas fijas ya usadas más
+// abajo (26, 35, 46, 70...), así que no hace falta re-maquetar la página de
+// detalle por parte.
+function drawHeader(doc: jsPDF) {
+  cabeceraDocumento(doc, { documentoNumero: currentExportId ?? "", fechaEmision: currentGeneradoEn });
 }
 
-// Identificador de exportación del documento PDF en curso (mismo id en el
-// pie de TODAS las páginas, paridad con el pie del Excel). Se fija una vez
+// Identificador y fecha de emisión del documento PDF en curso (mismos en
+// TODAS las páginas: cabecera, pie y cierre de atestación). Se fijan una vez
 // al principio de exportPartesToPDF.
-let currentExportInfo: string | undefined;
+let currentExportId: string | undefined;
+let currentGeneradoEn: Date | undefined;
 
 function drawFooter(doc: jsPDF) {
-  drawExportFooter(doc, { clasificacion: "Interno", exportInfo: currentExportInfo });
+  pieLegal(doc, { exportId: currentExportId ?? "" });
 }
 
 // PDF_TABLE_MARGIN se importa de pdfKit.ts (antes duplicado aquí con el
 // mismo valor exacto: {top:30, bottom:18, left:8, right:8}).
 
-function addAutoTablePageHeader(doc: jsPDF, pageIndexRef: { value: number }, from: string, to: string, title: string) {
+function addAutoTablePageHeader(doc: jsPDF, pageIndexRef: { value: number }) {
   const pages = doc.getNumberOfPages();
   if (pages > pageIndexRef.value) {
     pageIndexRef.value = pages;
-    drawHeader(doc, pageIndexRef.value, from, to, title);
+    drawHeader(doc);
     drawFooter(doc);
   }
 }
 
 export async function exportPartesToPDF(partes: ParteRow[], from: string, to: string) {
   await ensureExportLogoLoaded();
-  currentExportInfo = lineaExportInfo();
+  currentGeneradoEn = new Date();
+  currentExportId = generarExportId(currentGeneradoEn);
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const enriched = partes.map((p) => ({ p, c: buildCascade(p) }));
   const pageIndex = { value: 1 };
@@ -564,9 +586,19 @@ export async function exportPartesToPDF(partes: ParteRow[], from: string, to: st
   } = summary.totals;
   const { nOk, nWarn, nCrit } = summary.counts;
 
-  let y = drawReportCover(doc, summary.meta, summary.kpis);
+  // OBJETO/PERIODO del bloque de metadatos formales (portada) y del párrafo
+  // de cierre/atestación (última página) — el MISMO texto en ambos sitios.
+  const objeto = "la producción diaria y el control de descuadre (DJPMN) del periodo exportado";
+  const periodoTexto = `${pdfDate(from)} - ${pdfDate(to)} · ${partes.length} parte(s)`;
+  const siguienteSeccion = crearNumeradorSecciones();
+
+  drawHeader(doc);
+  let y = portadaFormal(doc, 26, { titulo: summary.meta.title, objeto, periodo: periodoTexto });
+
+  y = tituloSeccionNumerada(doc, y, siguienteSeccion(), "Indicadores principales", "KPIs globales del periodo exportado");
+  y = dibujarKpisEnGrid(doc, y, summary.kpis);
   y = drawReportInsights(doc, summary.insights, 8, y, 281) + 4;
-  y = drawReportSectionTitle(doc, "Resumen del periodo", y, "Detalle diario con semaforo y totales del rango exportado");
+  y = tituloSeccionNumerada(doc, y, siguienteSeccion(), "Resumen del periodo", "Detalle diario con semaforo y totales del rango exportado");
 
   const barY = y;
   const totalSem = nOk + nWarn + nCrit;
@@ -624,16 +656,20 @@ export async function exportPartesToPDF(partes: ParteRow[], from: string, to: st
         data.cell.styles.fillColor = PDF_THEME.creamStrong;
       }
     },
-    didDrawPage: () => addAutoTablePageHeader(doc, pageIndex, from, to, "Resumen del periodo"),
+    didDrawPage: () => addAutoTablePageHeader(doc, pageIndex),
   });
 
   drawFooter(doc);
 
+  // Y del último contenido dibujado en la última página del bucle, para
+  // poder colocar el cierre/atestación (última página) justo debajo sin
+  // solaparlo — o en página nueva si no queda hueco.
+  let lastContentY = 0;
+
   enriched.forEach(({ p, c }) => {
     doc.addPage();
     pageIndex.value = doc.getNumberOfPages();
-    const detailTitle = `Parte ${pdfDate(p.date)}`;
-    drawHeader(doc, pageIndex.value, from, to, detailTitle);
+    drawHeader(doc);
 
     const sc = semColor(c.semaforo);
     doc.setFillColor(...PDF_THEME.cream);
@@ -710,7 +746,7 @@ export async function exportPartesToPDF(partes: ParteRow[], from: string, to: st
           if (raw[1] === "DJPMN") data.cell.styles.textColor = PDF_THEME.white;
         }
       },
-      didDrawPage: () => addAutoTablePageHeader(doc, pageIndex, from, to, detailTitle),
+      didDrawPage: () => addAutoTablePageHeader(doc, pageIndex),
     });
 
     const rawStartY = lastAutoTableY(doc, 72) + 6;
@@ -744,7 +780,7 @@ export async function exportPartesToPDF(partes: ParteRow[], from: string, to: st
         1: { cellWidth: 50, halign: "right", fontStyle: "bold" },
         2: { cellWidth: 156 },
       },
-      didDrawPage: () => addAutoTablePageHeader(doc, pageIndex, from, to, `${detailTitle} - datos entrada`),
+      didDrawPage: () => addAutoTablePageHeader(doc, pageIndex),
     });
 
     let noteY = lastAutoTableY(doc, rawStartY) + 8;
@@ -758,7 +794,7 @@ export async function exportPartesToPDF(partes: ParteRow[], from: string, to: st
       if (noteY > 172) {
         doc.addPage();
         pageIndex.value = doc.getNumberOfPages();
-        drawHeader(doc, pageIndex.value, from, to, `${detailTitle} - notas`);
+        drawHeader(doc);
         noteY = 28;
       }
       noteY = drawReportSectionTitle(doc, "Notas", noteY, "Notas operativas y analisis IA del parte");
@@ -768,7 +804,7 @@ export async function exportPartesToPDF(partes: ParteRow[], from: string, to: st
       if (noteY > 178) {
         doc.addPage();
         pageIndex.value = doc.getNumberOfPages();
-        drawHeader(doc, pageIndex.value, from, to, `${detailTitle} - notas`);
+        drawHeader(doc);
         noteY = 28;
       }
       doc.setFont("helvetica", "bold");
@@ -784,9 +820,23 @@ export async function exportPartesToPDF(partes: ParteRow[], from: string, to: st
       noteY += lines.length * 3.4 + 4;
     }
 
+    lastContentY = noteBlocks.length > 0 ? noteY : lastAutoTableY(doc, rawStartY);
     drawFooter(doc);
   });
 
-  finalizeExportPageNumbers(doc);
+  // CIERRE (última página): párrafo de atestación + línea de emisión
+  // electrónica, con el MISMO objeto/periodo que la portada. En página
+  // nueva si no queda hueco tras el último contenido dibujado.
+  let cierreY = lastContentY + 8;
+  if (cierreY > 160) {
+    doc.addPage();
+    pageIndex.value = doc.getNumberOfPages();
+    drawHeader(doc);
+    cierreY = 30;
+  }
+  cierreAtestacion(doc, cierreY, { objeto, periodo: periodoTexto, generadoEn: currentGeneradoEn });
+  drawFooter(doc);
+
+  finalizarPaginacionFormal(doc);
   doc.save(buildLasarteFilename("Partes", "pdf", { from, to }));
 }

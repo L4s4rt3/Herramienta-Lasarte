@@ -3,7 +3,7 @@ import autoTable from "jspdf-autotable";
 import { formatDate, formatNumber } from "./format";
 import { type ConsumoPeriodoRow } from "./consumosFisicos";
 import { SesionConsumoRow, ConsumoMaquinaRow, MaquinaRow, ConsumoFisicoRow, ConsumoBaseKgRow } from "./types";
-import { drawExportHeader, drawExportFooter, finalizeExportPageNumbers, pdfTableTheme } from "./exportTheme";
+import { pdfTableTheme } from "./exportTheme";
 import {
   añadirHojaTabla,
   crearLibroLasarte,
@@ -14,14 +14,24 @@ import {
   FMT_LKG,
   FMT_MLKG,
   FMT_PCT,
+  generarExportId,
   type ColumnaTabla,
 } from "./exportKit";
-import { lineaExportInfo, pdfTablaDesdeColumnas } from "./pdfKit";
+import {
+  cabeceraDocumento,
+  cierreAtestacion,
+  crearNumeradorSecciones,
+  dibujarKpisEnGrid,
+  finalizarPaginacionFormal,
+  lastAutoTableY,
+  pdfTablaDesdeColumnas,
+  pieLegal,
+  portadaFormal,
+  tituloSeccionNumerada,
+} from "./pdfKit";
 import {
   buildLasarteFilename,
-  drawReportCover,
   drawReportInsights,
-  drawReportSectionTitle,
   ensureExportLogoLoaded,
   type ReportInsight,
   type ReportKpi,
@@ -531,16 +541,20 @@ export async function exportConsumoToExcel(data: ExportData): Promise<void> {
   await descargarLibro(ctx, buildLasarteFilename("Consumos", "xlsx", range));
 }
 
-function drawHeader(doc: jsPDF, pageIndex: number, subtitle?: string) {
-  drawExportHeader(doc, pageIndex, "Consumos fisicos", subtitle);
+// Cabecera/pie del REGISTRO FORMAL (encargo jul-2026): "DOCUMENTO Nº" +
+// "FECHA EMISIÓN" + razón social/CIF/dirección en TODAS las páginas
+// (cabeceraDocumento, pdfKit.ts) y el pie legal de 3 líneas con la Ref.
+function drawHeader(doc: jsPDF) {
+  cabeceraDocumento(doc, { documentoNumero: currentExportId ?? "", fechaEmision: currentGeneradoEn });
 }
 
-// Identificador de exportación del documento en curso (mismo id en el pie de
-// todas las páginas, paridad con el pie del Excel). Se fija en exportConsumoToPDF.
-let currentExportInfo: string | undefined;
+// Identificador y fecha de emisión del documento en curso (mismos en TODAS
+// las páginas: cabecera, pie y cierre de atestación). Se fijan en exportConsumoToPDF.
+let currentExportId: string | undefined;
+let currentGeneradoEn: Date | undefined;
 
 function drawFooter(doc: jsPDF) {
-  drawExportFooter(doc, { clasificacion: "Interno", exportInfo: currentExportInfo });
+  pieLegal(doc, { exportId: currentExportId ?? "" });
 }
 
 // ─── Columnas PDF de la tabla principal (subconjunto de las columnas Excel) ──
@@ -573,19 +587,37 @@ const SESIONES_PDF_COLUMNAS: ColumnaTabla[] = [
 
 export async function exportConsumoToPDF(data: ExportData) {
   await ensureExportLogoLoaded();
-  currentExportInfo = lineaExportInfo();
+  currentGeneradoEn = new Date();
+  currentExportId = generarExportId(currentGeneradoEn);
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageIndex = 1;
   const summary = buildConsumoReportSummary(data);
   const { periodos, hasPeriodos } = summary;
   const { totalKg } = summary.totals;
 
-  let y = drawReportCover(doc, summary.meta, summary.kpis);
+  // OBJETO/PERIODO del bloque de metadatos formales (portada) y del párrafo
+  // de cierre/atestación (última página) — el MISMO texto en ambos sitios.
+  // `summary.meta.periodLabel` por sí solo es solo el recuento ("2 sesion(es)");
+  // se le antepone el rango de fechas real (`consumoDateRange`) para que el
+  // PERIODO sea un rango legible, como pide el registro formal.
+  const objeto = "los consumos físicos de recursos (agua, electricidad, gasoil y químicos) del periodo exportado";
+  const rangoConsumo = consumoDateRange(data);
+  const periodoTexto = rangoConsumo.from && rangoConsumo.to
+    ? `${formatDate(rangoConsumo.from)} - ${formatDate(rangoConsumo.to)} · ${summary.meta.periodLabel}`
+    : summary.meta.periodLabel ?? "Periodo exportado";
+  const siguienteSeccion = crearNumeradorSecciones();
+
+  drawHeader(doc);
+  let y = portadaFormal(doc, 26, { titulo: summary.meta.title, objeto, periodo: periodoTexto });
+
+  y = tituloSeccionNumerada(doc, y, siguienteSeccion(), "Indicadores principales", "KPIs globales del periodo exportado");
+  y = dibujarKpisEnGrid(doc, y, summary.kpis);
   y = drawReportInsights(doc, summary.insights, 8, y, 281) + 4;
-  y = drawReportSectionTitle(
+  y = tituloSeccionNumerada(
     doc,
-    hasPeriodos ? "Consumos fisicos por periodo" : "Consumos de recursos por sesion",
     y,
+    siguienteSeccion(),
+    hasPeriodos ? "Consumos fisicos por periodo" : "Consumos de recursos por sesion",
     hasPeriodos ? "Ratios normalizados por kg base y confianza del periodo" : "Ratios normalizados por kg procesado en cada sesion",
   );
 
@@ -616,11 +648,11 @@ export async function exportConsumoToPDF(data: ExportData) {
   });
 
   const pageIndexRef = { value: pageIndex };
-  const onDrawPage = (subtitle?: string) => () => {
+  const onDrawPage = () => {
     const pages = doc.getNumberOfPages();
     if (pages > pageIndexRef.value) {
       pageIndexRef.value = pages;
-      drawHeader(doc, pageIndexRef.value, subtitle);
+      drawHeader(doc);
       drawFooter(doc);
     }
   };
@@ -629,16 +661,19 @@ export async function exportConsumoToPDF(data: ExportData) {
     columnas: hasPeriodos ? PERIODOS_PDF_COLUMNAS : SESIONES_PDF_COLUMNAS,
     filas: hasPeriodos ? filasPeriodos : filasSesiones,
     startY: y,
-    didDrawPage: onDrawPage(),
+    didDrawPage: onDrawPage,
   });
 
+  // Y del último contenido dibujado, para colocar el cierre/atestación
+  // (última página) justo debajo — se va actualizando con cada bloque.
+  let lastContentY = lastAutoTableY(doc,y);
   drawFooter(doc);
 
   if (hasPeriodos) {
     doc.addPage();
     pageIndexRef.value = doc.getNumberOfPages();
-    drawHeader(doc, pageIndexRef.value, "Validacion");
-    const validationY = drawReportSectionTitle(doc, "Validacion de consumos", 24, "Observaciones detectadas en los periodos");
+    drawHeader(doc);
+    const validationY = tituloSeccionNumerada(doc, 26, siguienteSeccion(), "Validacion de consumos", "Observaciones detectadas en los periodos");
     const validationRows = periodos
       .filter((row) => row.issues.length > 0)
       .map((row) => [row.periodo, confianzaLabel[row.confianza], row.issues.join(" | ")]);
@@ -650,17 +685,18 @@ export async function exportConsumoToPDF(data: ExportData) {
         ? validationRows
         : [["Todos", "OK", "Sin incidencias de validacion"]],
       ...pdfTableTheme(),
-      didDrawPage: onDrawPage("Validacion"),
+      didDrawPage: onDrawPage,
     });
 
+    lastContentY = lastAutoTableY(doc,validationY);
     drawFooter(doc);
   }
 
   if (data.maquinas.length > 0) {
     doc.addPage();
     pageIndexRef.value = doc.getNumberOfPages();
-    drawHeader(doc, pageIndexRef.value, "Maquinas");
-    const machinesY = drawReportSectionTitle(doc, "Desglose de consumos por maquina", 24, "Consumo electrico granular por equipo");
+    drawHeader(doc);
+    const machinesY = tituloSeccionNumerada(doc, 26, siguienteSeccion(), "Desglose de consumos por maquina", "Consumo electrico granular por equipo");
 
     const maqBody = data.maquinas.map((m) => {
       const totalKwh = data.consumosMaquinas
@@ -674,12 +710,25 @@ export async function exportConsumoToPDF(data: ExportData) {
       head: [["Maquina", "Zona", "kWh total", "kWh/kg"]],
       body: maqBody,
       ...pdfTableTheme(),
-      didDrawPage: onDrawPage("Maquinas"),
+      didDrawPage: onDrawPage,
     });
 
+    lastContentY = lastAutoTableY(doc,machinesY);
     drawFooter(doc);
   }
 
-  finalizeExportPageNumbers(doc);
+  // CIERRE (última página): párrafo de atestación + línea de emisión
+  // electrónica, con el MISMO objeto/periodo que la portada.
+  let cierreY = lastContentY + 8;
+  if (cierreY > 160) {
+    doc.addPage();
+    pageIndexRef.value = doc.getNumberOfPages();
+    drawHeader(doc);
+    cierreY = 30;
+  }
+  cierreAtestacion(doc, cierreY, { objeto, periodo: periodoTexto, generadoEn: currentGeneradoEn });
+  drawFooter(doc);
+
+  finalizarPaginacionFormal(doc);
   doc.save(buildLasarteFilename("Consumos", "pdf", consumoDateRange(data)));
 }

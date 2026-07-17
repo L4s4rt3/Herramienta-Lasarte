@@ -50,12 +50,14 @@ import {
   FMT_TH,
   formatearFechaHoraExportacion,
   generarExportId,
+  LASARTE_FISCAL,
   resolverAlineacion,
   resolverNumFmt,
   type ColumnaAlineacion,
   type ColumnaTabla,
 } from "./exportKit";
-import { PDF_THEME, pdfTableTheme } from "./exportTheme";
+import { drawKpiCard, drawLogoOrFallback, logoImagenDisponible, PDF_THEME, pdfTableTheme } from "./exportTheme";
+import { REPORT_BRAND, reportToneColor, type ReportKpi } from "./reportKit";
 
 // ─── Texto seguro para jsPDF (sin eliminar tildes/ñ — ver nota de cabecera) ──
 
@@ -252,4 +254,410 @@ export function pdfTablaDesdeColumnas(doc: jsPDF, opts: PdfTablaOptions): number
   });
 
   return lastAutoTableY(doc, opts.startY);
+}
+
+// ─── Registro FORMAL/LEGAL de documento (encargo jul-2026) ─────────────────
+// El dueño aportó un PDF de muestra "muy profesional y ordenado y legal" y
+// pidió replicar su estructura EXACTA (adaptada a la marca Lasarte) en los
+// informes PDF: cabecera con razón social + "DOCUMENTO Nº" + "FECHA EMISIÓN"
+// en TODAS las páginas, portada con título espaciado + metadatos formales
+// OBJETO/PERIODO/FUENTE, secciones numeradas, pie legal de 3 líneas, y un
+// párrafo de cierre/atestación en la última página. Estas piezas son
+// COMPONIBLES (no un único "documentoFormal" monolítico) para que cada
+// informe (exportPartes.ts, exportConsumo.ts, exportEficiencia.ts,
+// calidad.ts) decida sus propias secciones sin perder la estructura común.
+// El CONTENIDO/DATOS de cada informe NO cambia — solo se reorganiza bajo
+// este esqueleto — y las tablas siguen usando pdfTablaDesdeColumnas/
+// pdfTableTheme ya existentes (cabecera azul corporativa, zebra, alineación
+// desde ColumnaTabla).
+
+/** Fecha "dd/mm/aaaa" sin hora, para "FECHA EMISIÓN" en la cabecera formal (a diferencia de `formatearFechaHoraExportacion`, que sí lleva hora). */
+export function formatearFechaEmision(fecha: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(fecha.getDate())}/${pad(fecha.getMonth() + 1)}/${fecha.getFullYear()}`;
+}
+
+export interface CabeceraDocumentoOptions {
+  /** Número único del documento (usar `generarExportId()`, p.ej. "LST-20260717...-001"). El MISMO número en todas las páginas. */
+  documentoNumero: string;
+  /** Subtítulo pequeño bajo la razón social; por defecto el nombre genérico de la herramienta (`REPORT_BRAND.tool`). */
+  subtitulo?: string;
+  /** Fecha de emisión mostrada en la cabecera; por defecto `new Date()`. Fijar UNA vez por documento (misma fecha en todas las páginas). */
+  fechaEmision?: Date;
+}
+
+/**
+ * Cabecera FORMAL (spec del PDF de muestra): razón social grande + logo a la
+ * izquierda con el subtítulo de la herramienta debajo; a la derecha
+ * "DOCUMENTO Nº" (etiqueta pequeña) + el número único, y "FECHA EMISIÓN
+ * dd/mm/aaaa" debajo; línea con CIF + dirección fiscal; separador fino. Debe
+ * dibujarse en TODAS las páginas del documento (portada incluida) para que
+ * el número de documento sea visible siempre, como en el PDF de muestra.
+ * Devuelve el Y a partir del cual puede empezar el contenido de la página.
+ */
+export function cabeceraDocumento(doc: jsPDF, opts: CabeceraDocumentoOptions): number {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 10;
+  const fechaEmision = opts.fechaEmision ?? new Date();
+
+  // Footprint deliberadamente compacto (banda de 24mm, contenido útil a
+  // partir de 26mm): el mismo hueco que ya reservaban `drawExportHeader` +
+  // `PDF_TABLE_MARGIN.top` (22mm de banda + separador en 22, contenido desde
+  // ~26) para que exportPartes.ts/exportConsumo.ts/exportEficiencia.ts/
+  // calidad.ts puedan sustituir su cabecera SIN tener que re-calcular todas
+  // las coordenadas fijas de sus páginas de detalle.
+  doc.setFillColor(...PDF_THEME.white);
+  doc.rect(0, 0, pageWidth, 24, "F");
+
+  // `drawLogoOrFallback` YA escribe la razón social como texto cuando el logo
+  // no está disponible (fallback silencioso); su valor de retorno es el ancho
+  // ocupado en AMBOS casos (imagen o texto). Si se vuelve a escribir la razón
+  // social aparte SIEMPRE que el ancho sea >0 (como antes), sale duplicada
+  // cuando cae al fallback — "Lasarte Cítricos S.L. Lasarte Cítricos S.L.",
+  // verificado generando un PDF real sin logo cacheado. `logoImagenDisponible()`
+  // distingue ambos casos: solo se re-escribe la razón social cuando SÍ hay
+  // imagen de logo (el fallback de texto ya la puso por su cuenta).
+  const conLogoImagen = logoImagenDisponible();
+  const logoWidth = drawLogoOrFallback(doc, margin, 3, 10, {
+    x: margin,
+    yBaseline: 9.5,
+    fontSize: 10.5,
+    color: PDF_THEME.primaryDark,
+  });
+  const textX = margin + logoWidth + 4;
+
+  if (conLogoImagen) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10.5);
+    doc.setTextColor(...PDF_THEME.primaryDark);
+    doc.text(safeText(LASARTE_FISCAL.nombre), textX, 9.5);
+  }
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(6.5);
+  doc.setTextColor(...PDF_THEME.muted);
+  doc.text(safeText(opts.subtitulo ?? REPORT_BRAND.tool), textX, 13.5);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(6);
+  doc.setTextColor(...PDF_THEME.muted);
+  doc.text("DOCUMENTO Nº", pageWidth - margin, 6, { align: "right" });
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor(...PDF_THEME.primaryDark);
+  doc.text(safeText(opts.documentoNumero), pageWidth - margin, 10.5, { align: "right" });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(6);
+  doc.setTextColor(...PDF_THEME.muted);
+  doc.text(`FECHA EMISIÓN ${formatearFechaEmision(fechaEmision)}`, pageWidth - margin, 14.5, { align: "right" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(6);
+  doc.setTextColor(...PDF_THEME.muted);
+  doc.text(safeText(`CIF ${LASARTE_FISCAL.cif} · ${LASARTE_FISCAL.direccion}`), margin, 19);
+
+  doc.setDrawColor(...PDF_THEME.border);
+  doc.setLineWidth(0.3);
+  doc.line(margin, 21.5, pageWidth - margin, 21.5);
+
+  return 26;
+}
+
+// ─── Título de portada espaciado ("I N F O R M E   D E   P A R T E S") ────
+
+/** "informe de partes" -> "I N F O R M E   D E   P A R T E S" (letras espaciadas, palabras separadas por 3 espacios), igual que el título de portada del PDF de muestra. Función pura y testeable sin jsPDF. */
+export function tituloPortadaEspaciado(titulo: string): string {
+  return titulo
+    .toUpperCase()
+    .split(" ")
+    .filter((palabra) => palabra.length > 0)
+    .map((palabra) => palabra.split("").join(" "))
+    .join("   ");
+}
+
+// ─── Metadatos formales OBJETO / PERIODO / FUENTE ──────────────────────────
+
+export interface MetadatoItem {
+  etiqueta: string;
+  valor: string;
+}
+
+/** Texto de FUENTE por defecto para el bloque de metadatos (spec del PDF de muestra: "Registros gestionados en la herramienta de [razón social]"). */
+// Sin punto final propio: `LASARTE_FISCAL.nombre` ya termina en "S.L." (que
+// incluye su propio punto), así que añadir otro dejaría "S.L.." (verificado
+// generando un PDF real).
+export const FUENTE_INFORME_DEFECTO = `Registros gestionados en la herramienta de ${LASARTE_FISCAL.nombre}`;
+
+/**
+ * Construye el bloque de metadatos formales OBJETO/PERIODO/FUENTE (y, si se
+ * pasa, un cuarto ítem opcional p.ej. CLASIFICACIÓN) como lista de pares
+ * etiqueta->valor. Función PURA (sin jsPDF) para poder testear la
+ * composición de textos de objeto/periodo de forma aislada.
+ */
+export function construirMetadatosInforme(
+  objeto: string,
+  periodo: string,
+  opts: { fuente?: string; extra?: MetadatoItem[] } = {},
+): MetadatoItem[] {
+  return [
+    { etiqueta: "OBJETO", valor: objeto },
+    { etiqueta: "PERIODO", valor: periodo },
+    { etiqueta: "FUENTE", valor: opts.fuente ?? FUENTE_INFORME_DEFECTO },
+    ...(opts.extra ?? []),
+  ];
+}
+
+/** Caja con los metadatos formales a dos columnas etiqueta->valor. Devuelve el Y donde puede continuar el contenido. */
+export function bloqueMetadatos(doc: jsPDF, y: number, items: MetadatoItem[]): number {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 10;
+  const width = pageWidth - margin * 2;
+  const labelWidth = 34;
+  const valueWidth = width - labelWidth - 10;
+  const lineHeight = 4.6;
+
+  const wrapped = items.map((item) => ({
+    item,
+    lines: doc.splitTextToSize(safeText(item.valor), valueWidth) as string[],
+  }));
+  const contentHeight = wrapped.reduce((sum, w) => sum + Math.max(1, w.lines.length) * lineHeight, 0);
+  const boxHeight = contentHeight + 8;
+
+  doc.setFillColor(...PDF_THEME.creamStrong);
+  doc.setDrawColor(...PDF_THEME.border);
+  doc.setLineWidth(0.25);
+  doc.roundedRect(margin, y, width, boxHeight, 1.5, 1.5, "FD");
+
+  let rowY = y + 6.5;
+  wrapped.forEach(({ item, lines }) => {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(...PDF_THEME.primaryDark);
+    doc.text(safeText(item.etiqueta), margin + 5, rowY);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(...PDF_THEME.text);
+    doc.text(lines, margin + 5 + labelWidth, rowY);
+    rowY += Math.max(1, lines.length) * lineHeight;
+  });
+
+  return y + boxHeight + 6;
+}
+
+export interface PortadaFormalOptions {
+  /** Título del informe, p.ej. "Informe de partes diarios" — se espacia automáticamente (`tituloPortadaEspaciado`). */
+  titulo: string;
+  objeto: string;
+  periodo: string;
+  fuente?: string;
+  /** Metadatos adicionales (p.ej. CLASIFICACIÓN para RRHH) tras FUENTE. */
+  metadatosExtra?: MetadatoItem[];
+}
+
+/** Portada formal: título espaciado centrado + razón social + bloque de metadatos OBJETO/PERIODO/FUENTE. Se dibuja DESPUÉS de `cabeceraDocumento` en la primera página. Devuelve el Y donde debe empezar la primera sección numerada. */
+export function portadaFormal(doc: jsPDF, y: number, opts: PortadaFormalOptions): number {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const centerX = pageWidth / 2;
+  let currentY = y + 7;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(15);
+  doc.setTextColor(...PDF_THEME.primaryDark);
+  doc.text(tituloPortadaEspaciado(opts.titulo), centerX, currentY, { align: "center" });
+  currentY += 7;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(...PDF_THEME.muted);
+  doc.text(safeText(LASARTE_FISCAL.nombre), centerX, currentY, { align: "center" });
+  currentY += 8;
+
+  return bloqueMetadatos(
+    doc,
+    currentY,
+    construirMetadatosInforme(opts.objeto, opts.periodo, { fuente: opts.fuente, extra: opts.metadatosExtra }),
+  );
+}
+
+// ─── Secciones numeradas ("1. INDICADORES PRINCIPALES") ────────────────────
+
+/** "Indicadores principales" -> "1. INDICADORES PRINCIPALES". Función pura y testeable sin jsPDF. */
+export function textoSeccionNumerada(numero: number, titulo: string): string {
+  return `${numero}. ${titulo.toUpperCase()}`;
+}
+
+/** Contador de secciones simple (1, 2, 3...) para no repartir números a mano en cada informe. Cada llamada devuelve el SIGUIENTE número; `inicio` por defecto 1. */
+export function crearNumeradorSecciones(inicio = 1): () => number {
+  let n = inicio - 1;
+  return () => {
+    n += 1;
+    return n;
+  };
+}
+
+/** Título de sección numerada con barra de acento + línea separadora. Devuelve el Y donde puede empezar el contenido de la sección. */
+export function tituloSeccionNumerada(doc: jsPDF, y: number, numero: number, titulo: string, subtitulo?: string): number {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 10;
+
+  doc.setFillColor(...PDF_THEME.primaryDark);
+  doc.rect(margin, y, 3, 6, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10.5);
+  doc.setTextColor(...PDF_THEME.primaryDark);
+  doc.text(textoSeccionNumerada(numero, titulo), margin + 6, y + 5);
+
+  let bottom = y + 9;
+  if (subtitulo) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(...PDF_THEME.muted);
+    doc.text(safeText(subtitulo), margin + 6, bottom);
+    bottom += 4;
+  }
+  doc.setDrawColor(...PDF_THEME.border);
+  doc.setLineWidth(0.2);
+  doc.line(margin, bottom, pageWidth - margin, bottom);
+  return bottom + 4;
+}
+
+// ─── Grid de KPIs bajo una sección numerada (antes solo dentro de drawReportCover) ─
+// Misma composición visual que `drawReportCover` (reportKit.ts) usaba para sus
+// tarjetas de KPI, extraída aquí para poder colocarla bajo "1. INDICADORES
+// PRINCIPALES" en vez de dentro de la banda de portada propia (ahora
+// sustituida por `portadaFormal`). Reutiliza `drawKpiCard`/`reportToneColor`
+// tal cual — NINGÚN cambio visual en la tarjeta individual, solo en dónde se
+// coloca el grid.
+export function dibujarKpisEnGrid(doc: jsPDF, y: number, kpis: ReportKpi[], columnasMax = 5): number {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 10;
+  const usableWidth = pageWidth - margin * 2;
+  const totalKpis = Math.min(kpis.length, columnasMax * 2);
+  const columns = Math.min(Math.max(totalKpis, 1), columnasMax);
+  const gap = 3;
+  const cardW = (usableWidth - gap * (columns - 1)) / columns;
+  const rows = Math.ceil(totalKpis / columns);
+
+  kpis.slice(0, totalKpis).forEach((kpi, index) => {
+    const col = index % columns;
+    const row = Math.floor(index / columns);
+    const x = margin + col * (cardW + gap);
+    const cardY = y + row * 24;
+    drawKpiCard(doc, x, cardY, cardW, kpi.label, String(kpi.value), kpi.sub);
+    doc.setFillColor(...reportToneColor(kpi.tone));
+    doc.roundedRect(x, cardY, cardW, 2.6, 1, 1, "F");
+  });
+
+  return y + rows * 24 + 6;
+}
+
+// ─── Pie legal (3 líneas, en TODAS las páginas) ────────────────────────────
+
+/** "Lasarte Cítricos S.L. · Documento de uso interno    Ref.: LST-...". Función pura y testeable sin jsPDF. */
+export function textoPieRef(exportId: string): string {
+  return `${LASARTE_FISCAL.nombre} · Documento de uso interno    Ref.: ${exportId}`;
+}
+
+/** Segunda línea fija del pie legal (validez sin firma manuscrita + uso interno). */
+export const PIE_LEGAL_LINEA_2 =
+  "Documento generado electrónicamente. Su contenido es válido sin firma manuscrita.    USO INTERNO";
+
+export interface PieLegalOptions {
+  /** Número único del documento (el MISMO que en `cabeceraDocumento`). */
+  exportId: string;
+}
+
+/**
+ * Pie legal de 3 líneas pequeñas (spec del PDF de muestra): razón social +
+ * "Documento de uso interno" + Ref.; aviso de validez sin firma + "USO
+ * INTERNO"; y "Página X de Y" (esta última la rellena `finalizarPaginacionFormal`
+ * al final, cuando ya se conoce el total de páginas — igual que
+ * `finalizeExportPageNumbers` en exportTheme.ts). Dibujar en TODAS las páginas.
+ */
+export function pieLegal(doc: jsPDF, opts: PieLegalOptions): void {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const centerX = pageWidth / 2;
+
+  doc.setDrawColor(...PDF_THEME.border);
+  doc.setLineWidth(0.2);
+  doc.line(10, pageHeight - 14, pageWidth - 10, pageHeight - 14);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(6);
+  doc.setTextColor(...PDF_THEME.muted);
+  doc.text(safeText(textoPieRef(opts.exportId)), centerX, pageHeight - 10.5, { align: "center" });
+  doc.text(safeText(PIE_LEGAL_LINEA_2), centerX, pageHeight - 7.5, { align: "center" });
+}
+
+/**
+ * Recorre TODAS las páginas ya generadas y escribe la 3ª línea del pie legal
+ * ("Página X de Y", centrada) una vez conocido el total — mismo patrón que
+ * `finalizeExportPageNumbers` (exportTheme.ts): debe llamarse UNA sola vez al
+ * final de cada export, justo antes de `doc.save(...)`.
+ */
+export function finalizarPaginacionFormal(doc: jsPDF): void {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const total = doc.getNumberOfPages();
+  for (let i = 1; i <= total; i += 1) {
+    doc.setPage(i);
+    doc.setFillColor(...PDF_THEME.white);
+    doc.rect(pageWidth / 2 - 30, pageHeight - 6.5, 60, 3.6, "F");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6);
+    doc.setTextColor(...PDF_THEME.muted);
+    doc.text(`Página ${i} de ${total}`, pageWidth / 2, pageHeight - 4, { align: "center" });
+  }
+}
+
+// ─── Cierre / atestación (última página) ───────────────────────────────────
+
+/** Párrafo de atestación: "El presente informe resume [objeto] del periodo [periodo]...". Función pura y testeable sin jsPDF. */
+export function textoAtestacion(objeto: string, periodo: string): string {
+  // Un solo punto entre la razón social y "Y para que conste": `LASARTE_FISCAL.nombre`
+  // ya termina en "S.L." (con su propio punto), así que NO se añade otro
+  // (antes: "S.L.. Y para que conste...", verificado generando un PDF real).
+  return `El presente informe resume ${objeto} del periodo ${periodo}, elaborado a partir de los registros gestionados en la herramienta de ${LASARTE_FISCAL.nombre} Y para que conste a los efectos oportunos, se emite el presente informe.`;
+}
+
+/** "Emitido electrónicamente por la herramienta de [razón social] el dd/mm/aaaa, HH:mm.". Función pura y testeable sin jsPDF. */
+export function textoEmisionElectronica(generadoEn: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const fecha = formatearFechaEmision(generadoEn);
+  const hora = `${pad(generadoEn.getHours())}:${pad(generadoEn.getMinutes())}`;
+  return `Emitido electrónicamente por la herramienta de ${LASARTE_FISCAL.nombre} el ${fecha}, ${hora}.`;
+}
+
+export interface CierreAtestacionOptions {
+  objeto: string;
+  periodo: string;
+  /** Fecha/hora de emisión mostrada en la última línea; por defecto `new Date()` (usar la MISMA que `cabeceraDocumento`/`generarExportId` del documento). */
+  generadoEn?: Date;
+}
+
+/** Bloque de cierre (última página): párrafo de atestación + línea de emisión electrónica. Devuelve el Y final tras el bloque. */
+export function cierreAtestacion(doc: jsPDF, y: number, opts: CierreAtestacionOptions): number {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 10;
+  const width = pageWidth - margin * 2;
+  const generadoEn = opts.generadoEn ?? new Date();
+
+  doc.setDrawColor(...PDF_THEME.border);
+  doc.setLineWidth(0.2);
+  doc.line(margin, y, pageWidth - margin, y);
+
+  let currentY = y + 8;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(...PDF_THEME.text);
+  const parrafo = doc.splitTextToSize(safeText(textoAtestacion(opts.objeto, opts.periodo)), width);
+  doc.text(parrafo, margin, currentY);
+  currentY += parrafo.length * 4.4 + 8;
+
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(7.5);
+  doc.setTextColor(...PDF_THEME.muted);
+  doc.text(safeText(textoEmisionElectronica(generadoEn)), margin, currentY);
+
+  return currentY + 6;
 }
