@@ -103,7 +103,10 @@ function AppLayoutContent() {
   }
 
   const [tourOpen, setTourOpen] = useState(false);
-  const tourSteps = getVisibleTourSteps(workspaceActual, { hasVentasCategoriaAccess: ventasCategoriaAccess.hasAccess });
+  const tourSteps = getVisibleTourSteps(workspaceActual, {
+    hasVentasCategoriaAccess: ventasCategoriaAccess.hasAccess,
+    isAdmin: role === "admin",
+  });
 
   // Arranque automático la primera vez que un usuario autenticado entra a un
   // espacio de trabajo. Cada espacio tiene su propio tour y su propia clave de
@@ -188,6 +191,7 @@ function AppLayoutContent() {
                   .filter((group) => group.workspace === ws.id)
                   .flatMap((group) => group.items)
                   .filter((item) => {
+                    if (item.adminOnly) return role === "admin";
                     if (item.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
                     if (item.to === "/campo/comunicaciones") return comunicacionesCampoAccess.hasAccess;
                     return true;
@@ -266,6 +270,7 @@ function AppLayoutContent() {
                 // El acceso por espacio ya se resolvió arriba; a nivel de item solo
                 // queda el mecanismo histórico de Categoría segunda (allowlist/rol).
                 const visibleItems = group.items.filter((item) => {
+                  if (item.adminOnly) return role === "admin";
                   if (item.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
                   if (item.to === "/campo/comunicaciones") return comunicacionesCampoAccess.hasAccess;
                   return true;

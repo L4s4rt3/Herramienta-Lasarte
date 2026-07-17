@@ -46,6 +46,8 @@ export interface TourStep {
    * (p.ej. acceso a Categoría segunda). Si no se define, el paso siempre se incluye.
    */
   requiresVentasCategoriaAccess?: boolean;
+  /** Paso de una sección solo-admin (espejo de adminOnly en NAV_GROUPS). */
+  adminOnly?: boolean;
 }
 
 export const TOUR_STEPS: TourStep[] = [
@@ -110,6 +112,7 @@ export const TOUR_STEPS: TourStep[] = [
     to: "/costes/consumos",
     icon: Droplet,
     title: "Consumos",
+    adminOnly: true,
     description:
       "El consumo de agua, electricidad, gasoil y tratamientos, con el consumo por kg de naranja de cada día y vistas por semana, mes o campaña. Apunta las lecturas de los contadores y la app calcula el consumo de cada día por ti.",
   },
@@ -278,11 +281,12 @@ export const TOUR_STEPS: TourStep[] = [
 /** Filtra los pasos del tour por espacio de trabajo y por los accesos del usuario actual. */
 export function getVisibleTourSteps(
   workspace: TourWorkspaceId,
-  opts: { hasVentasCategoriaAccess: boolean },
+  opts: { hasVentasCategoriaAccess: boolean; isAdmin: boolean },
 ): TourStep[] {
   return TOUR_STEPS.filter((step) => {
     if (step.workspace !== workspace) return false;
     if (step.requiresVentasCategoriaAccess && !opts.hasVentasCategoriaAccess) return false;
+    if (step.adminOnly && !opts.isAdmin) return false;
     return true;
   });
 }

@@ -103,6 +103,15 @@ const ECONOMICO_ADMIN_ONLY = new Set([
   "/economico/precios",
 ]);
 
+// Rutas de Producción reservadas al admin (decisión del dueño, 2026-07-17):
+// espejo de ADMIN_ONLY_PATHS en RoleRoute.tsx y de los items adminOnly de
+// NAV_GROUPS (src/lib/workspaces.ts).
+const PRODUCCION_ADMIN_ONLY = new Set([
+  "/costes/consumos",
+  "/limpieza",
+  "/historico",
+]);
+
 // Secciones de RRHH (datos personales): solo roles rrhh y admin. La
 // asistencia diaria pertenece a RRHH desde jul 2026.
 const RRHH_Y_ADMIN_ONLY = new Set([
@@ -151,6 +160,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     // El caso rrhh ya retorno arriba; aqui solo puede quedar admin/operario.
     if (RRHH_Y_ADMIN_ONLY.has(page.to)) return role === "admin";
     if (ECONOMICO_ADMIN_ONLY.has(page.to)) return role === "admin";
+    if (PRODUCCION_ADMIN_ONLY.has(page.to)) return role === "admin";
     return true;
   });
   // "Crear notas de calidad" / "Crear nuevo parte" llevan a secciones fuera

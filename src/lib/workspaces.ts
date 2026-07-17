@@ -109,6 +109,12 @@ export interface NavItem {
   label: string;
   icon: LucideIcon;
   match?: (path: string) => boolean;
+  /**
+   * Solo el rol admin ve este ítem (sidebar, paleta y mapa) y su ruta
+   * (RoleRoute.ADMIN_ONLY_PATHS debe listarla también). Decisión del dueño
+   * (2026-07-17) para Consumos, Limpieza de box e Importar histórico.
+   */
+  adminOnly?: boolean;
 }
 
 export const NAV_GROUPS: Array<{ label: string; workspace: WorkspaceId; items: NavItem[] }> = [
@@ -150,9 +156,9 @@ export const NAV_GROUPS: Array<{ label: string; workspace: WorkspaceId; items: N
     label: "Operaciones",
     workspace: "produccion",
     items: [
-      { to: "/costes/consumos", label: "Consumos", icon: Droplet },
-      { to: "/limpieza", label: "Limpieza de box", icon: Brush },
-      { to: "/historico", label: "Importar histórico", icon: History },
+      { to: "/costes/consumos", label: "Consumos", icon: Droplet, adminOnly: true },
+      { to: "/limpieza", label: "Limpieza de box", icon: Brush, adminOnly: true },
+      { to: "/historico", label: "Importar histórico", icon: History, adminOnly: true },
     ],
   },
   {

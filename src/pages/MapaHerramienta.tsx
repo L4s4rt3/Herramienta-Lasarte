@@ -27,6 +27,7 @@ export default function MapaHerramienta() {
         .filter((group) => group.workspace === ws.id)
         .flatMap((group) => group.items)
         .filter((item) => {
+          if (item.adminOnly) return role === "admin";
           if (item.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
           if (item.to === "/campo/comunicaciones") return comunicacionesCampoAccess.hasAccess;
           return true;

@@ -40,6 +40,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { mermaLotesEnPeriodo } from "@/lib/mermaLote";
@@ -205,6 +206,10 @@ function AtencionLoteRow({ lote, kg }: { lote: string; kg: number }) {
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
+  // Consumos, limpieza de box e importar histórico son solo-admin (2026-07-17):
+  // sus accesos no se ofrecen al resto de roles (RoleRoute bloquea la ruta igual).
+  const { role } = useAuth();
+  const esAdmin = role === "admin";
   // 0 = semana actual; cada paso atrás resta 1 semana. No se permite ir al futuro.
   const [weekOffset, setWeekOffset] = useState(0);
   const isCurrentWeek = weekOffset === 0;
@@ -406,10 +411,14 @@ export default function Dashboard() {
     { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3, dato: "Lotes, calibres y destinos por día" },
     { to: "/productores", label: "Productores", icon: Sprout, dato: "Origen, rendimiento y comportamiento" },
     { to: "/mercadona", label: "Mercadona (planta)", icon: ShoppingCart, dato: mercadona.kg_mercadona > 0 ? `${formatKg(mercadona.kg_mercadona)} esta semana` : undefined },
-    { to: "/costes/consumos", label: "Consumos", icon: Droplet, dato: "Agua · luz · gasoil · tratamientos" },
-    { to: "/limpieza", label: "Limpieza de box", icon: Brush, dato: ultimoParteLimpieza ? `${formatNumber(ultimoParteLimpieza.box)} box · ${formatDate(ultimoParteLimpieza.fecha)}` : undefined },
-    { to: "/historico", label: "Importar histórico", icon: History, dato: "Carga del histórico de campaña" },
-  ], [stockLoading, stock.kgEnCamara, ultimaCalidadFecha, ultimoDiaConParte, mercadona.kg_mercadona, ultimoParteLimpieza]);
+    ...(esAdmin
+      ? [
+        { to: "/costes/consumos", label: "Consumos", icon: Droplet, dato: "Agua · luz · gasoil · tratamientos" },
+        { to: "/limpieza", label: "Limpieza de box", icon: Brush, dato: ultimoParteLimpieza ? `${formatNumber(ultimoParteLimpieza.box)} box · ${formatDate(ultimoParteLimpieza.fecha)}` : undefined },
+        { to: "/historico", label: "Importar histórico", icon: History, dato: "Carga del histórico de campaña" },
+      ]
+      : []),
+  ], [stockLoading, stock.kgEnCamara, ultimaCalidadFecha, ultimoDiaConParte, mercadona.kg_mercadona, ultimoParteLimpieza, esAdmin]);
 
   return (
     <div className="page-shell">
@@ -460,13 +469,15 @@ export default function Dashboard() {
             <BarChart3 className="h-3.5 w-3.5 text-success" />
             Análisis diario
           </Link>
-          <Link
-            to="/costes/consumos"
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl glass glass-hover px-3 py-2 text-xs font-medium"
-          >
-            <Droplet className="h-3.5 w-3.5 text-info" />
-            Consumos
-          </Link>
+          {esAdmin && (
+            <Link
+              to="/costes/consumos"
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl glass glass-hover px-3 py-2 text-xs font-medium"
+            >
+              <Droplet className="h-3.5 w-3.5 text-info" />
+              Consumos
+            </Link>
+          )}
         </div>
       </header>
 

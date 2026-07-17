@@ -21,6 +21,11 @@ export const VENTAS_ALLOWED_PATHS = [
   "/mapa",
 ] as const;
 
+// Rutas de Producción reservadas al admin (decisión del dueño, 2026-07-17):
+// consumos, limpieza de box e importar histórico dejan de ser del rol básico.
+// Espejo de los items adminOnly de NAV_GROUPS (src/lib/workspaces.ts).
+export const ADMIN_ONLY_PATHS = ["/costes/consumos", "/limpieza", "/historico"] as const;
+
 /** Home de cada rol: su dashboard. "/" redirige aquí (ver RoleHome). */
 export function homeForRole(role: Role): string {
   switch (role) {
@@ -73,6 +78,16 @@ export default function RoleRoute() {
   // de la herramienta es de todos los roles.
   if (role === "rrhh" && !esRutaRrhh && location.pathname !== "/mapa") {
     return <Navigate to={RRHH_HOME} replace />;
+  }
+
+  // Consumos, limpieza de box e importar histórico: solo admin. Prefijo con
+  // "/" para no arrastrar rutas hermanas (p.ej. /costes/asistencia no cae
+  // bajo /costes/consumos).
+  const esRutaSoloAdmin = ADMIN_ONLY_PATHS.some(
+    (p) => location.pathname === p || location.pathname.startsWith(p + "/"),
+  );
+  if (esRutaSoloAdmin && role !== "admin") {
+    return <Navigate to="/" replace />;
   }
 
   // Las paginas economicas (precios, facturacion, margen) y el panel de
