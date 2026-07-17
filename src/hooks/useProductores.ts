@@ -6,7 +6,7 @@ import type { CalidadEstado, CalidadInformeEstado } from "@/lib/calidad";
 import { detectarTipoClasificacion } from "@/lib/destinoClasificacion";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { normalizarTexto } from "@/lib/format";
-import { esProductorPrecalibrado, resolveProductorGroupKey } from "@/lib/productoresCanonicos";
+import { esErrorTablaOColumnaInexistente, esProductorPrecalibrado, resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import { esProductoMdna } from "@/hooks/useMercadona";
 
 // Cast local: productores_alias y lotes_dia.productor_id aun no estan en el
@@ -241,6 +241,46 @@ type ClasificacionRow = {
   cartons: number | null;
 };
 
+/**
+ * Fila de la vista agregada `lote_clasificacion_productor_agg` (migración
+ * 20260717120000_vistas_agregadas_clasificacion.sql): kg/piezas/cartons ya
+ * sumados en el servidor por (productor, grupo_destino, clase, tamano,
+ * fecha) — la granularidad mínima que este hook necesita, sustituyendo la
+ * descarga íntegra de lote_clasificacion (300k+ filas tras el import masivo
+ * de informes de lote, jul-2026) por, como mucho, unos miles de filas.
+ */
+type ProductorAggRow = {
+  productor: string | null;
+  grupo_destino: string | null;
+  clase: string | null;
+  tamano: string | null;
+  fecha: string | null;
+  peso_kg: number | null;
+  piezas: number | null;
+  cartons: number | null;
+};
+
+/**
+ * Adapta filas de `lote_clasificacion_productor_agg` a `ClasificacionRow[]`
+ * SIN cambiar ningún cálculo aguas abajo: todo lo que hace este hook con
+ * `ClasificacionRow` es SUMAR peso_kg/piezas/cartons agrupando por
+ * productor/grupo_destino/clase/tamano — sumar varias filas ya pre-sumadas
+ * por día da exactamente el mismo total que sumar todas las filas originales
+ * (suma de sumas = suma del todo), así que no hace falta re-agregar por
+ * fecha aquí; se descarta sin más (`ClasificacionRow` no la usa).
+ */
+export function mapProductorAggRowsToClasificacionRows(rows: ProductorAggRow[]): ClasificacionRow[] {
+  return rows.map((r) => ({
+    productor: r.productor ?? null,
+    grupo_destino: r.grupo_destino ?? null,
+    clase: r.clase ?? null,
+    peso_kg: r.peso_kg,
+    tamano: r.tamano ?? null,
+    piezas: r.piezas,
+    cartons: r.cartons,
+  }));
+}
+
 type ProductoDiaRow = {
   part_id: string;
   producto: string | null;
@@ -390,19 +430,48 @@ export function useProductores(desde: string, hasta: string) {
       // ── 3. Desglose de calibre/clase/destino (Informe LOTE) ──────────
       // Tabla nueva y no siempre disponible por productor: si falla o no
       // devuelve nada, no debe romper el resto del dossier (calidad, KPIs...).
-      // lote_clasificacion tiene 8.685 filas tras el histórico: muy por
-      // encima del max-rows del servidor para un rango amplio, se pagina.
+      // lote_clasificacion pasó de ~9.000 a ~300.000 filas tras el import
+      // masivo de informes de lote (jul-2026): para un rango de fechas
+      // amplio (p. ej. campaña completa) la descarga íntegra de siempre es
+      // un acantilado de rendimiento. Se usa la vista agregada en servidor
+      // (lote_clasificacion_productor_agg, migración 20260717120000,
+      // security_invoker) con la granularidad mínima que este hook necesita;
+      // fallback al fetch íntegro (comportamiento ANTERIOR exacto) mientras
+      // la migración no esté aplicada, para no romper la app a mitad del
+      // import de hoy.
       let clasifRows: ClasificacionRow[] = [];
       try {
-        clasifRows = await fetchAllRows<ClasificacionRow>((from, to) =>
-          supabase
-            .from("lote_clasificacion")
-            .select("productor, grupo_destino, clase, peso_kg, tamano, piezas, cartons")
-            .gte("fecha", desde)
-            .lte("fecha", hasta)
-            .order("id")
-            .range(from, to),
-        );
+        try {
+          const aggRows = await fetchAllRows<ProductorAggRow>((from, to) =>
+            SUPA
+              .from("lote_clasificacion_productor_agg")
+              .select("productor, grupo_destino, clase, tamano, fecha, peso_kg, piezas, cartons")
+              .gte("fecha", desde)
+              .lte("fecha", hasta)
+              .order("productor")
+              .order("grupo_destino")
+              .order("clase")
+              .order("tamano")
+              .order("fecha")
+              .range(from, to),
+          );
+          clasifRows = mapProductorAggRowsToClasificacionRows(aggRows);
+        } catch (aggErr) {
+          if (!esErrorTablaOColumnaInexistente(aggErr)) throw aggErr;
+          console.warn(
+            "useProductores: lote_clasificacion_productor_agg aún no existe (migración 20260717120000 pendiente de aplicar); usando el fetch completo de lote_clasificacion.",
+            aggErr,
+          );
+          clasifRows = await fetchAllRows<ClasificacionRow>((from, to) =>
+            supabase
+              .from("lote_clasificacion")
+              .select("productor, grupo_destino, clase, peso_kg, tamano, piezas, cartons")
+              .gte("fecha", desde)
+              .lte("fecha", hasta)
+              .order("id")
+              .range(from, to),
+          );
+        }
       } catch (clasifEx) {
         console.error("useProductores: fallo al cargar lote_clasificacion (se omite el perfil de destino):", clasifEx);
         clasifRows = [];

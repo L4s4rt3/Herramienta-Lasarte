@@ -3,6 +3,7 @@ import {
   agregarMermaLotes,
   agruparPerdidaPorProductor,
   computeMermaLotes,
+  mapPodridoAggToClasificacionInput,
   mermaLotesEnPeriodo,
   TASA_MERMA_NATURAL_DIA,
   type ClasificacionLoteInput,
@@ -10,6 +11,7 @@ import {
   type ItemPerdidaProductor,
   type LoteDiaKgInput,
   type ParteMermaInput,
+  type PodridoAggRow,
 } from "./mermaLote";
 
 // Entrada mínima con solo lo necesario para el test dado (el resto a null/0).
@@ -972,5 +974,84 @@ describe("agregarMermaLotes — nLotesPodridoDesconocido", () => {
 
     expect(agregado.nLotes).toBe(2);
     expect(agregado.nLotesPodridoDesconocido).toBe(1);
+  });
+});
+
+// ─── mapPodridoAggToClasificacionInput — adaptador vista→computeMermaLotes ──
+// La vista lote_clasificacion_podrido_agg (migración
+// 20260717120000_vistas_agregadas_clasificacion.sql) reemplaza la descarga
+// íntegra de lote_clasificacion en useMermaLote.ts. Estos tests garantizan
+// que el adaptador reproduce EXACTAMENTE el mismo resultado de
+// computeMermaLotes que se obtenía descargando las filas crudas.
+describe("mapPodridoAggToClasificacionInput", () => {
+  it("convierte una fila agregada en una fila sintética con clase Podrido y peso_kg = kg_podrido", () => {
+    const rows: PodridoAggRow[] = [{ lote8: "26050101", kg_podrido: 42.5, n_filas: 5 }];
+    expect(mapPodridoAggToClasificacionInput(rows)).toEqual([
+      { lote_codigo: "26050101", clase: "Podrido", peso_kg: 42.5 },
+    ]);
+  });
+
+  it("un informe con filas pero SIN ninguna de clase Podrido da peso_kg=0 (0 real, no ausencia de informe)", () => {
+    const rows: PodridoAggRow[] = [{ lote8: "26050102", kg_podrido: 0, n_filas: 3 }];
+    expect(mapPodridoAggToClasificacionInput(rows)).toEqual([
+      { lote_codigo: "26050102", clase: "Podrido", peso_kg: 0 },
+    ]);
+  });
+
+  it("kg_podrido null (SUM sin filas que matcheen el filter) se trata como 0, no se descarta la fila", () => {
+    const rows: PodridoAggRow[] = [{ lote8: "26050103", kg_podrido: null, n_filas: 2 }];
+    expect(mapPodridoAggToClasificacionInput(rows)).toEqual([
+      { lote_codigo: "26050103", clase: "Podrido", peso_kg: 0 },
+    ]);
+  });
+
+  it("descarta filas sin lote8 (sin 8 dígitos reconocibles) o con n_filas 0/null — no hay informe que reportar", () => {
+    const rows: PodridoAggRow[] = [
+      { lote8: null, kg_podrido: 10, n_filas: 1 },
+      { lote8: "26050104", kg_podrido: 10, n_filas: 0 },
+      { lote8: "26050105", kg_podrido: 10, n_filas: null },
+    ];
+    expect(mapPodridoAggToClasificacionInput(rows)).toEqual([]);
+  });
+
+  it("equivalencia: computeMermaLotes da el MISMO resultado con la vista agregada que con las filas crudas de lote_clasificacion", () => {
+    const entradas = [
+      entrada({ lote: "26050101", kg_entrada: 1000 }), // informe con podrido real
+      entrada({ lote: "26050102", kg_entrada: 1000 }), // informe sin filas de clase Podrido (0 real)
+      entrada({ lote: "26050199", kg_entrada: 1000 }), // sin informe: prorrateo/desconocido, no debe verse afectado
+    ];
+    const lotesDia: LoteDiaKgInput[] = [
+      { lote_codigo: "26050101", kg_peso_total: 900, part_id: "p1" },
+      { lote_codigo: "26050102", kg_peso_total: 900, part_id: "p1" },
+      { lote_codigo: "26050199", kg_peso_total: 900, part_id: "p1" },
+    ];
+    const partes: ParteMermaInput[] = [
+      { part_id: "p1", kg_podrido_calibrador_auto: 30, kg_podrido_bolsa_basura: 15 },
+    ];
+
+    // Filas crudas "de siempre" (lo que descargaba el fetch íntegro antes de este cambio).
+    const clasifCrudo: ClasificacionLoteInput[] = [
+      { lote_codigo: "26050101", clase: "Podrido", peso_kg: 12 },
+      { lote_codigo: "26050101", clase: "Clase 1", peso_kg: 200 },
+      { lote_codigo: "26050102", clase: "Clase 1", peso_kg: 300 }, // informe existe, sin fila "Podrido"
+    ];
+
+    // Lo que produciría la vista agregada para esos mismos datos.
+    const aggRows: PodridoAggRow[] = [
+      { lote8: "26050101", kg_podrido: 12, n_filas: 2 },
+      { lote8: "26050102", kg_podrido: 0, n_filas: 1 },
+    ];
+
+    const resultadoCrudo = computeMermaLotes(entradas, lotesDia, clasifCrudo, partes);
+    const resultadoVista = computeMermaLotes(entradas, lotesDia, mapPodridoAggToClasificacionInput(aggRows), partes);
+
+    expect(resultadoVista).toEqual(resultadoCrudo);
+    // Verificación explícita de los tres casos (informe real con podrido,
+    // informe real sin podrido, y sin informe → prorrateo/desconocido).
+    expect(resultadoVista[0].podridoCalibradorFuente).toBe("real");
+    expect(resultadoVista[0].podridoCalibradorKg).toBe(12);
+    expect(resultadoVista[1].podridoCalibradorFuente).toBe("real");
+    expect(resultadoVista[1].podridoCalibradorKg).toBe(0);
+    expect(resultadoVista[2].podridoCalibradorFuente).toBe("prorrateo");
   });
 });

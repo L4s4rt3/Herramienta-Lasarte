@@ -230,6 +230,39 @@ export interface ClasificacionLoteInput {
 }
 
 /**
+ * Fila de la vista agregada `lote_clasificacion_podrido_agg` (migración
+ * 20260717120000_vistas_agregadas_clasificacion.sql): un lote8 por fila, con
+ * el podrido ya sumado en el servidor. Sustituye la descarga íntegra de
+ * lote_clasificacion (300k+ filas tras el import masivo de informes de lote,
+ * jul-2026) por, como mucho, unas pocas miles de filas — una por lote.
+ */
+export interface PodridoAggRow {
+  lote8: string | null;
+  kg_podrido: number | null;
+  n_filas: number | null;
+}
+
+/**
+ * Adapta las filas de `lote_clasificacion_podrido_agg` a `ClasificacionLoteInput[]`
+ * SIN cambiar el resultado de `computeMermaLotes`: éste solo necesita, por
+ * lote, (a) que exista AL MENOS una fila (informeLotes: presencia) y (b) la
+ * suma de kg de la(s) clase(s) "Podrido" (podridoRealPorLote). Basta con UNA
+ * fila sintética por lote8, con clase "Podrido" y peso_kg = kg_podrido (0 si
+ * el informe no tenía ninguna fila de esa clase, que sigue siendo un 0 real,
+ * no una ausencia de informe), para reproducir exactamente esos dos usos —
+ * no hace falta reconstruir las filas originales fila a fila.
+ */
+export function mapPodridoAggToClasificacionInput(rows: PodridoAggRow[]): ClasificacionLoteInput[] {
+  return rows
+    .filter((r) => r.lote8 && (r.n_filas ?? 0) > 0)
+    .map((r) => ({
+      lote_codigo: r.lote8,
+      clase: "Podrido",
+      peso_kg: Number(r.kg_podrido) || 0,
+    }));
+}
+
+/**
  * Parte con los dos contadores de podrido que existen por DÍA/PARTE (nunca
  * por lote). `null` en cualquiera de los dos SOLO significa "no hay dato de
  * ese parte" (p. ej. un día importado del histórico de campaña, jul 2026,

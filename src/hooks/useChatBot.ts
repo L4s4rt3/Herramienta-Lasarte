@@ -12,6 +12,7 @@
  * - Aprendizaje continuo
  */
 import { useState, useCallback, useRef } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { callChatFunction, DOMAIN_PROMPT, ChatContent } from "@/lib/gemini";
@@ -19,6 +20,7 @@ import { computeCascade } from "@/lib/cascade";
 import { normalizeConsumoCantidad, type ConsumoFisicoInput } from "@/lib/consumosFisicos";
 import { detectarTipoClasificacion } from "@/lib/destinoClasificacion";
 import { getRAGContext, formatRAGContext, saveConversation } from "@/lib/rag";
+import { esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
 import { useAuth } from "@/contexts/AuthProvider";
 import {
   cargarMemorias,
@@ -28,6 +30,11 @@ import {
   olvidarMemoria,
   type MemoriaRow,
 } from "@/lib/chatMemoria";
+
+// Cast local: lote_clasificacion_productor_agg (migración
+// 20260717120000_vistas_agregadas_clasificacion.sql, pendiente de aplicar)
+// aún no está en el Database generado — mismo patrón que useProductores.ts.
+const SUPA = supabase as unknown as SupabaseClient<any>;
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -209,12 +216,51 @@ function normalizeNombreProductor(value: string | null | undefined): string {
   return String(value ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 }
 
+type ClasifMesRow = { productor: string | null; grupo_destino: string | null; peso_kg: number };
+
+/**
+ * lote_clasificacion pasó de ~9.000 a ~300.000 filas tras el import masivo de
+ * informes de lote (jul-2026, ver migración
+ * 20260717120000_vistas_agregadas_clasificacion.sql): este resumen pide
+ * "desde monthStart" SIN límite superior, así que en el mes en que el dueño
+ * importa el histórico completo esto ya NO es un rango acotado — puede cubrir
+ * las 300k filas enteras. Se usa la vista agregada en servidor
+ * (lote_clasificacion_productor_agg) que solo necesita re-sumarse por
+ * (productor, grupo_destino) aquí; fallback al fetch íntegro de siempre
+ * mientras la migración no esté aplicada.
+ */
+async function fetchClasificacionMes(monthStart: string): Promise<ClasifMesRow[]> {
+  try {
+    return await fetchAllRows<ClasifMesRow>((from, to) =>
+      SUPA
+        .from("lote_clasificacion_productor_agg")
+        .select("productor, grupo_destino, peso_kg")
+        .gte("fecha", monthStart)
+        .order("productor")
+        .order("grupo_destino")
+        .order("clase")
+        .order("tamano")
+        .order("fecha")
+        .range(from, to),
+    );
+  } catch (err) {
+    if (!esErrorTablaOColumnaInexistente(err)) throw err;
+    console.warn(
+      "useChatBot: lote_clasificacion_productor_agg aún no existe (migración 20260717120000 pendiente de aplicar); usando el fetch completo de lote_clasificacion.",
+      err,
+    );
+    return fetchAllRows<ClasifMesRow>((from, to) =>
+      supabase.from("lote_clasificacion").select("productor, grupo_destino, peso_kg").gte("fecha", monthStart).order("id").range(from, to),
+    );
+  }
+}
+
 async function buildProductoresDelMes(sections: string[], monthStart: string) {
-  // lotes_dia (1.187 filas) y sobre todo lote_clasificacion (8.685 filas,
-  // ~868/mes de media) pueden superar de sobra las 1.000 filas en un mes
-  // cargado: los .limit(3000)/.limit(20000) no protegían nada (PostgREST
-  // recorta a su max-rows en silencio, sesgando el ranking del mes). Se
-  // paginan con fetchAllRows.
+  // lotes_dia (1.187 filas) puede superar de sobra las 1.000 filas en un mes
+  // cargado: el .limit(3000) no protegía nada (PostgREST recorta a su
+  // max-rows en silencio, sesgando el ranking del mes). Se pagina con
+  // fetchAllRows. lote_clasificacion va por la vista agregada (ver
+  // fetchClasificacionMes arriba).
   const [lotes, clasifRaw] = await Promise.all([
     fetchAllRows<{
       productor: string | null;
@@ -233,9 +279,7 @@ async function buildProductoresDelMes(sections: string[], monthStart: string) {
           error: unknown;
         }>,
     ),
-    fetchAllRows<{ productor: string | null; grupo_destino: string | null; peso_kg: number }>((from, to) =>
-      supabase.from("lote_clasificacion").select("productor, grupo_destino, peso_kg").gte("fecha", monthStart).order("id").range(from, to),
-    ),
+    fetchClasificacionMes(monthStart),
   ]);
 
   if (lotes.length === 0) {

@@ -18,20 +18,30 @@
  */
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { useEntradasBascula } from "@/hooks/useEntradasBascula";
 import { normalizarLoteCodigo } from "@/lib/loteCodigo";
+import { esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
 import {
   agregarMermaLotes,
   computeMermaLotes,
+  mapPodridoAggToClasificacionInput,
   type ClasificacionLoteInput,
   type EntradaLoteInput,
   type LoteDiaKgInput,
   type MermaLote,
   type ParteMermaInput,
+  type PodridoAggRow,
 } from "@/lib/mermaLote";
+
+// Cast local: lote_clasificacion_podrido_agg (migración
+// 20260717120000_vistas_agregadas_clasificacion.sql, pendiente de aplicar)
+// aún no está en el Database generado — mismo patrón que useProductores.ts
+// (SUPA) para las tablas/vistas nuevas.
+const SUPA = supabase as unknown as SupabaseClient<any>;
 
 function toNum(value: unknown): number {
   return Number(value) || 0;
@@ -80,16 +90,42 @@ export function useMermaLotes() {
   const clasificacionQuery = useQuery({
     queryKey: ["merma-lote", "clasificacion"],
     queryFn: async (): Promise<ClasificacionLoteInput[]> => {
-      // lote_clasificacion tiene 8.685 filas tras el histórico: muy por
-      // encima del max-rows del servidor. Mismo motivo, fetchAllRows.
-      const rows = await fetchAllRows<{ lote_codigo: string | null; clase: string | null; peso_kg: number }>(
-        (from, to) => supabase.from("lote_clasificacion").select("lote_codigo, clase, peso_kg").order("id").range(from, to),
-      );
-      return rows.map((c) => ({
-        lote_codigo: c.lote_codigo ?? null,
-        clase: c.clase ?? null,
-        peso_kg: toNum(c.peso_kg),
-      }));
+      // lote_clasificacion pasó de ~9.000 a ~300.000 filas tras el import
+      // masivo de informes de lote (jul-2026): descargar la tabla ENTERA
+      // (como antes) para calcular solo el podrido real por lote es un
+      // acantilado de rendimiento (~300 páginas por carga). Se usa la vista
+      // agregada en servidor (lote_clasificacion_podrido_agg, migración
+      // 20260717120000, security_invoker) que ya suma el podrido por lote8:
+      // a lo sumo unos miles de filas (una por lote) en vez de cientos de
+      // miles. `order("lote8")` es estable porque lote8 es justo la clave de
+      // agrupación de la vista (una fila por valor, sin empates posibles).
+      try {
+        const rows = await fetchAllRows<PodridoAggRow>((from, to) =>
+          SUPA
+            .from("lote_clasificacion_podrido_agg")
+            .select("lote8, kg_podrido, n_filas")
+            .order("lote8")
+            .range(from, to),
+        );
+        return mapPodridoAggToClasificacionInput(rows);
+      } catch (err) {
+        if (!esErrorTablaOColumnaInexistente(err)) throw err;
+        // Fallback mientras la migración 20260717120000 no esté aplicada: el
+        // fetch completo de siempre, para no romper la app a mitad del
+        // import de hoy. Mismo resultado final que antes de este cambio.
+        console.warn(
+          "useMermaLotes: lote_clasificacion_podrido_agg aún no existe (migración 20260717120000 pendiente de aplicar); usando el fetch completo de lote_clasificacion.",
+          err,
+        );
+        const rows = await fetchAllRows<{ lote_codigo: string | null; clase: string | null; peso_kg: number }>(
+          (from, to) => supabase.from("lote_clasificacion").select("lote_codigo, clase, peso_kg").order("id").range(from, to),
+        );
+        return rows.map((c) => ({
+          lote_codigo: c.lote_codigo ?? null,
+          clase: c.clase ?? null,
+          peso_kg: toNum(c.peso_kg),
+        }));
+      }
     },
     enabled: Boolean(user),
   });
