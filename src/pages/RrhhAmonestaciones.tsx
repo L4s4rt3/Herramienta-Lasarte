@@ -102,7 +102,7 @@ export default function RrhhAmonestaciones() {
       <div className="page-shell">
         <header className="page-header">
           <div>
-            <p className="panel-kicker">RRHH</p>
+            <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />RRHH</p>
             <h1 className="page-title">Amonestaciones</h1>
             <p className="page-subtitle">Registro cronológico de amonestaciones por trabajador.</p>
           </div>
@@ -127,7 +127,7 @@ export default function RrhhAmonestaciones() {
       <header className="page-header">
         <div>
           <div className="flex items-center gap-2">
-            <p className="panel-kicker">RRHH</p>
+            <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />RRHH</p>
             <Badge variant="outline" className="rounded-md px-2 py-0 text-xs">
               {amonestaciones.length} registro(s)
             </Badge>

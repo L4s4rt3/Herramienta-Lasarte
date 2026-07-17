@@ -46,6 +46,7 @@ import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatKgCompact as formatKg, formatNumber, formatPct, normalizarTexto } from "@/lib/format";
 import {
   agruparPerdidaPorProductor,
+  TASA_MERMA_NATURAL_DIA,
   type ItemPerdidaProductor,
   type MermaLote,
 } from "@/lib/mermaLote";
@@ -143,6 +144,18 @@ function podridoPreCalibradorDestacado(l: MermaLote): boolean {
   const preCalibrador = l.podridoPreCalibradorKg ?? 0;
   if (preCalibrador > 500) return true;
   return medida > 0 && preCalibrador / medida > 0.4;
+}
+
+/** % de merma natural esperada por días en cámara (TASA_MERMA_NATURAL_DIA × días), en fracción 0–100. `null` si no hay días conocidos. */
+function mermaEsperadaPct(l: MermaLote): number | null {
+  if (l.diasEnCamara == null) return null;
+  return TASA_MERMA_NATURAL_DIA * 100 * l.diasEnCamara;
+}
+
+/** Umbral VISUAL (no de negocio, FASE 5 jul 2026): la merma medida del lote supera el DOBLE de la esperada por días en cámara — matiz de aviso en la columna "% merma", no cambia ningún cálculo. */
+function mermaSuperaEsperadaDoble(l: MermaLote): boolean {
+  const esperada = mermaEsperadaPct(l);
+  return l.pctMermaSobreEntrada != null && esperada != null && esperada > 0 && l.pctMermaSobreEntrada > esperada * 2;
 }
 
 /** Fila de un mini-ranking: enlaza al lote, con una badge de "atención" (rojo). */
@@ -389,7 +402,20 @@ function MermasCosteTab() {
                       {l.mermaNaturalKg != null ? formatKg(l.mermaNaturalKg) : "—"}
                       {l.calibradorSuperaEntrada && <AlertTriangle className="ml-1 inline h-3 w-3" />}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums text-muted-foreground">{l.pctMermaSobreEntrada != null ? formatPct(l.pctMermaSobreEntrada) : "—"}</TableCell>
+                    <TableCell
+                      className={cn(
+                        "text-right tabular-nums",
+                        mermaSuperaEsperadaDoble(l) ? "font-semibold text-warning" : "text-muted-foreground",
+                      )}
+                      title={
+                        mermaSuperaEsperadaDoble(l)
+                          ? `Supera el doble de la merma natural esperada por ${l.diasEnCamara} día(s) en cámara (≈${formatPct(mermaEsperadaPct(l)!)} esperado)`
+                          : undefined
+                      }
+                    >
+                      {l.pctMermaSobreEntrada != null ? formatPct(l.pctMermaSobreEntrada) : "—"}
+                      {mermaSuperaEsperadaDoble(l) && <AlertTriangle className="ml-1 inline h-3 w-3" />}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {l.podridoPreCalibradorKg != null ? (
                         <span className="inline-flex items-center justify-end gap-1">

@@ -106,7 +106,7 @@ export default function HistoricoImport() {
       <div className="page-shell">
         <header className="page-header">
           <div>
-            <p className="panel-kicker">Producción</p>
+            <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Producción</p>
             <h1 className="page-title">Importar histórico</h1>
             <p className="page-subtitle">Carga del histórico de campaña desde el export del calibrador.</p>
           </div>

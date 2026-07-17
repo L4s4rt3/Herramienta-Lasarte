@@ -28,6 +28,7 @@ import {
 import { KPICard } from "@/components/KPICard";
 import { ProgressBarRow } from "@/components/ProgressBarRow";
 import { SelectorPeriodo } from "@/components/SelectorPeriodo";
+import { ReferenciaMedia } from "@/components/charts/ReferenciaMedia";
 import { EconomicoSubnav } from "@/components/economico/EconomicoSubnav";
 import { useEconomicoPanel } from "@/hooks/useEconomico";
 import { useMermaLotes } from "@/hooks/useMermaLote";
@@ -132,6 +133,11 @@ export default function EconomicoPanel() {
 
   const mostrarGrafico = panel.serieCombinada.length >= 2;
   const maxSerie = Math.max(...panel.serieCombinada.map((s) => Math.max(s.facturacion, s.coste)), 0);
+  // Media de facturación de las semanas visibles: umbral con significado
+  // (línea fantasma), mismo patrón que Dashboard.tsx (FASE 5, jul 2026).
+  const mediaFacturacion = panel.serieCombinada.length > 0
+    ? panel.serieCombinada.reduce((s, r) => s + r.facturacion, 0) / panel.serieCombinada.length
+    : 0;
 
   if (panel.sinPermiso) {
     return (
@@ -392,6 +398,7 @@ export default function EconomicoPanel() {
                     )}
                   />
                   <Legend wrapperStyle={legendStyle} />
+                  <ReferenciaMedia y={mediaFacturacion} label="Media facturación" />
                   <Bar dataKey="facturacion" name="Facturación" fill={barFill(C.primary, 0.4)} stroke={C.primary} strokeWidth={1.5} radius={[6, 6, 2, 2]} maxBarSize={28} />
                   <Bar dataKey="costeConsumos" name="Coste de consumos" stackId="coste" fill={barFill(C.warning, 0.4)} stroke={C.warning} strokeWidth={1.5} radius={[6, 6, 0, 0]} maxBarSize={28} />
                   <Bar dataKey="mallas" name="Mallas rotas" stackId="coste" fill={barFill(C.destructive, 0.5)} stroke={C.destructive} strokeWidth={1.5} radius={[0, 0, 2, 2]} maxBarSize={28} />

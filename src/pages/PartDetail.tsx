@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Textarea } from "@/components/ui/textarea";
 import { KPICard } from "@/components/KPICard";
+import { FichaStrip } from "@/components/FichaStrip";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -624,7 +625,7 @@ export default function PartDetail() {
     <div className="page-shell">
       <header className="page-header">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/partes")}>
+          <Button variant="ghost" size="icon" onClick={() => navigate("/partes")} title="Volver a Partes">
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="min-w-0">
@@ -686,6 +687,24 @@ export default function PartDetail() {
           </DropdownMenu>
         </div>
       </header>
+
+      {/* Tira de ficha compacta: entidad + datos clave antes del contenido (patrón Aerobotics) */}
+      <FichaStrip
+        items={[
+          { label: "Fecha", value: formatDate(parte.date) },
+          {
+            label: "Estado",
+            value: parte.estado,
+            tone: parte.estado === "Con descuadre" ? "warning" : parte.estado === "Validado" ? "success" : "neutral",
+          },
+          { label: "Kg calibrador", value: formatKg(parte.kg_produccion_calibrador) },
+          {
+            label: "Semáforo DJPMN",
+            value: `${cascade.dsj_pct >= 0 ? "+" : ""}${cascade.dsj_pct.toFixed(2)}%`,
+            tone: sem.accent,
+          },
+        ]}
+      />
 
       {/* ─── KPIs del día ───────────────────────────────────────────────── */}
       <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">

@@ -175,7 +175,7 @@ export default function VentasMensualImport() {
     <div className="page-shell">
       <header className="page-header">
         <div>
-          <p className="panel-kicker">Comercial</p>
+          <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Comercial</p>
           <h1 className="page-title">Ventas del mes</h1>
           <p className="page-subtitle">
             Sube de una vez los ficheros del mes y repártelos entre Categoría primera, Categoría segunda y Mercadona.

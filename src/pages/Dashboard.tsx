@@ -15,6 +15,7 @@ import { DsjScale } from "@/components/DsjScale";
 import { Sparkline } from "@/components/Sparkline";
 import { AutoWeekFallbackNotice } from "@/components/AutoWeekFallbackNotice";
 import { SelectorPeriodo } from "@/components/SelectorPeriodo";
+import { ReferenciaMedia } from "@/components/charts/ReferenciaMedia";
 import { getSemaforo, DJPMN_HELP } from "@/lib/semaforo";
 import { detectarTipoClasificacion, GRUPO_COLORS } from "@/lib/destinoClasificacion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -313,6 +314,14 @@ export default function Dashboard() {
   const mermaTotalTrend = previousWeekData ? currentWeekData.mermaTotalConDsjPct - previousWeekData.mermaTotalConDsjPct : 0;
   const chartDisplayData = weeklyRows;
   const sem = getSemaforo(currentWeekData.dsj_pct);
+
+  // Media de producción de las semanas visibles en "Evolución semanal": umbral
+  // con significado (línea fantasma) que convierte el gráfico en una respuesta
+  // — patrón Aerobotics pedido por el dueño (FASE 5, jul 2026).
+  const mediaProduccionSemanal = useMemo(
+    () => (chartDisplayData.length > 0 ? chartDisplayData.reduce((s, w) => s + w.produccion, 0) / chartDisplayData.length : 0),
+    [chartDisplayData],
+  );
 
   // Distribución por grupo de destino (semana actual)
   const { data: grupoDistribution, isLoading: grupoDistributionLoading } = useQuery({
@@ -874,6 +883,7 @@ export default function Dashboard() {
                       label={{ value: "Zona OK", position: "insideTopRight", fill: C.muted, fontSize: 9 }}
                     />
                     <Tooltip cursor={CHART_CURSOR} content={<ChartTooltip />} />
+                    <ReferenciaMedia yAxisId="kg" y={mediaProduccionSemanal} label="Media del periodo" />
                     <Bar
                       yAxisId="kg"
                       dataKey="produccion"

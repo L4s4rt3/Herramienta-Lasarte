@@ -1490,7 +1490,7 @@ export default function CalidadJornadaPage() {
                           </button>
                           <div className="flex items-center gap-2 p-2">
                             <p className="min-w-0 flex-1 truncate text-xs font-medium">{adjunto.file_name}</p>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => deleteAdjunto(adjunto)}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => deleteAdjunto(adjunto)} title="Eliminar adjunto">
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>

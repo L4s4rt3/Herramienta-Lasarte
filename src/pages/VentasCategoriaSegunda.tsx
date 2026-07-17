@@ -302,7 +302,7 @@ export function VentasCategoriaPage({ categoriaNombre, titulo, subtitulo }: Vent
         <header className="page-header">
           <div>
             <div className="flex items-center gap-2">
-              <p className="panel-kicker">Comercial</p>
+              <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Comercial</p>
               <Badge variant={hasImportedData ? "outline" : "destructive"} className="rounded-md px-2 py-0 text-xs">
                 {hasImportedData ? "Base cargada" : "Sin datos"}
               </Badge>
@@ -1087,7 +1087,7 @@ function AjusteTableRow({ cliente, ajuste, onSave, zebra }: {
       <td className="px-2 py-1"><Input type="number" className="h-8 text-xs" value={values.transporte_pct} onChange={(e) => set("transporte_pct", e.target.value)} /></td>
       <td className="px-2 py-1"><Input type="number" className="h-8 text-xs" value={values.transporte_cent_kg} onChange={(e) => set("transporte_cent_kg", e.target.value)} /></td>
       <td className="px-2 py-1">
-        <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => onSave({
+        <Button size="icon" variant="outline" className="h-8 w-8" title="Guardar fila" onClick={() => onSave({
           cliente_codigo: String(cliente.cliente_codigo ?? ""),
           cliente_nombre: String(cliente.cliente_nombre ?? ""),
           ...values,

@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/table";
 import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { KPICard } from "@/components/KPICard";
+import { FichaStrip, type FichaStripTone } from "@/components/FichaStrip";
 import { toast } from "@/hooks/use-toast";
 import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatNumber, today } from "@/lib/format";
@@ -242,7 +243,7 @@ export default function RrhhPersonas() {
     <div className="page-shell">
       <header className="page-header">
         <div>
-          <p className="panel-kicker">RRHH</p>
+          <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />RRHH</p>
           <h1 className="page-title">Plantilla</h1>
           <p className="page-subtitle">Centro de gestión de trabajadores: alta, ficha, bajas laborales y descarga.</p>
         </div>
@@ -1116,6 +1117,12 @@ function FichaPersonaSheet({
 }) {
   const { ficha, isLoading, sinPermiso } = useRrhhFichaPersona(trabajador?.id ?? null);
 
+  // Estado laboral actual para la tira de ficha compacta: activo / en baja
+  // (primera baja sin fecha_fin) / inactivo — misma jerarquía que situacionTexto.
+  const bajaAbierta = ficha.bajas.find((b) => !b.fecha_fin) ?? null;
+  const estadoLabel = !trabajador?.activo ? "Inactivo" : bajaAbierta ? `En baja desde ${formatDate(bajaAbierta.fecha_inicio)}` : "Activo";
+  const estadoTone: FichaStripTone = !trabajador?.activo ? "neutral" : bajaAbierta ? "warning" : "success";
+
   const hoy = today();
   const saldo = trabajador
     ? saldoVacaciones(
@@ -1148,24 +1155,19 @@ function FichaPersonaSheet({
             </SheetHeader>
 
             <div className="mt-4 space-y-4">
-              <div className="grid grid-cols-2 gap-2 rounded-xl glass-accented p-3 text-sm">
-                <div>
-                  <p className="panel-kicker">Zona</p>
-                  <p className="font-medium">{trabajador.zona ?? "—"}</p>
-                </div>
-                <div>
-                  <p className="panel-kicker">Categoría</p>
-                  <p className="font-medium">{trabajador.categoria_profesional?.trim() || "Sin asignar"}</p>
-                </div>
-                <div>
-                  <p className="panel-kicker">Fecha de alta</p>
-                  <p className="font-medium tabular-nums">{trabajador.fecha_alta ? formatDate(trabajador.fecha_alta) : "—"}</p>
-                </div>
-                <div>
-                  <p className="panel-kicker">Antigüedad</p>
-                  <p className="font-medium">{antiguedadTexto(trabajador.fecha_alta)}</p>
-                </div>
-              </div>
+              {/* Tira de ficha compacta: entidad + datos clave antes del contenido (patrón Aerobotics) */}
+              <FichaStrip
+                badges={[{ label: estadoLabel, tone: estadoTone }]}
+                items={[
+                  { label: "Zona", value: trabajador.zona ?? "—" },
+                  { label: "Categoría", value: trabajador.categoria_profesional?.trim() || "Sin asignar" },
+                  {
+                    label: "Fecha de alta",
+                    value: trabajador.fecha_alta ? formatDate(trabajador.fecha_alta) : "—",
+                    sub: antiguedadTexto(trabajador.fecha_alta),
+                  },
+                ]}
+              />
 
               {sinPermiso ? (
                 <div className="flex items-center gap-2 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">

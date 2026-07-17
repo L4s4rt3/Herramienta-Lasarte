@@ -32,7 +32,7 @@ export default function Edeka() {
       <header className="page-header">
         <div>
           <div className="flex items-center gap-2">
-            <p className="panel-kicker">Comercial</p>
+            <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Comercial</p>
             <Badge variant={edeka.n_palets > 0 ? "outline" : "destructive"} className="rounded-md px-2 py-0 text-xs">
               {edeka.isLoading ? "…" : edeka.n_palets > 0 ? `${formatNumber(edeka.n_palets)} envío(s)` : "Sin datos"}
             </Badge>

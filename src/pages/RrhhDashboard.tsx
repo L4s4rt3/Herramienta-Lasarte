@@ -22,6 +22,7 @@ import {
   Palmtree,
   Scale,
   ShieldAlert,
+  ShoppingCart,
   Users,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -494,6 +495,21 @@ export default function RrhhDashboard() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold">Comunicaciones</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">Avisos automáticos y correos a la plantilla</p>
+              </div>
+              <ArrowRight className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+            </Link>
+            {/* Isla pendiente (anotada en FASE 4): Mercadona completa vive en su
+                propia sección de RRHH, pero no tenía acceso desde este panel. */}
+            <Link
+              to="/rrhh/mercadona"
+              className="group flex items-start gap-3 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3 transition-colors hover:bg-[var(--glass-bg-strong)]"
+            >
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg glass-strong text-primary">
+                <ShoppingCart className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">Mercadona</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">Ventas, facturas y precios del cliente principal</p>
               </div>
               <ArrowRight className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
             </Link>

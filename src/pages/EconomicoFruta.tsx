@@ -1242,6 +1242,7 @@ export default function EconomicoFruta() {
                             className="h-7 w-7"
                             disabled={eliminarReferencia.isPending}
                             onClick={() => eliminarReferencia.mutate(r.id)}
+                            title="Eliminar referencia"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>

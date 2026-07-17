@@ -43,7 +43,7 @@ export default function CmrHojasRuta() {
       <Tabs value={tab} onValueChange={(v) => setTab(v as TopTab)} className="space-y-4">
         <header className="page-header">
           <div>
-            <p className="panel-kicker">Comercial</p>
+            <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Comercial</p>
             <h1 className="page-title">CMR y hojas de ruta</h1>
             <p className="page-subtitle">Histórico digitalizado de cartas de porte y hojas de ruta, más generación de documentos nuevos.</p>
           </div>

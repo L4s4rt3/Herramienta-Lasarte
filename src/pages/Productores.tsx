@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { InfoTooltip } from "@/components/InfoTooltip";
 import { DeltaChip } from "@/components/DeltaChip";
 import { MiniKpi } from "@/components/MiniKpi";
+import { FichaStrip } from "@/components/FichaStrip";
 import { WeekSelector } from "@/components/WeekSelector";
 import { ColHead, toggleSort as toggleSortShared } from "@/components/SortableColumn";
 import { FuenteBadge, fuentePodridoAVariant } from "@/components/FuenteBadge";
@@ -914,6 +915,16 @@ function ProductorDetalle({
 
   const pctDelPeriodo = kgTotalPeriodo > 0 ? (dossier.kg_total / kgTotalPeriodo) * 100 : 0;
 
+  // % pérdida total (merma natural + podrido) del productor en el periodo:
+  // MISMA fórmula que PerdidaFrutaCard más abajo, reusada aquí solo para la
+  // tira de ficha compacta (FASE 5, jul 2026) — no es un cálculo nuevo.
+  const pctPerdidaTotal = useMemo(() => {
+    if (!mermaAgregado || mermaAgregado.kgEntradaProcesados <= 0) return null;
+    const podridoTotalKg = mermaAgregado.kgPodridoCalibradorReal + mermaAgregado.kgPodridoCalibradorEstimado + mermaAgregado.kgPodridoManualEstimado;
+    const naturalKg = Math.max(0, mermaAgregado.kgMermaNaturalTotal);
+    return ((naturalKg + podridoTotalKg) / mermaAgregado.kgEntradaProcesados) * 100;
+  }, [mermaAgregado]);
+
   const deltaTph = dossier.tph_promedio !== null && medias.tph_media !== null
     ? dossier.tph_promedio - medias.tph_media
     : null;
@@ -972,6 +983,19 @@ function ProductorDetalle({
           )}
         </div>
       </div>
+
+      {/* Tira de ficha compacta: entidad + datos clave antes del contenido (patrón Aerobotics) */}
+      <FichaStrip
+        items={[
+          { label: "Lotes", value: String(dossier.n_lotes) },
+          { label: "Kg del periodo", value: formatKg(dossier.kg_total) },
+          {
+            label: "% pérdida",
+            value: pctPerdidaTotal != null ? formatPct(pctPerdidaTotal) : "—",
+            tone: pctPerdidaTotal == null ? "neutral" : pctPerdidaTotal > 8 ? "destructive" : pctPerdidaTotal > 4 ? "warning" : "success",
+          },
+        ]}
+      />
 
       {/* KPIs comparativos vs planta: fila de mini-métricas */}
       <div className="glass-accented rounded-xl">

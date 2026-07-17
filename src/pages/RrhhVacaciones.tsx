@@ -124,7 +124,7 @@ function Header() {
   return (
     <header className="page-header">
       <div>
-        <p className="panel-kicker">RRHH</p>
+        <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />RRHH</p>
         <h1 className="page-title">Vacaciones y horas</h1>
         <p className="page-subtitle">Devengo y disfrute de vacaciones, y bolsa de horas por trabajador.</p>
       </div>
@@ -629,6 +629,7 @@ function BorrarPeriodoDialog({ rrhh, periodo }: { rrhh: ReturnType<typeof useRrh
           size="icon"
           className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
           onClick={(e) => e.stopPropagation()}
+          title="Borrar periodo"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
@@ -1033,6 +1034,7 @@ function BorrarHorasDialog({ rrhh, hora }: { rrhh: ReturnType<typeof useRrhhVaca
           size="icon"
           className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
           onClick={(e) => e.stopPropagation()}
+          title="Borrar registro de horas"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </Button>

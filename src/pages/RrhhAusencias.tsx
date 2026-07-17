@@ -119,7 +119,7 @@ export default function RrhhAusencias() {
       <div className="page-shell">
         <header className="page-header">
           <div>
-            <p className="panel-kicker">RRHH</p>
+            <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />RRHH</p>
             <h1 className="page-title">Ausencias y bajas</h1>
             <p className="page-subtitle">Faltas, justificantes y bajas laborales del personal.</p>
           </div>
@@ -144,7 +144,7 @@ export default function RrhhAusencias() {
     <div className="page-shell">
       <header className="page-header">
         <div>
-          <p className="panel-kicker">RRHH</p>
+          <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />RRHH</p>
           <h1 className="page-title">Ausencias y bajas</h1>
           <p className="page-subtitle">Faltas, justificantes y bajas laborales del personal.</p>
         </div>

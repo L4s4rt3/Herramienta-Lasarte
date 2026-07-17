@@ -77,7 +77,7 @@ export default function Mercadona({ conFacturacion = true }: { conFacturacion?: 
       <div className="page-shell">
         <header className="page-header">
           <div>
-            <p className="panel-kicker">Comercial</p>
+            <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Comercial</p>
             <h1 className="page-title">Mercadona</h1>
             <p className="page-subtitle">Aprovechamiento, ventas semanales y planificación del cliente principal.</p>
           </div>
@@ -104,7 +104,7 @@ export default function Mercadona({ conFacturacion = true }: { conFacturacion?: 
         <header className="page-header">
           <div>
             <div className="flex items-center gap-2">
-              <p className="panel-kicker">Comercial</p>
+              <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Comercial</p>
               <Badge variant={semanas.length > 0 ? "outline" : "destructive"} className="rounded-md px-2 py-0 text-xs">
                 {semanas.length > 0 ? `${semanas.length} semana(s)` : "Sin datos"}
               </Badge>

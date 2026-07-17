@@ -2872,7 +2872,7 @@ export default function ConsumoCostes() {
                           <TableCell className="font-medium">{m.nombre}</TableCell>
                           <TableCell>{ZONAS.find((z) => z.value === m.zona)?.label}</TableCell>
                           <TableCell className="text-right">
-                            <Button variant="ghost" size="icon" onClick={() => delMaquinaMut.mutate(m.id)}>
+                            <Button variant="ghost" size="icon" onClick={() => delMaquinaMut.mutate(m.id)} title="Borrar máquina">
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </TableCell>
