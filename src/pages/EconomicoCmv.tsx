@@ -74,8 +74,10 @@ export default function EconomicoCmv() {
     if (avisos.faltanImportesFruta) {
       lista.push("Hay kg comprados por báscula este mes SIN importe (lotes pendientes de factura): el coste de fruta está incompleto y el CMV sale más bajo de lo real.");
     }
-    if (avisos.hayPrecioCeroTarifas) {
-      lista.push("Alguna tarifa de recursos (agua/luz/gasoil/químicos) está a 0 €: el coste de consumos está infravalorado. Revísalo en Económico → Precios.");
+    // Si el mes usa facturas reales de suministros, la estimación por tarifas
+    // no participa en el escandallo y avisar de sus tarifas a 0 solo confunde.
+    if (avisos.hayPrecioCeroTarifas && !resultado.usaSuministrosReales) {
+      lista.push("Alguna tarifa de recursos (agua/luz/gasoil/químicos) está a 0 €: el coste de consumos está infravalorado. Revísalo en Económico → Precios, o registra abajo las facturas reales del mes como 'Suministros'.");
     }
     if (avisos.hayPrecioCeroEmpaque) {
       lista.push("Algún componente del envasado está a 0 €: el coste de envasado está infravalorado. Revísalo en Económico → Precios.");
@@ -93,7 +95,7 @@ export default function EconomicoCmv() {
       lista.push(`${avisos.semanasMercadonaSinBaseIva} semana(s) de Mercadona del mes sin base IVA cargada — excluidas de kg y facturación (el CMV del mes en curso está incompleto hasta que se importen).`);
     }
     return lista;
-  }, [avisos]);
+  }, [avisos, resultado.usaSuministrosReales]);
 
   // null cuando no hay kg vendidos (sin CMV que comparar): la card de margen
   // debe ir neutra, no "positiva" por defecto (ver KPICard más abajo).

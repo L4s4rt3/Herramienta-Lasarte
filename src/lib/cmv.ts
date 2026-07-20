@@ -22,14 +22,15 @@ import type { TipoMalla } from "@/lib/costeEmpaque";
 
 // ─── Tipos de coste manual (tabla cmv_costes_mensuales) ─────────────────────
 
-export type CmvTipoCosteManual = "personal_real" | "transporte_salida" | "estructura" | "otros";
+export type CmvTipoCosteManual = "personal_real" | "suministros" | "transporte_salida" | "estructura" | "otros";
 
 export const CMV_TIPOS_MANUALES: CmvTipoCosteManual[] = [
-  "personal_real", "transporte_salida", "estructura", "otros",
+  "personal_real", "suministros", "transporte_salida", "estructura", "otros",
 ];
 
 export const CMV_TIPO_LABEL: Record<CmvTipoCosteManual, string> = {
   personal_real: "Personal (coste empresa real)",
+  suministros: "Suministros (facturas reales)",
   transporte_salida: "Transporte de salida",
   estructura: "Estructura",
   otros: "Otros costes",
@@ -37,6 +38,7 @@ export const CMV_TIPO_LABEL: Record<CmvTipoCosteManual, string> = {
 
 export const CMV_TIPO_HINT: Record<CmvTipoCosteManual, string> = {
   personal_real: "Coste empresa del mes según gestoría (nómina + Seguridad Social). Si se registra, sustituye a la estimación por asistencia.",
+  suministros: "Bases sin IVA de las facturas del mes (electricidad, agua, gasoil...). Una fila por factura; el mes es el del CONSUMO (periodo de la factura), no el de emisión. Si se registran, sustituyen a la estimación por lecturas × tarifa del módulo de Consumos.",
   transporte_salida: "Facturas de transporte a cliente del mes (los CMR no llevan importe). Puede registrarse una fila por factura.",
   estructura: "Alquiler, seguros, amortización, financieros, gestoría... Importe mensual, se revisa por campaña.",
   otros: "Cualquier otro coste del mes que no capture ningún módulo.",
@@ -187,8 +189,16 @@ export const CMV_BUCKET_LABEL: Record<CmvBucketClave, string> = {
 export interface CmvInputs {
   /** Coste de compra de fruta del mes (importeEntradaFruta agregado). */
   fruta: number;
-  /** Coste de consumos del mes (agua/electricidad/gasoil/químicos × tarifas). */
+  /** ESTIMACIÓN de consumos del mes (lecturas físicas × tarifas del módulo de Consumos). */
   consumos: number;
+  /**
+   * Bases sin IVA de las facturas de suministros del mes (apuntes manuales
+   * tipo "suministros"). Null si no hay ninguno registrado. Si existe,
+   * SUSTITUYE a `consumos` — misma regla real-sobre-estimado que
+   * personalReal/personalEstimado, y por la misma razón: no contar dos veces
+   * el mismo suministro (factura + lecturas × tarifa).
+   */
+  suministrosReales: number | null;
   /** Gasto de mallas rotas del mes. */
   mallasRotas: number;
   /** Estimación de personal (días presente × jornada × coste_hora). */
@@ -220,21 +230,27 @@ export interface CmvResultado {
   margenTotal: number;
   /** true si el bucket de personal usa el coste real de gestoría (no la estimación). */
   usaPersonalReal: boolean;
+  /** true si el bucket de consumos usa las facturas reales (no lecturas × tarifa). */
+  usaSuministrosReales: boolean;
 }
 
 /**
  * Junta todos los buckets de coste del mes en un único escandallo €/kg
  * vendido. Personal: usa el apunte manual `personalReal` si existe (aunque la
  * estimación también exista); si no, cae a la estimación por asistencia.
+ * Consumos: misma regla con `suministrosReales` (facturas) sobre `consumos`
+ * (lecturas × tarifa).
  */
 export function calcularCmv(inputs: CmvInputs): CmvResultado {
   const usaPersonalReal = inputs.personalReal != null;
   const personal = inputs.personalReal ?? inputs.personalEstimado;
+  const usaSuministrosReales = inputs.suministrosReales != null;
+  const consumos = inputs.suministrosReales ?? inputs.consumos;
 
   const base: { clave: CmvBucketClave; importe: number; fuente: CmvBucketFuente }[] = [
     { clave: "fruta", importe: inputs.fruta, fuente: "modulo" },
     { clave: "personal", importe: personal, fuente: usaPersonalReal ? "manual" : "estimado" },
-    { clave: "consumos", importe: inputs.consumos, fuente: "modulo" },
+    { clave: "consumos", importe: consumos, fuente: usaSuministrosReales ? "manual" : "modulo" },
     { clave: "mallas_rotas", importe: inputs.mallasRotas, fuente: "modulo" },
     { clave: "envasado", importe: inputs.envasado, fuente: "calculado" },
     { clave: "transporte_salida", importe: inputs.transporteSalida, fuente: "manual" },
@@ -269,6 +285,7 @@ export function calcularCmv(inputs: CmvInputs): CmvResultado {
     margenPorKg,
     margenTotal,
     usaPersonalReal,
+    usaSuministrosReales,
   };
 }
 

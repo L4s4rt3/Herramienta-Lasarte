@@ -358,9 +358,14 @@ export function useCmvMes(mes: string, manuales: CmvCostesMensuales): CmvMesData
     const sumaManual = (tipo: CmvTipoCosteManual): number =>
       manualesDelMes.filter((r) => r.tipo === tipo).reduce((sum, r) => sum + (Number(r.importe) || 0), 0);
     const hayPersonalReal = manualesDelMes.some((r) => r.tipo === "personal_real");
+    // Facturas reales de suministros del mes: si hay al menos una, sustituyen
+    // a la estimación por lecturas × tarifa (regla anti-doble-conteo, ver
+    // CmvInputs.suministrosReales en cmv.ts).
+    const haySuministros = manualesDelMes.some((r) => r.tipo === "suministros");
     return calcularCmv({
       fruta: costeFruta.totalImporte,
       consumos: costes.costeTotal,
+      suministrosReales: haySuministros ? sumaManual("suministros") : null,
       mallasRotas: mallas.totalGasto,
       personalEstimado: costePersonal.total,
       personalReal: hayPersonalReal ? sumaManual("personal_real") : null,

@@ -172,6 +172,7 @@ describe("calcularCmv", () => {
   const base: CmvInputs = {
     fruta: 50000,
     consumos: 6000,
+    suministrosReales: null,
     mallasRotas: 500,
     personalEstimado: 20000,
     personalReal: null,
@@ -207,6 +208,24 @@ describe("calcularCmv", () => {
     const result = calcularCmv({ ...base, personalReal: 0 });
     expect(result.buckets.find((b) => b.clave === "personal")?.importe).toBe(0);
     expect(result.usaPersonalReal).toBe(true);
+  });
+
+  it("las facturas reales de suministros sustituyen a la estimación por tarifas (nunca se suman ambas)", () => {
+    const result = calcularCmv({ ...base, suministrosReales: 11209 });
+    expect(result.usaSuministrosReales).toBe(true);
+    const consumos = result.buckets.find((b) => b.clave === "consumos");
+    expect(consumos?.importe).toBe(11209);
+    expect(consumos?.fuente).toBe("manual");
+    // 6000 (estimación) fuera, 11209 (facturas) dentro — exactamente una vez.
+    expect(result.costeTotal).toBe(50000 + 11209 + 500 + 20000 + 4000 + 3000 + 8000);
+  });
+
+  it("sin apuntes de suministros se usa la estimación del módulo (fuente modulo)", () => {
+    const result = calcularCmv(base);
+    expect(result.usaSuministrosReales).toBe(false);
+    const consumos = result.buckets.find((b) => b.clave === "consumos");
+    expect(consumos?.importe).toBe(6000);
+    expect(consumos?.fuente).toBe("modulo");
   });
 
   it("sin kg vendidos no hay €/kg (null, no división por cero)", () => {
