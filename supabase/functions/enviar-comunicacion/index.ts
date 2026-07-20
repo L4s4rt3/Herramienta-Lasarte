@@ -21,6 +21,8 @@ const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
 const EMAIL_TIMEOUT_MS = 15_000;
 const DEFAULT_APP_URL = "https://controlproduccion.vercel.app";
 const DEFAULT_RRHH_REPLY_TO = "beatriz@lasartesat.es";
+const CAMPANA_LOGO_CID = "lasarte-logo-campana";
+const CAMPANA_LOGO_FILENAME = "lasarte-logo.jpeg";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface Destinatario {
@@ -153,9 +155,10 @@ function crearEmailRrhhHtml(asunto: string, cuerpo: string, logoUrl: string, tip
 </html>`;
 }
 
-function crearEmailCampanaHtml(asunto: string, cuerpo: string): string {
+function crearEmailCampanaHtml(asunto: string, cuerpo: string, logoSrc: string): string {
   const asuntoSeguro = escaparHtml(asunto);
   const cuerpoHtml = textoAHtml(cuerpo);
+  const logoSrcSeguro = escaparHtml(logoSrc);
 
   return `<!doctype html>
 <html lang="es">
@@ -178,10 +181,9 @@ function crearEmailCampanaHtml(asunto: string, cuerpo: string): string {
             <td style="padding:27px 36px 24px;background:#ffffff;">
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
                 <tr>
-                  <td width="38" style="width:38px;">
-                    <span style="display:block;width:30px;height:30px;border-radius:8px;background:#f28b22;border-left:7px solid #5f8428;font-size:0;line-height:30px;">&nbsp;</span>
+                  <td>
+                    <img src="${logoSrcSeguro}" width="220" alt="Lasarte Cítricos SL" style="display:block;width:220px;max-width:100%;height:auto;border:0;">
                   </td>
-                  <td style="color:#22295c;font-size:25px;font-weight:800;letter-spacing:.5px;">LASARTE</td>
                   <td align="right" style="color:#69705f;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;">Comunicaciones de campaña</td>
                 </tr>
               </table>
@@ -228,7 +230,7 @@ function crearEmailHtml(
   tipo?: string,
 ): string {
   return canal === "campana"
-    ? crearEmailCampanaHtml(asunto, cuerpo)
+    ? crearEmailCampanaHtml(asunto, cuerpo, logoUrl)
     : crearEmailRrhhHtml(asunto, cuerpo, logoUrl, tipo);
 }
 
@@ -249,7 +251,12 @@ async function enviarUno(
 
   const asuntoPersonalizado = personalizar(asunto, destinatario);
   const cuerpoPersonalizado = personalizar(cuerpo, destinatario);
-  const htmlPersonalizado = crearEmailHtml(asuntoPersonalizado, cuerpoPersonalizado, logoUrl, canal, tipo);
+  // En Resend el logo de campaña viaja como imagen CID: no depende de que el
+  // cliente de correo permita cargar imágenes remotas desde Control Producción.
+  const logoSrc = canal === "campana" && provider.kind === "resend"
+    ? `cid:${CAMPANA_LOGO_CID}`
+    : logoUrl;
+  const htmlPersonalizado = crearEmailHtml(asuntoPersonalizado, cuerpoPersonalizado, logoSrc, canal, tipo);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), EMAIL_TIMEOUT_MS);
@@ -283,6 +290,15 @@ async function enviarUno(
           subject: asuntoPersonalizado,
           html: htmlPersonalizado,
           text: cuerpoPersonalizado,
+          ...(canal === "campana"
+            ? {
+              attachments: [{
+                path: logoUrl,
+                filename: CAMPANA_LOGO_FILENAME,
+                content_id: CAMPANA_LOGO_CID,
+              }],
+            }
+            : {}),
         }),
       signal: controller.signal,
     });
