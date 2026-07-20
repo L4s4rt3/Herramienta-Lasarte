@@ -280,6 +280,7 @@ export function useRrhhComunicaciones() {
           body: {
             asunto: input.asunto,
             cuerpo: input.cuerpo,
+            canal: "rrhh",
             tipo: input.tipo,
             destinatarios: input.destinatarios,
           },

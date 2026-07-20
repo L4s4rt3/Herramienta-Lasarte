@@ -6,8 +6,8 @@
  * patrón que useVentasCategoriaAccess con can_access_ventas_categoria.
  *
  * El envío reutiliza la Edge Function `enviar-comunicacion` (Brevo o Resend)
- * pasando categoria "Comunicación de campaña" (el chip de la plantilla del
- * correo). Igual que en RRHH → Comunicaciones, si no hay proveedor de correo
+ * pasando el canal explícito "campana", que aplica identidad, remitente y
+ * diseño propios. Igual que en RRHH → Comunicaciones, si no hay proveedor de correo
  * configurado la función responde { enviado:false, motivo:"no_configurado" }
  * y la comunicación se guarda como borrador, sin romper la sección.
  *
@@ -28,9 +28,6 @@ import { normalizarEmail, type ContactoCampoImportado, type ContactoCampoTipo } 
 
 // Cast local: tablas y RPC aún no están en el Database generado (ver cabecera).
 const SUPA = supabase as unknown as SupabaseClient<any>;
-
-/** Chip de la cabecera del correo (sustituye a "Comunicación de RR. HH."). */
-export const CATEGORIA_EMAIL_CAMPO = "Comunicación de campaña";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -262,8 +259,8 @@ export function useComunicacionesCampo() {
           body: {
             asunto: input.asunto,
             cuerpo: input.cuerpo,
+            canal: "campana",
             tipo: "campo",
-            categoria: CATEGORIA_EMAIL_CAMPO,
             destinatarios: input.destinatarios,
           },
         });

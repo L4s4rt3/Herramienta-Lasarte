@@ -1,7 +1,8 @@
 /**
- * enviar-comunicacion — Edge Function que envía correos reales a la plantilla
- * (avisos de horas acumuladas / vacaciones o comunicados personalizados desde
- * RRHH → Comunicaciones) vía Brevo o Resend.
+ * enviar-comunicacion — Edge Function que envía correos vía Brevo o Resend.
+ * Mantiene dos identidades y diseños separados:
+ * - RRHH: comunicaciones internas dirigidas a la plantilla.
+ * - Campaña: comunicaciones externas dirigidas a agricultores y productores.
  *
  * Si no hay ningún proveedor configurado en los secretos, la función responde 200 con
  * { enviado:false, motivo:"no_configurado" } en vez de fallar: el cliente usa
@@ -19,6 +20,7 @@ const RESEND_API_URL = "https://api.resend.com/emails";
 const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
 const EMAIL_TIMEOUT_MS = 15_000;
 const DEFAULT_APP_URL = "https://controlproduccion.vercel.app";
+const DEFAULT_RRHH_REPLY_TO = "beatriz@lasartesat.es";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface Destinatario {
@@ -33,16 +35,13 @@ interface Body {
   asunto?: string;
   cuerpo?: string;
   tipo?: string;
-  /**
-   * Texto del chip de la cabecera del correo. Opcional y retrocompatible:
-   * sin él se mantiene "Comunicación de RR. HH." (los envíos de RRHH no lo
-   * mandan). Comunicaciones de campaña envía "Comunicación de campaña".
-   */
+  canal?: CanalComunicacion;
+  /** @deprecated Se conserva para aceptar clientes antiguos, pero ya no define el diseño. */
   categoria?: string;
   destinatarios?: Destinatario[];
 }
 
-const CATEGORIA_POR_DEFECTO = "Comunicación de RR. HH.";
+type CanalComunicacion = "rrhh" | "campana";
 
 interface FalloEnvio {
   email: string;
@@ -52,6 +51,13 @@ interface FalloEnvio {
 type EmailProvider =
   | { kind: "brevo"; apiKey: string; fromEmail: string; fromName: string; replyToEmail: string }
   | { kind: "resend"; apiKey: string; from: string; replyToEmail: string };
+
+const RRHH_TIPO_LABEL: Record<string, string> = {
+  aviso_horas: "Bolsa de horas",
+  aviso_vacaciones: "Vacaciones",
+  aviso_generico: "Aviso interno",
+  personalizado: "Comunicación personalizada",
+};
 
 /** Sustituye {nombre}/{horas}/{vacaciones} por los valores del destinatario, si vienen. */
 function personalizar(texto: string, destinatario: Destinatario): string {
@@ -72,6 +78,12 @@ function escaparHtml(texto: string): string {
     .replaceAll("'", "&#039;");
 }
 
+/** Extrae la dirección de formatos como `Nombre <correo@dominio.com>`. */
+function extraerEmailRemitente(remitente: string): string {
+  const entreAngulos = remitente.match(/<([^<>]+)>/);
+  return (entreAngulos?.[1] ?? remitente).trim();
+}
+
 /** Texto plano a párrafos HTML seguros. */
 function textoAHtml(texto: string): string {
   return escaparHtml(texto)
@@ -80,11 +92,11 @@ function textoAHtml(texto: string): string {
     .join("\n");
 }
 
-function crearEmailHtml(asunto: string, cuerpo: string, logoUrl: string, categoria: string): string {
+function crearEmailRrhhHtml(asunto: string, cuerpo: string, logoUrl: string, tipo?: string): string {
   const asuntoSeguro = escaparHtml(asunto);
   const cuerpoHtml = textoAHtml(cuerpo);
   const logoUrlSeguro = escaparHtml(logoUrl);
-  const categoriaSegura = escaparHtml(categoria);
+  const tipoSeguro = escaparHtml(RRHH_TIPO_LABEL[tipo ?? ""] ?? "Comunicación interna");
 
   return `<!doctype html>
 <html lang="es">
@@ -94,41 +106,46 @@ function crearEmailHtml(asunto: string, cuerpo: string, logoUrl: string, categor
   <meta name="color-scheme" content="light">
   <title>${asuntoSeguro}</title>
 </head>
-<body style="margin:0;padding:0;background:#f3f5f8;font-family:Arial,Helvetica,sans-serif;color:#30354a;">
-  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${asuntoSeguro} · Lasarte Cítricos SL</div>
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#f3f5f8;">
+<body style="margin:0;padding:0;background:#f2f4f8;font-family:Arial,Helvetica,sans-serif;color:#30354a;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">Comunicación interna de RR. HH. · ${asuntoSeguro}</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#f2f4f8;">
     <tr>
-      <td align="center" style="padding:28px 12px;">
-        <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 8px 28px rgba(31,42,94,.10);">
+      <td align="center" style="padding:32px 12px;">
+        <table role="presentation" width="620" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:620px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 32px rgba(31,42,94,.11);">
           <tr>
-            <td style="height:7px;background:#93c13d;font-size:0;line-height:0;">&nbsp;</td>
+            <td style="height:6px;background:#22295c;font-size:0;line-height:0;">&nbsp;</td>
           </tr>
           <tr>
-            <td style="padding:27px 34px 23px;border-bottom:1px solid #e8ebf1;">
-              <img src="${logoUrlSeguro}" width="220" alt="Lasarte Cítricos SL" style="display:block;width:220px;max-width:100%;height:auto;border:0;">
+            <td style="padding:25px 36px 22px;border-bottom:1px solid #e7e9f1;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td><img src="${logoUrlSeguro}" width="205" alt="Lasarte Cítricos SL" style="display:block;width:205px;max-width:100%;height:auto;border:0;"></td>
+                  <td align="right" style="color:#6e7488;font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;">Recursos Humanos</td>
+                </tr>
+              </table>
             </td>
           </tr>
           <tr>
-            <td style="padding:34px 34px 8px;">
+            <td style="padding:34px 36px 8px;">
               <div style="margin:0 0 14px;">
-                <span style="display:inline-block;padding:7px 11px;border-radius:999px;background:#eef5df;color:#557b17;font-size:11px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;">${categoriaSegura}</span>
+                <span style="display:inline-block;padding:7px 11px;border-radius:999px;background:#eef0f8;color:#22295c;font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;">Comunicación interna · ${tipoSeguro}</span>
               </div>
-              <h1 style="margin:0;color:#22295c;font-size:27px;line-height:1.25;font-weight:700;">${asuntoSeguro}</h1>
+              <h1 style="margin:0;color:#22295c;font-size:28px;line-height:1.25;font-weight:700;">${asuntoSeguro}</h1>
             </td>
           </tr>
           <tr>
-            <td style="padding:20px 34px 10px;">
+            <td style="padding:20px 36px 18px;">
               ${cuerpoHtml}
             </td>
           </tr>
           <tr>
-            <td style="padding:22px 34px;background:#22295c;border-top:4px solid #f28b22;">
-              <p style="margin:0 0 7px;color:#ffffff;font-size:13px;font-weight:700;">Lasarte Cítricos SL</p>
-              <p style="margin:0;color:#cdd2e6;font-size:12px;line-height:1.55;">Mensaje interno enviado desde Control de Producción. Puedes responder directamente a este correo si necesitas alguna aclaración.</p>
+            <td style="padding:22px 36px;background:#22295c;border-top:4px solid #93c13d;">
+              <p style="margin:0 0 7px;color:#ffffff;font-size:13px;font-weight:700;">RR. HH. · Lasarte Cítricos SL</p>
+              <p style="margin:0;color:#d6d9e8;font-size:12px;line-height:1.6;">Información interna dirigida a la plantilla. Si necesitas alguna aclaración, responde directamente a este correo.</p>
             </td>
           </tr>
         </table>
-        <p style="margin:16px 0 0;color:#80869a;font-size:11px;line-height:1.5;">Este correo está dirigido exclusivamente a su destinatario.</p>
+        <p style="margin:16px 0 0;color:#858a9b;font-size:11px;line-height:1.5;">Este mensaje puede contener información laboral de carácter personal. No lo reenvíes si no es necesario.</p>
       </td>
     </tr>
   </table>
@@ -136,14 +153,94 @@ function crearEmailHtml(asunto: string, cuerpo: string, logoUrl: string, categor
 </html>`;
 }
 
-/** Envía un único correo vía Resend, con timeout propio. Nunca lanza: siempre devuelve un resultado. */
+function crearEmailCampanaHtml(asunto: string, cuerpo: string): string {
+  const asuntoSeguro = escaparHtml(asunto);
+  const cuerpoHtml = textoAHtml(cuerpo);
+
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>${asuntoSeguro}</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f6ef;font-family:Arial,Helvetica,sans-serif;color:#30372d;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">Información de campaña para agricultores y productores · ${asuntoSeguro}</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#f4f6ef;">
+    <tr>
+      <td align="center" style="padding:32px 12px;">
+        <table role="presentation" width="620" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:620px;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 10px 32px rgba(56,82,31,.12);">
+          <tr>
+            <td style="height:8px;background:#f28b22;font-size:0;line-height:0;">&nbsp;</td>
+          </tr>
+          <tr>
+            <td style="padding:27px 36px 24px;background:#ffffff;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td width="38" style="width:38px;">
+                    <span style="display:block;width:30px;height:30px;border-radius:8px;background:#f28b22;border-left:7px solid #5f8428;font-size:0;line-height:30px;">&nbsp;</span>
+                  </td>
+                  <td style="color:#22295c;font-size:25px;font-weight:800;letter-spacing:.5px;">LASARTE</td>
+                  <td align="right" style="color:#69705f;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;">Comunicaciones de campaña</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:30px 36px 28px;background:#5f8428;">
+              <p style="margin:0 0 12px;color:#eaf4d9;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Campaña citrícola · Agricultores y productores</p>
+              <h1 style="margin:0;color:#ffffff;font-size:29px;line-height:1.24;font-weight:700;">${asuntoSeguro}</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:34px 36px 22px;border-left:1px solid #e6eadf;border-right:1px solid #e6eadf;">
+              ${cuerpoHtml}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:21px 36px;background:#f7f3e9;border-top:1px solid #ece3cf;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td width="6" style="width:6px;background:#f28b22;border-radius:8px;font-size:0;line-height:0;">&nbsp;</td>
+                  <td style="padding-left:14px;">
+                    <p style="margin:0 0 5px;color:#3f5528;font-size:13px;font-weight:700;">Equipo de campaña · Lasarte Cítricos SL</p>
+                    <p style="margin:0;color:#69705f;font-size:12px;line-height:1.6;">Para consultas sobre esta comunicación, responde directamente a este correo.</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:16px auto 0;max-width:570px;color:#828777;font-size:11px;line-height:1.5;">Has recibido este mensaje por tu relación profesional como agricultor, productor o proveedor de Lasarte Cítricos SL.</p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+function crearEmailHtml(
+  asunto: string,
+  cuerpo: string,
+  logoUrl: string,
+  canal: CanalComunicacion,
+  tipo?: string,
+): string {
+  return canal === "campana"
+    ? crearEmailCampanaHtml(asunto, cuerpo)
+    : crearEmailRrhhHtml(asunto, cuerpo, logoUrl, tipo);
+}
+
+/** Envía un único correo con timeout propio. Nunca lanza: siempre devuelve un resultado. */
 async function enviarUno(
   destinatario: Destinatario,
   asunto: string,
   cuerpo: string,
   provider: EmailProvider,
   logoUrl: string,
-  categoria: string,
+  canal: CanalComunicacion,
+  tipo?: string,
 ): Promise<{ ok: true; email: string; providerId: string | null } | { ok: false; email: string; error: string }> {
   const email = (destinatario.email ?? "").trim();
   if (!EMAIL_RE.test(email)) {
@@ -152,7 +249,7 @@ async function enviarUno(
 
   const asuntoPersonalizado = personalizar(asunto, destinatario);
   const cuerpoPersonalizado = personalizar(cuerpo, destinatario);
-  const htmlPersonalizado = crearEmailHtml(asuntoPersonalizado, cuerpoPersonalizado, logoUrl, categoria);
+  const htmlPersonalizado = crearEmailHtml(asuntoPersonalizado, cuerpoPersonalizado, logoUrl, canal, tipo);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), EMAIL_TIMEOUT_MS);
@@ -213,12 +310,29 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const body = (await req.json().catch(() => ({}))) as Body;
+    const asunto = typeof body.asunto === "string" ? body.asunto.trim() : "";
+    const cuerpo = typeof body.cuerpo === "string" ? body.cuerpo : "";
+    const tipo = typeof body.tipo === "string" ? body.tipo : undefined;
+    // `tipo: "campo"` mantiene compatibles las llamadas desplegadas antes de
+    // introducir `canal`. La categoría libre ya no decide identidad ni diseño.
+    const canal: CanalComunicacion = body.canal === "campana" || body.tipo === "campo" ? "campana" : "rrhh";
+    const destinatarios = Array.isArray(body.destinatarios) ? body.destinatarios : [];
+
     const brevoKey = Deno.env.get("BREVO_API_KEY")?.trim();
-    const brevoFromEmail = Deno.env.get("BREVO_FROM_EMAIL")?.trim();
-    const brevoFromName = Deno.env.get("BREVO_FROM_NAME")?.trim() || "Lasarte Cítricos SL";
-    const resendKey = Deno.env.get("RESEND_API_KEY");
-    const resendFrom = Deno.env.get("RESEND_FROM")?.trim();
-    const emailReplyTo = Deno.env.get("EMAIL_REPLY_TO")?.trim();
+    const sufijoCanal = canal === "campana" ? "CAMPANA" : "RRHH";
+    const nombreCanal = canal === "campana" ? "Campaña · Lasarte Cítricos" : "RR. HH. · Lasarte Cítricos";
+    const brevoFromEmail = (Deno.env.get(`BREVO_FROM_EMAIL_${sufijoCanal}`) || Deno.env.get("BREVO_FROM_EMAIL"))?.trim();
+    const brevoFromName = (Deno.env.get(`BREVO_FROM_NAME_${sufijoCanal}`) || Deno.env.get("BREVO_FROM_NAME"))?.trim() || nombreCanal;
+    const resendKey = Deno.env.get("RESEND_API_KEY")?.trim();
+    const resendFrom = (Deno.env.get(`RESEND_FROM_${sufijoCanal}`) || Deno.env.get("RESEND_FROM"))?.trim();
+    // RRHH responde a Beatriz por defecto. El secreto específico permite
+    // cambiar esa bandeja en el futuro sin volver a desplegar la función.
+    // Campaña mantiene su reply-to global o específico completamente separado.
+    const emailReplyTo = (
+      Deno.env.get(`EMAIL_REPLY_TO_${sufijoCanal}`) ||
+      (canal === "rrhh" ? DEFAULT_RRHH_REPLY_TO : Deno.env.get("EMAIL_REPLY_TO"))
+    )?.trim();
     const appUrl = (Deno.env.get("APP_URL")?.trim() || DEFAULT_APP_URL).replace(/\/$/, "");
     const logoUrl = Deno.env.get("EMAIL_LOGO_URL")?.trim() || `${appUrl}/branding/lasarte-sat-logo.jpeg`;
 
@@ -231,16 +345,13 @@ Deno.serve(async (req) => {
         replyToEmail: emailReplyTo || brevoFromEmail,
       }
       : resendKey && resendFrom
-      ? { kind: "resend", apiKey: resendKey, from: resendFrom, replyToEmail: emailReplyTo || resendFrom }
+      ? {
+        kind: "resend",
+        apiKey: resendKey,
+        from: resendFrom,
+        replyToEmail: emailReplyTo || extraerEmailRemitente(resendFrom),
+      }
       : null;
-
-    const body = (await req.json().catch(() => ({}))) as Body;
-    const asunto = typeof body.asunto === "string" ? body.asunto.trim() : "";
-    const cuerpo = typeof body.cuerpo === "string" ? body.cuerpo : "";
-    const categoria = typeof body.categoria === "string" && body.categoria.trim()
-      ? body.categoria.trim()
-      : CATEGORIA_POR_DEFECTO;
-    const destinatarios = Array.isArray(body.destinatarios) ? body.destinatarios : [];
 
     if (!asunto || !cuerpo) {
       return new Response(
@@ -271,10 +382,10 @@ Deno.serve(async (req) => {
     // Validación del reply-to SOLO cuando hay proveedor y se va a enviar de
     // verdad: un secreto mal escrito no debe romper el modo borrador (la
     // garantía de cabecera: esta función no tumba la UI por configuración).
-    if (emailReplyTo && !EMAIL_RE.test(emailReplyTo)) {
-      console.error("[enviar-comunicacion] EMAIL_REPLY_TO no es una dirección válida");
+    if (!EMAIL_RE.test(provider.replyToEmail)) {
+      console.error(`[enviar-comunicacion] EMAIL_REPLY_TO_${sufijoCanal} no es una dirección válida`);
       return new Response(
-        JSON.stringify({ error: "El secreto EMAIL_REPLY_TO no contiene una dirección de correo válida. Corrígelo antes de enviar." }),
+        JSON.stringify({ error: `La dirección de respuesta configurada para ${canal} no es válida. Corrígela antes de enviar.` }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -291,7 +402,7 @@ Deno.serve(async (req) => {
     for (let i = 0; i < destinatarios.length; i += TAMANO_LOTE) {
       const lote = destinatarios.slice(i, i + TAMANO_LOTE);
       const resultados = await Promise.all(
-        lote.map((destinatario) => enviarUno(destinatario, asunto, cuerpo, provider, logoUrl, categoria)),
+        lote.map((destinatario) => enviarUno(destinatario, asunto, cuerpo, provider, logoUrl, canal, tipo)),
       );
       for (const resultado of resultados) {
         if (resultado.ok) {
@@ -303,7 +414,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    console.log(`[enviar-comunicacion] enviados=${enviados} fallidos=${fallidos.length}`);
+    console.log(`[enviar-comunicacion] canal=${canal} enviados=${enviados} fallidos=${fallidos.length}`);
 
     return new Response(
       JSON.stringify({ enviado: true, enviados, fallidos, correos }),
