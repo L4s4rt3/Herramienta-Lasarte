@@ -375,6 +375,20 @@ export function computeMermaLotes(
   lotesDia: LoteDiaKgInput[],
   clasificacionPodrido: ClasificacionLoteInput[],
   partes: ParteMermaInput[],
+  /**
+   * kg CONCILIADOS por lote (src/lib/conciliacionKg.ts, reglas del dueño
+   * 21-jul-2026): el calibrador atribuye cada pasada al primer código de su
+   * nombre, así que la suma cruda infla unos lotes (647 con proc > entrada →
+   * "merma negativa") y deja a sus hermanos como merma/stock fantasma. Con
+   * este mapa, kgCalibrador y la última fecha de procesado salen del reparto
+   * conciliado (multi-códigos, reciclaje neto, PREC acotado, excesos
+   * derramados) y la merma natural por lote pasa a ser creíble. El PRORRATEO
+   * de podrido del parte sigue usando las cuotas crudas por día (la
+   * conciliación no reparte por parte, y el podrido real del Informe LOTE —
+   * la fuente preferida — no se ve afectado). Sin el mapa, comportamiento
+   * original.
+   */
+  conciliadoPorLote?: Map<string, { kg: number; ultimaFecha: string | null }>,
 ): MermaLote[] {
   // --- 1. Kg por lote y por parte (numerador del prorrateo) + total del parte
   //         (denominador: TODOS los lotes del parte, tengan o no código
@@ -463,7 +477,12 @@ export function computeMermaLotes(
     const lote = normalizarLoteCodigo(entrada.lote) ?? entrada.lote;
     const kgEntrada = Number(entrada.kg_entrada) || 0;
     const kgAjuste = Number(entrada.kg_ajuste_stock) || 0;
-    const kgCalibrador = kgCalibradorPorLote.get(lote) ?? 0;
+    // Con conciliación: el kg del reparto (ausente en el mapa = 0 conciliado,
+    // no "sin dato" — la conciliación cubre todas las entradas). Sin ella, la
+    // suma cruda de siempre.
+    const kgCalibrador = conciliadoPorLote
+      ? conciliadoPorLote.get(lote)?.kg ?? 0
+      : kgCalibradorPorLote.get(lote) ?? 0;
     const cerradoManualmente = Boolean(entrada.cerrado_at);
     // "sin_registro" (ver cabecera): NULL de cierre_modo con cerrado_at
     // relleno es compat con cierres anteriores a esta columna y se trata
@@ -482,7 +501,11 @@ export function computeMermaLotes(
     // diasEnCamara: fecha de entrada -> última fecha de procesado conocida
     // para este lote (de cualquier parte que lo haya tocado, procesado del
     // todo o no). null si falta cualquiera de las dos fechas.
-    const ultimaFechaProcesado = ultimaFechaProcesadoPorLote.get(lote) ?? null;
+    // Con conciliación, la fecha del reparto (los kg derramados heredan la
+    // del donante); la cruda queda de respaldo si el reparto no trae fecha.
+    const ultimaFechaProcesado = (conciliadoPorLote?.get(lote)?.ultimaFecha ?? null)
+      ?? ultimaFechaProcesadoPorLote.get(lote)
+      ?? null;
     const diasEnCamara = entrada.fecha && ultimaFechaProcesado
       ? diffDias(entrada.fecha, ultimaFechaProcesado)
       : null;

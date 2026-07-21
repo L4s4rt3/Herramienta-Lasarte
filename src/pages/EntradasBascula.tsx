@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import * as XLSX from "xlsx";
 import {
-  AlertTriangle, ArrowRight, CalendarDays, ChevronDown, FileSpreadsheet, GitCompare, HelpCircle, Loader2, Lock, LockOpen, Package, Percent, Route, Search, Trash2, Truck, Upload, Users, Warehouse, X,
+  AlertTriangle, ArrowRight, CalendarDays, ChevronDown, Download, FileSpreadsheet, GitCompare, HelpCircle, Loader2, Lock, LockOpen, Package, Percent, Route, Search, Trash2, Truck, Upload, Users, Warehouse, X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,7 @@ import {
   type ItemPerdidaProductor,
   type MermaLote,
 } from "@/lib/mermaLote";
+import { exportarMermasProductores, type FilaMermaExport } from "@/lib/exportMermasProductores";
 import { resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import { cn } from "@/lib/utils";
 
@@ -200,10 +201,12 @@ function RankingCard({ titulo, icon: Icon, vacio, children }: {
 
 function MermasCosteTab() {
   const { lotes, agregado, isLoading, error } = useMermaLotes();
-  const { entradas } = useEntradasBascula();
+  const { entradas, calidadLotes } = useEntradasBascula();
+  const { user } = useAuth();
   const { aliasPorNombreNormalizado, nombrePorProductorId } = useProductoresCatalogo();
   const [sortKey, setSortKey] = useState<MermaSortKey>("merma_pct");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [exportando, setExportando] = useState(false);
 
   // Excluye los cerrados sin registro (ver mermaLote.ts): su estado es
   // "procesado" para el stock, pero no tienen merma/podrido calculable y no
@@ -240,6 +243,46 @@ function MermasCosteTab() {
   );
 
   const entradaPorLote = useMemo(() => new Map(entradas.map((e) => [e.lote, e])), [entradas]);
+
+  // ─── Export "Podrido y mermas por productor, finca y lote" (informe de
+  // decisión de agosto): kg conciliados, podrido con su fuente, % industria y
+  // notas del operario, agregado productor → finca → lote. ─────────────────
+  const handleExportProductores = async () => {
+    setExportando(true);
+    try {
+      const filas: FilaMermaExport[] = procesados.map((l) => {
+        const e = entradaPorLote.get(l.lote);
+        const agricultor = e?.agricultor ?? null;
+        const productorIdDirecto = (e as { productor_id?: string | null } | undefined)?.productor_id ?? null;
+        const { productorId } = resolveProductorGroupKey(agricultor ?? "", productorIdDirecto, aliasPorNombreNormalizado);
+        const label = (productorId ? nombrePorProductorId.get(productorId) : null) ?? agricultor ?? "Sin agricultor";
+        return {
+          productor: label,
+          finca: e?.finca?.trim() || "Sin finca",
+          articulo: e?.articulo ?? null,
+          lote: l.lote,
+          fechaEntrada: e?.fecha ?? "",
+          diasEnCamara: l.diasEnCamara,
+          kgEntrada: l.kgEntrada,
+          kgCalibrador: l.kgCalibrador,
+          mermaNaturalKg: l.mermaNaturalKg,
+          mermaNaturalEstimadaKg: l.mermaNaturalEstimadaKg,
+          podridoPreCalibradorKg: l.podridoPreCalibradorKg,
+          podridoCalibradorKg: l.podridoCalibradorKg,
+          podridoCalibradorFuente: l.podridoCalibradorFuente,
+          podridoManualKg: l.podridoManualKg,
+          pctIndustria: calidadLotes.pctIndustriaPorLote.get(l.lote) ?? null,
+          notas: calidadLotes.notasPorLote.get(l.lote) ?? null,
+        };
+      });
+      await exportarMermasProductores(filas, user?.email ?? null);
+      toast({ title: "Excel generado", description: `${filas.length} lote(s) en 3 hojas: Productores, Por finca y Detalle.` });
+    } catch (e) {
+      toast({ title: "No se pudo exportar", description: errorMessage(e), variant: "destructive" });
+    } finally {
+      setExportando(false);
+    }
+  };
 
   const topAgricultor = useMemo(() => {
     const items: ItemPerdidaProductor[] = procesados.map((l) => {
@@ -322,6 +365,29 @@ function MermasCosteTab() {
           icon={Package}
         />
       </section>
+
+      {/* Cobertura del podrido REAL (el usuario está extrayendo el Informe LOTE
+          de toda la campaña, ~50/día) + export del informe de decisión. */}
+      <div className="glass flex flex-wrap items-center gap-3 rounded-xl p-2.5">
+        <span className="text-xs text-muted-foreground">
+          Podrido con dato REAL (Informe LOTE):{" "}
+          <span className="font-semibold tabular-nums text-foreground">
+            {procesados.filter((l) => l.podridoCalibradorFuente === "real").length}
+          </span>{" "}
+          de <span className="font-semibold tabular-nums text-foreground">{procesados.length}</span> lotes procesados —
+          el resto es prorrateo. Cuantos más informes se importen, más fiable el % por productor.
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          className="glass glass-hover ml-auto h-8"
+          onClick={handleExportProductores}
+          disabled={exportando || procesados.length === 0}
+        >
+          {exportando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+          Exportar por productor y finca (Excel)
+        </Button>
+      </div>
 
       {agregado.nPendientesOParciales > 0 && (
         <p className="text-xs text-muted-foreground">

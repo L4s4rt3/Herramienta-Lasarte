@@ -195,6 +195,45 @@ describe("computeMermaLotes — prorrateo de podrido con varios lotes en un part
   });
 });
 
+describe("computeMermaLotes — kg conciliados (5º parámetro, conciliacionKg)", () => {
+  it("con el mapa, kgCalibrador y última fecha salen del reparto conciliado: el lote inflado deja de tener merma negativa y su hermano fantasma deja de tener merma gigante", () => {
+    const entradas = [
+      entrada({ lote: "26021405", kg_entrada: 24940 }),
+      entrada({ lote: "26021610", kg_entrada: 30400 }),
+    ];
+    // Crudo: el calibrador atribuyó TODO a 26021405 (proc 52.235 > entrada).
+    const lotesDia: LoteDiaKgInput[] = [{ lote_codigo: "26021405", kg_peso_total: 52235, part_id: "p1" }];
+    const partes: ParteMermaInput[] = [{ part_id: "p1", date: "2026-02-17", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0 }];
+    const conciliado = new Map([
+      ["26021405", { kg: 24940, ultimaFecha: "2026-02-17" }],
+      ["26021610", { kg: 27295, ultimaFecha: "2026-02-17" }],
+    ]);
+
+    const sinConciliar = computeMermaLotes(entradas, lotesDia, [], partes);
+    expect(sinConciliar.find((l) => l.lote === "26021405")?.calibradorSuperaEntrada).toBe(true);
+    expect(sinConciliar.find((l) => l.lote === "26021610")?.kgCalibrador).toBe(0); // fantasma
+
+    const conConciliar = computeMermaLotes(entradas, lotesDia, [], partes, conciliado);
+    const inflado = conConciliar.find((l) => l.lote === "26021405")!;
+    const fantasma = conConciliar.find((l) => l.lote === "26021610")!;
+    expect(inflado.kgCalibrador).toBe(24940);
+    expect(inflado.calibradorSuperaEntrada).toBe(false);
+    expect(fantasma.kgCalibrador).toBe(27295);
+    expect(fantasma.diasEnCamara).not.toBeNull(); // hereda la fecha del reparto
+  });
+
+  it("un mapa presente pero sin el lote significa 0 kg conciliados (no cae a la suma cruda)", () => {
+    const res = computeMermaLotes(
+      [entrada({ lote: "26050101", kg_entrada: 10000 })],
+      [{ lote_codigo: "26050101", kg_peso_total: 9000, part_id: "p1" }],
+      [],
+      [{ part_id: "p1", date: "2026-05-02", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0 }],
+      new Map(), // conciliación cargada pero este lote no recibió nada
+    );
+    expect(res[0].kgCalibrador).toBe(0);
+  });
+});
+
 describe("computeMermaLotes — denominador 0", () => {
   it("un parte sin kg positivo en ningún lote no aporta podrido a ninguno (no divide por 0)", () => {
     const entradas = [entrada({ lote: "26050101", kg_entrada: 500 })];

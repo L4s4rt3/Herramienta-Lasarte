@@ -58,7 +58,7 @@ export function useMermaLotes() {
   // automática, no hace falta filtrar aquí también. Distinto de lotesDiaQuery
   // más abajo, que SÍ sigue contando las pasadas PREC del calibrador (regla
   // de esta mañana, sin cambios).
-  const { entradas, isLoading: entradasLoading, error: entradasError } = useEntradasBascula();
+  const { entradas, conciliacionKg, isLoading: entradasLoading, error: entradasError } = useEntradasBascula();
 
   const lotesDiaQuery = useQuery({
     queryKey: ["merma-lote", "lotes-dia"],
@@ -180,14 +180,28 @@ export function useMermaLotes() {
     [entradas],
   );
 
+  // kg conciliados por lote (conciliarKgProcesados vía useEntradasBascula):
+  // la merma natural y los días en cámara salen del reparto conciliado, no de
+  // la suma cruda del calibrador — ver el parámetro en computeMermaLotes.
+  const conciliadoPorLote = useMemo(() => {
+    const map = new Map<string, { kg: number; ultimaFecha: string | null }>();
+    for (const p of conciliacionKg.procesados) {
+      map.set(p.lote_codigo, { kg: p.kg_peso_total, ultimaFecha: p.date });
+    }
+    return map;
+  }, [conciliacionKg]);
+
   const lotes: MermaLote[] = useMemo(
     () => computeMermaLotes(
       entradasInput,
       lotesDiaQuery.data ?? [],
       clasificacionQuery.data ?? [],
       partesQuery.data ?? [],
+      // Mapa vacío = conciliación aún cargando: mejor la suma cruda que
+      // tratar todos los lotes como "0 kg conciliados".
+      conciliadoPorLote.size > 0 ? conciliadoPorLote : undefined,
     ),
-    [entradasInput, lotesDiaQuery.data, clasificacionQuery.data, partesQuery.data],
+    [entradasInput, lotesDiaQuery.data, clasificacionQuery.data, partesQuery.data, conciliadoPorLote],
   );
 
   const agregado = useMemo(() => agregarMermaLotes(lotes), [lotes]);
