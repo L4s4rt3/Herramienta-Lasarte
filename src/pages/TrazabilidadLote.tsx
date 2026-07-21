@@ -223,8 +223,8 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
         </div>
 
         <TabsContent value="lotes" className="mt-0 space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex overflow-hidden rounded-lg border border-[var(--glass-border)]">
+          <div className="glass flex flex-wrap items-center gap-2 rounded-xl p-2.5">
+            <div className="glass flex overflow-hidden rounded-lg">
               {(Object.keys(ESTADO_FILTRO_LABEL) as EstadoFiltroLotes[]).map((e) => (
                 <button
                   key={e}
@@ -232,7 +232,7 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
                   onClick={() => setEstado(e)}
                   className={cn(
                     "px-3 py-1.5 text-xs font-medium transition-colors",
-                    estado === e ? "bg-primary/15 text-primary" : "bg-[var(--glass-bg)] text-muted-foreground hover:text-foreground",
+                    estado === e ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground",
                   )}
                 >
                   {ESTADO_FILTRO_LABEL[e]}
@@ -240,7 +240,7 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
               ))}
             </div>
             <Select value={variedad || "__todas__"} onValueChange={(v) => setVariedad(v === "__todas__" ? "" : v)}>
-              <SelectTrigger className="h-8 w-56 text-xs">
+              <SelectTrigger className="glass glass-hover h-8 w-56 border-[var(--glass-border)] text-xs">
                 <SelectValue placeholder="Todas las variedades" />
               </SelectTrigger>
               <SelectContent>
@@ -271,10 +271,11 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
               </CardContent>
             </Card>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-[var(--glass-border)]">
+            <Card className="glass-accented">
+              <CardContent className="max-h-[65vh] overflow-auto p-0">
               <Table>
-                <TableHeader>
-                  <TableRow className="bg-[var(--glass-bg)] text-xs">
+                <TableHeader className="sticky top-0 z-10 bg-[var(--glass-bg-solid)] backdrop-blur-xl">
+                  <TableRow className="text-xs">
                     <SortableTableHead label="Lote" sk="lote" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
                     <SortableTableHead label="Entrada" sk="fecha_entrada" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
                     <SortableTableHead label="Finca" sk="finca" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
@@ -286,12 +287,15 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filas.slice(0, MAX_FILAS_TABLA).map((f) => {
+                  {filas.slice(0, MAX_FILAS_TABLA).map((f, i) => {
                     const pct = f.kg_entrada > 0 ? (f.kg_procesado / f.kg_entrada) * 100 : 0;
                     return (
                       <TableRow
                         key={f.lote}
-                        className="cursor-pointer text-sm transition-colors hover:bg-[var(--glass-bg-strong)]"
+                        className={cn(
+                          "cursor-pointer text-sm transition-colors hover:bg-[var(--glass-bg-strong)]",
+                          i % 2 === 1 && "bg-[var(--glass-bg)]/40",
+                        )}
                         onClick={() => onSelect(f.lote)}
                       >
                         <TableCell className="py-2">
@@ -324,7 +328,8 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
                   })}
                 </TableBody>
               </Table>
-            </div>
+              </CardContent>
+            </Card>
           )}
           {filas.length > MAX_FILAS_TABLA && (
             <p className="text-xs text-muted-foreground">
@@ -352,8 +357,8 @@ function DiaConfeccionPanel({ fecha, onFecha, onSelect }: {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onFecha(desplazarFecha(fecha, -1))} aria-label="Día anterior">
+      <div className="glass flex flex-wrap items-center gap-2 rounded-xl p-2.5">
+        <Button variant="outline" size="icon" className="glass glass-hover h-8 w-8" onClick={() => onFecha(desplazarFecha(fecha, -1))} aria-label="Día anterior">
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <Input
@@ -362,7 +367,7 @@ function DiaConfeccionPanel({ fecha, onFecha, onSelect }: {
           onChange={(e) => e.target.value && onFecha(e.target.value)}
           className="h-8 w-40 tabular-nums"
         />
-        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onFecha(desplazarFecha(fecha, 1))} aria-label="Día siguiente">
+        <Button variant="outline" size="icon" className="glass glass-hover h-8 w-8" onClick={() => onFecha(desplazarFecha(fecha, 1))} aria-label="Día siguiente">
           <ChevronRight className="h-4 w-4" />
         </Button>
         <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => onFecha(today())}>Hoy</Button>
