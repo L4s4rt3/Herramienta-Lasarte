@@ -379,6 +379,9 @@ export function useEntradasBascula() {
       kg_preasignado: Math.max(0, Number(e.kg_ajuste_stock) || 0),
       esPrecalibrado: esPrec,
       cerrado: Boolean(e.cerrado_at),
+      // Merma real de cámara (migración 20260721150000, sin tipos generados):
+      // acota la capacidad del lote en la conciliación.
+      kg_merma_camara: (e as { merma_camara_kg?: number | null }).merma_camara_kg ?? null,
     });
     return conciliarKgProcesados(
       [...entradas.map((e) => aConciliacion(e, false)), ...entradasPrecalibrado.map((e) => aConciliacion(e, true))],

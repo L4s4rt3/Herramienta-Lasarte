@@ -176,6 +176,8 @@ export function useMermaLotes() {
       importe_total: toNumOrNull(e.importe_total),
       cerrado_at: e.cerrado_at ?? null,
       cierre_modo: e.cierre_modo ?? null,
+      // Columna nueva (migración 20260721150000), aún sin tipos generados.
+      merma_camara_kg: toNumOrNull((e as { merma_camara_kg?: number | null }).merma_camara_kg),
     })),
     [entradas],
   );

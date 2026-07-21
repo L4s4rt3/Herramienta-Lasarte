@@ -6,6 +6,9 @@
 // lotes_dia da el stock en cámara por lote/finca/variedad y la trazabilidad
 // completa: finca → entrada → lote → procesado → clasificación → destino.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { supabase } from "@/integrations/supabase/client";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import * as XLSX from "xlsx";
 import {
@@ -52,6 +55,7 @@ import {
   type MermaLote,
 } from "@/lib/mermaLote";
 import { exportarMermasProductores, type FilaMermaExport } from "@/lib/exportMermasProductores";
+import { casarMermaCamara, parseMermaCamaraRows } from "@/lib/mermaCamaraImport";
 import { resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import { cn } from "@/lib/utils";
 
@@ -207,6 +211,9 @@ function MermasCosteTab() {
   const [sortKey, setSortKey] = useState<MermaSortKey>("merma_pct");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [exportando, setExportando] = useState(false);
+  const [importandoCamara, setImportandoCamara] = useState(false);
+  const camaraInputRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
 
   // Excluye los cerrados sin registro (ver mermaLote.ts): su estado es
   // "procesado" para el stock, pero no tienen merma/podrido calculable y no
@@ -281,6 +288,47 @@ function MermasCosteTab() {
       toast({ title: "No se pudo exportar", description: errorMessage(e), variant: "destructive" });
     } finally {
       setExportando(false);
+    }
+  };
+
+  // ─── Import del registro de mermas de cámara (Excel manual de Guadex/
+  // Espalmex): casa cada camión por (fecha, kg exactos) con su entrada y
+  // guarda merma_camara_kg + fecha_salida_camara. Es el dato MEDIDO que acota
+  // la conciliación y sustituye a la estimación por tasa (regla 21-jul-2026). ─
+  const handleImportarMermaCamara = async (file: File | null) => {
+    if (!file) return;
+    setImportandoCamara(true);
+    try {
+      const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: null }) as unknown[][];
+      const { registros, descartadas } = parseMermaCamaraRows(rows);
+      if (registros.length === 0) {
+        toast({ title: "Archivo no reconocido", description: "No parece el registro de mermas de cámara (Fecha almacenamiento / Peso inicial / Peso final).", variant: "destructive" });
+        return;
+      }
+      const { casados, sinCasar, ambiguos } = casarMermaCamara(
+        registros,
+        entradas.map((e) => ({ id: e.id, lote: e.lote, fecha: e.fecha, kg_entrada: Number(e.kg_entrada) || 0, finca: e.finca })),
+      );
+      const SUPA_LOCAL = supabase as unknown as SupabaseClient<Record<string, never>>;
+      for (const c of casados) {
+        const { error } = await SUPA_LOCAL
+          .from("entradas_bascula")
+          .update({ merma_camara_kg: c.registro.mermaKg, fecha_salida_camara: c.registro.fechaSalida })
+          .eq("id", c.id);
+        if (error) throw new Error(errorMessage(error));
+      }
+      queryClient.invalidateQueries({ queryKey: ["entradas_bascula"] });
+      queryClient.invalidateQueries({ queryKey: ["merma-lote"] });
+      toast({
+        title: "Mermas de cámara importadas",
+        description: `${casados.length} camión(es) casados con su lote${sinCasar.length ? `, ${sinCasar.length} sin casar (sin entrada con esa fecha y kg)` : ""}${ambiguos.length ? `, ${ambiguos.length} ambiguo(s)` : ""}${descartadas.length ? `, ${descartadas.length} fila(s) descartada(s)` : ""}.`,
+      });
+    } catch (e) {
+      toast({ title: "No se pudo importar", description: errorMessage(e), variant: "destructive" });
+    } finally {
+      setImportandoCamara(false);
+      if (camaraInputRef.current) camaraInputRef.current.value = "";
     }
   };
 
@@ -377,16 +425,36 @@ function MermasCosteTab() {
           de <span className="font-semibold tabular-nums text-foreground">{procesados.length}</span> lotes procesados —
           el resto es prorrateo. Cuantos más informes se importen, más fiable el % por productor.
         </span>
-        <Button
-          size="sm"
-          variant="outline"
-          className="glass glass-hover ml-auto h-8"
-          onClick={handleExportProductores}
-          disabled={exportando || procesados.length === 0}
-        >
-          {exportando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-          Exportar por productor y finca (Excel)
-        </Button>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <input
+            ref={camaraInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={(e) => handleImportarMermaCamara(e.target.files?.[0] ?? null)}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            className="glass glass-hover h-8"
+            onClick={() => camaraInputRef.current?.click()}
+            disabled={importandoCamara}
+            title="Sube el Excel 'Merma fruta camaras' (Guadex/Espalmex): peso inicial − peso final por camión. Casa por fecha y kg exactos con la entrada y convierte la merma estimada en MEDIDA."
+          >
+            {importandoCamara ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+            Importar mermas de cámara
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="glass glass-hover h-8"
+            onClick={handleExportProductores}
+            disabled={exportando || procesados.length === 0}
+          >
+            {exportando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            Exportar por productor y finca (Excel)
+          </Button>
+        </div>
       </div>
 
       {agregado.nPendientesOParciales > 0 && (

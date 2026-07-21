@@ -1444,9 +1444,12 @@ function MermasYPerdidasCard({ lote }: { lote: string }) {
               </p>
             ) : merma.mermaNaturalEstimadaKg != null ? (
               <div className="mt-1.5 space-y-1">
-                <p className="text-xs text-muted-foreground">
-                  Natural estimada (0,055%/día × {merma.diasEnCamara} días):{" "}
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  {merma.mermaCamaraReal
+                    ? <>Merma de cámara (registro real):</>
+                    : <>Natural estimada (0,055%/día × {merma.diasEnCamara} días):</>}{" "}
                   <span className="font-semibold text-foreground tabular-nums">{formatKg(merma.mermaNaturalEstimadaKg)}</span>
+                  <FuenteBadge fuente={merma.mermaCamaraReal ? "real" : "asumido"} />
                 </p>
                 <p className={cn(
                   "flex items-center gap-1.5 text-xs",

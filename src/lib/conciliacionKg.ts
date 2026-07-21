@@ -30,6 +30,7 @@
  * movimiento queda registrado en `movimientos` para poder auditarlo.
  */
 import { diffDias } from "@/lib/entradasBascula";
+import { TASA_MERMA_NATURAL_DIA } from "@/lib/mermaLote";
 
 export interface EntradaConciliacion {
   /** Código canónico AAMMDDNN. */
@@ -43,8 +44,19 @@ export interface EntradaConciliacion {
   kg_preasignado?: number;
   /** Movimiento interno de precalibrado: absorbe sus re-pasadas pero ni derrama ni recibe. */
   esPrecalibrado?: boolean;
-  /** Cerrado a mano: puede recibir kg (hasta su entrada) pero SIN actualizar su última fecha de procesado — un derrame no debe disparar el aviso "actividad posterior al cierre". */
+  /** Cerrado a mano: puede recibir kg (hasta su capacidad) pero SIN actualizar su última fecha de procesado — un derrame no debe disparar el aviso "actividad posterior al cierre". */
   cerrado?: boolean;
+  /**
+   * Merma REAL de cámara del lote (kg): peso inicial − peso final del
+   * registro de mermas de cámara (entradas_bascula.merma_camara_kg). Cuando
+   * existe, la CAPACIDAD del lote (kg máximos atribuibles como procesados) es
+   * entrada − esta merma: la fruta que se evaporó en cámara nunca llegó al
+   * calibrador. Sin dato, la capacidad se estima con TASA_MERMA_NATURAL_DIA ×
+   * días hasta la fecha de la pasada. Sin este tope, la conciliación rellenaba
+   * lotes al 100 % de su entrada y las mermas salían ≈ 0 (detectado por el
+   * dueño contra el registro real de cámara, 21-jul-2026: mermas del 1,1–4,7 %).
+   */
+  kg_merma_camara?: number | null;
 }
 
 export interface PasadaConciliacion {
@@ -182,7 +194,27 @@ export function conciliarKgProcesados(
       ultimaFecha: null,
     });
   }
-  const pendiente = (r: RegistroLote) => Math.max(0, r.entrada.kg_entrada - r.asignado);
+  /**
+   * CAPACIDAD del lote a una fecha: kg máximos que pudieron salir de cámara
+   * hacia el calibrador. Con merma de cámara REAL registrada: entrada − merma.
+   * Sin dato: entrada × (1 − TASA_MERMA_NATURAL_DIA × días en cámara hasta la
+   * fecha de referencia), acotada a un 15 % de descuento como salvaguarda.
+   * Sin este tope la conciliación rellenaba lotes al 100 % de su entrada y la
+   * merma salía ≈ 0 en todos los lotes tocados por el reparto.
+   */
+  const capacidad = (r: RegistroLote, fechaRef: string | null | undefined): number => {
+    const mermaReal = r.entrada.kg_merma_camara;
+    if (mermaReal != null) return Math.max(0, r.entrada.kg_entrada - Math.max(0, mermaReal));
+    // Las re-entradas de PRECALIBRADO ya se pesan en neto al volver: sin
+    // descuento estimado (su "cámara" empieza en la re-entrada).
+    if (r.entrada.esPrecalibrado) return r.entrada.kg_entrada;
+    const dias = fechaRef && r.entrada.fecha && fechaRef > r.entrada.fecha
+      ? diffDias(r.entrada.fecha, fechaRef)
+      : 0;
+    return r.entrada.kg_entrada * (1 - Math.min(0.15, TASA_MERMA_NATURAL_DIA * dias));
+  };
+  const pendiente = (r: RegistroLote, fechaRef: string | null | undefined) =>
+    Math.max(0, capacidad(r, fechaRef) - r.asignado);
 
   const movimientos: MovimientoKg[] = [];
   const excesosSinColocar: Array<{ lote: string; kg: number }> = [];
@@ -302,7 +334,7 @@ export function conciliarKgProcesados(
       if (restante <= 0) break;
       const r = reg.get(code);
       if (!r) continue; // código desconocido (otra campaña, error de teclado): no se puede acotar
-      const absorbe = Math.min(restante, pendiente(r));
+      const absorbe = Math.min(restante, pendiente(r, p.date));
       if (absorbe <= 0) continue;
       tocar(r, absorbe, p.date, false);
       restante -= absorbe;
@@ -339,7 +371,7 @@ export function conciliarKgProcesados(
       .filter((r) =>
         r.entrada.lote !== donante
         && !r.entrada.esPrecalibrado
-        && pendiente(r) > 0
+        && pendiente(r, exceso.ultimaFecha) > 0
         && mismaFamiliaVariedad(r.familia, rDonante.familia),
       )
       .sort((a, b) => {
@@ -360,7 +392,7 @@ export function conciliarKgProcesados(
     let restante = exceso.kg;
     for (const r of candidatos) {
       if (restante <= 0.5) break;
-      const absorbe = Math.min(restante, pendiente(r));
+      const absorbe = Math.min(restante, pendiente(r, exceso.ultimaFecha));
       if (absorbe <= 0) continue;
       const esMismaFinca = r.fincaNorm === rDonante.fincaNorm && r.fincaNorm !== "";
       tocar(r, absorbe, exceso.ultimaFecha, true);

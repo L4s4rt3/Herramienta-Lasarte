@@ -49,7 +49,7 @@ describe("conciliarKgProcesados — asignación directa", () => {
         entrada({ lote: "25111002", kg_entrada: 20000, fecha: "2025-11-10" }),
         entrada({ lote: "25111001", kg_entrada: 15000, fecha: "2025-11-10" }),
       ],
-      [{ lote_codigo: "25111002+25111001", kg_peso_total: 29929, date: "2025-11-12" }],
+      [{ lote_codigo: "25111002+25111001", kg_peso_total: 29929, date: "2025-11-10" }],
     );
     const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
     expect(kg.get("25111002")).toBe(20000);
@@ -60,7 +60,7 @@ describe("conciliarKgProcesados — asignación directa", () => {
   it("kg_preasignado (ajuste de stock) reduce el pendiente pero no aparece en el procesado sintético", () => {
     const res = conciliarKgProcesados(
       [entrada({ lote: "26050101", kg_entrada: 20000, kg_preasignado: 15000 })],
-      [{ lote_codigo: "26050101", kg_peso_total: 5000, date: "2026-05-03" }],
+      [{ lote_codigo: "26050101", kg_peso_total: 5000, date: "2026-05-01" }],
     );
     expect(res.procesados[0].kg_peso_total).toBe(5000); // el ajuste lo suma buildStockEntradas aparte
     expect(res.excesosSinColocar).toHaveLength(0);
@@ -74,7 +74,7 @@ describe("conciliarKgProcesados — derrame de excesos", () => {
         entrada({ lote: "26021405", kg_entrada: 24940, fecha: "2026-02-14" }),
         entrada({ lote: "26021610", kg_entrada: 30400, fecha: "2026-02-16" }), // fantasma: 0 pasadas
       ],
-      [{ lote_codigo: "26021405", kg_peso_total: 52235, date: "2026-02-17" }],
+      [{ lote_codigo: "26021405", kg_peso_total: 52235, date: "2026-02-14" }],
     );
     const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
     expect(kg.get("26021405")).toBe(24940); // ya no supera su entrada
@@ -94,7 +94,7 @@ describe("conciliarKgProcesados — derrame de excesos", () => {
         entrada({ lote: "26030103", kg_entrada: 50000, fecha: "2026-03-01", finca: "COLOMBO" }), // misma variedad, otra finca
         entrada({ lote: "26030104", kg_entrada: 50000, fecha: "2026-03-01", finca: "DEHESILLA", articulo: "NARANJA NAVELINA" }), // otra variedad: jamás
       ],
-      [{ lote_codigo: "26030101", kg_peso_total: 20000, date: "2026-03-02" }],
+      [{ lote_codigo: "26030101", kg_peso_total: 20000, date: "2026-03-01" }],
     );
     const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
     expect(kg.get("26030102")).toBe(4000); // primero agota la misma finca
@@ -110,7 +110,7 @@ describe("conciliarKgProcesados — derrame de excesos", () => {
         entrada({ lote: "26031501", kg_entrada: 8000, fecha: "2026-03-15" }), // a 14 días
         entrada({ lote: "26030301", kg_entrada: 8000, fecha: "2026-03-03" }), // a 2 días: primero
       ],
-      [{ lote_codigo: "26030101", kg_peso_total: 15000, date: "2026-03-04" }],
+      [{ lote_codigo: "26030101", kg_peso_total: 15000, date: "2026-03-01" }],
     );
     expect(res.movimientos[0].a).toBe("26030301");
     expect(res.movimientos[0].kg).toBe(5000);
@@ -147,7 +147,7 @@ describe("conciliarKgProcesados — precalibrado", () => {
         entrada({ lote: "26050101", kg_entrada: 10000 }),
         entrada({ lote: "26063001", kg_entrada: 9000, esPrecalibrado: true }),
       ],
-      [{ lote_codigo: "26050101", kg_peso_total: 14000, date: "2026-05-02" }],
+      [{ lote_codigo: "26050101", kg_peso_total: 14000, date: "2026-05-01" }],
     );
     expect(res.excesosSinColocar).toEqual([{ lote: "26050101", kg: 4000 }]);
   });
@@ -220,6 +220,28 @@ describe("conciliarKgProcesados — reciclaje diario (neto = bruto − tara de l
   });
 });
 
+describe("conciliarKgProcesados — capacidad de cámara (tope de merma)", () => {
+  it("con merma REAL de cámara registrada, el lote no puede absorber más que peso inicial − merma (caso real Dehesilla 26042811: 21.580 − 820)", () => {
+    const res = conciliarKgProcesados(
+      [entrada({ lote: "26042811", kg_entrada: 21580, fecha: "2026-04-28", kg_merma_camara: 820 })],
+      // El calibrador atribuyó 23.561 kg a este lote el 08/07 (incluía otra fruta).
+      [{ lote_codigo: "26042811", kg_peso_total: 23561, date: "2026-07-08" }],
+    );
+    expect(res.procesados[0].kg_peso_total).toBe(21580 - 820); // 20.760 = peso final real de cámara
+    expect(res.excesosSinColocar[0].kg).toBeCloseTo(23561 - 20760);
+  });
+
+  it("sin dato real, la capacidad se estima con la tasa diaria: un lote 70 días en cámara no llega al 100 % de su entrada", () => {
+    const res = conciliarKgProcesados(
+      [entrada({ lote: "26042811", kg_entrada: 20000, fecha: "2026-04-28" })],
+      [{ lote_codigo: "26042811", kg_peso_total: 20000, date: "2026-07-07" }], // 70 días
+    );
+    const esperado = 20000 * (1 - 0.000553 * 70);
+    expect(res.procesados[0].kg_peso_total).toBeCloseTo(esperado, 0);
+    expect(res.excesosSinColocar[0].kg).toBeCloseTo(20000 - esperado, 0);
+  });
+});
+
 describe("conciliarKgProcesados — fechas y cierres", () => {
   it("el receptor del derrame hereda la última fecha de las pasadas del donante (salvo si está cerrado a mano)", () => {
     const res = conciliarKgProcesados(
@@ -228,10 +250,10 @@ describe("conciliarKgProcesados — fechas y cierres", () => {
         entrada({ lote: "26030301", kg_entrada: 8000, fecha: "2026-03-03" }),
         entrada({ lote: "26030401", kg_entrada: 8000, fecha: "2026-03-04", cerrado: true }),
       ],
-      [{ lote_codigo: "26030101", kg_peso_total: 30000, date: "2026-03-05" }],
+      [{ lote_codigo: "26030101", kg_peso_total: 30000, date: "2026-03-01" }],
     );
     const porLote = new Map(res.procesados.map((p) => [p.lote_codigo, p]));
-    expect(porLote.get("26030301")?.date).toBe("2026-03-05"); // hereda
+    expect(porLote.get("26030301")?.date).toBe("2026-03-01"); // hereda
     expect(porLote.get("26030401")?.date).toBeNull(); // cerrado: recibe kg pero sin fecha (no dispara "actividad posterior al cierre")
     expect(porLote.get("26030401")?.kg_peso_total).toBe(8000);
   });

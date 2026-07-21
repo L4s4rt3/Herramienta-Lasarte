@@ -332,7 +332,12 @@ export default function PartDetail() {
   const { data: trabajadoresList } = useQuery({
     queryKey: ["trabajadores-activos"],
     queryFn: async () => {
-      const { data } = await supabase.from("trabajadores").select("id, zona, activo").eq("activo", true);
+      // nombre es imprescindible: calcularRendimientoZonasAlmacen empareja la
+      // plantilla por nombre; sin él, ninguna zona detecta a sus presentes.
+      const { data } = await supabase
+        .from("trabajadores")
+        .select("id, nombre, zona, activo, computa_kg_persona")
+        .eq("activo", true);
       return data ?? [];
     },
   });

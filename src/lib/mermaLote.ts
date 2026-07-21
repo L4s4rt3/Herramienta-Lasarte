@@ -213,6 +213,8 @@ export interface EntradaLoteInput {
    * original. Opcional para no romper llamadas existentes.
    */
   cierre_modo?: CierreModo | null;
+  /** Merma REAL de cámara (entradas_bascula.merma_camara_kg, del registro manual de las cámaras): cuando existe, el componente "natural" del desglose es este dato medido en vez de tasa × días. Opcional para no romper llamadas existentes. */
+  merma_camara_kg?: number | null;
 }
 
 /** Fila de lotes_dia con lo mínimo necesario: código de lote (sin normalizar), kg y el parte al que pertenece. */
@@ -333,6 +335,8 @@ export interface MermaLote {
    * mermaNaturalEstimadaKg.
    */
   podridoPreCalibradorKg: number | null;
+  /** true si el componente "natural" del desglose es la merma REAL de cámara registrada (no la estimación tasa × días): la ficha lo etiqueta "real" en vez de "≈ estimado". */
+  mermaCamaraReal: boolean;
   /** costePorKg × podridoPreCalibradorKg. `null` si sinCoste o podridoPreCalibradorKg es null. */
   podridoPreCalibradorEur: number | null;
 
@@ -515,11 +519,15 @@ export function computeMermaLotes(
     // entrada) y se conocen los días en cámara. El `min` es la garantía de
     // que la estimación nunca supere lo realmente medido; la resta exacta
     // sobre ese mismo `min` mantiene la conservación sin redondeos.
+    // Con merma de cámara REAL registrada (entradas_bascula.merma_camara_kg,
+    // del registro manual de las cámaras — 21-jul-2026), el componente
+    // "natural" es el dato MEDIDO en vez de tasa × días (misma garantía min).
+    const mermaCamaraReal = entrada.merma_camara_kg != null ? Math.max(0, Number(entrada.merma_camara_kg) || 0) : null;
     let mermaNaturalEstimadaKg: number | null = null;
     let podridoPreCalibradorKg: number | null = null;
-    if (mermaNaturalKg != null && !calibradorSuperaEntrada && diasEnCamara != null) {
+    if (mermaNaturalKg != null && !calibradorSuperaEntrada && (diasEnCamara != null || mermaCamaraReal != null)) {
       const mermaMedida = Math.max(0, mermaNaturalKg);
-      const estimadaMax = kgEntrada * TASA_MERMA_NATURAL_DIA * diasEnCamara;
+      const estimadaMax = mermaCamaraReal ?? kgEntrada * TASA_MERMA_NATURAL_DIA * (diasEnCamara ?? 0);
       mermaNaturalEstimadaKg = Math.min(mermaMedida, estimadaMax);
       podridoPreCalibradorKg = mermaMedida - mermaNaturalEstimadaKg;
     }
@@ -612,6 +620,7 @@ export function computeMermaLotes(
         mermaNaturalEstimadaKg: null,
         mermaNaturalEstimadaEur: null,
         podridoPreCalibradorKg: null,
+        mermaCamaraReal: false,
         podridoPreCalibradorEur: null,
         podridoCalibradorKg: null,
         podridoCalibradorFuente: "desconocido",
@@ -643,6 +652,7 @@ export function computeMermaLotes(
       mermaNaturalEstimadaKg,
       mermaNaturalEstimadaEur,
       podridoPreCalibradorKg,
+      mermaCamaraReal: mermaCamaraReal != null,
       podridoPreCalibradorEur,
       podridoCalibradorKg,
       podridoCalibradorFuente,
