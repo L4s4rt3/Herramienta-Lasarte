@@ -15,18 +15,23 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
-  AlertTriangle, ArrowLeft, ArrowRight, Boxes, ChevronLeft, ChevronRight, ClipboardCheck, Factory, HelpCircle, Lock, LockOpen, Leaf, Scale, Search, Ship, Truck, Warehouse, X,
+  AlertTriangle, ArrowLeft, ArrowRight, Boxes, CalendarDays, ChevronLeft, ChevronRight, ClipboardCheck, Factory, HelpCircle, Lock, LockOpen, Leaf, Scale, Search, Ship, Truck, Warehouse, X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CerrarLoteDialog } from "@/components/CerrarLoteDialog";
 import { FuenteBadge, fuentePodridoAVariant } from "@/components/FuenteBadge";
 import { ProgressBarRow } from "@/components/ProgressBarRow";
+import { SortableTableHead, toggleSort, type SortDir } from "@/components/SortableColumn";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthProvider";
+import { useDiaTrazabilidad } from "@/hooks/useDiaTrazabilidad";
 import { useEntradasBascula } from "@/hooks/useEntradasBascula";
 import { useMermaLote } from "@/hooks/useMermaLote";
 import { useTrazabilidadLote } from "@/hooks/useTrazabilidadLote";
@@ -38,12 +43,20 @@ import {
   type StockLoteRow,
 } from "@/lib/entradasBascula";
 import { errorMessage } from "@/lib/errorMessage";
-import { formatDate, formatKgCompact as formatKg, formatNumber, formatPct, normalizarTexto } from "@/lib/format";
+import { formatDate, formatKgCompact as formatKg, formatNumber, formatPct, today } from "@/lib/format";
 import type { MermaLote } from "@/lib/mermaLote";
 import { interpretarCodigoLote, type MotivoIncoherenciaExpedicion } from "@/lib/origenConfeccion";
 import type { OrigenConfeccionLote } from "@/hooks/useTrazabilidadLote";
 import { productorNoCoincide } from "@/lib/productoresCanonicos";
 import { GRUPO_COLORS } from "@/lib/destinoClasificacion";
+import {
+  desplazarFecha,
+  filtrarLotesSelector,
+  ordenarLotesSelector,
+  variedadesDisponibles,
+  type EstadoFiltroLotes,
+  type LoteSortKey,
+} from "@/lib/trazabilidadSelector";
 import { barFill } from "@/lib/chartTheme";
 import { cn } from "@/lib/utils";
 
@@ -98,7 +111,21 @@ export default function TrazabilidadLote() {
   );
 }
 
-// ─── Selector: buscador + lista de lotes conocidos ──────────────────────────
+// ─── Selector (rediseño 21-jul-2026): tabla filtrable + modo "Por día" ───────
+// Antes: rejilla de tarjetas (60 primeras, sin orden útil ni filtros) —
+// encontrar un lote era "un infierno". Ahora: (1) tabla ordenable con filtros
+// de estado/variedad y texto libre, y (2) modo "Por día de confección": eliges
+// una fecha y ves los volcados del calibrador y la confección/expedición por
+// cliente de ese día — el flujo real de una reclamación (compra el día X, la
+// fruta lleva ≤3 días → mira los días X−1..X−3).
+
+const ESTADO_FILTRO_LABEL: Record<EstadoFiltroLotes, string> = {
+  todos: "Todos",
+  camara: "En cámara",
+  procesados: "Procesados",
+};
+
+const MAX_FILAS_TABLA = 300;
 
 function SelectorLotes({ search, onSearchChange, onSelect }: {
   search: string;
@@ -106,18 +133,23 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
   onSelect: (lote: string) => void;
 }) {
   const { stock, isLoading, error } = useEntradasBascula();
-  const searchLower = normalizarTexto(search).trim();
+  const [modo, setModo] = useState<"lotes" | "dia">("lotes");
+  const [estado, setEstado] = useState<EstadoFiltroLotes>("todos");
+  const [variedad, setVariedad] = useState<string>("");
+  const [sortKey, setSortKey] = useState<LoteSortKey>("fecha_entrada");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [fechaDia, setFechaDia] = useState<string>(() => today());
 
-  const filas = useMemo(() => {
-    const ordenadas = [...stock.filas].sort(compararLotesActivosPrimero);
-    if (!searchLower) return ordenadas.slice(0, 60);
-    return ordenadas.filter((f) => (
-      normalizarTexto(f.lote).includes(searchLower)
-      || normalizarTexto(f.finca).includes(searchLower)
-      || normalizarTexto(f.articulo).includes(searchLower)
-      || normalizarTexto(f.agricultor).includes(searchLower)
-    )).slice(0, 100);
-  }, [stock.filas, searchLower]);
+  const variedades = useMemo(() => variedadesDisponibles(stock.filas), [stock.filas]);
+
+  const filas = useMemo(
+    () => ordenarLotesSelector(
+      filtrarLotesSelector(stock.filas, { texto: search, estado, variedad }),
+      sortKey,
+      sortDir,
+    ),
+    [stock.filas, search, estado, variedad, sortKey, sortDir],
+  );
 
   // Si teclean un código de lote completo que no está en la lista (lote antiguo
   // sin entrada de báscula, o el código impreso en un palet/malla en formato
@@ -127,6 +159,10 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
   const loteDirectoEnLista = loteDirecto ? filas.some((f) => f.lote === loteDirecto) : false;
 
   const lotesActivos = stock.lotesPendientes + stock.lotesParciales;
+  // Al cambiar de columna: numéricas de mayor a menor (lo gordo primero),
+  // fecha de entrada la más reciente primero, texto alfabético.
+  const onToggleSort = (k: LoteSortKey) => toggleSort(k, sortKey, sortDir, setSortKey, setSortDir,
+    (key) => (key === "lote" || key === "finca" || key === "articulo" ? "asc" : "desc"));
 
   return (
     <div className="space-y-4">
@@ -134,7 +170,7 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Busca un lote (26051407), finca, variedad o agricultor…"
+            placeholder="Lote (26051407), código del palet (07260510), finca, variedad o agricultor…"
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
             className="h-10 pl-9"
@@ -169,21 +205,176 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
         </button>
       )}
 
-      {!isLoading && !error && (
-        <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-muted-foreground">
-          <span>
-            <span className="font-semibold tabular-nums text-foreground">{lotesActivos}</span> lotes activos
-            {" · "}
-            <span className="font-semibold tabular-nums text-foreground">{formatKg(stock.kgEnCamara)}</span> en cámara
-          </span>
-          <Link to="/entradas" className="inline-flex items-center gap-1 font-medium text-info hover:underline">
-            Gestionar entradas <ArrowRight className="h-3 w-3" />
-          </Link>
+      <Tabs value={modo} onValueChange={(v) => setModo(v as "lotes" | "dia")} className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <TabsList>
+            <TabsTrigger value="lotes"><Warehouse className="mr-1.5 h-3.5 w-3.5" /> Lotes</TabsTrigger>
+            <TabsTrigger value="dia"><CalendarDays className="mr-1.5 h-3.5 w-3.5" /> Por día de confección</TabsTrigger>
+          </TabsList>
+          {!isLoading && !error && (
+            <span className="text-xs text-muted-foreground">
+              <span className="font-semibold tabular-nums text-foreground">{lotesActivos}</span> lotes activos
+              {" · "}
+              <span className="font-semibold tabular-nums text-foreground">{formatKg(stock.kgEnCamara)}</span> en cámara
+              {" · "}
+              <Link to="/entradas" className="font-medium text-info hover:underline">Gestionar entradas →</Link>
+            </span>
+          )}
         </div>
-      )}
+
+        <TabsContent value="lotes" className="mt-0 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex overflow-hidden rounded-lg border border-[var(--glass-border)]">
+              {(Object.keys(ESTADO_FILTRO_LABEL) as EstadoFiltroLotes[]).map((e) => (
+                <button
+                  key={e}
+                  type="button"
+                  onClick={() => setEstado(e)}
+                  className={cn(
+                    "px-3 py-1.5 text-xs font-medium transition-colors",
+                    estado === e ? "bg-primary/15 text-primary" : "bg-[var(--glass-bg)] text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {ESTADO_FILTRO_LABEL[e]}
+                </button>
+              ))}
+            </div>
+            <Select value={variedad || "__todas__"} onValueChange={(v) => setVariedad(v === "__todas__" ? "" : v)}>
+              <SelectTrigger className="h-8 w-56 text-xs">
+                <SelectValue placeholder="Todas las variedades" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__todas__">Todas las variedades</SelectItem>
+                {variedades.map((v) => (
+                  <SelectItem key={v} value={v}>{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+              {formatNumber(filas.length)} lote(s)
+            </span>
+          </div>
+
+          {isLoading ? (
+            <Skeleton className="h-96 w-full" />
+          ) : error ? (
+            <Card className="glass-accented border-destructive/30">
+              <CardContent className="flex items-center gap-3 py-6 text-destructive">
+                <AlertTriangle className="h-5 w-5 shrink-0" />
+                <p className="text-sm font-semibold">{errorMessage(error)}</p>
+              </CardContent>
+            </Card>
+          ) : filas.length === 0 ? (
+            <Card className="glass-accented">
+              <CardContent className="py-12 text-center text-sm text-muted-foreground">
+                Sin lotes que coincidan con los filtros. También puedes teclear un código completo (8 dígitos, vale el del palet).
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-[var(--glass-border)]">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-[var(--glass-bg)] text-xs">
+                    <SortableTableHead label="Lote" sk="lote" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+                    <SortableTableHead label="Entrada" sk="fecha_entrada" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+                    <SortableTableHead label="Finca" sk="finca" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+                    <SortableTableHead label="Variedad" sk="articulo" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+                    <SortableTableHead label="Kg entrada" sk="kg_entrada" right sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+                    <SortableTableHead label="Procesado" sk="pct_procesado" right sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+                    <SortableTableHead label="En cámara" sk="kg_en_camara" right sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+                    <SortableTableHead label="Días" sk="dias_en_camara" right sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} info="Días desde la entrada hasta hoy (activos) o hasta la última pasada del calibrador (procesados)." />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filas.slice(0, MAX_FILAS_TABLA).map((f) => {
+                    const pct = f.kg_entrada > 0 ? (f.kg_procesado / f.kg_entrada) * 100 : 0;
+                    return (
+                      <TableRow
+                        key={f.lote}
+                        className="cursor-pointer text-sm transition-colors hover:bg-[var(--glass-bg-strong)]"
+                        onClick={() => onSelect(f.lote)}
+                      >
+                        <TableCell className="py-2">
+                          <span className="font-semibold tabular-nums">{f.lote}</span>
+                          {f.probablementeTerminado && (
+                            <HelpCircle className="ml-1 inline h-3 w-3 text-warning" aria-label="Probablemente terminado" />
+                          )}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap py-2 tabular-nums text-muted-foreground">{formatDate(f.fecha_entrada)}</TableCell>
+                        <TableCell className="max-w-44 truncate py-2">{f.finca ?? "—"}</TableCell>
+                        <TableCell className="max-w-44 truncate py-2 text-xs text-muted-foreground">{f.articulo ?? "—"}</TableCell>
+                        <TableCell className="py-2 text-right tabular-nums">{formatKg(f.kg_entrada)}</TableCell>
+                        <TableCell className="py-2 text-right">
+                          <span className={cn("tabular-nums text-xs font-medium", pct >= 99.5 ? "text-success" : "text-muted-foreground")}>
+                            {formatPct(Math.min(100, pct))}
+                          </span>
+                        </TableCell>
+                        <TableCell className="py-2 text-right">
+                          {f.estado !== "procesado" ? (
+                            <Badge variant="outline" className="border-info/40 bg-info/10 px-1.5 py-0 text-[11px] tabular-nums text-info">
+                              {formatKg(f.kg_en_camara)}
+                            </Badge>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-2 text-right tabular-nums text-muted-foreground">{f.dias_en_camara}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          {filas.length > MAX_FILAS_TABLA && (
+            <p className="text-xs text-muted-foreground">
+              Mostrando {MAX_FILAS_TABLA} de {formatNumber(filas.length)} — afina el texto o los filtros para ver el resto.
+            </p>
+          )}
+        </TabsContent>
+
+        <TabsContent value="dia" className="mt-0">
+          <DiaConfeccionPanel fecha={fechaDia} onFecha={setFechaDia} onSelect={onSelect} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// ─── Modo "Por día": volcados + confección/expedición de una fecha ───────────
+
+function DiaConfeccionPanel({ fecha, onFecha, onSelect }: {
+  fecha: string;
+  onFecha: (f: string) => void;
+  onSelect: (lote: string) => void;
+}) {
+  const { data, isLoading, error } = useDiaTrazabilidad(fecha);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onFecha(desplazarFecha(fecha, -1))} aria-label="Día anterior">
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <Input
+          type="date"
+          value={fecha}
+          onChange={(e) => e.target.value && onFecha(e.target.value)}
+          className="h-8 w-40 tabular-nums"
+        />
+        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onFecha(desplazarFecha(fecha, 1))} aria-label="Día siguiente">
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+        <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => onFecha(today())}>Hoy</Button>
+        {data && data.partIds.length > 0 && (
+          <Link to={`/partes/${data.partIds[0]}`} className="ml-auto text-xs text-info hover:underline">
+            Ver parte del día →
+          </Link>
+        )}
+      </div>
 
       {isLoading ? (
-        <Skeleton className="h-96 w-full" />
+        <Skeleton className="h-72 w-full" />
       ) : error ? (
         <Card className="glass-accented border-destructive/30">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
@@ -191,37 +382,119 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
             <p className="text-sm font-semibold">{errorMessage(error)}</p>
           </CardContent>
         </Card>
-      ) : filas.length === 0 ? (
+      ) : !data || data.partIds.length === 0 ? (
         <Card className="glass-accented">
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
-            Sin lotes que coincidan. También puedes teclear un código de lote completo (8 dígitos).
+            Sin parte registrado el {formatDate(fecha)}: ese día no hay volcados ni confección que enseñar.
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-          {filas.map((f: StockLoteRow) => (
-            <button
-              key={f.lote}
-              type="button"
-              onClick={() => onSelect(f.lote)}
-              className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3.5 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:bg-[var(--glass-bg-strong)]"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-semibold tabular-nums">{f.lote}</span>
-                {f.estado !== "procesado" ? (
-                  <Badge variant="outline" className="border-info/40 bg-info/10 px-1.5 py-0 text-[11px] text-info">
-                    {formatKg(f.kg_en_camara)} en cámara
-                  </Badge>
-                ) : (
-                  <span className="text-[11px] text-muted-foreground">procesado</span>
-                )}
-              </div>
-              <p className="mt-1 truncate text-xs text-muted-foreground">
-                {formatDate(f.fecha_entrada)} · {f.finca ?? "—"}{f.articulo ? ` · ${f.articulo}` : ""}
-              </p>
-            </button>
-          ))}
-        </div>
+        <>
+          <div className="flex flex-wrap gap-x-5 gap-y-1 px-1 text-xs text-muted-foreground">
+            <span><span className="font-semibold tabular-nums text-foreground">{formatKg(data.kgVolcados)}</span> volcados al calibrador</span>
+            <span><span className="font-semibold tabular-nums text-foreground">{formatKg(data.kgExpedidos)}</span> confeccionados</span>
+            <span><span className="font-semibold tabular-nums text-foreground">{formatNumber(data.paletsCount)}</span> palets</span>
+            {data.paletsPrecalibrado > 0 && <span>{formatNumber(data.paletsPrecalibrado)} palets internos de precalibrado</span>}
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            {/* Volcados del día → cada uno abre la ficha de SU lote (la fruta real) */}
+            <Card className="glass-accented">
+              <CardContent className="space-y-1.5 p-4">
+                <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold">
+                  <Factory className="h-4 w-4 text-primary" /> Volcados al calibrador
+                </p>
+                {data.volcados.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Sin volcados registrados ese día.</p>
+                ) : data.volcados.map((v) => {
+                  const contenido = (
+                    <>
+                      <span className="w-6 shrink-0 text-center text-xs font-semibold tabular-nums text-muted-foreground">{v.numero}º</span>
+                      <span className="tabular-nums text-sm font-semibold">{formatKg(v.kg)}</span>
+                      {v.hora_inicio && <span className="text-xs tabular-nums text-muted-foreground">{v.hora_inicio.slice(0, 5)} h</span>}
+                      {v.productor && <span className="min-w-0 truncate text-xs">{v.productor}</span>}
+                      {v.producto && <span className="min-w-0 truncate text-xs text-muted-foreground">{v.producto}</span>}
+                      {v.esPrecalibrado && (
+                        <Badge variant="outline" className="border-[var(--glass-border)] bg-muted px-1.5 py-0 text-[10px] font-normal text-muted-foreground">
+                          precalibrado
+                        </Badge>
+                      )}
+                      {v.codigo && <ArrowRight className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                    </>
+                  );
+                  const clase = "flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-left";
+                  return v.codigo ? (
+                    <button
+                      key={`${v.codigo}-${v.numero}`}
+                      type="button"
+                      onClick={() => onSelect(v.codigo as string)}
+                      className={cn(clase, "transition-colors hover:bg-[var(--glass-bg-strong)]")}
+                      title={v.lote_codigo ?? undefined}
+                    >
+                      {contenido}
+                    </button>
+                  ) : (
+                    <div key={`v-${v.numero}`} className={clase} title={v.lote_codigo ?? undefined}>{contenido}</div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+
+            {/* Confección/expedición del día, por lote de confección y cliente */}
+            <Card className="glass-accented">
+              <CardContent className="space-y-1.5 p-4">
+                <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold">
+                  <Ship className="h-4 w-4 text-primary" /> Confección y expedición
+                </p>
+                {!data.expedicionDisponible ? (
+                  <p className="text-sm text-muted-foreground">No disponible: falta la columna palets_dia.lote_codigo.</p>
+                ) : data.expedicion.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Sin palets registrados ese día.</p>
+                ) : data.expedicion.map((e, i) => {
+                  const cuerpo = (
+                    <>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                        <span className="text-sm font-semibold tabular-nums">
+                          {e.lote_codigo ?? "Sin lote"}
+                        </span>
+                        {e.numeroDelDia != null && (
+                          <span className="text-[11px] text-muted-foreground">lote {e.numeroDelDia} del día</span>
+                        )}
+                        <span className="tabular-nums text-xs text-muted-foreground">
+                          {formatKg(e.kg)} · {formatNumber(e.paletsCount)} palet(s)
+                        </span>
+                        {e.lote_codigo && <ArrowRight className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {e.clientes.slice(0, 6).map((c) => (
+                          <Badge key={c.cliente} variant="outline" className="border-[var(--glass-border)] bg-[var(--glass-bg)] px-1.5 py-0 text-[10px] font-normal">
+                            {c.cliente} · {formatKg(c.kg)}
+                          </Badge>
+                        ))}
+                        {e.clientes.length > 6 && (
+                          <span className="text-[10px] text-muted-foreground">+{e.clientes.length - 6} más</span>
+                        )}
+                      </div>
+                    </>
+                  );
+                  const clase = "w-full rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-left";
+                  return e.lote_codigo ? (
+                    <button
+                      key={e.lote_codigo}
+                      type="button"
+                      onClick={() => onSelect(e.lote_codigo as string)}
+                      className={cn(clase, "transition-colors hover:bg-[var(--glass-bg-strong)]")}
+                    >
+                      {cuerpo}
+                    </button>
+                  ) : (
+                    <div key={`sin-lote-${i}`} className={clase}>{cuerpo}</div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          </div>
+        </>
       )}
     </div>
   );
