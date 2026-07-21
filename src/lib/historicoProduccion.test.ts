@@ -65,6 +65,7 @@ describe("parseInformeProduccionRows — localiza la cabecera por texto", () => 
     expect(filas[0]).toMatchObject({
       lote_codigo: "25101601",
       fecha: "2025-10-24",
+      hora: "05:47:29", // la hora de "Tiempo de Inicio" ordena los volcados del día (src/lib/origenConfeccion.ts)
       productor: "ESTACADA LARGA",
       productor_codigo: "8",
       producto: "PRINCIPIO CAMPAÑA",

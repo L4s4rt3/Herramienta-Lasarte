@@ -11,6 +11,7 @@ function fila(overrides: Partial<FilaInformeProduccion> & { lote_codigo: string;
     producto: null,
     toneladas_hora: null,
     duracion_min: null,
+    hora: null,
     ...overrides,
   };
 }
@@ -80,6 +81,19 @@ describe("agruparFilasProduccionPorFechaLote", () => {
       fila({ lote_codigo: "26050101", fecha: "2026-05-06", kg: 400, duracion_min: null }),
     ]);
     expect(conUnaFaltante[0].duracion_min).toBeNull();
+  });
+
+  it("hora: la MÍNIMA de las pasadas agrupadas (primera del día); null si ninguna trae", () => {
+    const agregadas = agruparFilasProduccionPorFechaLote([
+      fila({ lote_codigo: "26050101", fecha: "2026-05-06", kg: 600, hora: "11:35:00" }),
+      fila({ lote_codigo: "26050101", fecha: "2026-05-06", kg: 400, hora: "05:42:00" }),
+    ]);
+    expect(agregadas[0].hora).toBe("05:42:00");
+
+    const sinHora = agruparFilasProduccionPorFechaLote([
+      fila({ lote_codigo: "26050101", fecha: "2026-05-06", kg: 600 }),
+    ]);
+    expect(sinHora[0].hora).toBeNull();
   });
 
   it("producto/productor/toneladas_hora representativos: de la PRIMERA fila del grupo, en el orden de entrada", () => {

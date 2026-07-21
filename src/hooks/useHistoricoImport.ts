@@ -192,6 +192,8 @@ export interface FilaProduccionAgregada {
   toneladas_hora: number | null;
   /** Σ duracion_min de todas las filas agrupadas SOLO si TODAS traen dato; si alguna es null, el total queda null (no se inventa un 0 parcial). */
   duracion_min: number | null;
+  /** La MÍNIMA hora entre las pasadas agrupadas (la primera del día): es la que ordena los volcados para el cruce con el nº de lote del palet (src/lib/origenConfeccion.ts). null si ninguna fila trae hora. */
+  hora: string | null;
   /** Cuántas filas crudas del Excel se agregaron en esta fila (>1 si había pasadas duplicadas reales el mismo día para el mismo lote). */
   nFilasOriginales: number;
 }
@@ -221,6 +223,7 @@ export function agruparFilasProduccionPorFechaLote(filas: FilaInformeProduccion[
     const duracion_min = todasConDuracion
       ? filasGrupo.reduce((s, f) => s + (f.duracion_min ?? 0), 0)
       : null;
+    const horas = filasGrupo.map((f) => f.hora).filter((h): h is string => h != null).sort();
     return {
       fecha,
       clave,
@@ -230,6 +233,7 @@ export function agruparFilasProduccionPorFechaLote(filas: FilaInformeProduccion[
       kg,
       toneladas_hora: primera.toneladas_hora,
       duracion_min,
+      hora: horas[0] ?? null,
       nFilasOriginales: filasGrupo.length,
     };
   });
@@ -240,6 +244,16 @@ export interface ClavesProduccionCubiertas {
   clavesPorFecha: Map<string, Set<string>>;
   /** Fechas con AL MENOS una fila de lotes_dia ya existente: solo informativo (para distinguir "día ya tocado, puede tener alguna fila nueva" de "día completamente nuevo" en la preview); el dedup real es por fila, no por esto. */
   fechasCubiertas: Set<string>;
+  /**
+   * "fecha::clave" -> horas_inicio actuales de las filas existentes (null =
+   * sin hora). Candidatas al BACKFILL/CORRECCIÓN de hora: los imports
+   * anteriores a jul-2026 la tiraban (null) y la IA del parte diario metía la
+   * "Hora de la Máquina" (duración) como hora de inicio (valor incorrecto).
+   * El "Tiempo de Inicio" del informe del calibrador es la fuente
+   * autoritativa: la preview usa este índice para permitir un reimport que no
+   * inserta nada pero SÍ repara horas.
+   */
+  horasPorFechaClave: Map<string, Array<string | null>>;
 }
 
 /** Claves (fecha+lote) que YA existen en lotes_dia (de cualquier usuario): lo que el importador de producción debe saltar fila a fila. */
@@ -251,23 +265,29 @@ export function useClavesProduccionCubiertas() {
       // max-rows del servidor, se pagina con fetchAllRows.
       const [partes, lotes] = await Promise.all([
         fetchPartesDiarios(),
-        fetchAllRows<{ part_id: string; lote_codigo: string | null }>((from, to) =>
-          supabase.from("lotes_dia").select("part_id, lote_codigo").order("id").range(from, to),
+        fetchAllRows<{ part_id: string; lote_codigo: string | null; hora_inicio: string | null }>((from, to) =>
+          supabase.from("lotes_dia").select("part_id, lote_codigo, hora_inicio").order("id").range(from, to),
         ),
       ]);
 
       const { fechaPorParte } = indexarPartesPorFecha(partes);
       const clavesPorFecha = new Map<string, Set<string>>();
       const fechasCubiertas = new Set<string>();
+      const horasPorFechaClave = new Map<string, Array<string | null>>();
       for (const l of lotes) {
         const fecha = fechaPorParte.get(l.part_id);
         if (!fecha) continue;
         fechasCubiertas.add(fecha);
+        const clave = claveLoteDedup(l.lote_codigo);
         const set = clavesPorFecha.get(fecha) ?? new Set<string>();
-        set.add(claveLoteDedup(l.lote_codigo));
+        set.add(clave);
         clavesPorFecha.set(fecha, set);
+        const key = `${fecha}::${clave}`;
+        const horas = horasPorFechaClave.get(key) ?? [];
+        horas.push(l.hora_inicio);
+        horasPorFechaClave.set(key, horas);
       }
-      return { clavesPorFecha, fechasCubiertas };
+      return { clavesPorFecha, fechasCubiertas, horasPorFechaClave };
     },
   });
 }
@@ -312,6 +332,8 @@ export interface ImportarHistoricoResumen {
   filasInsertadas: number;
   /** Filas agregadas por (fecha, lote) que ya existían y se saltaron (dedup por fila, no por día). */
   filasExistentes: number;
+  /** BACKFILL/CORRECCIÓN: filas ya existentes cuya hora_inicio se rellenó (estaba NULL: los imports anteriores a jul-2026 la tiraban) o se corrigió (difería: la IA del parte metía la duración como hora). El orden de volcados la necesita — src/lib/origenConfeccion.ts. */
+  horasRellenadas: number;
 }
 
 export function useHistoricoImport() {
@@ -332,19 +354,30 @@ export function useHistoricoImport() {
       // el dedup fallaría y se duplicarían lotes en el próximo import).
       const [partes, lotesExist] = await Promise.all([
         fetchPartesDiarios(),
-        fetchAllRows<{ part_id: string; lote_codigo: string | null }>((from, to) =>
-          supabase.from("lotes_dia").select("part_id, lote_codigo").order("id").range(from, to),
+        fetchAllRows<{ id: string; part_id: string; lote_codigo: string | null; hora_inicio: string | null }>((from, to) =>
+          supabase.from("lotes_dia").select("id, part_id, lote_codigo, hora_inicio").order("id").range(from, to),
         ),
       ]);
 
       const { fechaPorParte, partesPorFecha } = indexarPartesPorFecha(partes);
       const clavesPorFecha = new Map<string, Set<string>>();
+      // Para el BACKFILL/CORRECCIÓN de hora_inicio: TODAS las filas
+      // existentes con su hora actual, indexadas por (fecha, clave). Se
+      // corrige tanto la hora NULL (imports antiguos la tiraban) como la
+      // DISTINTA (la IA del parte metía la duración como hora de inicio):
+      // el "Tiempo de Inicio" del calibrador es la fuente autoritativa.
+      const filasHoraPorFechaClave = new Map<string, Array<{ id: string; hora_inicio: string | null }>>();
       for (const l of lotesExist) {
         const fecha = fechaPorParte.get(l.part_id);
         if (!fecha) continue;
+        const clave = claveLoteDedup(l.lote_codigo);
         const set = clavesPorFecha.get(fecha) ?? new Set<string>();
-        set.add(claveLoteDedup(l.lote_codigo));
+        set.add(clave);
         clavesPorFecha.set(fecha, set);
+        const key = `${fecha}::${clave}`;
+        const filasKey = filasHoraPorFechaClave.get(key) ?? [];
+        filasKey.push({ id: l.id, hora_inicio: l.hora_inicio });
+        filasHoraPorFechaClave.set(key, filasKey);
       }
 
       // Dedup por FILA (fecha + lote), no por día (ver cabecera del archivo):
@@ -364,6 +397,7 @@ export function useHistoricoImport() {
       let diasSinNuevas = 0;
       let filasInsertadas = 0;
       let filasExistentes = 0;
+      const actualizacionesHora: Array<{ id: string; hora: string }> = [];
 
       for (let i = 0; i < fechasOrdenadas.length; i++) {
         const fecha = fechasOrdenadas[i];
@@ -373,6 +407,27 @@ export function useHistoricoImport() {
         const clavesExistentesDelDia = clavesPorFecha.get(fecha) ?? new Set<string>();
         const nuevas = filasDelDia.filter((f) => !clavesExistentesDelDia.has(f.clave));
         filasExistentes += filasDelDia.length - nuevas.length;
+
+        // BACKFILL/CORRECCIÓN de hora_inicio: se repara la hora NULL (los
+        // imports anteriores a jul-2026 la tiraban) Y la hora DISTINTA (la IA
+        // del parte diario metía la "Hora de la Máquina" —una duración— como
+        // hora de inicio). El "Tiempo de Inicio" del informe del calibrador
+        // es la fuente autoritativa: sin hora buena no se pueden ordenar los
+        // volcados del día (src/lib/origenConfeccion.ts). Va ANTES del
+        // `continue`: un reimport del mismo archivo no inserta nada pero sí
+        // repara horas.
+        for (const f of filasDelDia) {
+          if (f.hora == null) continue;
+          const filasKey = filasHoraPorFechaClave.get(`${fecha}::${f.clave}`);
+          if (!filasKey?.length) continue;
+          for (const filaExistente of filasKey) {
+            // El time de Postgres vuelve como "HH:MM:SS" (a veces con sufijo):
+            // se compara sobre los 8 primeros caracteres.
+            if ((filaExistente.hora_inicio ?? "").slice(0, 8) === f.hora.slice(0, 8)) continue;
+            actualizacionesHora.push({ id: filaExistente.id, hora: f.hora });
+          }
+          filasHoraPorFechaClave.delete(`${fecha}::${f.clave}`);
+        }
 
         if (nuevas.length === 0) {
           diasSinNuevas += 1;
@@ -399,6 +454,7 @@ export function useHistoricoImport() {
           kg_peso_total: f.kg,
           toneladas_hora: f.toneladas_hora,
           duracion_min: f.duracion_min,
+          hora_inicio: f.hora,
           productor: f.productor,
           notas: f.nFilasOriginales > 1
             ? `${NOTA_LOTE_HISTORICO} (agregada de ${f.nFilasOriginales} filas duplicadas del Excel, mismo lote y día)`
@@ -423,7 +479,24 @@ export function useHistoricoImport() {
 
       onProgress?.(fechasOrdenadas.length, fechasOrdenadas.length);
 
-      return { diasNuevos, diasSinNuevas, filasInsertadas, filasExistentes };
+      // El backfill se ejecuta al final, en tandas pequeñas de updates
+      // individuales (cada fila puede llevar una hora distinta, no hay update
+      // masivo posible). Son como mucho ~1.200 filas la primera vez (todo el
+      // histórico importado sin hora) y 0 en reimports posteriores.
+      let horasRellenadas = 0;
+      const CHUNK_UPDATES = 10;
+      for (let j = 0; j < actualizacionesHora.length; j += CHUNK_UPDATES) {
+        const chunk = actualizacionesHora.slice(j, j + CHUNK_UPDATES);
+        const resultados = await Promise.all(
+          chunk.map((u) => supabase.from("lotes_dia").update({ hora_inicio: u.hora }).eq("id", u.id)),
+        );
+        for (const r of resultados) {
+          if (r.error) throw toError(r.error);
+        }
+        horasRellenadas += chunk.length;
+      }
+
+      return { diasNuevos, diasSinNuevas, filasInsertadas, filasExistentes, horasRellenadas };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: PARTES_QUERY_KEY });
@@ -444,6 +517,17 @@ export function useHistoricoImport() {
 
 export interface ImportarHistoricoPaletsVariables {
   filas: FilaInformePalets[];
+  /**
+   * REEMPLAZO de palets sin identificar (evidencia real, 21-jul-2026: el
+   * analizador del parte diario no reconocía la cabecera "NºPalet" y guardó
+   * ~12.000 palets con palet_id NULL — el backfill por nº de palet no podía
+   * casar nada: 11.871 "sin casar" de un import completo). Con esta opción,
+   * en cada fecha cubierta se BORRAN los palets_dia existentes con palet_id
+   * NULL y se insertan en su lugar las filas del export que no casaron
+   * (mismo programa de origen, pero con nº de palet y lote). Los palets que
+   * SÍ tienen palet_id no se tocan nunca: siguen el backfill normal.
+   */
+  reemplazarSinId?: boolean;
   /** Progreso por FECHA procesada (no por fila). */
   onProgress?: (diasProcesados: number, diasTotales: number) => void;
 }
@@ -456,8 +540,14 @@ export interface ImportarHistoricoPaletsResumen {
   paletsInsertados: number;
   /** Filas de palets_dia existentes a las que se les rellenó lote_codigo (estaba NULL). */
   paletsBackfilled: number;
-  /** Filas del Excel en fecha de backfill que no casaron con ningún palets_dia existente (ni se insertan ni se tocan). */
+  /** Filas del Excel en fecha de backfill que no casaron con ningún palets_dia existente (ni se insertan ni se tocan; si reemplazarSinId está activo, las reemplazadas NO cuentan aquí). */
   paletsSinCasar: number;
+  /** Con reemplazarSinId: palets_dia existentes SIN palet_id eliminados. */
+  paletsReemplazadosEliminados: number;
+  /** Con reemplazarSinId: filas del export insertadas en su lugar (con nº de palet y lote). */
+  paletsReemplazadosInsertados: number;
+  /** Fechas donde hubo reemplazo. */
+  diasReemplazo: number;
 }
 
 /** Comprueba que la columna palets_dia.lote_codigo ya existe (migración 20260715110000); si no, falla con un mensaje claro en vez de un error críptico a mitad de import. */
@@ -480,7 +570,7 @@ export function useHistoricoImportPalets() {
   const fechasCubiertasQuery = useFechasPaletsCubiertas();
 
   const importar = useMutation({
-    mutationFn: async ({ filas, onProgress }: ImportarHistoricoPaletsVariables): Promise<ImportarHistoricoPaletsResumen> => {
+    mutationFn: async ({ filas, reemplazarSinId = false, onProgress }: ImportarHistoricoPaletsVariables): Promise<ImportarHistoricoPaletsResumen> => {
       if (!user) throw new Error("No auth");
       if (filas.length === 0) throw new Error("No hay filas para importar.");
 
@@ -517,6 +607,10 @@ export function useHistoricoImportPalets() {
       }
 
       const existingIndex = new Map<string, Map<string, { id: string; loteCodigo: string | null }>>();
+      // Filas existentes SIN palet_id por fecha (con su part_id): el analizador
+      // del parte las dejó anónimas y el backfill por nº no puede casarlas —
+      // son las candidatas al reemplazo si reemplazarSinId está activo.
+      const sinIdPorFecha = new Map<string, Array<{ id: string; part_id: string }>>();
       for (let i = 0; i < partIdsCubiertos.length; i += CHUNK) {
         const chunk = partIdsCubiertos.slice(i, i + CHUNK);
         if (chunk.length === 0) continue;
@@ -533,7 +627,13 @@ export function useHistoricoImportPalets() {
         );
         for (const row of data) {
           const fecha = fechaPorPartIdCubierto.get(row.part_id);
-          if (!fecha || !row.palet_id) continue;
+          if (!fecha) continue;
+          if (!row.palet_id) {
+            const arr = sinIdPorFecha.get(fecha) ?? [];
+            arr.push({ id: row.id, part_id: row.part_id });
+            sinIdPorFecha.set(fecha, arr);
+            continue;
+          }
           let inner = existingIndex.get(fecha);
           if (!inner) { inner = new Map(); existingIndex.set(fecha, inner); }
           inner.set(normalizarPaletIdParaCasar(row.palet_id), { id: row.id, loteCodigo: row.lote_codigo });
@@ -545,6 +645,9 @@ export function useHistoricoImportPalets() {
       let paletsInsertados = 0;
       let paletsBackfilled = 0;
       let paletsSinCasar = 0;
+      let paletsReemplazadosEliminados = 0;
+      let paletsReemplazadosInsertados = 0;
+      let diasReemplazo = 0;
       // UPDATEs de backfill agrupados por valor de lote_codigo: un solo
       // .update().in(ids) por lote en vez de una llamada por palet (muchos
       // palets comparten el mismo lote).
@@ -558,15 +661,54 @@ export function useHistoricoImportPalets() {
         if (fechaEsCubierta(fecha)) {
           diasBackfill += 1;
           const inner = existingIndex.get(fecha);
+          const sinCasarDia: FilaInformePalets[] = [];
           for (const fila of filasDia) {
             const match = inner?.get(normalizarPaletIdParaCasar(fila.palet_id));
-            if (!match) { paletsSinCasar += 1; continue; }
+            if (!match) { sinCasarDia.push(fila); continue; }
             if (match.loteCodigo != null) continue; // ya tenía lote_codigo: no se toca
             if (!fila.lote_codigo) continue; // esta fila del Excel tampoco trae lote: nada que rellenar
             const ids = idsPorLote.get(fila.lote_codigo);
             if (ids) ids.push(match.id);
             else idsPorLote.set(fila.lote_codigo, [match.id]);
             paletsBackfilled += 1;
+          }
+
+          // REEMPLAZO (opt-in): las filas del export que no casaron sustituyen
+          // a los palets anónimos (palet_id NULL) de esa fecha. Solo si hay
+          // AMBAS cosas: borrar anónimos sin meter su versión identificada
+          // perdería kg, e insertar sin borrar los duplicaría. Los kg del día
+          // pasan a ser los del export — mismo programa de origen, así que la
+          // diferencia real es mínima y a cambio cada palet queda con su nº y
+          // su lote (lo que necesita la trazabilidad).
+          const anonimos = sinIdPorFecha.get(fecha) ?? [];
+          if (reemplazarSinId && sinCasarDia.length > 0 && anonimos.length > 0) {
+            const idsABorrar = anonimos.map((a) => a.id);
+            for (let j = 0; j < idsABorrar.length; j += CHUNK) {
+              const { error } = await SUPA.from("palets_dia").delete().in("id", idsABorrar.slice(j, j + CHUNK));
+              if (error) throw toError(error);
+            }
+            const partIdDestino = anonimos[0].part_id;
+            const rows = sinCasarDia.map((f) => ({
+              part_id: partIdDestino,
+              user_id: user.id,
+              source: "manual" as const,
+              palet_id: f.palet_id,
+              producto: f.producto,
+              cliente: f.cliente,
+              kg_neto: f.kg_neto,
+              n_cajas: f.n_cajas,
+              situacion: f.situacion,
+              lote_codigo: f.lote_codigo,
+            }));
+            for (let j = 0; j < rows.length; j += CHUNK) {
+              const { error } = await SUPA.from("palets_dia").insert(rows.slice(j, j + CHUNK));
+              if (error) throw toError(error);
+            }
+            paletsReemplazadosEliminados += idsABorrar.length;
+            paletsReemplazadosInsertados += rows.length;
+            diasReemplazo += 1;
+          } else {
+            paletsSinCasar += sinCasarDia.length;
           }
           continue;
         }
@@ -612,7 +754,16 @@ export function useHistoricoImportPalets() {
 
       onProgress?.(fechasOrdenadas.length, fechasOrdenadas.length);
 
-      return { diasNuevos, diasBackfill, paletsInsertados, paletsBackfilled, paletsSinCasar };
+      return {
+        diasNuevos,
+        diasBackfill,
+        paletsInsertados,
+        paletsBackfilled,
+        paletsSinCasar,
+        paletsReemplazadosEliminados,
+        paletsReemplazadosInsertados,
+        diasReemplazo,
+      };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: PARTES_QUERY_KEY });

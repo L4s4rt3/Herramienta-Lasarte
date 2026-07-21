@@ -21,6 +21,7 @@ import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, Table
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CerrarLoteDialog } from "@/components/CerrarLoteDialog";
 import { CerrarLotesEnBloqueDialog } from "@/components/CerrarLotesEnBloqueDialog";
+import { ConciliacionKgPanel } from "@/components/ConciliacionKgPanel";
 import { ConciliarInformeCamaraDialog } from "@/components/ConciliarInformeCamaraDialog";
 import { FuenteBadge, fuentePodridoAVariant } from "@/components/FuenteBadge";
 import { KPICard } from "@/components/KPICard";
@@ -482,7 +483,7 @@ interface ImportPreview {
 
 export default function EntradasBascula() {
   const {
-    entradas, stock, procesados, movimientosPrecalibrado, derivadosCampoCit, isLoading, error,
+    entradas, stock, procesados, conciliacionKg, movimientosPrecalibrado, derivadosCampoCit, isLoading, error,
     importar, importarStock, eliminar, cerrarLote, reabrirLote, cerrarLotesEnBloque, reabrirLotesEnBloque,
   } = useEntradasBascula();
   const { role } = useAuth();
@@ -501,9 +502,9 @@ export default function EntradasBascula() {
   // coste" del dashboard de producción a /entradas?tab=mermas): solo lee el
   // valor al montar, igual que el resto de parámetros de conectividad de más
   // abajo (?lote=) — no hace falta sincronizar en cada cambio de URL.
-  const [activeTab, setActiveTab] = useState<"stock" | "dias" | "mermas">(() => {
+  const [activeTab, setActiveTab] = useState<"stock" | "dias" | "mermas" | "conciliacion">(() => {
     const tab = searchParams.get("tab");
-    return tab === "mermas" || tab === "dias" ? tab : "stock";
+    return tab === "mermas" || tab === "dias" || tab === "conciliacion" ? tab : "stock";
   });
   const [highlightLote, setHighlightLote] = useState<string | null>(null);
   const [bloqueDialogOpen, setBloqueDialogOpen] = useState(false);
@@ -981,13 +982,21 @@ export default function EntradasBascula() {
             </div>
           )}
 
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "stock" | "dias" | "mermas")} className="space-y-4">
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "stock" | "dias" | "mermas" | "conciliacion")} className="space-y-4">
             <TabsList className="w-full flex-wrap sm:w-auto">
               <TabsTrigger value="stock">Stock en cámara</TabsTrigger>
               <TabsTrigger value="dias">
                 Entradas por día <Badge variant="secondary" className="ml-1.5 px-1.5 text-[10px]">{entradasPorDia.dias.length}</Badge>
               </TabsTrigger>
               <TabsTrigger value="mermas">Mermas y coste</TabsTrigger>
+              <TabsTrigger value="conciliacion">
+                Conciliación kg
+                {conciliacionKg.excesosSinColocar.length > 0 && (
+                  <Badge variant="outline" className="ml-1.5 border-warning/40 bg-warning/10 px-1.5 text-[10px] text-warning">
+                    {conciliacionKg.excesosSinColocar.length}
+                  </Badge>
+                )}
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="stock" className="mt-0 space-y-4">
@@ -1433,6 +1442,11 @@ export default function EntradasBascula() {
             {/* ─── Mermas y coste: lotes procesados, merma natural + podrido, € solo admin ── */}
             <TabsContent value="mermas" className="mt-0">
               <MermasCosteTab />
+            </TabsContent>
+
+            {/* ─── Conciliación de kg: dónde ha ido cada kg reasignado ───── */}
+            <TabsContent value="conciliacion" className="mt-0">
+              <ConciliacionKgPanel conciliacion={conciliacionKg} filasStock={stock.filas} />
             </TabsContent>
           </Tabs>
 

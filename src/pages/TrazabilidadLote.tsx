@@ -6,6 +6,12 @@
 // histórico importado). Cada paso puede faltar y la ficha lo indica apagando
 // su nodo y cortando la línea en discontinua; Expedición además puede estar
 // oculto del todo si la columna palets_dia.lote_codigo aún no existe.
+//
+// La búsqueda acepta además el código tal cual va impreso en el palet/la
+// malla (NN+AAMMDD, formato del programa de palets) y lo voltea al canónico;
+// y cuando el cruce palets↔entrada es imposible (fruta de cámara: el NN del
+// palet es lote de CONFECCIÓN, no de entrada) la ficha lo avisa y ofrece los
+// volcados del día como origen probable (ver src/lib/origenConfeccion.ts).
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
@@ -27,7 +33,6 @@ import { useTrazabilidadLote } from "@/hooks/useTrazabilidadLote";
 import {
   DIAS_SIN_ACTIVIDAD_TERMINADO,
   esRestoEnCamaraRelevante,
-  normalizarLoteCodigo,
   UMBRAL_PROBABLE_TERMINADO,
   type CierreModo,
   type StockLoteRow,
@@ -35,6 +40,8 @@ import {
 import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatKgCompact as formatKg, formatNumber, formatPct, normalizarTexto } from "@/lib/format";
 import type { MermaLote } from "@/lib/mermaLote";
+import { interpretarCodigoLote, type MotivoIncoherenciaExpedicion } from "@/lib/origenConfeccion";
+import type { OrigenConfeccionLote } from "@/hooks/useTrazabilidadLote";
 import { productorNoCoincide } from "@/lib/productoresCanonicos";
 import { GRUPO_COLORS } from "@/lib/destinoClasificacion";
 import { barFill } from "@/lib/chartTheme";
@@ -59,7 +66,9 @@ function compararLotesActivosPrimero(a: StockLoteRow, b: StockLoteRow): number {
 
 export default function TrazabilidadLote() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const loteParam = normalizarLoteCodigo(searchParams.get("lote"));
+  // interpretarCodigoLote (no normalizarLoteCodigo): un enlace con el código
+  // en formato palet (NN+AAMMDD) también debe abrir la ficha canónica.
+  const loteParam = interpretarCodigoLote(searchParams.get("lote")).codigo;
   const [search, setSearch] = useState("");
 
   const seleccionarLote = (lote: string | null) => {
@@ -111,8 +120,10 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
   }, [stock.filas, searchLower]);
 
   // Si teclean un código de lote completo que no está en la lista (lote antiguo
-  // sin entrada de báscula), se ofrece abrirlo igualmente.
-  const loteDirecto = normalizarLoteCodigo(search);
+  // sin entrada de báscula, o el código impreso en un palet/malla en formato
+  // NN+AAMMDD), se ofrece abrirlo igualmente — volteado al canónico si hace falta.
+  const interpretado = interpretarCodigoLote(search);
+  const loteDirecto = interpretado.codigo;
   const loteDirectoEnLista = loteDirecto ? filas.some((f) => f.lote === loteDirecto) : false;
 
   const lotesActivos = stock.lotesPendientes + stock.lotesParciales;
@@ -145,10 +156,15 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
         <button
           type="button"
           onClick={() => onSelect(loteDirecto)}
-          className="flex w-full items-center gap-2 rounded-xl border border-info/30 bg-info/10 px-4 py-3 text-left text-sm transition-colors hover:bg-info/15"
+          className="flex w-full flex-wrap items-center gap-2 rounded-xl border border-info/30 bg-info/10 px-4 py-3 text-left text-sm transition-colors hover:bg-info/15"
         >
           <Search className="h-4 w-4 shrink-0 text-info" />
           Abrir la trazabilidad del lote <span className="font-semibold tabular-nums">{loteDirecto}</span>
+          {interpretado.eraFormatoPalet && (
+            <span className="text-xs text-muted-foreground">
+              (leído desde el formato del palet: lote {Number(loteDirecto.slice(6))} del día {loteDirecto.slice(4, 6)}/{loteDirecto.slice(2, 4)})
+            </span>
+          )}
           <ArrowRight className="ml-auto h-4 w-4 text-info" />
         </button>
       )}
@@ -215,7 +231,7 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
 
 function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => void; onSelect: (lote: string) => void }) {
   const { data, isLoading, error } = useTrazabilidadLote(lote);
-  const { stock, cerrarLote, reabrirLote } = useEntradasBascula();
+  const { stock, conciliacionKg, cerrarLote, reabrirLote } = useEntradasBascula();
 
   // Navegación ←/→: mismo orden que el selector. Si el lote actual no está en
   // la lista (código antiguo tecleado a mano), se oculta la navegación.
@@ -247,20 +263,39 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
     );
   }
 
-  const { entrada, procesado, kgProcesado, clasificacion, calidad, expedicion, entradaEsPrecalibrado, entradaEsCampoCit } = data;
+  const { entrada, procesado, kgProcesado, clasificacion, calidad, expedicion, origenConfeccion, entradaEsPrecalibrado, entradaEsCampoCit } = data;
   const kgEntrada = entrada ? Number(entrada.kg_entrada) || 0 : 0;
   const kgAjuste = entrada ? Number(entrada.kg_ajuste_stock) || 0 : 0;
-  // kgProcesado (de useTrazabilidadLote) es solo la suma de lotes_dia, sin el
-  // kg_ajuste_stock; por eso se resta aparte aquí. buildStockEntradas en
-  // cambio suma kg_ajuste_stock dentro de su "kgProcesado" antes de restar.
-  // Son fórmulas distintas pero el resultado (enCamara) es equivalente.
-  const enCamara = Math.max(0, kgEntrada - kgProcesado - kgAjuste);
-  const pctProcesado = kgEntrada > 0 ? (kgProcesado / kgEntrada) * 100 : null;
+  // Conciliación de kg (ver src/lib/conciliacionKg.ts): el procesado
+  // conciliado del lote puede diferir de la suma cruda de sus pasadas — por
+  // kg recibidos/cedidos (pasadas que mezclan lotes), reciclaje descontado o
+  // exceso enviado a revisión. Para cabecera y "en cámara" se usa el
+  // conciliado (mismos números que la lista de stock/Entradas); el paso 2
+  // sigue listando las pasadas crudas con una nota si hay diferencia.
+  const filaConciliada = conciliacionKg?.procesados.find((p) => p.lote_codigo === data.lote);
+  const conciliacionCargada = (conciliacionKg?.procesados.length ?? 0) > 0;
+  // Boxes de reciclaje anotados en las pasadas de ESTE lote (descontados a
+  // ~30 kg/box por la conciliación: fruta que vuelve de la línea, ya contada).
+  const reciclajeLote = (conciliacionKg?.reciclaje ?? []).filter((r) => r.lote === data.lote);
+  const boxesLote = reciclajeLote.reduce((s, r) => s + r.nBox, 0);
+  const kgBoxesLote = reciclajeLote.reduce((s, r) => s + r.kg, 0);
+  const kgProcesadoConciliado = filaConciliada
+    ? filaConciliada.kg_peso_total
+    : conciliacionCargada && entrada
+      ? 0 // entrada conocida sin ninguna asignación conciliada: nada procesado
+      : kgProcesado; // conciliación aún sin cargar, o código sin entrada: se muestra el crudo
+  const difConciliacion = kgProcesadoConciliado - kgProcesado;
+  const enCamara = Math.max(0, kgEntrada - kgProcesadoConciliado - kgAjuste);
+  const pctProcesado = kgEntrada > 0 ? (kgProcesadoConciliado / kgEntrada) * 100 : null;
   const destinoPrincipal = clasificacion.grupos.length > 0
     ? [...clasificacion.grupos].sort((a, b) => b.pct - a.pct)[0]
     : null;
   const ultimaCalidad = calidad[0];
-  const sinNada = !entrada && procesado.length === 0 && clasificacion.kgClasificado === 0 && calidad.length === 0;
+  // "Sin nada" de verdad: tampoco hay palets ni origen de confección que
+  // enseñar (un código de confección huérfano — p. ej. 26070803 tecleado como
+  // 03260708 desde la etiqueta — SÍ tiene algo que contar: los volcados del día).
+  const sinNada = !entrada && procesado.length === 0 && clasificacion.kgClasificado === 0 && calidad.length === 0
+    && !origenConfeccion && (expedicion?.paletsCount ?? 0) === 0 && (expedicion?.paletsPrecalibrado ?? 0) === 0;
 
   // Aviso discreto (no bloquea nada): la báscula y el calibrador apuntan a
   // productores distintos para el mismo lote. Compara por id si ambos lo
@@ -383,7 +418,7 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
             <FlowFlecha />
             <FlowEtapa
               label="Calibrador"
-              value={formatKg(kgProcesado)}
+              value={formatKg(kgProcesadoConciliado)}
               valueClass={pctProcesado != null && pctProcesado >= 99.5 ? "text-success" : undefined}
               sub={pctProcesado != null ? formatPct(pctProcesado) : undefined}
               nota={esRestoEnCamaraRelevante(enCamara, kgEntrada) ? `${formatKg(enCamara)} en cámara` : undefined}
@@ -447,7 +482,7 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
                 <CerrarLoteDialog
                   lote={data.lote}
                   kgEntrada={kgEntrada}
-                  kgProcesado={kgProcesado + kgAjuste}
+                  kgProcesado={kgProcesadoConciliado + kgAjuste}
                   isPending={cerrarLote.isPending}
                   onConfirm={handleCerrar}
                   trigger={(
@@ -559,6 +594,27 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
                 {procesado.some((p) => p.esPrecalibrado) && <> · incluye pasadas de precalibrado</>}
                 {" "}· clic en una fila para abrir su parte
               </p>
+              {Math.abs(difConciliacion) > 1 && (
+                <p
+                  className="flex items-start gap-1.5 rounded-lg border border-info/30 bg-info/10 px-2.5 py-1.5 text-xs text-muted-foreground"
+                  title="El calibrador atribuye cada pasada al primer código de lote de su nombre, pero en línea se mezclan lotes (varios camiones seguidos, boxes de reciclaje, precalibrado). La conciliación reparte esos kg entre los lotes implicados: primero los nombrados en la propia pasada, luego lotes con pendiente de la misma finca y variedad, luego misma variedad. Los datos crudos de las pasadas no se modifican."
+                >
+                  <Scale className="mt-0.5 h-3.5 w-3.5 shrink-0 text-info" />
+                  <span>
+                    Procesado conciliado: <span className="font-semibold text-foreground tabular-nums">{formatKg(kgProcesadoConciliado)}</span>{" "}
+                    ({difConciliacion > 0 ? "recibe" : "cede"} <span className="tabular-nums">{formatKg(Math.abs(difConciliacion))}</span>{" "}
+                    {difConciliacion > 0
+                      ? "de pasadas del calibrador atribuidas a otros lotes"
+                      : "hacia otros lotes, reciclaje o revisión: sus pasadas superan su entrada"}).
+                    {boxesLote > 0 && (
+                      <> Incluye <span className="font-semibold tabular-nums">{formatNumber(boxesLote)}</span> box de
+                      reciclaje descontados (≈{formatKg(kgBoxesLote)}) anotados en sus pasadas.</>
+                    )}
+                    {" "}Cabecera, stock y "en cámara" usan este valor; la lista de arriba es el dato crudo del calibrador.
+                    {" "}<Link to="/entradas?tab=conciliacion" className="text-info hover:underline">Ver conciliación completa →</Link>
+                  </span>
+                </p>
+              )}
             </div>
           )}
         </TimelinePaso>
@@ -658,11 +714,19 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
             titulo="Expedición"
             activo={expedicion.paletsCount > 0}
             esUltimo
-            vacio={expedicion.paletsCount === 0 && expedicion.paletsPrecalibrado === 0
+            vacio={expedicion.paletsCount === 0 && expedicion.paletsPrecalibrado === 0 && !origenConfeccion
               && "Sin palets vinculados a este lote (solo disponible para lotes del histórico importado)."}
           >
-            {(expedicion.paletsCount > 0 || expedicion.paletsPrecalibrado > 0) && (
+            {(expedicion.paletsCount > 0 || expedicion.paletsPrecalibrado > 0 || origenConfeccion) && (
               <div className="space-y-3">
+                {origenConfeccion && (
+                  <OrigenConfeccionAviso
+                    origen={origenConfeccion}
+                    kgEntrada={kgEntrada}
+                    kgExpedido={expedicion.kgNeto}
+                    onSelect={onSelect}
+                  />
+                )}
                 {expedicion.paletsCount > 0 ? (
                   <>
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -774,6 +838,100 @@ function TimelinePaso({ icon: Icon, titulo, activo, esUltimo = false, vacio, acc
           </CardContent>
         </Card>
       </div>
+    </div>
+  );
+}
+
+// ─── Origen probable cuando el cruce palets↔entrada es imposible ─────────────
+// El NN del lote del palet es el nº de ENTRADA en báscula de ese día (se
+// asigna al dar entrada al camión — corrección del dueño, 21-jul-2026): con
+// fruta de cámara apunta a una entrada interna (PREC) o a una ajena y NO
+// identifica la fruta. El aviso lo explica y ofrece los volcados de ese día
+// como candidatos, sin señalar ninguno como "el bueno" (los kg de cada
+// volcado son la única pista honesta). Ver src/lib/origenConfeccion.ts.
+
+const MOTIVO_INCOHERENCIA_TEXTO: Record<MotivoIncoherenciaExpedicion, (kgEntrada: number, kgExpedido: number) => string> = {
+  sin_entrada: () =>
+    "No existe ninguna entrada de báscula con este código: es el nº de lote de confección del día (numeración del programa de palets), no un lote de fruta.",
+  entrada_precalibrado: (kgEntrada, kgExpedido) =>
+    `La entrada con este código es un movimiento interno de precalibrado (${formatKg(kgEntrada)}), pero hay ${formatKg(kgExpedido)} expedidos: los palets no son de esa entrada.`,
+  kg_superan_entrada: (kgEntrada, kgExpedido) =>
+    `Los kg expedidos (${formatKg(kgExpedido)}) superan la entrada (${formatKg(kgEntrada)}): físicamente imposible, el cruce por código es falso.`,
+};
+
+function OrigenConfeccionAviso({ origen, kgEntrada, kgExpedido, onSelect }: {
+  origen: OrigenConfeccionLote;
+  kgEntrada: number;
+  kgExpedido: number;
+  onSelect: (lote: string) => void;
+}) {
+  return (
+    <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5">
+      <p className="flex items-start gap-1.5 text-xs font-medium text-warning">
+        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span>
+          {kgExpedido > 0 && <>Estos palets NO son de la entrada de este código.{" "}</>}
+          {MOTIVO_INCOHERENCIA_TEXTO[origen.motivo](kgEntrada, kgExpedido)}
+        </span>
+      </p>
+
+      {origen.volcados.length > 0 ? (
+        <div className="mt-2 space-y-1.5">
+          <p className="text-xs text-muted-foreground">
+            {origen.numeroDelDia != null && (
+              <>El nº <span className="font-semibold">{origen.numeroDelDia}</span> del código es el orden de ENTRADA en
+              báscula de ese día, no identifica la fruta confeccionada. </>
+            )}
+            La fruta salió de los volcados del {origen.fecha ? formatDate(origen.fecha) : "día de confección"}, repartida
+            aproximadamente según los kg de cada uno:
+          </p>
+          {origen.volcados.map((v) => {
+            const contenido = (
+              <>
+                <span className="w-6 shrink-0 text-center text-xs font-semibold tabular-nums text-muted-foreground">
+                  {v.numero}º
+                </span>
+                <span className="tabular-nums text-sm font-semibold">{formatKg(v.kg)}</span>
+                {v.hora_inicio && <span className="text-xs tabular-nums text-muted-foreground">{v.hora_inicio.slice(0, 5)} h</span>}
+                {v.productor && <span className="min-w-0 truncate text-xs">{v.productor}</span>}
+                {v.producto && <span className="min-w-0 truncate text-xs text-muted-foreground">{v.producto}</span>}
+                {v.esPrecalibrado && (
+                  <Badge variant="outline" className="border-[var(--glass-border)] bg-muted px-1.5 py-0 text-[10px] font-normal text-muted-foreground">
+                    precalibrado
+                  </Badge>
+                )}
+                {v.codigo && <ArrowRight className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+              </>
+            );
+            const clase = "flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-left";
+            return v.codigo ? (
+              <button
+                key={`${v.codigo}-${v.numero}`}
+                type="button"
+                onClick={() => onSelect(v.codigo as string)}
+                className={cn(clase, "transition-colors hover:bg-[var(--glass-bg-strong)]")}
+                title={v.lote_codigo ?? undefined}
+              >
+                {contenido}
+              </button>
+            ) : (
+              <div key={`sin-codigo-${v.numero}`} className={clase} title={v.lote_codigo ?? undefined}>
+                {contenido}
+              </div>
+            );
+          })}
+          <p className="text-[11px] text-muted-foreground">
+            Orden por hora del calibrador. El reparto exacto fruta ↔ palet dentro del día solo lo conoce el ERP: aquí el
+            volcado dominante en kg es el origen más probable de cualquier palet del día.
+          </p>
+        </div>
+      ) : (
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          {origen.fecha
+            ? `Sin volcados registrados el ${formatDate(origen.fecha)}: importa el Informe PRODUCCION de ese día para ver el origen probable.`
+            : "No se pudo determinar el día de confección de estos palets."}
+        </p>
+      )}
     </div>
   );
 }

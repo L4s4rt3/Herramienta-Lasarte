@@ -304,6 +304,9 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
                   toneladas_hora: sl.toneladas_hora ?? match.toneladas_hora,
                   duracion_min: sl.duracion_min ?? match.duracion_min,
                   peso_fruta_promedio_g: sl.peso_fruta_promedio_g ?? match.peso_fruta_promedio_g,
+                  // La hora del servidor manda: la IA confundía la "Hora de
+                  // la Máquina" (duración) con la hora de inicio.
+                  hora_inicio: sl.hora_inicio ?? match.hora_inicio ?? null,
                 };
               });
             } else {
@@ -526,6 +529,10 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
         kg_neto:    Number(r.kg_neto) || 0,
         situacion:  r.situacion ?? null,
         n_cajas:    Number(r.n_cajas) || null,
+        // Canónico AAMMDDNN (lo trae extractPaletsDetalle desde la columna
+        // "Lote" del programa de palets): enlaza el palet con su lote de
+        // confección en Trazabilidad sin depender del backfill del histórico.
+        lote_codigo: r.lote_codigo ?? null,
         egipto:     r.es_egipto === true,
         campo:      r.es_campo === true,
       }));
@@ -807,9 +814,27 @@ function extractProduccionTotal(rows: any[][]): number {
   return last;
 }
 
+// "Tiempo de Inicio" a "HH:MM:SS". Las hojas se leen SIN cellDates, así que
+// un datetime llega como serial de Excel (número, la fracción es la hora);
+// se toleran también Date y texto con hora por robustez.
+function horaInicioDesdeCelda(value: unknown): string | null {
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  if (typeof value === "number" && isFinite(value) && value > 0) {
+    const frac = value % 1;
+    const totalSeg = Math.round(frac * 24 * 60 * 60);
+    return `${pad2(Math.floor(totalSeg / 3600) % 24)}:${pad2(Math.floor(totalSeg / 60) % 60)}:${pad2(totalSeg % 60)}`;
+  }
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return `${pad2(value.getHours())}:${pad2(value.getMinutes())}:${pad2(value.getSeconds())}`;
+  }
+  const m = String(value ?? "").match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return null;
+  return `${pad2(Number(m[1]))}:${m[2]}:${m[3] ?? "00"}`;
+}
+
 function extractLotesDetalle(rows: any[][]): any[] {
   // Buscar columnas en las primeras 50 filas
-  let pesoCol = -1, nombreProdCol = -1, codigoProdCol = -1, loteCol = -1, tphCol = -1, variedadCol = -1, pesoFrutaCol = -1, duracionCol = -1;
+  let pesoCol = -1, nombreProdCol = -1, codigoProdCol = -1, loteCol = -1, tphCol = -1, variedadCol = -1, pesoFrutaCol = -1, duracionCol = -1, inicioCol = -1;
   for (let i = 0; i < Math.min(rows.length, 50); i++) {
     const r = rows[i] ?? [];
     for (let j = 0; j < r.length; j++) {
@@ -829,14 +854,22 @@ function extractLotesDetalle(rows: any[][]): any[] {
         console.log("[EXTRACT] pesoFrutaCol found at col " + j + ": raw=" + raw + " norm=" + c);
         pesoFrutaCol = j;
       }
-      if (/hora.*maquina|tiempo.*maquina|duracion|tiempo|hora.*calibrador|machine.*time/.test(c)) {
+      // "Tiempo de Inicio" es la HORA de arranque del volcado, no una
+      // duración: hasta jul-2026 caía en duracionCol (por el `tiempo` suelto
+      // del regex) y la IA acababa metiendo la "Hora de la Máquina" como
+      // hora_inicio. Se detecta aparte y se excluye de la duración.
+      if (/inicio/.test(c) && /tiempo|hora/.test(c)) {
+        console.log("[EXTRACT] inicioCol found at col " + j + ": raw=" + raw + " norm=" + c);
+        inicioCol = j;
+      }
+      if (/hora.*maquina|tiempo.*maquina|duracion|tiempo|hora.*calibrador|machine.*time/.test(c) && !/inicio/.test(c)) {
         console.log("[EXTRACT] duracionCol found at col " + j + ": raw=" + raw + " norm=" + c);
         duracionCol = j;
       }
     }
   }
   if (pesoCol < 0) return [];
-  console.log("[EXTRACT] pesoCol=" + pesoCol + " pesoFrutaCol=" + pesoFrutaCol + " tphCol=" + tphCol + " duracionCol=" + duracionCol);
+  console.log("[EXTRACT] pesoCol=" + pesoCol + " pesoFrutaCol=" + pesoFrutaCol + " tphCol=" + tphCol + " duracionCol=" + duracionCol + " inicioCol=" + inicioCol);
   
   const lotes: any[] = [];
   for (let i = 1; i < rows.length; i++) {
@@ -888,7 +921,7 @@ function extractLotesDetalle(rows: any[][]): any[] {
       toneladas_hora: tphCol >= 0 ? (toNum(r[tphCol]) || null) : null,
       duracion_min: duracionMin,
       peso_fruta_promedio_g: pesoFrutaCol >= 0 ? (toNum(r[pesoFrutaCol]) || null) : null,
-      hora_inicio: null,
+      hora_inicio: inicioCol >= 0 ? horaInicioDesdeCelda(r[inicioCol]) : null,
     });
   }
   if (lotes.length > 0) {
@@ -897,28 +930,46 @@ function extractLotesDetalle(rows: any[][]): any[] {
   return lotes;
 }
 
+// Lote del programa de palets ("NN+AAMMDD", p. ej. "02260710" = lote 02 del
+// 10/07/26) al canónico AAMMDD+NN ("26071002") que usa el resto de la app.
+// Réplica de convertirLotePaletACanonico (src/lib/historicoPalets.ts): Deno
+// no puede importar de src/lib. Cualquier cosa que no sean 8 dígitos → null.
+function lotePaletACanonico(value: unknown): string | null {
+  const text = String(value ?? "").trim();
+  if (!/^\d{8}$/.test(text)) return null;
+  return `${text.slice(2)}${text.slice(0, 2)}`;
+}
+
 function extractPaletsDetalle(rows: any[][]): any[] {
-  let netoCol = -1, clienteCol = -1, paletCol = -1, productoCol = -1;
+  let netoCol = -1, clienteCol = -1, paletCol = -1, productoCol = -1, loteCol = -1, cajasCol = -1;
   for (let i = 0; i < Math.min(rows.length, 50); i++) {
     const r = rows[i] ?? [];
     for (let j = 0; j < r.length; j++) {
       const c = norm(r[j]);
+      // Solo letras/dígitos para la columna del nº de palet: la cabecera real
+      // del programa es "NºPalet" (el "º" no es diacrítico y norm() no lo
+      // quita — hasta jul-2026 esta columna NO se reconocía y ~12.000 palets
+      // quedaron con palet_id NULL, imposibles de casar con el histórico).
+      const compacto = c.replace(/[^a-z0-9]/g, "");
       if (c === "netos" || c === "neto" || c === "kg netos" || c === "peso neto" || c === "kgnetos" || c === "peso") netoCol = j;
       if (c === "cliente") clienteCol = j;
-      if (c === "palet" || c === "id" || c === "palet_id") paletCol = j;
+      if (c === "palet" || c === "id" || c === "palet_id" || compacto === "npalet" || compacto === "nopalet" || compacto === "numpalet" || compacto === "numeropalet") paletCol = j;
       if (c === "producto" || c === "variedad" || c === "denominacion_producto" || c === "denominacion producto" || c === "denominacion" || c === "denominación") productoCol = j;
+      if (c === "lote") loteCol = j;
+      if (c === "cajas") cajasCol = j;
     }
   }
   if (netoCol < 0) return [];
-  
+
   const palets: any[] = [];
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i] ?? [];
     if (isTotal(r)) continue;
     const kg = toNum(r[netoCol]);
     if (kg <= 0) continue;
-    
+
     const prodName = productoCol >= 0 ? String(r[productoCol] ?? "").trim() : null;
+    const nCajas = cajasCol >= 0 ? toNum(r[cajasCol]) : 0;
     palets.push({
       palet_id: paletCol >= 0 ? String(r[paletCol] ?? "").trim() : null,
       producto: prodName,
@@ -926,7 +977,8 @@ function extractPaletsDetalle(rows: any[][]): any[] {
       destino: null,
       kg_neto: kg,
       situacion: null,
-      n_cajas: null,
+      n_cajas: nCajas > 0 ? nCajas : null,
+      lote_codigo: loteCol >= 0 ? lotePaletACanonico(r[loteCol]) : null,
       es_egipto: !!prodName && /EGIPTO/i.test(prodName),
       es_campo: !!prodName && /CAMPO|DEL CAMPO|DE CAMPO|CAMPI/i.test(prodName),
     });

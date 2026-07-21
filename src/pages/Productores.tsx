@@ -34,8 +34,12 @@ import { useCalidadReferencias, type CalidadReferenciaRow } from "@/hooks/useCal
 import { mermaLotesEnPeriodo, type MermaLotesAgregado } from "@/lib/mermaLote";
 import { agregarMermaPorProductor, type ItemMermaAgrupable } from "@/lib/mermaPorProductor";
 import { resolveProductorGroupKey } from "@/lib/productoresCanonicos";
+import { buildInformeProductoresFincas, type FincaInforme } from "@/lib/informeProductoresFincas";
+import { exportInformeProductoresFincasExcel, type DetalleEntradaExport } from "@/lib/exportInformeProductoresFincas";
 import type { CalidadEstado } from "@/lib/calidad";
 import { CalidadInformeDialog } from "@/components/CalidadInformeDialog";
+import { ConciliarProductoresDialog } from "@/components/ConciliarProductoresDialog";
+import { FusionarProductoresDialog } from "@/components/FusionarProductoresDialog";
 import { formatKgCompact as formatKg, formatDate, formatPct, today, toISODateLocal, normalizarTexto } from "@/lib/format";
 import { errorMessage } from "@/lib/errorMessage";
 import { toast } from "@/hooks/use-toast";
@@ -51,7 +55,7 @@ import { Input } from "@/components/ui/input";
 import {
   RefreshCw, AlertCircle, BarChart3, Search, X, Loader2, UserPlus,
   ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ArrowLeft, Sprout, Ruler, StickyNote,
-  ArrowUpRight,
+  ArrowUpRight, FileSpreadsheet, GitCompare, Merge,
 } from "lucide-react";
 
 const nf = new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 });
@@ -140,12 +144,12 @@ function MiniMetric({
 
 // ─── Página ───────────────────────────────────────────────────────────────
 
-const DETAIL_TABS = ["resumen", "lotes", "calibres", "calidad", "destino"] as const;
+const DETAIL_TABS = ["resumen", "fincas", "lotes", "calibres", "calidad", "destino"] as const;
 type DetailTab = typeof DETAIL_TABS[number];
 
 export default function Productores() {
   const navigate = useNavigate();
-  const { role } = useAuth();
+  const { user, role } = useAuth();
   const isAdmin = role === "admin";
   const [searchParams, setSearchParams] = useSearchParams();
   const queryProductor = searchParams.get("productor");
@@ -175,9 +179,12 @@ export default function Productores() {
   // MermaLote no traen productor: es el mismo cruce que ya hace el ranking
   // "Pérdida por agricultor" de EntradasBascula.tsx.
   const { lotes: mermaLotesTodos } = useMermaLotes();
-  const { entradas } = useEntradasBascula();
-  const { aliasPorNombreNormalizado } = useProductoresCatalogo();
+  const { entradas, derivadosCampoCit } = useEntradasBascula();
+  const { aliasPorNombreNormalizado, nombrePorProductorId } = useProductoresCatalogo();
   const { referencias: calidadReferencias } = useCalidadReferencias();
+  const [conciliarOpen, setConciliarOpen] = useState(false);
+  const [fusionarOpen, setFusionarOpen] = useState(false);
+  const [exportandoFincas, setExportandoFincas] = useState(false);
 
   const mermaLotesPeriodo = useMemo(
     () => mermaLotesEnPeriodo(mermaLotesTodos, weekRange.start, weekRange.end),
@@ -213,6 +220,75 @@ export default function Productores() {
     }
     return map;
   }, [calidadReferencias, aliasPorNombreNormalizado]);
+
+  // ─── Fincas por productor (entradas de báscula del periodo) ───────────────
+  // El mismo desglose productor → fincas del "listado por proveedor" del ERP,
+  // agrupado con la MISMA clave canónica que el dossier (productorKey), para
+  // la pestaña "Fincas" del detalle y el export Excel del ranking. Incluye
+  // CAMPO/CIT (compra real derivada a Cítrica); el precalibrado interno ya
+  // viene excluido del hook.
+  const entradasInforme = useMemo(
+    () => [...entradas, ...derivadosCampoCit.filas],
+    [entradas, derivadosCampoCit.filas],
+  );
+
+  const informeFincas = useMemo(
+    () =>
+      buildInformeProductoresFincas(
+        entradasInforme.map((e) => ({
+          fecha: e.fecha,
+          agricultor: e.agricultor,
+          // entradas_bascula.productor_id existe en BD pero aún no está en los
+          // tipos generados (mismo cast puntual que el resto de la página).
+          productor_id: (e as { productor_id?: string | null }).productor_id ?? null,
+          finca: e.finca,
+          envases: e.envases,
+          kg_entrada: Number(e.kg_entrada) || 0,
+        })),
+        { desde: weekRange.start, hasta: weekRange.end, aliasPorNombreNormalizado, nombrePorProductorId },
+      ),
+    [entradasInforme, weekRange, aliasPorNombreNormalizado, nombrePorProductorId],
+  );
+
+  const handleExportFincas = async () => {
+    setExportandoFincas(true);
+    try {
+      const detalle: DetalleEntradaExport[] = entradasInforme
+        .filter((e) => e.fecha >= weekRange.start && e.fecha <= weekRange.end)
+        .map((e) => {
+          const agricultor = (e.agricultor ?? "").trim();
+          const productorIdDirecto = (e as { productor_id?: string | null }).productor_id ?? null;
+          const { productorId } = resolveProductorGroupKey(agricultor, productorIdDirecto, aliasPorNombreNormalizado);
+          return {
+            fecha: e.fecha,
+            lote: e.lote,
+            productor: (productorId ? nombrePorProductorId.get(productorId) : null) ?? (agricultor || "Sin agricultor"),
+            finca: e.finca,
+            parcela: e.parcela,
+            articulo: e.articulo,
+            envases: e.envases,
+            kg: Number(e.kg_entrada) || 0,
+          };
+        })
+        .sort((a, b) =>
+          a.productor.localeCompare(b.productor)
+          || (a.finca ?? "").localeCompare(b.finca ?? "")
+          || a.fecha.localeCompare(b.fecha),
+        );
+      await exportInformeProductoresFincasExcel({
+        informe: informeFincas,
+        detalle,
+        desde: weekRange.start,
+        hasta: weekRange.end,
+        usuario: user?.email ?? undefined,
+      });
+      toast({ title: "Excel exportado", description: `${informeFincas.productores.length} productores · ${informeFincas.nFincas} fincas.` });
+    } catch (e) {
+      toast({ title: "No se pudo exportar", description: errorMessage(e), variant: "destructive" });
+    } finally {
+      setExportandoFincas(false);
+    }
+  };
 
   // Si llega un ?productor=X que existe en los datos, preseleccionarlo.
   useEffect(() => {
@@ -346,11 +422,40 @@ export default function Productores() {
             {!loading && hayDatos && <> · {data.productores.length} productor{data.productores.length === 1 ? "" : "es"}</>}
           </p>
         </div>
-        <Button variant="outline" size="sm" className="glass glass-hover" onClick={() => refetch()} disabled={loading}>
-          <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-          Actualizar
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {isAdmin && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="glass glass-hover"
+                onClick={() => setConciliarOpen(true)}
+                title="Corrige los vínculos productor ↔ lotes/entradas usando el listado por proveedor del ERP como fuente de verdad"
+              >
+                <GitCompare className="h-3.5 w-3.5" />
+                Conciliar con ERP
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="glass glass-hover"
+                onClick={() => setFusionarOpen(true)}
+                title="Detecta fichas repetidas del mismo productor (variantes del nombre) y las fusiona en una sola"
+              >
+                <Merge className="h-3.5 w-3.5" />
+                Fusionar duplicados
+              </Button>
+            </>
+          )}
+          <Button variant="outline" size="sm" className="glass glass-hover" onClick={() => refetch()} disabled={loading}>
+            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+            Actualizar
+          </Button>
+        </div>
       </header>
+
+      {isAdmin && <ConciliarProductoresDialog open={conciliarOpen} onOpenChange={setConciliarOpen} />}
+      {isAdmin && <FusionarProductoresDialog open={fusionarOpen} onOpenChange={setFusionarOpen} />}
 
       {/* ─── Cola de "nombres sin vincular" (solo admin) ───────────── */}
       {isAdmin && !selectedDossier && <NombresSinVincularSection />}
@@ -412,6 +517,17 @@ export default function Productores() {
                     <X className="h-3.5 w-3.5" /> Limpiar
                   </Button>
                 )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  onClick={handleExportFincas}
+                  disabled={exportandoFincas || informeFincas.productores.length === 0}
+                  title="Excel con marca Lasarte: totales por productor, desglose por finca y detalle de entradas del periodo"
+                >
+                  {exportandoFincas ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5" />}
+                  Excel fincas
+                </Button>
               </>
             )}
           </div>
@@ -480,6 +596,7 @@ export default function Productores() {
               }
               mermaAgregado={mermaAgregadoPorProductor.get(selectedDossier.productorKey) ?? null}
               referenciasProductor={referenciasPorProductorKey.get(selectedDossier.productorKey) ?? []}
+              fincas={informeFincas.productores.find((p) => p.key === selectedDossier.productorKey)?.fincas ?? []}
               onVerEconomico={isAdmin ? () => navigate("/economico/fruta") : undefined}
             />
           )}
@@ -870,7 +987,7 @@ function CrearProductorDialog({ pendiente, onOpenChange, crearProductorYVincular
 
 function ProductorDetalle({
   dossier, medias, days, kgTotalPeriodo, activeTab, onTabChange, onBack, onLoteClick,
-  posicion, onPrev, onNext, onVerAnalisis, mermaAgregado, referenciasProductor, onVerEconomico,
+  posicion, onPrev, onNext, onVerAnalisis, mermaAgregado, referenciasProductor, fincas, onVerEconomico,
 }: {
   dossier: ProductorDossier;
   medias: MediasPlanta;
@@ -889,6 +1006,8 @@ function ProductorDetalle({
   mermaAgregado: MermaLotesAgregado | null;
   /** Podrido real medido por variedad (calidad_referencias_productor), una fila por variedad. Vacío si no hay informe del calibrador para este productor. */
   referenciasProductor: CalidadReferenciaRow[];
+  /** Fincas del productor según sus entradas de báscula en el periodo (ver informeFincas en Productores()). */
+  fincas: FincaInforme[];
   /** Solo se pasa (no-undefined) cuando el usuario es admin: enlace discreto al forfait de Económico → Fruta. */
   onVerEconomico?: () => void;
 }) {
@@ -1049,6 +1168,7 @@ function ProductorDetalle({
       <Tabs value={activeTab} onValueChange={(v) => onTabChange(v as DetailTab)}>
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
+          <TabsTrigger value="fincas">Fincas · {fincas.length}</TabsTrigger>
           <TabsTrigger value="lotes">Lotes · {dossier.lotes.length}</TabsTrigger>
           <TabsTrigger value="calibres">Calibres y clases</TabsTrigger>
           <TabsTrigger value="calidad">Calidad</TabsTrigger>
@@ -1128,6 +1248,10 @@ function ProductorDetalle({
           <PorProductoCard porProducto={dossier.por_producto} />
         </TabsContent>
 
+        <TabsContent value="fincas">
+          <FincasProductorCard fincas={fincas} />
+        </TabsContent>
+
         <TabsContent value="lotes">
           <HistorialLotes dossier={dossier} onLoteClick={onLoteClick} />
         </TabsContent>
@@ -1147,6 +1271,88 @@ function ProductorDetalle({
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// ─── Fincas del productor (entradas de báscula del periodo) ────────────────
+// El desglose productor → fincas del "listado por proveedor" del ERP, en vivo:
+// se agrupa por finca lo que la báscula registró para este productor en el
+// periodo seleccionado. Incluye CAMPO/CIT; el precalibrado interno no cuenta.
+
+function FincasProductorCard({ fincas }: { fincas: FincaInforme[] }) {
+  const kgTotal = fincas.reduce((s, f) => s + f.kg, 0);
+  if (fincas.length === 0) {
+    return (
+      <Card className="glass-accented">
+        <CardContent className="py-10 text-center">
+          <Sprout className="mx-auto mb-3 h-8 w-8 text-muted-foreground/30" />
+          <p className="text-sm font-medium">Sin entradas de báscula en el periodo</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Las fincas salen de las entradas de báscula vinculadas a este productor. Amplía el periodo o revisa la
+            vinculación (Conciliar con ERP).
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <Card className="glass-accented overflow-hidden">
+      <CardContent className="p-0">
+        <div className="flex items-center gap-2 border-b border-[var(--glass-border)] px-4 py-2.5">
+          <div className="h-5 w-1 rounded-full bg-primary" />
+          <p className="text-sm font-semibold">Fincas del periodo · {fincas.length}</p>
+          <InfoTooltip iconClassName="h-3 w-3">
+            Entradas de báscula del productor agrupadas por finca (incluye CAMPO/CIT; los movimientos internos de
+            precalibrado no cuentan). El mismo desglose que el listado por proveedor del ERP.
+          </InfoTooltip>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-[var(--glass-border)] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground [&>th]:px-3 [&>th]:py-1.5">
+                <th className="text-left">Finca</th>
+                <th className="text-right">Entradas</th>
+                <th className="text-right">Envases</th>
+                <th className="text-right">Kg entrada</th>
+                <th className="text-right">% del productor</th>
+                <th className="text-right">Últ. entrada</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fincas.map((f, i) => (
+                <tr key={f.finca} className={cn("border-b border-[var(--glass-border)] last:border-b-0", i % 2 === 1 && "bg-[var(--glass-bg)]/40")}>
+                  <td className="px-3 py-1.5 font-medium">{f.finca}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{f.nEntradas}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{nf.format(f.envases)}</td>
+                  <td className="px-3 py-1.5 text-right font-medium tabular-nums">{formatKg(f.kg)}</td>
+                  <td className="px-3 py-1.5">
+                    <div className="flex items-center justify-end gap-2">
+                      <div className="h-1.5 w-14 overflow-hidden rounded-full bg-[var(--glass-bg-strong)]">
+                        <div className="h-full rounded-full bg-primary" style={{ width: `${kgTotal > 0 ? Math.min(100, (f.kg / kgTotal) * 100) : 0}%` }} />
+                      </div>
+                      <span className="w-10 shrink-0 text-right tabular-nums text-xs text-muted-foreground">
+                        {kgTotal > 0 ? formatPct((f.kg / kgTotal) * 100) : "—"}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground whitespace-nowrap">{formatDate(f.ultimaFecha)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-[var(--glass-border)] font-semibold [&>td]:px-3 [&>td]:py-1.5">
+                <td>TOTAL</td>
+                <td className="text-right tabular-nums">{fincas.reduce((s, f) => s + f.nEntradas, 0)}</td>
+                <td className="text-right tabular-nums">{nf.format(fincas.reduce((s, f) => s + f.envases, 0))}</td>
+                <td className="text-right tabular-nums">{formatKg(kgTotal)}</td>
+                <td className="text-right tabular-nums">100%</td>
+                <td />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

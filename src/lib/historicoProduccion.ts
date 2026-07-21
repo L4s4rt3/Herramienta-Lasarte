@@ -27,8 +27,15 @@ import { parseFechaBascula } from "@/lib/entradasBascula";
 export interface FilaInformeProduccion {
   /** Texto crudo tal cual viene del informe (puede traer "+", texto pegado, sin código de 8 dígitos, etc.). */
   lote_codigo: string;
-  /** ISO "YYYY-MM-DD", derivada de "Tiempo de Inicio" (solo la fecha; la hora se ignora para agrupar por día). */
+  /** ISO "YYYY-MM-DD", derivada de "Tiempo de Inicio" (solo la fecha; para agrupar por día). */
   fecha: string;
+  /**
+   * "HH:MM:SS" de "Tiempo de Inicio" (hora local del Date que ya construyó
+   * xlsx con cellDates). El ORDEN de los volcados del día importa: es lo que
+   * permite casar el "lote NN del día" del programa de palets con su volcado
+   * (ver src/lib/origenConfeccion.ts). null si el export no trae hora legible.
+   */
+  hora: string | null;
   productor: string | null;
   productor_codigo: string | null;
   /** Columna "Variedad". */
@@ -63,6 +70,23 @@ function toKg(value: unknown): number | null {
   if (!text) return null;
   const parsed = Number(text.replace(",", "."));
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Hora "HH:MM:SS" de "Tiempo de Inicio": normalmente un Date (workbook leído
+ * con cellDates:true, hora local — misma técnica que parseFechaBascula para
+ * la fecha); se tolera también un texto con hora por si un futuro export
+ * cambia el formato de la celda. null si no hay hora legible (p. ej. un
+ * serial numérico sin cellDates: mejor sin hora que una hora inventada).
+ */
+export function parseHoraInicio(value: unknown): string | null {
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return `${pad2(value.getHours())}:${pad2(value.getMinutes())}:${pad2(value.getSeconds())}`;
+  }
+  const m = String(value ?? "").match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return null;
+  return `${pad2(Number(m[1]))}:${m[2]}:${m[3] ?? "00"}`;
 }
 
 /**
@@ -157,6 +181,7 @@ export function parseInformeProduccionRows(rows: unknown[][]): ParseInformeProdu
     filas.push({
       lote_codigo: lote,
       fecha,
+      hora: iTiempoInicio === -1 ? null : parseHoraInicio(row[iTiempoInicio]),
       productor: iProductorNombre === -1 ? null : toText(row[iProductorNombre]),
       productor_codigo: iProductorCodigo === -1 ? null : toText(row[iProductorCodigo]),
       producto: iVariedad === -1 ? null : toText(row[iVariedad]),

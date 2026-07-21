@@ -14,6 +14,8 @@ interface Parte {
   kg_reciclado_malla_z2: number;
   kg_inventario_sin_alta: number;
   kg_podrido_bolsa_basura: number;
+  /** Nº de box de reciclaje del día (~30 kg/box); la conciliación de kg lo descuenta del procesado (migración 20260721140000). */
+  box_reciclaje: number;
   kg_produccion_calibrador: number;
   kg_mujeres_calibrador: number;
   kg_palets_brutos: number;
@@ -71,16 +73,16 @@ export default function PartDetailManual({
                 <Input
                   id={f.key}
                   type="number"
-                  step="0.01"
+                  step={f.unidad === "box" ? "1" : "0.01"}
                   min="0"
-                  inputMode="decimal"
+                  inputMode={f.unidad === "box" ? "numeric" : "decimal"}
                   disabled={readOnly}
                   value={String(parte[f.key] ?? 0)}
                   onChange={(e) => update(f.key, Number(e.target.value))}
                   className={NUMBER_INPUT_CLASS}
                 />
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-muted-foreground">
-                  kg
+                  {f.unidad}
                 </span>
               </div>
             </div>

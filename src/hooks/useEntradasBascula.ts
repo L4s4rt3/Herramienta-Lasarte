@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { buildStockEntradas, type CierreModo, type EntradaBasculaParsed, type LoteProcesadoInput } from "@/lib/entradasBascula";
+import { conciliarKgProcesados, type EntradaConciliacion, type ReciclajeDiaInput } from "@/lib/conciliacionKg";
 import { esEntradaCampoCit, esEntradaPrecalibrado, esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
 import { today } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
@@ -59,18 +60,38 @@ export function useEntradasBascula() {
   });
 
   // Kg procesados por lote: todos los lotes del calibrador con la fecha de su parte.
+  // Trae además el nº de box de reciclaje diario de cada parte (migración
+  // 20260721140000; con degradado si la columna aún no existe) — lo consume
+  // la conciliación de kg para descontar la fruta que vuelve de la línea.
   const procesadosQuery = useQuery({
     queryKey: ["entradas_bascula", "lotes-procesados"],
-    queryFn: async (): Promise<LoteProcesadoInput[]> => {
+    queryFn: async (): Promise<{ procesados: LoteProcesadoInput[]; reciclajePorDia: ReciclajeDiaInput[] }> => {
       // lotes_dia ya supera las 1.000 filas (1.187 tras el histórico): mismo
       // motivo que arriba, paginar con fetchAllRows en vez de .limit(50000).
+      type ParteReciclaje = {
+        id: string;
+        date: string;
+        kg_reciclado_malla_z1?: number | null;
+        kg_reciclado_malla_z2?: number | null;
+        box_reciclaje?: number | null;
+      };
+      const fetchPartes = async (): Promise<ParteReciclaje[]> => {
+        try {
+          return await fetchAllRows<ParteReciclaje>((from, to) =>
+            SUPA.from("partes_diarios").select("id, date, kg_reciclado_malla_z1, kg_reciclado_malla_z2, box_reciclaje").order("id").range(from, to),
+          );
+        } catch (e) {
+          if (!esErrorTablaOColumnaInexistente(e)) throw e;
+          return fetchAllRows<ParteReciclaje>((from, to) =>
+            supabase.from("partes_diarios").select("id, date, kg_reciclado_malla_z1, kg_reciclado_malla_z2").order("id").range(from, to),
+          );
+        }
+      };
       const [lotes, partes] = await Promise.all([
         fetchAllRows<{ lote_codigo: string | null; kg_peso_total: number; part_id: string }>((from, to) =>
           supabase.from("lotes_dia").select("lote_codigo, kg_peso_total, part_id").order("id").range(from, to),
         ),
-        fetchAllRows<{ id: string; date: string }>((from, to) =>
-          supabase.from("partes_diarios").select("id, date").order("id").range(from, to),
-        ),
+        fetchPartes(),
       ]);
       const fechaPorParte = new Map(partes.map((p) => [p.id, p.date]));
       // El PRECALIBRADO SÍ cuenta aquí (regla revisada 2026-07-16, ver
@@ -80,11 +101,23 @@ export function useEntradasBascula() {
       // datos actuales, y para 52 lotes esa pasada PREC es su ÚNICO registro
       // de procesado (excluirla dejaba stock fantasma). Ya no se filtra por
       // productor: cuenta TODA fila de lotes_dia, sea el productor el que sea.
-      return lotes.map((l) => ({
-        lote_codigo: l.lote_codigo,
-        kg_peso_total: Number(l.kg_peso_total) || 0,
-        date: fechaPorParte.get(l.part_id) ?? null,
-      }));
+      return {
+        procesados: lotes.map((l) => ({
+          lote_codigo: l.lote_codigo,
+          kg_peso_total: Number(l.kg_peso_total) || 0,
+          date: fechaPorParte.get(l.part_id) ?? null,
+        })),
+        // Reciclado del parte: bruto (malla Z1+Z2, fruta + envases) y nº de
+        // box; el neto = bruto − nBox × 30 kg de tara lo calcula la
+        // conciliación (ver conciliacionKg.ts, regla del dueño 21-jul-2026).
+        reciclajePorDia: partes
+          .map((p) => ({
+            fecha: p.date,
+            kgBruto: (Number(p.kg_reciclado_malla_z1) || 0) + (Number(p.kg_reciclado_malla_z2) || 0),
+            nBox: Number(p.box_reciclaje) || 0,
+          }))
+          .filter((p) => p.kgBruto > 0),
+      };
     },
     enabled: Boolean(user),
   });
@@ -282,7 +315,7 @@ export function useEntradasBascula() {
   // EntradasBascula.tsx; useMermaLotes; EconomicoFruta.tsx;
   // EconomicoCostes.tsx) sin que cada consumidor tenga que acordarse de
   // filtrar.
-  const { entradas, movimientosPrecalibrado, derivadosCampoCit } = useMemo(() => {
+  const { entradas, entradasPrecalibrado, movimientosPrecalibrado, derivadosCampoCit } = useMemo(() => {
     const entradasTodas = entradasQuery.data ?? [];
     const externas: EntradaBasculaRow[] = [];
     const internas: EntradaBasculaRow[] = [];
@@ -294,6 +327,8 @@ export function useEntradasBascula() {
     }
     return {
       entradas: externas,
+      /** Las filas PREC completas: la conciliación de kg las necesita como tope de las re-pasadas (ver conciliacionKg.ts), aunque sigan fuera del stock. */
+      entradasPrecalibrado: internas,
       movimientosPrecalibrado: {
         count: internas.length,
         kg: internas.reduce((s, e) => s + (Number(e.kg_entrada) || 0), 0),
@@ -305,6 +340,33 @@ export function useEntradasBascula() {
       },
     };
   }, [entradasQuery.data]);
+
+  // ─── Conciliación de kg procesados (reglas del dueño, 21-jul-2026) ─────────
+  // El calibrador atribuye cada pasada al primer código de su nombre, pero en
+  // línea se mezclan lotes (647 lotes con proc>entrada, 1,87 M kg de exceso;
+  // 3,5 M kg de "stock fantasma" en lotes cuya fruta se procesó bajo otro
+  // código). conciliarKgProcesados reparte multi-códigos, descuenta boxes de
+  // reciclaje (~30 kg/box), acota el PREC y derrama los excesos a lotes con
+  // pendiente (misma finca+variedad, luego misma variedad) — ver
+  // src/lib/conciliacionKg.ts. El stock se construye con el resultado; los
+  // datos crudos de lotes_dia no se tocan.
+  const conciliacionKg = useMemo(() => {
+    const aConciliacion = (e: EntradaBasculaRow, esPrec: boolean): EntradaConciliacion => ({
+      lote: e.lote,
+      fecha: e.fecha,
+      finca: e.finca,
+      articulo: e.articulo,
+      kg_entrada: Number(e.kg_entrada) || 0,
+      kg_preasignado: Math.max(0, Number(e.kg_ajuste_stock) || 0),
+      esPrecalibrado: esPrec,
+      cerrado: Boolean(e.cerrado_at),
+    });
+    return conciliarKgProcesados(
+      [...entradas.map((e) => aConciliacion(e, false)), ...entradasPrecalibrado.map((e) => aConciliacion(e, true))],
+      procesadosQuery.data?.procesados ?? [],
+      procesadosQuery.data?.reciclajePorDia ?? [],
+    );
+  }, [entradas, entradasPrecalibrado, procesadosQuery.data]);
 
   const stock = useMemo(
     () => buildStockEntradas(
@@ -319,16 +381,18 @@ export function useEntradasBascula() {
         cerrado_at: e.cerrado_at ?? null,
         cierre_modo: e.cierre_modo ?? null,
       })),
-      procesadosQuery.data ?? [],
+      conciliacionKg.procesados,
       today(),
     ),
-    [entradas, procesadosQuery.data],
+    [entradas, conciliacionKg],
   );
 
   return {
     entradas,
     stock,
-    procesados: procesadosQuery.data ?? [],
+    procesados: procesadosQuery.data?.procesados ?? [],
+    /** Reparto de kg entre lotes hecho por conciliarKgProcesados (movimientos, cola de revisión, reciclaje, delta por lote) — para auditar y para los avisos de la ficha. */
+    conciliacionKg,
     movimientosPrecalibrado,
     derivadosCampoCit,
     isLoading: entradasQuery.isLoading || procesadosQuery.isLoading,

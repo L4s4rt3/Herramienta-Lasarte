@@ -73,6 +73,8 @@ interface PreviewInforme {
   diasNuevos: number;
   /** Fechas cuyas filas ya existían TODAS: nada que insertar para ellas. */
   diasSinNuevas: number;
+  /** Filas YA existentes sin hora_inicio a las que este archivo puede rellenársela (BACKFILL): también es trabajo útil aunque no haya nada nuevo que insertar. */
+  horasARellenar: number;
 }
 
 interface PreviewPalets {
@@ -144,6 +146,10 @@ function HistoricoImportAdmin() {
   const [previewPalets, setPreviewPalets] = useState<PreviewPalets | null>(null);
   const [progresoPalets, setProgresoPalets] = useState<{ hechos: number; total: number } | null>(null);
   const [resumenFinalPalets, setResumenFinalPalets] = useState<ImportarHistoricoPaletsResumen | null>(null);
+  // Reparación de palets anónimos (el analizador del parte no reconocía la
+  // cabecera "NºPalet" y guardó los palets sin nº: el backfill no casaba
+  // nada). ON por defecto: sustituye los palets sin nº por los del export.
+  const [reemplazarSinId, setReemplazarSinId] = useState(true);
   const { fechasCubiertas, isLoadingFechasCubiertas, importar: importarPalets } = useHistoricoImportPalets();
 
   const fileInputRefInformes = useRef<HTMLInputElement>(null);
@@ -186,15 +192,25 @@ function HistoricoImportAdmin() {
       // compara cada grupo contra lo que YA existe en lotes_dia para esa
       // fecha+lote — la misma unidad que usará la mutación al confirmar.
       const clavesPorFecha = clavesCubiertas?.clavesPorFecha ?? new Map<string, Set<string>>();
+      const horasPorFechaClave = clavesCubiertas?.horasPorFechaClave ?? new Map<string, Array<string | null>>();
       const agregadas = agruparFilasProduccionPorFechaLote(resultado.filas);
       let filasAInsertar = 0;
       let filasExistentes = 0;
+      let horasARellenar = 0;
       const fechasConNueva = new Set<string>();
       const fechasSinNueva = new Set<string>();
       for (const fila of agregadas) {
         const yaExiste = clavesPorFecha.get(fila.fecha)?.has(fila.clave) ?? false;
         if (yaExiste) {
           filasExistentes += 1;
+          // BACKFILL/CORRECCIÓN: la fila ya existe con hora NULL o con una
+          // hora DISTINTA de la del calibrador (la IA del parte metía la
+          // duración como hora de inicio) — reimportar sigue siendo trabajo
+          // útil (mismo criterio que la mutación en useHistoricoImport.ts).
+          const horasExistentes = horasPorFechaClave.get(`${fila.fecha}::${fila.clave}`) ?? [];
+          if (fila.hora != null && horasExistentes.some((h) => (h ?? "").slice(0, 8) !== (fila.hora as string).slice(0, 8))) {
+            horasARellenar += 1;
+          }
         } else {
           filasAInsertar += 1;
           fechasConNueva.add(fila.fecha);
@@ -213,6 +229,7 @@ function HistoricoImportAdmin() {
         filasExistentes,
         diasNuevos: fechasConNueva.size,
         diasSinNuevas: fechasSinNueva.size,
+        horasARellenar,
       });
     } catch (e) {
       toast({ title: "No se pudo leer el archivo", description: errorMessage(e), variant: "destructive" });
@@ -237,7 +254,7 @@ function HistoricoImportAdmin() {
           setProgreso(null);
           toast({
             title: "Histórico importado",
-            description: `${resumen.filasInsertadas} fila(s) insertada(s) en ${resumen.diasNuevos} día(s), ${resumen.filasExistentes} ya existente(s) (fecha+lote), ${resumen.diasSinNuevas} día(s) sin filas nuevas.`,
+            description: `${resumen.filasInsertadas} fila(s) insertada(s) en ${resumen.diasNuevos} día(s), ${resumen.filasExistentes} ya existente(s) (fecha+lote), ${resumen.diasSinNuevas} día(s) sin filas nuevas${resumen.horasRellenadas > 0 ? `, ${resumen.horasRellenadas} hora(s) de inicio rellenada(s)/corregida(s) en filas ya importadas` : ""}.`,
           });
         },
         onError: (e) => {
@@ -307,6 +324,7 @@ function HistoricoImportAdmin() {
     importarPalets.mutate(
       {
         filas: previewPalets.filas,
+        reemplazarSinId,
         onProgress: (hechos, total) => setProgresoPalets({ hechos, total }),
       },
       {
@@ -316,7 +334,7 @@ function HistoricoImportAdmin() {
           setProgresoPalets(null);
           toast({
             title: "Histórico de palets importado",
-            description: `${resumen.diasNuevos} día(s) nuevo(s) (${resumen.paletsInsertados} palet(s) creado(s)), ${resumen.diasBackfill} día(s) de backfill (${resumen.paletsBackfilled} lote(s) rellenado(s), ${resumen.paletsSinCasar} sin casar).`,
+            description: `${resumen.diasNuevos} día(s) nuevo(s) (${resumen.paletsInsertados} palet(s) creado(s)), ${resumen.diasBackfill} día(s) de backfill (${resumen.paletsBackfilled} lote(s) rellenado(s), ${resumen.paletsSinCasar} sin casar)${resumen.paletsReemplazadosInsertados > 0 ? `, ${resumen.paletsReemplazadosEliminados} palet(s) sin nº reemplazado(s) por ${resumen.paletsReemplazadosInsertados} identificado(s) en ${resumen.diasReemplazo} día(s)` : ""}.`,
           });
         },
         onError: (e) => {
@@ -509,6 +527,9 @@ function HistoricoImportAdmin() {
                   <MiniKpi variant="card" label="Filas ya existentes (se saltan)" value={formatNumber(preview.filasExistentes)} />
                   <MiniKpi variant="card" label="Días con filas nuevas" value={formatNumber(preview.diasNuevos)} />
                   <MiniKpi variant="card" label="Días sin filas nuevas" value={formatNumber(preview.diasSinNuevas)} />
+                  {preview.horasARellenar > 0 && (
+                    <MiniKpi variant="card" label="Horas de inicio a rellenar/corregir" value={formatNumber(preview.horasARellenar)} />
+                  )}
                 </div>
 
                 {(preview.declarado.lotesDeclarados != null || preview.declarado.kgDeclarados != null) && (
@@ -554,15 +575,26 @@ function HistoricoImportAdmin() {
                 )}
 
                 <div className="flex items-center gap-2">
-                  <Button size="sm" onClick={confirmarImport} disabled={importar.isPending || preview.filasAInsertar === 0}>
+                  {/* El BACKFILL de horas también es trabajo útil: con todo ya
+                      importado pero filas sin hora_inicio (imports anteriores a
+                      jul-2026 la tiraban), el botón sigue habilitado. */}
+                  <Button size="sm" onClick={confirmarImport} disabled={importar.isPending || (preview.filasAInsertar === 0 && preview.horasARellenar === 0)}>
                     {importar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                    Confirmar import
+                    {preview.filasAInsertar === 0 && preview.horasARellenar > 0 ? "Corregir horas de inicio" : "Confirmar import"}
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => setPreview(null)} disabled={importar.isPending}>
                     Cancelar
                   </Button>
                 </div>
-                {preview.filasAInsertar === 0 && (
+                {preview.filasAInsertar === 0 && preview.horasARellenar > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Nada nuevo que insertar, pero {formatNumber(preview.horasARellenar)} fila(s) ya importada(s) tienen
+                    la hora de inicio vacía o distinta de la del calibrador (la captura del parte confundía la duración
+                    con la hora): al confirmar solo se corrigen esas horas (ordenan los volcados del día en
+                    Trazabilidad), sin duplicar nada.
+                  </p>
+                )}
+                {preview.filasAInsertar === 0 && preview.horasARellenar === 0 && (
                   <p className="text-xs text-muted-foreground">
                     Todas las filas de este archivo (por fecha+lote) ya están importadas: no hay nada nuevo que hacer.
                   </p>
@@ -580,6 +612,14 @@ function HistoricoImportAdmin() {
                   <span className="font-semibold tabular-nums">{resumenFinal.diasNuevos}</span> día(s),{" "}
                   <span className="font-semibold tabular-nums">{resumenFinal.filasExistentes}</span> ya existente(s) (fecha+lote),{" "}
                   <span className="font-semibold tabular-nums">{resumenFinal.diasSinNuevas}</span> día(s) sin filas nuevas.
+                  {resumenFinal.horasRellenadas > 0 && (
+                    <>
+                      {" "}Además se rellenó o corrigió la <span className="font-semibold">hora de inicio</span> de{" "}
+                      <span className="font-semibold tabular-nums">{resumenFinal.horasRellenadas}</span> fila(s) ya
+                      importada(s) (los imports antiguos no la guardaban y la captura del parte confundía la duración
+                      con la hora; ordena los volcados del día en Trazabilidad).
+                    </>
+                  )}
                 </p>
               </CardContent>
             </Card>
@@ -660,6 +700,23 @@ function HistoricoImportAdmin() {
                   </div>
                 )}
 
+                <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={reemplazarSinId}
+                    onChange={(e) => setReemplazarSinId(e.target.checked)}
+                    disabled={importarPalets.isPending}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="font-semibold">Reemplazar palets sin nº de palet.</span>{" "}
+                    En los días ya cubiertos, los palets guardados sin nº (el analizador del parte no reconocía la
+                    columna "NºPalet") se eliminan y se insertan en su lugar los del export, con su nº y su código de
+                    lote — es lo que permite a Trazabilidad vincular palets con lotes. Los palets que ya tienen nº no
+                    se tocan.
+                  </span>
+                </label>
+
                 <div className="flex items-center gap-2">
                   <Button size="sm" onClick={confirmarImportPalets} disabled={importarPalets.isPending}>
                     {importarPalets.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
@@ -686,6 +743,13 @@ function HistoricoImportAdmin() {
                     {resumenFinalPalets.paletsSinCasar}
                   </span>{" "}
                   sin casar).
+                  {resumenFinalPalets.paletsReemplazadosInsertados > 0 && (
+                    <>
+                      {" "}Reemplazo: <span className="font-semibold tabular-nums">{resumenFinalPalets.paletsReemplazadosEliminados}</span>{" "}
+                      palet(s) sin nº eliminados y <span className="font-semibold tabular-nums">{resumenFinalPalets.paletsReemplazadosInsertados}</span>{" "}
+                      insertados con nº y lote en <span className="font-semibold tabular-nums">{resumenFinalPalets.diasReemplazo}</span> día(s).
+                    </>
+                  )}
                 </p>
               </CardContent>
             </Card>

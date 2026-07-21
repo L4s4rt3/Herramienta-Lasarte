@@ -58,6 +58,8 @@ interface Parte {
   kg_reciclado_malla_z2: number;
   kg_inventario_sin_alta: number;
   kg_podrido_bolsa_basura: number;
+  /** Nº de box de reciclaje del día (~30 kg/box, dato manual; migración 20260721140000). */
+  box_reciclaje: number;
   kg_produccion_calibrador: number;
   kg_mujeres_calibrador: number;
   kg_palets_brutos: number;
@@ -101,7 +103,10 @@ interface Archivo {
   uploaded_at: string;
 }
 
-type ParteUpdatePayload = TablesUpdate<"partes_diarios">;
+// box_reciclaje todavía no está en el Database generado (migración
+// 20260721140000 pendiente de regenerar tipos): se añade a mano, mismo
+// patrón que cerrado_at/cierre_modo en useEntradasBascula.ts.
+type ParteUpdatePayload = TablesUpdate<"partes_diarios"> & { box_reciclaje?: number };
 
 function normalizeParte(raw: Partial<CachedParte> & { id: string; date: string; estado: string }): Parte {
   return {
@@ -113,6 +118,7 @@ function normalizeParte(raw: Partial<CachedParte> & { id: string; date: string; 
     kg_reciclado_malla_z2: Number(raw.kg_reciclado_malla_z2) || 0,
     kg_inventario_sin_alta: Number(raw.kg_inventario_sin_alta) || 0,
     kg_podrido_bolsa_basura: Number(raw.kg_podrido_bolsa_basura) || 0,
+    box_reciclaje: Number((raw as { box_reciclaje?: number | null }).box_reciclaje) || 0,
     kg_produccion_calibrador: Number(raw.kg_produccion_calibrador) || 0,
     kg_mujeres_calibrador: Number(raw.kg_mujeres_calibrador) || 0,
     kg_palets_brutos: Number(raw.kg_palets_brutos) || 0,
@@ -460,7 +466,14 @@ export default function PartDetail() {
       const abs = Math.abs(cascade.dsj_pct);
       payload.estado = abs > 3 ? "Con descuadre" : abs >= 1 ? "Analizado" : "Validado";
     }
-    const { error } = await supabase.from("partes_diarios").update(payload).eq("id", parte.id);
+    let { error } = await supabase.from("partes_diarios").update(payload).eq("id", parte.id);
+    // Degradado: si la columna box_reciclaje aún no existe en la BD
+    // (migración 20260721140000 sin aplicar), reintenta sin ella para no
+    // bloquear el guardado del resto del parte.
+    if (error && /box_reciclaje/.test(error.message)) {
+      delete payload.box_reciclaje;
+      ({ error } = await supabase.from("partes_diarios").update(payload).eq("id", parte.id));
+    }
     setSaving(false);
     if (error) return toast({ title: "Error", description: error.message, variant: "destructive" });
     toast({ title: "Guardado" });
