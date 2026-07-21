@@ -64,6 +64,10 @@ export interface ProcesadoLote {
   duracion_min: number | null;
   producto: string | null;
   productor: string | null;
+  /** Destrío a industria de esta pasada (kg_industria del parte; 0 = sin dato o sin destrío). */
+  kg_industria: number;
+  /** Nota del parte para esta pasada, tal cual (el filtro de boilerplate lo hace la UI con esNotaOperarioLote). */
+  notas: string | null;
   /** Catálogo de productores (migración 20260714090000, pendiente de aplicar): undefined si la columna aún no existe. */
   productor_id?: string | null;
   /**
@@ -192,7 +196,7 @@ export interface TrazabilidadLote {
   entradaEsCampoCit: boolean;
 }
 
-const LOTES_DIA_COLUMNAS_BASE = "part_id, lote_codigo, kg_peso_total, toneladas_hora, duracion_min, producto, productor";
+const LOTES_DIA_COLUMNAS_BASE = "part_id, lote_codigo, kg_peso_total, toneladas_hora, duracion_min, producto, productor, kg_industria, notas";
 
 interface LotesDiaProcesadoRawRow {
   part_id: string;
@@ -202,6 +206,8 @@ interface LotesDiaProcesadoRawRow {
   duracion_min: number | null;
   producto: string | null;
   productor: string | null;
+  kg_industria: number | null;
+  notas: string | null;
   /** Columna nueva (migración 20260714090000 pendiente de aplicar): undefined si aún no existe. */
   productor_id?: string | null;
 }
@@ -323,7 +329,7 @@ async function fetchOrigenConfeccion(
 
   const { data: lotes, error: lotesError } = await SUPA
     .from("lotes_dia")
-    .select("lote_codigo, productor, producto, kg_peso_total, hora_inicio, created_at")
+    .select("lote_codigo, productor, producto, kg_peso_total, hora_inicio, created_at, kg_industria, notas")
     .in("part_id", partIds)
     .limit(500);
   if (lotesError) throw toError(lotesError);
@@ -335,6 +341,8 @@ async function fetchOrigenConfeccion(
     kg_peso_total: number | null;
     hora_inicio: string | null;
     created_at: string | null;
+    kg_industria: number | null;
+    notas: string | null;
   }>).map((l) => ({
     lote_codigo: l.lote_codigo,
     productor: l.productor,
@@ -343,6 +351,8 @@ async function fetchOrigenConfeccion(
     hora_inicio: l.hora_inicio,
     created_at: l.created_at,
     esPrecalibrado: esProductorPrecalibrado(l.productor),
+    kg_industria: Number(l.kg_industria) || 0,
+    notas: l.notas,
   }));
 
   return {
@@ -399,6 +409,8 @@ export function useTrazabilidadLote(loteInput: string | null) {
           producto: (l.producto as string | null) ?? null,
           productor: (l.productor as string | null) ?? null,
           productor_id: (l.productor_id as string | null | undefined) ?? undefined,
+          kg_industria: Number(l.kg_industria) || 0,
+          notas: (l.notas as string | null) ?? null,
           esPrecalibrado: esProductorPrecalibrado(l.productor as string | null),
         }))
         .sort((a, b) => (a.fecha ?? "").localeCompare(b.fecha ?? ""));

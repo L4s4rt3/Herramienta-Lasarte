@@ -13,7 +13,24 @@ import { toError } from "@/lib/errorMessage";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { buildStockEntradas, type CierreModo, type EntradaBasculaParsed, type LoteProcesadoInput } from "@/lib/entradasBascula";
 import { conciliarKgProcesados, type EntradaConciliacion, type ReciclajeDiaInput } from "@/lib/conciliacionKg";
+import { normalizarLoteCodigo } from "@/lib/loteCodigo";
 import { esEntradaCampoCit, esEntradaPrecalibrado, esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
+import { esNotaOperarioLote } from "@/lib/trazabilidadSelector";
+
+/** Pasada de lotes_dia con los extras de calidad que consume Trazabilidad (notas del operario y destrío a industria). */
+export type LoteProcesadoConCalidad = LoteProcesadoInput & { kg_industria: number; notas: string | null };
+
+/** Señales de calidad por lote derivadas de las pasadas: % a industria (destrío medible) y notas del operario. */
+export interface CalidadLotesDerivada {
+  /** kg a industria acumulados por lote (solo lotes con dato > 0). */
+  industriaKgPorLote: Map<string, number>;
+  /** kg_industria / kg procesado crudo, 0..1 (solo lotes con base > 0). */
+  pctIndustriaPorLote: Map<string, number>;
+  /** Media PONDERADA de % industria por variedad (articulo): Σ industria / Σ procesado de sus lotes. */
+  mediaIndustriaPorVariedad: Map<string, number>;
+  /** Notas del OPERARIO por lote (boilerplate de imports excluido), concatenadas con " · ". */
+  notasPorLote: Map<string, string>;
+}
 import { today } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 
@@ -65,7 +82,7 @@ export function useEntradasBascula() {
   // la conciliación de kg para descontar la fruta que vuelve de la línea.
   const procesadosQuery = useQuery({
     queryKey: ["entradas_bascula", "lotes-procesados"],
-    queryFn: async (): Promise<{ procesados: LoteProcesadoInput[]; reciclajePorDia: ReciclajeDiaInput[] }> => {
+    queryFn: async (): Promise<{ procesados: LoteProcesadoConCalidad[]; reciclajePorDia: ReciclajeDiaInput[] }> => {
       // lotes_dia ya supera las 1.000 filas (1.187 tras el histórico): mismo
       // motivo que arriba, paginar con fetchAllRows en vez de .limit(50000).
       type ParteReciclaje = {
@@ -88,8 +105,8 @@ export function useEntradasBascula() {
         }
       };
       const [lotes, partes] = await Promise.all([
-        fetchAllRows<{ lote_codigo: string | null; kg_peso_total: number; part_id: string }>((from, to) =>
-          supabase.from("lotes_dia").select("lote_codigo, kg_peso_total, part_id").order("id").range(from, to),
+        fetchAllRows<{ lote_codigo: string | null; kg_peso_total: number; part_id: string; kg_industria: number | null; notas: string | null }>((from, to) =>
+          supabase.from("lotes_dia").select("lote_codigo, kg_peso_total, part_id, kg_industria, notas").order("id").range(from, to),
         ),
         fetchPartes(),
       ]);
@@ -106,6 +123,8 @@ export function useEntradasBascula() {
           lote_codigo: l.lote_codigo,
           kg_peso_total: Number(l.kg_peso_total) || 0,
           date: fechaPorParte.get(l.part_id) ?? null,
+          kg_industria: Number(l.kg_industria) || 0,
+          notas: l.notas,
         })),
         // Reciclado del parte: bruto (malla Z1+Z2, fruta + envases) y nº de
         // box; el neto = bruto − nBox × 30 kg de tara lo calcula la
@@ -368,6 +387,53 @@ export function useEntradasBascula() {
     );
   }, [entradas, entradasPrecalibrado, procesadosQuery.data]);
 
+  // ─── Señales de calidad por lote: % industria y notas del operario ─────────
+  // (para la ficha, la tabla del selector y la búsqueda por síntoma —
+  // "densidad", "podrido"…). La media por variedad es ponderada: Σ kg
+  // industria / Σ kg procesado de los lotes de ese articulo con dato.
+  const calidadLotes = useMemo((): CalidadLotesDerivada => {
+    const industriaKgPorLote = new Map<string, number>();
+    const kgCrudoPorLote = new Map<string, number>();
+    const notasPorLote = new Map<string, string>();
+    for (const p of procesadosQuery.data?.procesados ?? []) {
+      const clave = normalizarLoteCodigo(p.lote_codigo);
+      if (!clave) continue;
+      kgCrudoPorLote.set(clave, (kgCrudoPorLote.get(clave) ?? 0) + (Number(p.kg_peso_total) || 0));
+      if (p.kg_industria > 0) industriaKgPorLote.set(clave, (industriaKgPorLote.get(clave) ?? 0) + p.kg_industria);
+      if (esNotaOperarioLote(p.notas)) {
+        const nota = (p.notas as string).trim();
+        const previa = notasPorLote.get(clave);
+        notasPorLote.set(clave, previa ? `${previa} · ${nota}` : nota);
+      }
+    }
+
+    const pctIndustriaPorLote = new Map<string, number>();
+    for (const [lote, kgInd] of industriaKgPorLote) {
+      const base = kgCrudoPorLote.get(lote) ?? 0;
+      if (base > 0) pctIndustriaPorLote.set(lote, Math.min(1, kgInd / base));
+    }
+
+    const acumuladoVariedad = new Map<string, { ind: number; base: number }>();
+    for (const e of entradas) {
+      const articulo = (e.articulo ?? "").trim();
+      if (!articulo) continue;
+      const kgInd = industriaKgPorLote.get(e.lote);
+      if (kgInd == null) continue; // sin dato de industria: no cuenta en la media (no es un 0 medido)
+      const base = kgCrudoPorLote.get(e.lote) ?? 0;
+      if (base <= 0) continue;
+      const acc = acumuladoVariedad.get(articulo) ?? { ind: 0, base: 0 };
+      acc.ind += kgInd;
+      acc.base += base;
+      acumuladoVariedad.set(articulo, acc);
+    }
+    const mediaIndustriaPorVariedad = new Map<string, number>();
+    for (const [articulo, acc] of acumuladoVariedad) {
+      if (acc.base > 0) mediaIndustriaPorVariedad.set(articulo, acc.ind / acc.base);
+    }
+
+    return { industriaKgPorLote, pctIndustriaPorLote, mediaIndustriaPorVariedad, notasPorLote };
+  }, [procesadosQuery.data, entradas]);
+
   const stock = useMemo(
     () => buildStockEntradas(
       entradas.map((e) => ({
@@ -393,6 +459,8 @@ export function useEntradasBascula() {
     procesados: procesadosQuery.data?.procesados ?? [],
     /** Reparto de kg entre lotes hecho por conciliarKgProcesados (movimientos, cola de revisión, reciclaje, delta por lote) — para auditar y para los avisos de la ficha. */
     conciliacionKg,
+    /** % industria y notas del operario por lote (señales de calidad para Trazabilidad). */
+    calidadLotes,
     movimientosPrecalibrado,
     derivadosCampoCit,
     isLoading: entradasQuery.isLoading || procesadosQuery.isLoading,

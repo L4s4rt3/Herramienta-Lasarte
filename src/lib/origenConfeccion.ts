@@ -130,6 +130,10 @@ export interface VolcadoDelDiaInput {
   /** Desempate estable cuando falta hora_inicio (orden de inserción del import, que sigue el orden del Excel del calibrador). */
   created_at: string | null;
   esPrecalibrado: boolean;
+  /** Nota del parte para esta pasada (opcional; la UI filtra el boilerplate con esNotaOperarioLote). */
+  notas?: string | null;
+  /** Destrío a industria de la pasada en kg (opcional; 0/null = sin dato). */
+  kg_industria?: number | null;
 }
 
 export interface VolcadoCandidato extends VolcadoDelDiaInput {

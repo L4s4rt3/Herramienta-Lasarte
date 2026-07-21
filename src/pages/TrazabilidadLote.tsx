@@ -17,7 +17,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import {
-  AlertTriangle, ArrowLeft, ArrowRight, Boxes, Calendar as CalendarIcon, CalendarDays, ChevronLeft, ChevronRight, ClipboardCheck, Factory, HelpCircle, Lock, LockOpen, Leaf, Scale, Search, Ship, Truck, Warehouse, X,
+  AlertTriangle, ArrowLeft, ArrowRight, Boxes, Calendar as CalendarIcon, CalendarDays, ChevronLeft, ChevronRight, ClipboardCheck, Factory, HelpCircle, Lock, LockOpen, Leaf, Scale, Search, Ship, StickyNote, Truck, Warehouse, X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -55,6 +55,7 @@ import { productorNoCoincide } from "@/lib/productoresCanonicos";
 import { GRUPO_COLORS } from "@/lib/destinoClasificacion";
 import {
   desplazarFecha,
+  esNotaOperarioLote,
   filtrarLotesSelector,
   ordenarLotesSelector,
   variedadesDisponibles,
@@ -136,7 +137,7 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
   onSearchChange: (v: string) => void;
   onSelect: (lote: string) => void;
 }) {
-  const { stock, isLoading, error } = useEntradasBascula();
+  const { stock, calidadLotes, isLoading, error } = useEntradasBascula();
   const [modo, setModo] = useState<"lotes" | "dia">("lotes");
   const [estado, setEstado] = useState<EstadoFiltroLotes>("todos");
   const [variedad, setVariedad] = useState<string>("");
@@ -148,11 +149,12 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
 
   const filas = useMemo(
     () => ordenarLotesSelector(
-      filtrarLotesSelector(stock.filas, { texto: search, estado, variedad }),
+      filtrarLotesSelector(stock.filas, { texto: search, estado, variedad }, calidadLotes.notasPorLote),
       sortKey,
       sortDir,
+      calidadLotes.pctIndustriaPorLote,
     ),
-    [stock.filas, search, estado, variedad, sortKey, sortDir],
+    [stock.filas, search, estado, variedad, sortKey, sortDir, calidadLotes],
   );
 
   // Si teclean un código de lote completo que no está en la lista (lote antiguo
@@ -287,12 +289,19 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
                     <SortableTableHead label="Kg entrada" sk="kg_entrada" right sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
                     <SortableTableHead label="Procesado" sk="pct_procesado" right sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
                     <SortableTableHead label="En cámara" sk="kg_en_camara" right sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+                    <SortableTableHead label="% Ind." sk="pct_industria" right sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} info="Destrío a industria del lote (kg_industria de sus pasadas / kg procesados). En ámbar si supera claramente la media de su variedad — señal de fruta problemática. '—' = sin dato en el parte." />
                     <SortableTableHead label="Días" sk="dias_en_camara" right sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} info="Días desde la entrada hasta hoy (activos) o hasta la última pasada del calibrador (procesados)." />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filas.slice(0, MAX_FILAS_TABLA).map((f, i) => {
                     const pct = f.kg_entrada > 0 ? (f.kg_procesado / f.kg_entrada) * 100 : 0;
+                    const pctInd = calidadLotes.pctIndustriaPorLote.get(f.lote);
+                    const mediaInd = f.articulo ? calidadLotes.mediaIndustriaPorVariedad.get(f.articulo.trim()) : undefined;
+                    // "Alto" solo con margen real: 1,5× la media de su variedad Y
+                    // al menos 3 puntos por encima (evita falsos ámbar con medias minúsculas).
+                    const indAlta = pctInd != null && mediaInd != null && pctInd > mediaInd * 1.5 && pctInd - mediaInd > 0.03;
+                    const tieneNota = calidadLotes.notasPorLote.has(f.lote);
                     return (
                       <TableRow
                         key={f.lote}
@@ -304,6 +313,14 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
                       >
                         <TableCell className="py-2">
                           <span className="font-semibold tabular-nums">{f.lote}</span>
+                          {tieneNota && (
+                            <StickyNote
+                              className="ml-1 inline h-3 w-3 text-info"
+                              aria-label="Con nota del operario"
+                              // title nativo: el texto completo de la(s) nota(s) al pasar el ratón
+                              {...{ title: calidadLotes.notasPorLote.get(f.lote) }}
+                            />
+                          )}
                           {f.probablementeTerminado && (
                             <HelpCircle className="ml-1 inline h-3 w-3 text-warning" aria-label="Probablemente terminado" />
                           )}
@@ -322,6 +339,16 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
                             <Badge variant="outline" className="border-info/40 bg-info/10 px-1.5 py-0 text-[11px] tabular-nums text-info">
                               {formatKg(f.kg_en_camara)}
                             </Badge>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-2 text-right">
+                          {pctInd != null ? (
+                            <span className={cn("text-xs tabular-nums", indAlta ? "font-semibold text-warning" : "text-muted-foreground")}>
+                              {indAlta && <AlertTriangle className="mr-0.5 inline h-3 w-3" />}
+                              {formatPct(pctInd * 100)}
+                            </span>
                           ) : (
                             <span className="text-[11px] text-muted-foreground">—</span>
                           )}
@@ -447,7 +474,16 @@ function DiaConfeccionPanel({ fecha, onFecha, onSelect }: {
                           precalibrado
                         </Badge>
                       )}
+                      {(v.kg_industria ?? 0) > 0 && (
+                        <span className="text-xs tabular-nums font-medium text-warning">{formatKg(v.kg_industria as number)} ind.</span>
+                      )}
                       {v.codigo && <ArrowRight className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                      {esNotaOperarioLote(v.notas) && (
+                        <span className="flex w-full items-start gap-1.5 text-xs text-muted-foreground">
+                          <StickyNote className="mt-0.5 h-3 w-3 shrink-0 text-info" />
+                          <span className="min-w-0">{v.notas}</span>
+                        </span>
+                      )}
                     </>
                   );
                   const clase = "flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-left";
@@ -532,7 +568,7 @@ function DiaConfeccionPanel({ fecha, onFecha, onSelect }: {
 
 function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => void; onSelect: (lote: string) => void }) {
   const { data, isLoading, error } = useTrazabilidadLote(lote);
-  const { stock, conciliacionKg, cerrarLote, reabrirLote } = useEntradasBascula();
+  const { stock, conciliacionKg, calidadLotes, cerrarLote, reabrirLote } = useEntradasBascula();
 
   // Navegación ←/→: mismo orden que el selector. Si el lote actual no está en
   // la lista (código antiguo tecleado a mano), se oculta la navegación.
@@ -588,6 +624,18 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
   const difConciliacion = kgProcesadoConciliado - kgProcesado;
   const enCamara = Math.max(0, kgEntrada - kgProcesadoConciliado - kgAjuste);
   const pctProcesado = kgEntrada > 0 ? (kgProcesadoConciliado / kgEntrada) * 100 : null;
+  // Destrío a industria del lote como señal de calidad medible, comparado con
+  // la media ponderada de su variedad (calidadLotes, useEntradasBascula).
+  // "Alto" solo con margen real: 1,5× la media Y ≥3 puntos por encima.
+  const kgIndustriaLote = procesado.reduce((s, p) => s + p.kg_industria, 0);
+  const pctIndustriaLote = kgProcesado > 0 ? kgIndustriaLote / kgProcesado : 0;
+  const mediaIndustriaVariedad = entrada?.articulo
+    ? calidadLotes.mediaIndustriaPorVariedad.get(entrada.articulo.trim())
+    : undefined;
+  const industriaAlta = kgIndustriaLote > 0
+    && mediaIndustriaVariedad != null
+    && pctIndustriaLote > mediaIndustriaVariedad * 1.5
+    && pctIndustriaLote - mediaIndustriaVariedad > 0.03;
   const destinoPrincipal = clasificacion.grupos.length > 0
     ? [...clasificacion.grupos].sort((a, b) => b.pct - a.pct)[0]
     : null;
@@ -886,7 +934,16 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
                     <span className="text-xs text-muted-foreground">{formatNumber(p.duracion_min)} min</span>
                   )}
                   {p.productor && <span className="min-w-0 truncate text-xs text-muted-foreground">{p.productor}</span>}
+                  {p.kg_industria > 0 && (
+                    <span className="text-xs tabular-nums font-medium text-warning">{formatKg(p.kg_industria)} a industria</span>
+                  )}
                   <ArrowRight className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  {esNotaOperarioLote(p.notas) && (
+                    <span className="flex w-full items-start gap-1.5 text-xs text-muted-foreground">
+                      <StickyNote className="mt-0.5 h-3 w-3 shrink-0 text-info" />
+                      <span className="min-w-0">{p.notas}</span>
+                    </span>
+                  )}
                 </Link>
               ))}
               <p className="text-xs text-muted-foreground">
@@ -895,6 +952,20 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
                 {procesado.some((p) => p.esPrecalibrado) && <> · incluye pasadas de precalibrado</>}
                 {" "}· clic en una fila para abrir su parte
               </p>
+              {kgIndustriaLote > 0 && (
+                <p className={cn(
+                  "flex flex-wrap items-center gap-1.5 text-xs",
+                  industriaAlta ? "font-medium text-warning" : "text-muted-foreground",
+                )}>
+                  {industriaAlta && <AlertTriangle className="h-3.5 w-3.5 shrink-0" />}
+                  Destrío a industria: <span className="tabular-nums font-semibold">{formatKg(kgIndustriaLote)}</span>
+                  {" "}({formatPct(pctIndustriaLote * 100)} de lo procesado)
+                  {mediaIndustriaVariedad != null && (
+                    <> · media de {entrada?.articulo}: <span className="tabular-nums">{formatPct(mediaIndustriaVariedad * 100)}</span></>
+                  )}
+                  {industriaAlta && <> — muy por encima de su variedad: señal objetiva de fruta problemática.</>}
+                </p>
+              )}
               {Math.abs(difConciliacion) > 1 && (
                 <p
                   className="flex items-start gap-1.5 rounded-lg border border-info/30 bg-info/10 px-2.5 py-1.5 text-xs text-muted-foreground"
@@ -1201,7 +1272,16 @@ function OrigenConfeccionAviso({ origen, kgEntrada, kgExpedido, onSelect }: {
                     precalibrado
                   </Badge>
                 )}
+                {(v.kg_industria ?? 0) > 0 && (
+                  <span className="text-xs tabular-nums font-medium text-warning">{formatKg(v.kg_industria as number)} ind.</span>
+                )}
                 {v.codigo && <ArrowRight className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                {esNotaOperarioLote(v.notas) && (
+                  <span className="flex w-full items-start gap-1.5 text-xs text-muted-foreground">
+                    <StickyNote className="mt-0.5 h-3 w-3 shrink-0 text-info" />
+                    <span className="min-w-0">{v.notas}</span>
+                  </span>
+                )}
               </>
             );
             const clase = "flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-left";

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { StockLoteRow } from "@/lib/entradasBascula";
 import {
   desplazarFecha,
+  esNotaOperarioLote,
   filtrarLotesSelector,
   ordenarLotesSelector,
   variedadesDisponibles,
@@ -78,6 +79,35 @@ describe("variedadesDisponibles", () => {
       "NARANJA VALENCIA DELTA",
       "NARANJA VALENCIA MIDKNIGHT",
     ]);
+  });
+});
+
+describe("esNotaOperarioLote", () => {
+  it("acepta notas reales y rechaza vacío y boilerplate de imports", () => {
+    expect(esNotaOperarioLote("Fruta floja, problemas de densidad")).toBe(true);
+    expect(esNotaOperarioLote(null)).toBe(false);
+    expect(esNotaOperarioLote("  ")).toBe(false);
+    expect(esNotaOperarioLote("Import histórico de campaña")).toBe(false);
+    expect(esNotaOperarioLote("Import histórico de campaña (agregada de 2 filas duplicadas del Excel, mismo lote y día)")).toBe(false);
+    expect(esNotaOperarioLote("Procesado reconstruido desde Informe LOTE (import histórico): kg = suma…")).toBe(false);
+  });
+});
+
+describe("filtrarLotesSelector — búsqueda por notas", () => {
+  it("el texto libre casa contra las notas del operario cuando se pasan", () => {
+    const notas = new Map([["26042811", "Fruta con densidad, piel envejecida"]]);
+    const res = filtrarLotesSelector(filas, { texto: "densidad", estado: "todos", variedad: "" }, notas);
+    expect(res.map((f) => f.lote)).toEqual(["26042811"]);
+    // sin mapa de notas, ese texto no casa con nada
+    expect(filtrarLotesSelector(filas, { texto: "densidad", estado: "todos", variedad: "" })).toHaveLength(0);
+  });
+});
+
+describe("ordenarLotesSelector — % industria", () => {
+  it("ordena por el mapa de % industria (sin dato = 0)", () => {
+    const pct = new Map([["26051309", 0.22], ["26052503", 0.05]]);
+    const orden = ordenarLotesSelector(filas, "pct_industria", "desc", pct).map((f) => f.lote);
+    expect(orden).toEqual(["26051309", "26052503", "26042811"]);
   });
 });
 

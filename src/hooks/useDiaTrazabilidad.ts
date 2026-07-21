@@ -73,7 +73,7 @@ export function useDiaTrazabilidad(fecha: string | null) {
 
       const [lotesRes, paletsRes] = await Promise.all([
         SUPA.from("lotes_dia")
-          .select("lote_codigo, productor, producto, kg_peso_total, hora_inicio, created_at")
+          .select("lote_codigo, productor, producto, kg_peso_total, hora_inicio, created_at, kg_industria, notas")
           .in("part_id", partIds)
           .limit(500),
         SUPA.from("palets_dia")
@@ -87,6 +87,7 @@ export function useDiaTrazabilidad(fecha: string | null) {
         ((lotesRes.data ?? []) as Array<{
           lote_codigo: string | null; productor: string | null; producto: string | null;
           kg_peso_total: number | null; hora_inicio: string | null; created_at: string | null;
+          kg_industria: number | null; notas: string | null;
         }>).map((l) => ({
           lote_codigo: l.lote_codigo,
           productor: l.productor,
@@ -95,6 +96,8 @@ export function useDiaTrazabilidad(fecha: string | null) {
           hora_inicio: l.hora_inicio,
           created_at: l.created_at,
           esPrecalibrado: esProductorPrecalibrado(l.productor),
+          kg_industria: Number(l.kg_industria) || 0,
+          notas: l.notas,
         })),
       );
 
