@@ -124,6 +124,19 @@ export function sameCalidadName(a: string, b: string) {
   return normalizeCalidadName(a).localeCompare(normalizeCalidadName(b), "es", { sensitivity: "accent" }) === 0;
 }
 
+/**
+ * true si el error de Supabase es la FK de calidad_lotes.productor_finca_id:
+ * el lote apunta a un productor que ya no existe porque una fusión/limpieza
+ * del catálogo lo borró mientras la página de Calidad seguía abierta con la
+ * lista antigua en memoria. El guardado puede recuperarse re-resolviendo el
+ * productor por nombre (ver useCalidadJornadaMutaciones).
+ */
+export function esErrorProductorFincaFk(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  return code === "23503" && typeof message === "string" && message.includes("calidad_lotes_productor_finca_id_fkey");
+}
+
 function decodeXmlEntities(value: string) {
   return value
     .replace(/&lt;/g, "<")

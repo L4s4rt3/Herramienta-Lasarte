@@ -8,6 +8,7 @@ import {
   buildComentarioCalidad,
   buildLotesParaImportar,
   calidadSummary,
+  esErrorProductorFincaFk,
   esIncidenciaCalidad,
   extractWordXmlText,
   formatCalidadDate,
@@ -81,6 +82,31 @@ const lotes: CalidadLote[] = [
     updated_at: "2026-06-03T07:00:00Z",
   }),
 ];
+
+describe("esErrorProductorFincaFk", () => {
+  it("recognizes the PostgREST FK error for productor_finca_id", () => {
+    expect(
+      esErrorProductorFincaFk({
+        code: "23503",
+        details: 'Key (productor_finca_id)=(eefc9fd9-bb71-4a40-a105-78a29f592db1) is not present in table "calidad_productores".',
+        message: 'insert or update on table "calidad_lotes" violates foreign key constraint "calidad_lotes_productor_finca_id_fkey"',
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects other errors, other constraints and non-objects", () => {
+    expect(
+      esErrorProductorFincaFk({
+        code: "23503",
+        message: 'insert or update on table "calidad_lotes" violates foreign key constraint "calidad_lotes_jornada_id_fkey"',
+      }),
+    ).toBe(false);
+    expect(esErrorProductorFincaFk({ code: "23505", message: "calidad_lotes_productor_finca_id_fkey" })).toBe(false);
+    expect(esErrorProductorFincaFk(new Error("network error"))).toBe(false);
+    expect(esErrorProductorFincaFk(null)).toBe(false);
+    expect(esErrorProductorFincaFk("error")).toBe(false);
+  });
+});
 
 describe("calidad helpers", () => {
   it("summarizes daily lots by quality, aerobotics and attachments", () => {

@@ -59,6 +59,7 @@ import { toast } from "@/hooks/use-toast";
 import { campanaStartYear } from "@/lib/consumoPeriodoView";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import {
+  esErrorProductorFincaFk,
   normalizeCalidadName,
   type CalidadAdjunto,
   type CalidadJornada,
@@ -280,6 +281,28 @@ export function useUltimaJornadaCalidad() {
   return { fecha: query.data ?? null, isLoading: query.isLoading };
 }
 
+/**
+ * Id vigente en calidad_productores para un nombre (comparación exacta sin
+ * distinguir mayúsculas), o null si ya no existe ninguno. Se usa para
+ * recuperar guardados que fallan por FK cuando el productor original fue
+ * fusionado/borrado del catálogo con la página abierta.
+ */
+async function buscarProductorPorNombre(nombre: string | null | undefined): Promise<string | null> {
+  const limpio = normalizeCalidadName(nombre ?? "");
+  if (!limpio) return null;
+  // ilike sin comodines = igualdad case-insensitive; se escapan %/_ por si
+  // algún nombre los llevara.
+  const patron = limpio.replace(/[\\%_]/g, (char) => `\\${char}`);
+  const { data, error } = await supabase
+    .from("calidad_productores")
+    .select("id")
+    .ilike("nombre", patron)
+    .order("created_at", { ascending: true })
+    .limit(1);
+  if (error) return null;
+  return (data?.[0] as { id: string } | undefined)?.id ?? null;
+}
+
 /** Escrituras de la jornada de calidad: jornada, lotes, productores y adjuntos. */
 export function useCalidadJornadaMutaciones() {
   const queryClient = useQueryClient();
@@ -302,12 +325,20 @@ export function useCalidadJornadaMutaciones() {
   // autoguardado con debounce). El guardado explícito invalida a mano.
   const updateLoteMutation = useMutation({
     mutationFn: async (input: { id: string; payload: CalidadLoteUpdatePayload }): Promise<CalidadLote> => {
-      const { data, error } = await supabase
-        .from("calidad_lotes")
-        .update(input.payload)
-        .eq("id", input.id)
-        .select("*")
-        .single();
+      const update = (payload: CalidadLoteUpdatePayload) =>
+        supabase.from("calidad_lotes").update(payload).eq("id", input.id).select("*").single();
+
+      let { data, error } = await update(input.payload);
+      // Si el productor del lote fue borrado por una fusión/limpieza del
+      // catálogo mientras esta sesión seguía abierta con la lista antigua,
+      // el UPDATE viola la FK. Se re-resuelve por nombre contra la base de
+      // datos y se reintenta una vez; si el nombre tampoco existe ya, se
+      // guarda sin id (la ficha y los informes pintan productor_finca_nombre,
+      // así que no se pierde información).
+      if (error && esErrorProductorFincaFk(error) && input.payload.productor_finca_id) {
+        const idActual = await buscarProductorPorNombre(input.payload.productor_finca_nombre);
+        ({ data, error } = await update({ ...input.payload, productor_finca_id: idActual }));
+      }
       if (error) throw error;
       return data as unknown as CalidadLote;
     },
