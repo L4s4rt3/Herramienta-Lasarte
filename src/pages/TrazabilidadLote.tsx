@@ -14,13 +14,17 @@
 // volcados del día como origen probable (ver src/lib/origenConfeccion.ts).
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { format, parseISO } from "date-fns";
+import { es } from "date-fns/locale";
 import {
-  AlertTriangle, ArrowLeft, ArrowRight, Boxes, CalendarDays, ChevronLeft, ChevronRight, ClipboardCheck, Factory, HelpCircle, Lock, LockOpen, Leaf, Scale, Search, Ship, Truck, Warehouse, X,
+  AlertTriangle, ArrowLeft, ArrowRight, Boxes, Calendar as CalendarIcon, CalendarDays, ChevronLeft, ChevronRight, ClipboardCheck, Factory, HelpCircle, Lock, LockOpen, Leaf, Scale, Search, Ship, Truck, Warehouse, X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
@@ -354,6 +358,9 @@ function DiaConfeccionPanel({ fecha, onFecha, onSelect }: {
   onSelect: (lote: string) => void;
 }) {
   const { data, isLoading, error } = useDiaTrazabilidad(fecha);
+  // Calendario con el glass UI de la casa (mismo patrón Popover+Calendar que
+  // PartesList), en vez del datepicker nativo del navegador.
+  const [calendarioAbierto, setCalendarioAbierto] = useState(false);
 
   return (
     <div className="space-y-3">
@@ -361,12 +368,28 @@ function DiaConfeccionPanel({ fecha, onFecha, onSelect }: {
         <Button variant="outline" size="icon" className="glass glass-hover h-8 w-8" onClick={() => onFecha(desplazarFecha(fecha, -1))} aria-label="Día anterior">
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <Input
-          type="date"
-          value={fecha}
-          onChange={(e) => e.target.value && onFecha(e.target.value)}
-          className="h-8 w-40 tabular-nums"
-        />
+        <Popover open={calendarioAbierto} onOpenChange={setCalendarioAbierto}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="glass glass-hover h-8 w-44 justify-start gap-1.5 font-normal">
+              <CalendarIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="tabular-nums text-xs">{format(parseISO(fecha), "EEEE d MMM yyyy", { locale: es })}</span>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="glass-accented w-auto p-0" align="start">
+            <Calendar
+              mode="single"
+              selected={parseISO(fecha)}
+              onSelect={(d) => {
+                if (d) {
+                  onFecha(format(d, "yyyy-MM-dd"));
+                  setCalendarioAbierto(false);
+                }
+              }}
+              locale={es}
+              initialFocus
+            />
+          </PopoverContent>
+        </Popover>
         <Button variant="outline" size="icon" className="glass glass-hover h-8 w-8" onClick={() => onFecha(desplazarFecha(fecha, 1))} aria-label="Día siguiente">
           <ChevronRight className="h-4 w-4" />
         </Button>
