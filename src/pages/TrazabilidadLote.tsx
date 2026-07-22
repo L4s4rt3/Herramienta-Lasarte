@@ -937,6 +937,11 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
                   {p.kg_industria > 0 && (
                     <span className="text-xs tabular-nums font-medium text-warning">{formatKg(p.kg_industria)} a industria</span>
                   )}
+                  {p.kg_precalibrado > 0 && (
+                    <span className="text-xs tabular-nums text-muted-foreground" title="Kg apartados a los almacenes de precalibrado 1+2 desde esta pasada (dato manual del parte / foto diaria).">
+                      {formatKg(p.kg_precalibrado)} a PREC
+                    </span>
+                  )}
                   <ArrowRight className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   {esNotaOperarioLote(p.notas) && (
                     <span className="flex w-full items-start gap-1.5 text-xs text-muted-foreground">

@@ -283,17 +283,19 @@ export default function PartDetail() {
     queryKey: ["parte-detail", parte?.id, "lotes"],
     enabled: Boolean(parte?.id),
     queryFn: async () => {
-      const { data } = await supabase
+      // kg_precalibrado_z1/z2 (migración 20260722100000) aún sin tipos
+      // generados: cast puntual, mismo patrón que useEntradasBascula.
+      const { data } = await (supabase as unknown as import("@supabase/supabase-js").SupabaseClient<Record<string, never>>)
         .from("lotes_dia")
-        .select("id, lote_codigo, productor, producto, kg_peso_total, toneladas_hora, duracion_min, kg_industria, notas")
+        .select("id, lote_codigo, productor, producto, kg_peso_total, toneladas_hora, duracion_min, kg_industria, kg_precalibrado_z1, kg_precalibrado_z2, notas")
         .eq("part_id", parte!.id)
         .order("created_at", { ascending: true });
-      return data ?? [];
+      return (data ?? []) as unknown as import("@/components/PartDetailLotes").LoteDelDia[];
     },
   });
 
-  async function saveLoteUpdate(loteId: string, patch: { notas?: string | null; kg_industria?: number }) {
-    const { error } = await supabase.from("lotes_dia").update(patch).eq("id", loteId);
+  async function saveLoteUpdate(loteId: string, patch: { notas?: string | null; kg_industria?: number; kg_precalibrado_z1?: number; kg_precalibrado_z2?: number }) {
+    const { error } = await (supabase as unknown as import("@supabase/supabase-js").SupabaseClient<Record<string, never>>).from("lotes_dia").update(patch).eq("id", loteId);
     if (error) {
       toast({ title: "Error guardando el lote", description: error.message, variant: "destructive" });
       return;

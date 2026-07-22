@@ -16,10 +16,13 @@ export interface LoteDelDia {
   toneladas_hora: number | null;
   duracion_min: number | null;
   kg_industria: number;
+  /** Kg apartados a PRECALIBRADO 1/2 desde este lote hoy (manual, migración 20260722100000): el flujo de ENTRADA al almacén PREC que faltaba. */
+  kg_precalibrado_z1: number;
+  kg_precalibrado_z2: number;
   notas: string | null;
 }
 
-export type LotePatch = Partial<Pick<LoteDelDia, "notas" | "kg_industria">>;
+export type LotePatch = Partial<Pick<LoteDelDia, "notas" | "kg_industria" | "kg_precalibrado_z1" | "kg_precalibrado_z2">>;
 
 interface PartDetailLotesProps {
   lotes: LoteDelDia[];
@@ -59,8 +62,10 @@ function LoteNotaField({ loteId, initialValue, readOnly, onSave }: {
   );
 }
 
-function LoteIndustriaField({ loteId, initialValue, readOnly, onSave }: {
+/** Campo numérico manual por lote (kg): sirve para kg_industria y para los apartados a PREC 1/2. */
+function LoteKgField({ loteId, campo, initialValue, readOnly, onSave }: {
   loteId: string;
+  campo: "kg_industria" | "kg_precalibrado_z1" | "kg_precalibrado_z2";
   initialValue: number;
   readOnly: boolean;
   onSave: (loteId: string, patch: LotePatch) => void;
@@ -87,7 +92,7 @@ function LoteIndustriaField({ loteId, initialValue, readOnly, onSave }: {
         onChange={(e) => setValue(e.target.value)}
         onBlur={() => {
           const next = Number(value) || 0;
-          if (next !== initialValue) onSave(loteId, { kg_industria: next });
+          if (next !== initialValue) onSave(loteId, { [campo]: next });
         }}
       />
       <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-medium text-muted-foreground">kg</span>
@@ -97,6 +102,7 @@ function LoteIndustriaField({ loteId, initialValue, readOnly, onSave }: {
 
 export default function PartDetailLotes({ lotes, loading, readOnly, onLoteUpdate }: PartDetailLotesProps) {
   const totalIndustria = lotes.reduce((s, l) => s + (Number(l.kg_industria) || 0), 0);
+  const totalPrec = lotes.reduce((s, l) => s + (Number(l.kg_precalibrado_z1) || 0) + (Number(l.kg_precalibrado_z2) || 0), 0);
 
   return (
     <Card className="glass-accented overflow-hidden">
@@ -107,13 +113,15 @@ export default function PartDetailLotes({ lotes, loading, readOnly, onLoteUpdate
             <div className="flex items-center gap-1.5">
               <p className="panel-kicker">Trazabilidad del día</p>
               <InfoTooltip iconClassName="h-3 w-3">
-                Lotes procesados según el informe de producción. El T/h de cada lote es la velocidad del calibrador mientras esa fruta pasaba — solo aparece si el parte se analizó con IA. Los kg de industria y la nota son datos manuales por lote y se conservan aunque se vuelva a analizar.
+                Lotes procesados según el informe de producción. El T/h de cada lote es la velocidad del calibrador mientras esa fruta pasaba — solo aparece si el parte se analizó con IA. Los kg de industria, los apartados a PREC 1/2 y la nota son datos manuales por lote y se conservan aunque se vuelva a analizar.
               </InfoTooltip>
             </div>
             <CardTitle className="text-base">Lotes procesados</CardTitle>
-            {totalIndustria > 0 && (
+            {(totalIndustria > 0 || totalPrec > 0) && (
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Industria de los lotes: <span className="font-medium tabular-nums text-foreground">{formatKg(totalIndustria)}</span>
+                {totalIndustria > 0 && <>Industria de los lotes: <span className="font-medium tabular-nums text-foreground">{formatKg(totalIndustria)}</span></>}
+                {totalIndustria > 0 && totalPrec > 0 && " · "}
+                {totalPrec > 0 && <>Apartado a precalibrado: <span className="font-medium tabular-nums text-foreground">{formatKg(totalPrec)}</span></>}
               </p>
             )}
           </div>
@@ -145,6 +153,8 @@ export default function PartDetailLotes({ lotes, loading, readOnly, onLoteUpdate
                     <th className="px-4 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">T/h calibr.</th>
                     <th className="px-4 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Duración</th>
                     <th className="px-4 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Kg industria</th>
+                    <th className="px-4 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">PREC 1</th>
+                    <th className="px-4 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">PREC 2</th>
                     <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Nota del lote</th>
                   </tr>
                 </thead>
@@ -163,7 +173,17 @@ export default function PartDetailLotes({ lotes, loading, readOnly, onLoteUpdate
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex justify-end">
-                          <LoteIndustriaField loteId={l.id} initialValue={Number(l.kg_industria) || 0} readOnly={readOnly} onSave={onLoteUpdate} />
+                          <LoteKgField loteId={l.id} campo="kg_industria" initialValue={Number(l.kg_industria) || 0} readOnly={readOnly} onSave={onLoteUpdate} />
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end">
+                          <LoteKgField loteId={l.id} campo="kg_precalibrado_z1" initialValue={Number(l.kg_precalibrado_z1) || 0} readOnly={readOnly} onSave={onLoteUpdate} />
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end">
+                          <LoteKgField loteId={l.id} campo="kg_precalibrado_z2" initialValue={Number(l.kg_precalibrado_z2) || 0} readOnly={readOnly} onSave={onLoteUpdate} />
                         </div>
                       </td>
                       <td className="px-4 py-3 min-w-[220px]">
@@ -194,7 +214,15 @@ export default function PartDetailLotes({ lotes, loading, readOnly, onLoteUpdate
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-3">
                     <span className="text-xs text-muted-foreground">Kg industria</span>
-                    <LoteIndustriaField loteId={l.id} initialValue={Number(l.kg_industria) || 0} readOnly={readOnly} onSave={onLoteUpdate} />
+                    <LoteKgField loteId={l.id} campo="kg_industria" initialValue={Number(l.kg_industria) || 0} readOnly={readOnly} onSave={onLoteUpdate} />
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <span className="text-xs text-muted-foreground">Apartado PREC 1</span>
+                    <LoteKgField loteId={l.id} campo="kg_precalibrado_z1" initialValue={Number(l.kg_precalibrado_z1) || 0} readOnly={readOnly} onSave={onLoteUpdate} />
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <span className="text-xs text-muted-foreground">Apartado PREC 2</span>
+                    <LoteKgField loteId={l.id} campo="kg_precalibrado_z2" initialValue={Number(l.kg_precalibrado_z2) || 0} readOnly={readOnly} onSave={onLoteUpdate} />
                   </div>
                   <div className="mt-2">
                     <LoteNotaField loteId={l.id} initialValue={l.notas ?? ""} readOnly={readOnly} onSave={onLoteUpdate} />

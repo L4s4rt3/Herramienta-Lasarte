@@ -66,6 +66,8 @@ export interface ProcesadoLote {
   productor: string | null;
   /** Destrío a industria de esta pasada (kg_industria del parte; 0 = sin dato o sin destrío). */
   kg_industria: number;
+  /** Kg apartados a PRECALIBRADO 1+2 desde esta pasada (manual del parte / foto diaria; 0 = sin dato). */
+  kg_precalibrado: number;
   /** Nota del parte para esta pasada, tal cual (el filtro de boilerplate lo hace la UI con esNotaOperarioLote). */
   notas: string | null;
   /** Catálogo de productores (migración 20260714090000, pendiente de aplicar): undefined si la columna aún no existe. */
@@ -196,7 +198,7 @@ export interface TrazabilidadLote {
   entradaEsCampoCit: boolean;
 }
 
-const LOTES_DIA_COLUMNAS_BASE = "part_id, lote_codigo, kg_peso_total, toneladas_hora, duracion_min, producto, productor, kg_industria, notas";
+const LOTES_DIA_COLUMNAS_BASE = "part_id, lote_codigo, kg_peso_total, toneladas_hora, duracion_min, producto, productor, kg_industria, kg_precalibrado_z1, kg_precalibrado_z2, notas";
 
 interface LotesDiaProcesadoRawRow {
   part_id: string;
@@ -207,6 +209,8 @@ interface LotesDiaProcesadoRawRow {
   producto: string | null;
   productor: string | null;
   kg_industria: number | null;
+  kg_precalibrado_z1: number | null;
+  kg_precalibrado_z2: number | null;
   notas: string | null;
   /** Columna nueva (migración 20260714090000 pendiente de aplicar): undefined si aún no existe. */
   productor_id?: string | null;
@@ -410,6 +414,7 @@ export function useTrazabilidadLote(loteInput: string | null) {
           productor: (l.productor as string | null) ?? null,
           productor_id: (l.productor_id as string | null | undefined) ?? undefined,
           kg_industria: Number(l.kg_industria) || 0,
+          kg_precalibrado: (Number(l.kg_precalibrado_z1) || 0) + (Number(l.kg_precalibrado_z2) || 0),
           notas: (l.notas as string | null) ?? null,
           esPrecalibrado: esProductorPrecalibrado(l.productor as string | null),
         }))

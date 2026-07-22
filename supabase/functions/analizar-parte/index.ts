@@ -109,6 +109,9 @@ Deno.serve(async (req) => {
     let serverPalets: any[] = [];
     let serverCalibres: any[] = [];
     let serverProducto: any[] = [];
+    // Fotos adjuntas (la hoja diaria de lotes anotada a mano): se mandan al
+    // subagente de visión al final, cuando ya existen los lotes_dia del parte.
+    const fotosLotes: Array<{ mime: string; b64: string }> = [];
 
     for (const f of files) {
       if (!f.file_path) continue;
@@ -116,6 +119,18 @@ Deno.serve(async (req) => {
       // no tienen el formato que este bucle espera y no deben mezclarse con el análisis por IA.
       if (f.file_type === "InformeLote") continue;
       const mime = f.mime_type ?? "";
+      const esImagen = mime.startsWith("image/") || /\.(jpe?g|png|webp|heic)$/i.test(f.file_name ?? "");
+      if (esImagen) {
+        const { data: blob, error: dlErr } = await admin.storage.from("partes-archivos").download(f.file_path);
+        if (dlErr || !blob) continue;
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        if (bytes.length > 8_000_000) { console.warn("[FOTO] demasiado grande, se salta:", f.file_name); continue; }
+        let bin = "";
+        for (let i = 0; i < bytes.length; i += 8192) bin += String.fromCharCode(...bytes.subarray(i, i + 8192));
+        fotosLotes.push({ mime: mime || "image/jpeg", b64: btoa(bin) });
+        console.log("[FOTO] adjunta para visión:", f.file_name, bytes.length, "bytes");
+        continue;
+      }
       const isXlsx = /\.xlsx?$/i.test(f.file_name ?? "") || mime.includes("spreadsheet") || mime === "application/vnd.ms-excel";
       if (!isXlsx) continue;
 
@@ -443,17 +458,21 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
     // El operario escribe notas y kg_industria sobre lotes creados por IA;
     // como el re-análisis borra y reinserta esos lotes, se rescatan antes
     // (por lote_codigo) y se reaplican al insertar.
-    const manualPorLote = new Map<string, { notas: string | null; kg_industria: number }>();
+    const manualPorLote = new Map<string, { notas: string | null; kg_industria: number; kg_precalibrado_z1: number; kg_precalibrado_z2: number }>();
     if (hasIaData) {
       const { data: prevLotes } = await admin
         .from("lotes_dia")
-        .select("lote_codigo, notas, kg_industria")
+        .select("lote_codigo, notas, kg_industria, kg_precalibrado_z1, kg_precalibrado_z2")
         .eq("part_id", part_id);
       for (const l of prevLotes ?? []) {
         if (!l.lote_codigo) continue;
         const notas = typeof l.notas === "string" && l.notas.trim() ? l.notas : null;
         const kgIndustria = Number(l.kg_industria) || 0;
-        if (notas || kgIndustria > 0) manualPorLote.set(String(l.lote_codigo), { notas, kg_industria: kgIndustria });
+        const kgPrec1 = Number(l.kg_precalibrado_z1) || 0;
+        const kgPrec2 = Number(l.kg_precalibrado_z2) || 0;
+        if (notas || kgIndustria > 0 || kgPrec1 > 0 || kgPrec2 > 0) {
+          manualPorLote.set(String(l.lote_codigo), { notas, kg_industria: kgIndustria, kg_precalibrado_z1: kgPrec1, kg_precalibrado_z2: kgPrec2 });
+        }
       }
     }
 
@@ -513,6 +532,8 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
           hora_inicio:           r.hora_inicio ?? null,
           notas:                 manual?.notas ?? null,
           kg_industria:          manual?.kg_industria ?? 0,
+          kg_precalibrado_z1:    manual?.kg_precalibrado_z1 ?? null,
+          kg_precalibrado_z2:    manual?.kg_precalibrado_z2 ?? null,
         };
       });
       await admin.from("lotes_dia").insert(rows);
@@ -590,6 +611,62 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
       }
     }
 
+    // ── Foto diaria de lotes (visión): comentarios, kg industria, P1/P2,
+    // boxes echados y lotes juntados anotados a mano → campos manuales de
+    // lotes_dia. Va al FINAL, con los lotes del parte ya insertados, y solo
+    // AÑADE (nunca pisa una nota escrita a mano; los kg solo si la foto trae
+    // valor > 0). Workflow del dueño, 22-jul-2026.
+    let fotoResumen: { extraidos: number; aplicados: number } | null = null;
+    if (fotosLotes.length > 0 && GEMINI_API_KEY) {
+      const vision = await callVisionFotoLotes(fotosLotes, GEMINI_API_KEY);
+      const items = Array.isArray(vision.data?.lotes_foto) ? vision.data.lotes_foto : [];
+      let aplicados = 0;
+      if (items.length > 0) {
+        const { data: lotesRows } = await admin
+          .from("lotes_dia")
+          .select("id, lote_codigo, productor, notas, kg_industria, kg_precalibrado_z1, kg_precalibrado_z2")
+          .eq("part_id", part_id);
+        const norm8 = (s: unknown) => String(s ?? "").match(/\d{8}/)?.[0] ?? null;
+        const normTxt = (s: unknown) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().trim();
+        for (const item of items) {
+          const code = norm8(item.lote_codigo);
+          let row = code ? (lotesRows ?? []).find((l: any) => norm8(l.lote_codigo) === code) : undefined;
+          if (!row) {
+            const p = normTxt(item.productor);
+            if (p) {
+              const cands = (lotesRows ?? []).filter((l: any) => normTxt(l.productor).includes(p) || p.includes(normTxt(l.productor)));
+              if (cands.length === 1) row = cands[0]; // solo si es inequívoco
+            }
+          }
+          if (!row) continue;
+          const patch: Record<string, unknown> = {};
+          const kgInd = Number(item.kg_industria) || 0;
+          const kgP1 = Number(item.kg_prec1) || 0;
+          const kgP2 = Number(item.kg_prec2) || 0;
+          if (kgInd > 0) patch.kg_industria = kgInd;
+          if (kgP1 > 0) patch.kg_precalibrado_z1 = kgP1;
+          if (kgP2 > 0) patch.kg_precalibrado_z2 = kgP2;
+          const trozos: string[] = [];
+          const comentario = String(item.comentario ?? "").trim();
+          if (comentario) trozos.push(comentario);
+          const boxes = Number(item.boxes_echados) || 0;
+          if (boxes > 0) trozos.push(`Se echaron ${boxes} box`);
+          const juntado = String(item.juntado_con ?? "").trim();
+          if (juntado) trozos.push(`JUNTADO CON ${juntado}`);
+          if (trozos.length > 0) {
+            const notaFoto = trozos.join(" · ");
+            const notaActual = String((row as any).notas ?? "").trim();
+            patch.notas = notaActual && !notaActual.includes(notaFoto) ? `${notaActual} · ${notaFoto}` : (notaActual || notaFoto);
+          }
+          if (Object.keys(patch).length === 0) continue;
+          await admin.from("lotes_dia").update(patch).eq("id", (row as any).id);
+          aplicados += 1;
+        }
+      }
+      fotoResumen = { extraidos: items.length, aplicados };
+      console.log(`[FOTO] lotes actualizados desde la foto: ${fotoResumen.aplicados}/${fotoResumen.extraidos}`);
+    }
+
     return json({
       message: aiWarning ? "Server-side OK; IA: " + aiWarning : "OK: " + files.length + " archivo(s)",
       parte_actualizado: true,
@@ -598,6 +675,7 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
         lotes: serverLotes.length,
         palets: Array.isArray(aiData.palets_detalle) ? aiData.palets_detalle.length : serverPalets.length,
         campo: (serverPalets as any[]).filter((p: any) => p.es_campo).length,
+        ...(fotoResumen ? { foto_lotes: fotoResumen } : {}),
       },
       server_side: server, ai: aiData, ai_warning: aiWarning,
     });
@@ -984,6 +1062,71 @@ function extractPaletsDetalle(rows: any[][]): any[] {
     });
   }
   return palets;
+}
+
+// ─── Helper: subagente de VISIÓN (foto diaria de lotes) ─────────────────────
+// El operario entrega cada día una FOTO de la hoja de lotes con anotaciones a
+// mano por lote: comentarios, kg de industria, P1 (kg apartados a
+// precalibrado 1), cuántos box se echaron y marcas de lotes juntados
+// (workflow del dueño, 22-jul-2026). Solo Gemini (multimodal) puede leerla:
+// se le pasa la imagen en base64 por el endpoint OpenAI-compatible.
+const FOTO_LOTES_PROMPT = `Analista de planta cítrica Lasarte SAT. La imagen es la hoja DIARIA de lotes escrita a mano por el encargado: una fila/bloque por lote procesado, con su código (8 dígitos, formato AAMMDDNN, p. ej. 26071601) o el nombre del productor/finca, y anotaciones.
+
+Extrae SOLO lo que esté escrito (no inventes nada; campo ausente = 0 o ""):
+- lote_codigo: los 8 dígitos si son legibles, si no "".
+- productor: nombre de productor/finca escrito junto al lote (para casar si no hay código).
+- comentario: el texto de la nota tal cual (calidad, defectos, incidencias).
+- kg_industria: kg a industria anotados para ese lote.
+- kg_prec1: kg apartados a precalibrado 1 ("P1").
+- kg_prec2: kg apartados a precalibrado 2 ("P2") si aparece.
+- boxes_echados: nº de box que se echaron/añadieron a ese lote.
+- juntado_con: si la hoja marca que este lote se juntó con otro, el código o texto del otro lote; si no "".
+
+Responde SOLO JSON: {"lotes_foto":[{"lote_codigo":"","productor":"","comentario":"","kg_industria":0,"kg_prec1":0,"kg_prec2":0,"boxes_echados":0,"juntado_con":""}]}`;
+
+async function callVisionFotoLotes(
+  imagenes: Array<{ mime: string; b64: string }>,
+  geminiKey: string,
+): Promise<{ data: any; success: boolean }> {
+  const content: any[] = [{ type: "text", text: "Extrae los datos de la(s) hoja(s) de lotes de hoy." }];
+  for (const img of imagenes) {
+    content.push({ type: "image_url", image_url: { url: `data:${img.mime};base64,${img.b64}` } });
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45000);
+  try {
+    const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + geminiKey },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: "gemini-2.0-flash",
+        messages: [{ role: "system", content: FOTO_LOTES_PROMPT }, { role: "user", content }],
+        temperature: 0.1,
+        max_tokens: 4096,
+      }),
+    });
+    clearTimeout(timeout);
+    if (!resp.ok) {
+      console.warn("[IA-foto_lotes] Gemini status=" + resp.status);
+      return { data: {}, success: false };
+    }
+    const jsonResp = await resp.json();
+    let text = jsonResp?.choices?.[0]?.message?.content ?? "{}";
+    console.log("[IA-foto_lotes] raw (first 300):", String(text).slice(0, 300));
+    text = String(text).replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+    try {
+      return { data: JSON.parse(text), success: true };
+    } catch {
+      const m = text.match(/\{[\s\S]*\}/);
+      if (m) { try { return { data: JSON.parse(m[0]), success: true }; } catch { /* cae abajo */ } }
+      return { data: {}, success: false };
+    }
+  } catch (e) {
+    clearTimeout(timeout);
+    console.warn("[IA-foto_lotes] error", e);
+    return { data: {}, success: false };
+  }
 }
 
 // ─── Helper: llamar IA para un subagente específico ──────────────────────────
