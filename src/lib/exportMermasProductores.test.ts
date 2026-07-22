@@ -21,20 +21,20 @@ const fila = (over: Partial<FilaMermaExport> & { lote: string }): FilaMermaExpor
 });
 
 describe("agruparMermasExport", () => {
-  it("agrega por productor con % ponderados sobre kg de entrada (merma + los tres podridos = pérdida)", () => {
+  it("agrega por productor sin doble conteo: pérdida = merma medida (cámara + pre-calibrador) + podrido de calibrador; el manual NO se suma aparte", () => {
     const { porProductor } = agruparMermasExport([
+      // merma medida 1.000 = cámara 700 + pre-calibrador 300; calibrador 500; manual 100 (informativo, dentro de la medida)
       fila({ lote: "26042811" }),
-      fila({ lote: "26042913", mermaNaturalKg: 500, podridoCalibradorKg: 200, podridoManualKg: 0, podridoPreCalibradorKg: 0 }),
+      fila({ lote: "26042913", mermaNaturalKg: 500, mermaNaturalEstimadaKg: 500, podridoPreCalibradorKg: 0, podridoCalibradorKg: 200, podridoManualKg: 0 }),
     ]);
     expect(porProductor).toHaveLength(1);
     const g = porProductor[0];
     expect(g.nLotes).toBe(2);
     expect(g.kgEntrada).toBe(40000);
-    expect(g.mermaKg).toBe(1500);
-    // podrido: (500+100+300) + (200+0+0) = 1.100
-    expect(g.podridoKg).toBe(1100);
-    expect(g.perdidaKg).toBe(2600);
-    expect(g.pctPerdida).toBeCloseTo((2600 / 40000) * 100);
+    expect(g.mermaKg).toBe(700 + 500); // componente cámara
+    expect(g.podridoKg).toBe((300 + 500) + (0 + 200)); // pre-calibrador + calibrador
+    expect(g.perdidaKg).toBe((1000 + 500) + (500 + 200)); // merma medida + calibrador
+    expect(g.pctPerdida).toBeCloseTo((2200 / 40000) * 100);
     expect(g.nLotesPodridoReal).toBe(2);
   });
 

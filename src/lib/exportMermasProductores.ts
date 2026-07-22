@@ -52,6 +52,12 @@ export interface FilaMermaExport {
   notas: string | null;
 }
 
+/**
+ * Modelo de pérdidas (regla del dueño, 21-jul-2026): cada kg cuenta UNA vez.
+ *   entrada = merma de cámara + podrido pre-calibrador (manual) + kgCalibrador
+ *   kgCalibrador incluye el podrido que descarta la máquina.
+ *   pérdida total = merma medida (cámara + pre-calibrador) + podrido calibrador.
+ */
 export interface GrupoMermaExport {
   productor: string;
   /** Solo en la agrupación por finca. */
@@ -64,11 +70,13 @@ export interface GrupoMermaExport {
   /** Σ solo de los lotes CON merma calculable (base de los %). */
   kgEntrada: number;
   kgCalibrador: number;
+  /** Componente CÁMARA de la merma medida (real del registro o estimada por tasa). */
   mermaKg: number;
   pctMerma: number | null;
+  /** Podrido pre-calibrador (manual, dentro de la merma medida) + podrido del calibrador. */
   podridoKg: number;
   pctPodrido: number | null;
-  /** Σ pérdida total (merma + podrido) y su % sobre entrada. */
+  /** merma medida + podrido calibrador = cámara + pre-calibrador + calibrador. */
   perdidaKg: number;
   pctPerdida: number | null;
 }
@@ -94,12 +102,18 @@ function agrupa(filas: FilaMermaExport[], clave: (f: FilaMermaExport) => string,
       g.nLotesSinMerma += 1;
       continue; // parcial: sus kg no entran en la base de los porcentajes
     }
-    const podrido = (f.podridoCalibradorKg ?? 0) + (f.podridoManualKg ?? 0) + (f.podridoPreCalibradorKg ?? 0);
+    // Cámara = componente "natural" del desglose (real o estimado); el resto
+    // de la merma medida es el podrido pre-calibrador (manual). El podrido
+    // MANUAL prorrateado no se suma aparte: es la medición de ese mismo
+    // componente. Pérdida = merma medida + podrido del calibrador.
+    const mermaMedida = Math.max(0, f.mermaNaturalKg);
+    const camara = f.mermaNaturalEstimadaKg ?? mermaMedida;
+    const podrido = (f.podridoPreCalibradorKg ?? Math.max(0, mermaMedida - camara)) + (f.podridoCalibradorKg ?? 0);
     g.kgEntrada += f.kgEntrada;
     g.kgCalibrador += f.kgCalibrador;
-    g.mermaKg += Math.max(0, f.mermaNaturalKg);
+    g.mermaKg += camara;
     g.podridoKg += podrido;
-    g.perdidaKg += Math.max(0, f.mermaNaturalKg) + podrido;
+    g.perdidaKg += mermaMedida + (f.podridoCalibradorKg ?? 0);
   }
   const grupos = Array.from(map.values());
   for (const g of grupos) {
@@ -128,11 +142,11 @@ const COLS_GRUPO = (conFinca: boolean): ColumnaTabla[] => [
   { header: "Con podrido real", key: "nLotesPodridoReal", tipo: "numero", numFmt: FMT_INT, width: 15 },
   { header: "Kg entrada", key: "kgEntrada", tipo: "numero", numFmt: FMT_KG, width: 16 },
   { header: "Kg calibrador (conc.)", key: "kgCalibrador", tipo: "numero", numFmt: FMT_KG, width: 19 },
-  { header: "Merma kg", key: "mermaKg", tipo: "numero", numFmt: FMT_KG, width: 14 },
-  { header: "% merma", key: "pctMerma", tipo: "numero", numFmt: FMT_PCT, width: 10 },
-  { header: "Podrido kg", key: "podridoKg", tipo: "numero", numFmt: FMT_KG, width: 14 },
+  { header: "Merma cámara kg", key: "mermaKg", tipo: "numero", numFmt: FMT_KG, width: 15 },
+  { header: "% merma cámara", key: "pctMerma", tipo: "numero", numFmt: FMT_PCT, width: 13 },
+  { header: "Podrido kg (pre+calibrador)", key: "podridoKg", tipo: "numero", numFmt: FMT_KG, width: 21 },
   { header: "% podrido", key: "pctPodrido", tipo: "numero", numFmt: FMT_PCT, width: 10 },
-  { header: "Pérdida kg", key: "perdidaKg", tipo: "numero", numFmt: FMT_KG, width: 14 },
+  { header: "Pérdida total kg", key: "perdidaKg", tipo: "numero", numFmt: FMT_KG, width: 15 },
   { header: "% pérdida", key: "pctPerdida", tipo: "numero", numFmt: FMT_PCT, width: 10 },
 ];
 

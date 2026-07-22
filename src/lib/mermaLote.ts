@@ -5,17 +5,21 @@
  *
  * ─── Los tres números, y por qué NO se solapan ──────────────────────────────
  *
- * 1. MERMA NATURAL: kg que entraron por báscula pero nunca llegaron a pesar
- *    en el calibrador (deshidratación, destrío en cámara/patio, etc.). Es la
- *    diferencia báscula − calibrador − ajuste de stock. Por definición, esta
- *    fruta JAMÁS pasó por el calibrador.
- * 2. PODRIDO (calibrador + manual/bolsa de basura): kg que SÍ pasaron por el
- *    calibrador — están incluidos en `kgCalibrador` — y que se descartaron
- *    allí o en la mesa de selección manual.
+ * 1. MERMA NATURAL (medida): kg que entraron por báscula pero nunca llegaron
+ *    a pesar en el calibrador. Es la diferencia báscula − calibrador − ajuste
+ *    de stock, y CONTIENE dos componentes (modelo del dueño, 21-jul-2026):
+ *      a) la merma de cámara (deshidratación; real si hay registro, estimada
+ *         por tasa × días si no), y
+ *      b) el PODRIDO MANUAL: fruta retirada ANTES de entrar al calibrador
+ *         (contenedor/bolsa de basura pre-línea). El contador
+ *         kg_podrido_bolsa_basura del parte es la medición diaria de (b) —
+ *         por eso el podrido manual NUNCA se suma encima de la merma medida
+ *         (estaría dentro dos veces): es su desglose, no una pérdida extra.
+ * 2. PODRIDO DE CALIBRADOR: kg que SÍ pasaron por el calibrador — incluidos
+ *    en `kgCalibrador` — y que la máquina descartó.
  *
- * Como el podrido es un subconjunto de lo que el calibrador ya pesó, y la
- * merma es justo lo que el calibrador NUNCA pesó, sumar merma + podrido no
- * cuenta la misma fruta dos veces.
+ * Pérdida total = merma medida (cámara + podrido manual) + podrido de
+ * calibrador: cada kg cuenta exactamente una vez.
  *
  * ─── Solo procesados tienen merma ───────────────────────────────────────────
  * Un lote "parcial" o "pendiente" (ver estadoLotePorProcesado en
@@ -588,7 +592,10 @@ export function computeMermaLotes(
       // que la pérdida en € queda subestimada para esos lotes a propósito
       // (documentado); `podridoDesconocido` es la señal para que la UI/el
       // agregado lo marquen en vez de darlo por completo.
-      perdidaPodridoEur = costePorKg * ((podridoCalibradorKg ?? 0) + (podridoManualKg ?? 0));
+      // SOLO el podrido del calibrador: el manual sale ANTES del calibrador y
+      // ya está dentro de la merma medida (modelo del dueño, 21-jul-2026) —
+      // sumarlo aquí lo contaría dos veces.
+      perdidaPodridoEur = costePorKg * (podridoCalibradorKg ?? 0);
       perdidaTotalEur = (perdidaMermaEur ?? 0) + perdidaPodridoEur;
       pctPerdidaSobreCoste = costeTotalLote > 0 ? (perdidaTotalEur / costeTotalLote) * 100 : null;
       mermaNaturalEstimadaEur = mermaNaturalEstimadaKg != null ? costePorKg * mermaNaturalEstimadaKg : null;

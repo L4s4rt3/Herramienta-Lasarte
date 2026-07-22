@@ -228,12 +228,13 @@ function MermasCosteTab() {
   const handleToggleSort = (key: MermaSortKey) => toggleSort(key, sortKey, sortDir, setSortKey, setSortDir, "desc");
 
   // ─── Atención especial: 2 rankings de lotes + 1 por agricultor (kg, no €) ──
-  // Total podrido del lote = calibrador + manual + pre-calibrador (asumido):
-  // los tres cuentan como PODRIDO en este ranking de atención, aunque en la
-  // tabla de abajo cada componente siga visible por separado con su etiqueta.
+  // Total podrido del lote = calibrador + pre-calibrador. El podrido MANUAL no
+  // se suma: sale ANTES del calibrador y ya está dentro de la merma medida —
+  // el componente pre-calibrador ES su reflejo por lote (modelo del dueño,
+  // 21-jul-2026); sumar ambos contaría la misma fruta dos veces.
   const topPodridoKg = useMemo(
     () => procesados
-      .map((l) => ({ lote: l.lote, kg: (l.podridoCalibradorKg ?? 0) + (l.podridoManualKg ?? 0) + (l.podridoPreCalibradorKg ?? 0) }))
+      .map((l) => ({ lote: l.lote, kg: (l.podridoCalibradorKg ?? 0) + (l.podridoPreCalibradorKg ?? 0) }))
       .filter((r) => r.kg > 0)
       .sort((a, b) => b.kg - a.kg)
       .slice(0, 5),
@@ -342,7 +343,9 @@ function MermasCosteTab() {
       const productorIdDirecto = (fila as { productor_id?: string | null } | undefined)?.productor_id ?? null;
       const { key, productorId } = resolveProductorGroupKey(agricultor ?? "", productorIdDirecto, aliasPorNombreNormalizado);
       const label = (productorId ? nombrePorProductorId.get(productorId) : null) ?? agricultor ?? "Sin agricultor";
-      const kgPerdido = Math.max(0, l.mermaNaturalKg ?? 0) + (l.podridoCalibradorKg ?? 0) + (l.podridoManualKg ?? 0);
+      // merma medida (incluye cámara + podrido manual pre-calibrador) + podrido
+      // del calibrador: cada kg una sola vez (modelo del dueño, 21-jul-2026).
+      const kgPerdido = Math.max(0, l.mermaNaturalKg ?? 0) + (l.podridoCalibradorKg ?? 0);
       return { productorKey: key, productorLabel: label, kgEntrada: l.kgEntrada, kgPerdido, eurPerdido: null };
     });
     return agruparPerdidaPorProductor(items)
