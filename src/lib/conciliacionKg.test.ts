@@ -141,6 +141,19 @@ describe("conciliarKgProcesados — precalibrado", () => {
     expect(res.excesosSinColocar).toEqual([{ lote: "26063001", kg: 3000 }]);
   });
 
+  it("precalibradoPendienteKg: re-entradas PREC aún sin pasada asignada = fruta física esperando línea", () => {
+    const res = conciliarKgProcesados(
+      [
+        entrada({ lote: "26071502", kg_entrada: 5099, esPrecalibrado: true, fecha: "2026-07-15" }),
+        entrada({ lote: "26071601", kg_entrada: 2009, esPrecalibrado: true, fecha: "2026-07-16" }),
+        entrada({ lote: "26050101", kg_entrada: 20000 }), // real: no cuenta aquí
+      ],
+      // Solo la primera re-entrada tiene pasada (parcial: 3.000 de 5.099).
+      [{ lote_codigo: "PREC 26071502", kg_peso_total: 3000, date: "2026-07-16" }],
+    );
+    expect(res.precalibradoPendienteKg).toBeCloseTo((5099 - 3000) + 2009);
+  });
+
   it("los lotes PREC tampoco reciben derrames de lotes reales", () => {
     const res = conciliarKgProcesados(
       [

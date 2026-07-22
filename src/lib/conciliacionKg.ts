@@ -120,6 +120,15 @@ export interface ConciliacionKg {
   reciclaje: ReciclajePasada[];
   /** Σ kg de `reciclaje` (estimados a KG_POR_BOX_RECICLAJE por box). */
   kgReciclajeEstimado: number;
+  /**
+   * Kg de re-entradas de PRECALIBRADO aún sin pasada de calibrador asignada:
+   * fruta FÍSICA en la nave esperando línea. Es la única parte del almacén
+   * PREC medible con fiabilidad (lo que vuelve se pesa siempre en báscula;
+   * lo que se aparta, no siempre — verificado 22-jul-2026: apartado
+   * registrado 506 t < reintroducido 792 t, así que un "stock PREC" completo
+   * saldría negativo y NO se calcula).
+   */
+  precalibradoPendienteKg: number;
 }
 
 /** Tokens genéricos que no distinguen variedad ("NAR VAL DELTA SEEDLESS" y "NARANJA VALENCIA DELTA" son la misma familia). OJO: "NAVEL" es genérico pero "NAVELINA" es una variedad (se compara el token completo). */
@@ -423,6 +432,12 @@ export function conciliarKgProcesados(
     deltaPorLote.set(m.a, (deltaPorLote.get(m.a) ?? 0) + m.kg);
   }
 
+  let precalibradoPendienteKg = 0;
+  for (const r of reg.values()) {
+    if (!r.entrada.esPrecalibrado) continue;
+    precalibradoPendienteKg += Math.max(0, r.entrada.kg_entrada - r.asignado);
+  }
+
   return {
     procesados,
     movimientos,
@@ -430,5 +445,6 @@ export function conciliarKgProcesados(
     deltaPorLote,
     reciclaje,
     kgReciclajeEstimado: reciclaje.reduce((s, r) => s + r.kg, 0),
+    precalibradoPendienteKg,
   };
 }

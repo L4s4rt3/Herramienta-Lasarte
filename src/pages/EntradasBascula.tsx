@@ -1194,6 +1194,13 @@ export default function EntradasBascula() {
                 <p className="text-[11px] text-muted-foreground">
                   Se excluyen {movimientosPrecalibrado.count} movimientos internos de precalibrado
                   ({formatKg(movimientosPrecalibrado.kg)}) — fruta apartada que vuelve a entrar, no es entrada nueva.
+                  {conciliacionKg.precalibradoPendienteKg > 500 && (
+                    <>
+                      {" "}De ellos, <span className="font-semibold text-foreground tabular-nums">{formatKg(conciliacionKg.precalibradoPendienteKg)}</span>{" "}
+                      reintroducidos aún SIN reprocesar: fruta física en la nave esperando línea (no suma en el stock por
+                      lote porque ya se contó en su lote de origen).
+                    </>
+                  )}
                 </p>
               )}
               {derivadosCampoCit.count > 0 && (
