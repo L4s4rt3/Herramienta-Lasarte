@@ -728,13 +728,19 @@ export default function EntradasBascula() {
   const previewStats = useMemo(() => {
     if (!preview) return null;
     const fechas = preview.entradas.map((e) => e.fecha).sort();
-    const nuevas = preview.entradas.filter((e) => !lotesExistentes.has(e.lote)).length;
+    const filasNuevas = preview.entradas.filter((e) => !lotesExistentes.has(e.lote));
+    // Cuántas de las nuevas son movimientos internos de precalibrado: se
+    // importan pero NO aparecen en stock/listas (regla del dueño) — si no se
+    // avisa, el import parece "no hacer nada" (confusión real, 22-jul-2026:
+    // un export cuyo único contenido nuevo eran filas PREC).
+    const nuevasPrec = filasNuevas.filter((e) => esEntradaPrecalibrado({ finca: e.finca, agricultor: e.agricultor })).length;
     return {
       kg: preview.entradas.reduce((s, e) => s + e.kg_entrada, 0),
       desde: fechas[0],
       hasta: fechas[fechas.length - 1],
-      nuevas,
-      actualizadas: preview.entradas.length - nuevas,
+      nuevas: filasNuevas.length,
+      nuevasPrec,
+      actualizadas: preview.entradas.length - filasNuevas.length,
     };
   }, [preview, lotesExistentes]);
 
@@ -747,7 +753,7 @@ export default function EntradasBascula() {
           title: preview.tipo === "stock" ? "Stock inicial sembrado" : "Entradas importadas",
           description: preview.tipo === "stock"
             ? `${previewStats?.nuevas ?? 0} lote(s) nuevo(s) creado(s); los ${previewStats?.actualizadas ?? 0} que ya existían se han respetado.`
-            : `${preview.entradas.length} entrada(s) guardada(s) (${previewStats?.nuevas ?? 0} nueva(s)).`,
+            : `${preview.entradas.length} entrada(s) guardada(s) (${previewStats?.nuevas ?? 0} nueva(s)${(previewStats?.nuevasPrec ?? 0) > 0 ? `, de ellas ${previewStats?.nuevasPrec} de precalibrado que NO aparecen en stock` : ""}).`,
         });
         setPreview(null);
       },
@@ -957,6 +963,14 @@ export default function EntradasBascula() {
               <p className="w-full text-xs text-muted-foreground">
                 El kg de entrada de cada lote se reconstruye como stock actual + lo que el calibrador ya procesó de ese
                 lote: así el stock calculado coincide con el informe y el procesado futuro descuenta bien.
+              </p>
+            )}
+            {previewStats.nuevasPrec > 0 && (
+              <p className="flex w-full items-center gap-1.5 text-xs text-muted-foreground">
+                <HelpCircle className="h-3.5 w-3.5 shrink-0" />
+                {previewStats.nuevasPrec === previewStats.nuevas
+                  ? <>Todas las entradas nuevas son movimientos internos de PRECALIBRADO: se guardan, pero no aparecen en el stock ni en las listas (no son fruta nueva).</>
+                  : <>{previewStats.nuevasPrec} de las nuevas son movimientos internos de PRECALIBRADO: se guardan pero no aparecen en stock.</>}
               </p>
             )}
             {preview.descartadas.length > 0 && (
