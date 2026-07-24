@@ -201,34 +201,34 @@ describe("calidad helpers", () => {
     });
   });
 
-  it("suggests a concise, fruit-focused quality comment from the lot's structured fields (Regular + Rameado)", () => {
+  it("suggests a full narrative comment with reception traceability, quality/Aerobotics and defects (Regular + Rameado)", () => {
     const suggestion = buildCalidadComentarioSugerido(lotes[0], [lotes[1], { ...lotes[0], id: "3", fecha: "2026-05-27", calidad: "Deficiente" }], 2);
 
-    expect(suggestion).toContain("rameado superficial");
-    expect(suggestion).toContain("conviene seguirla en línea");
+    expect(suggestion).toContain("Se ha recibido a las 06:00 h un volcado");
+    expect(suggestion).toContain("procedente de la finca Los Corrales");
+    expect(suggestion).toContain("correspondiente a naranja variedad Navel Powell");
+    expect(suggestion).toContain("se valora como regular");
+    expect(suggestion).toContain("soporte del sistema Aerobotics");
+    expect(suggestion).toContain("El único defecto detectado es rameado");
     expect(suggestion).toContain("Accion recomendada:");
-    expect(suggestion).toContain("seguimiento");
-    expect(suggestion).not.toContain("Navel Powell");
-    expect(suggestion).not.toContain("Los Corrales");
-    expect(suggestion).not.toContain("foto");
-    expect(suggestion).not.toContain("Historico");
+    expect(suggestion).toContain("seguimiento en línea del calibre");
   });
 
-  it("suggests 'sin actuacion' with no defect phrases for a Bueno lot", () => {
+  it("suggests 'sin defectos' narrative with a direct destino for a Bueno lot", () => {
     const suggestion = buildCalidadComentarioSugerido(makeLote({ calidad: "Bueno", defectos: [] }));
 
-    expect(suggestion).toContain("buen estado general");
-    expect(suggestion).toContain("sin defectos reseñables");
+    expect(suggestion).toContain("No se detectan defectos reseñables");
     expect(suggestion).toContain("Accion recomendada:");
-    expect(suggestion).toContain("Sin actuación");
+    expect(suggestion).toContain("apto para su destino");
   });
 
-  it("suggests a reclassification action with defect phrases for a Deficiente lot (Mancha + Calibre irregular)", () => {
+  it("suggests a reclassification destino with defect narrative for a Deficiente lot (Mancha + Calibre irregular)", () => {
     const suggestion = buildCalidadComentarioSugerido(makeLote({ calidad: "Deficiente", defectos: ["Mancha", "Calibre irregular"] }));
 
-    expect(suggestion).toContain("Manchas superficiales");
-    expect(suggestion).toContain("Calibre irregular");
-    expect(suggestion).toContain("segunda categoría");
+    expect(suggestion).toContain("Los defectos detectados son mancha y calibre irregular");
+    // concordancia de número: sujeto plural -> "afectan/obligan", nunca "afecta/obliga"
+    expect(suggestion).toContain("que afectan a la aptitud comercial y obligan a reclasificar parte del lote");
+    expect(suggestion).not.toContain("que afecta a la aptitud");
     expect(suggestion).toContain("Accion recomendada:");
     expect(suggestion).toContain("Se recorta la primera categoría");
   });

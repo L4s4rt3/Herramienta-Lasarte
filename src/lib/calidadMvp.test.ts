@@ -107,23 +107,23 @@ describe("calidad MVP domain", () => {
     expect(isCalidadLoteLocked(revalidated)).toBe(true);
   });
 
-  it("creates a useful draft report from structured data", () => {
+  it("creates a full narrative draft report from structured data", () => {
     const report = createCalidadDraftReport(lote({ calidad: "Regular", defectos: ["Golpe", "Podrido"] }), 3, []);
+    expect(report.informe).toContain("Se ha recibido");
     expect(report.informe).toContain("Finca A");
-    expect(report.informe).toContain("Calidad: Regular");
+    expect(report.informe).toContain("se valora como regular");
+    expect(report.informe).toContain("Los defectos detectados son golpe y podrido");
     expect(report.informe).not.toContain("Entrada regular");
-    expect(report.informe).toContain("golpes leves");
-    expect(report.informe).toContain("podrido");
-    expect(report.accion_recomendada).toContain("seguimiento");
+    expect(report.accion_recomendada).toContain("categorías habituales de Mercadona");
   });
 
-  it("keeps quality as a label (not an agreeing adjective) and skips the evidence clause with 0 photos", () => {
+  it("keeps quality as a narrative clause (not an agreeing adjective) for Bueno and Pésimo lots", () => {
     const bueno = createCalidadDraftReport(lote({ calidad: "Bueno" }), 0, []);
-    expect(bueno.informe).toContain("Calidad: Bueno");
+    expect(bueno.informe).toContain("se valora como buena");
     expect(bueno.informe).not.toContain("Entrada bueno");
-    expect(bueno.informe).not.toContain("como evidencia");
 
     const pesimo = createCalidadDraftReport(lote({ calidad: "Pésimo" }), 0, []);
+    expect(pesimo.informe).toContain("se valora como pésima");
     expect(pesimo.informe).not.toContain("Entrada pésimo");
   });
 });
