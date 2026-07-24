@@ -204,10 +204,10 @@ describe("calidad helpers", () => {
   it("suggests a concise, fruit-focused quality comment from the lot's structured fields (Regular + Rameado)", () => {
     const suggestion = buildCalidadComentarioSugerido(lotes[0], [lotes[1], { ...lotes[0], id: "3", fecha: "2026-05-27", calidad: "Deficiente" }], 2);
 
-    expect(suggestion).toContain("Rameado");
+    expect(suggestion).toContain("rameado superficial");
+    expect(suggestion).toContain("conviene seguirla en línea");
     expect(suggestion).toContain("Accion recomendada:");
     expect(suggestion).toContain("seguimiento");
-    expect(suggestion).toContain("calibre y color");
     expect(suggestion).not.toContain("Navel Powell");
     expect(suggestion).not.toContain("Los Corrales");
     expect(suggestion).not.toContain("foto");
@@ -218,6 +218,7 @@ describe("calidad helpers", () => {
     const suggestion = buildCalidadComentarioSugerido(makeLote({ calidad: "Bueno", defectos: [] }));
 
     expect(suggestion).toContain("buen estado general");
+    expect(suggestion).toContain("sin defectos reseñables");
     expect(suggestion).toContain("Accion recomendada:");
     expect(suggestion).toContain("Sin actuación");
   });
@@ -225,7 +226,8 @@ describe("calidad helpers", () => {
   it("suggests a reclassification action with defect phrases for a Deficiente lot (Mancha + Calibre irregular)", () => {
     const suggestion = buildCalidadComentarioSugerido(makeLote({ calidad: "Deficiente", defectos: ["Mancha", "Calibre irregular"] }));
 
-    expect(suggestion).toContain("Manchas");
+    expect(suggestion).toContain("Manchas superficiales");
+    expect(suggestion).toContain("Calibre irregular");
     expect(suggestion).toContain("segunda categoría");
     expect(suggestion).toContain("Accion recomendada:");
     expect(suggestion).toContain("Se recorta la primera categoría");

@@ -112,7 +112,8 @@ describe("calidad MVP domain", () => {
     expect(report.informe).toContain("Finca A");
     expect(report.informe).toContain("Calidad: Regular");
     expect(report.informe).not.toContain("Entrada regular");
-    expect(report.informe).toContain("Golpe");
+    expect(report.informe).toContain("golpes leves");
+    expect(report.informe).toContain("podrido");
     expect(report.accion_recomendada).toContain("seguimiento");
   });
 
