@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -11,6 +12,7 @@ import {
   Clock,
   Copy,
   Download,
+  ExternalLink,
   FileSpreadsheet,
   FileText,
   History,
@@ -26,6 +28,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
+import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -83,6 +86,7 @@ import { cn } from "@/lib/utils";
 import { SelectorPeriodo } from "@/components/SelectorPeriodo";
 import { CalidadHistoricoTab } from "@/components/calidad/CalidadHistoricoTab";
 import { CalidadAdjuntoThumb } from "@/components/calidad/CalidadAdjuntoThumb";
+import { CalidadInformeDialog, type CalidadInformeLote } from "@/components/CalidadInformeDialog";
 import { PartFilePreviewDialog, type PreviewableArchivo } from "@/components/PartFilePreviewDialog";
 
 const RESPONSABLES = ["Eusebio Rodríguez"] as const;
@@ -328,6 +332,30 @@ function emptyLote(jornada: CalidadJornada, userId: string, index: number, overr
   };
 }
 
+/** Adapta un CalidadLote del histórico al shape de CalidadInformeDialog (mismo patrón que CalidadHistoricoTab). */
+function toCalidadInformeLote(lote: CalidadLote): CalidadInformeLote {
+  return {
+    id: lote.id,
+    fecha: lote.fecha,
+    numero_lote: lote.numero_lote,
+    productor_finca_nombre: lote.productor_finca_nombre,
+    producto: lote.producto,
+    variedad: lote.variedad,
+    cantidad: lote.cantidad,
+    hora: lote.hora,
+    calidad: lote.calidad,
+    defectos: lote.defectos ?? [],
+    defecto_otro: lote.defecto_otro,
+    observacion: lote.observacion,
+    accion_recomendada: lote.accion_recomendada,
+    informe_estado: lote.informe_estado,
+    informe_generado: lote.informe_generado,
+    aerobotics_realizado: lote.aerobotics_realizado,
+    validado_at: lote.validado_at,
+    validado_by: lote.validado_by,
+  };
+}
+
 export default function CalidadJornadaPage() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -352,6 +380,8 @@ export default function CalidadJornadaPage() {
   const [tab, setTab] = useState<"jornada" | "historico">("jornada");
   const [previewArchivo, setPreviewArchivo] = useState<PreviewableArchivo | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [historicoInforme, setHistoricoInforme] = useState<CalidadInformeLote | null>(null);
+  const [historicoInformeOpen, setHistoricoInformeOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const wordInputRef = useRef<HTMLInputElement | null>(null);
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -364,6 +394,21 @@ export default function CalidadJornadaPage() {
 
   const { data: diaData, isLoading: loading } = useCalidadJornadaDia(fecha);
   const { data: historicoRango = [], isLoading: historicoLoading } = useCalidadHistoricoRango(tab === "historico");
+  // Id del parte de producción de esta fecha (si existe), para que "Ver parte
+  // del día"/"Ir a partes" abran el parte concreto en vez de la lista semanal.
+  // El bundle de useCalidadJornadaDia no lo expone (solo lo usa internamente
+  // para resolver lotesDia), así que se resuelve aparte con una consulta
+  // ligera de una sola fila.
+  const { data: parteDelDiaId = null } = useQuery({
+    queryKey: ["parte-del-dia-id", fecha],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("partes_diarios").select("id").eq("date", fecha).maybeSingle();
+      if (error) throw error;
+      return (data as { id: string } | null)?.id ?? null;
+    },
+    enabled: Boolean(user) && Boolean(fecha),
+  });
+  const parteDelDiaHref = parteDelDiaId ? `/partes/${parteDelDiaId}` : `/partes?vista=semana&fecha=${fecha}`;
   const {
     invalidate,
     updateJornadaMutation,
@@ -816,9 +861,10 @@ export default function CalidadJornadaPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Enlace fijo (no solo cuando hay incidencia) al parte del mismo día: cierra el ciclo Calidad ↔ Partes. */}
+          {/* Enlace fijo (no solo cuando hay incidencia) al parte del mismo día: cierra el ciclo Calidad ↔ Partes.
+              Si ese día no tiene parte todavía, cae a la lista de la semana (no hay vista de día en Partes). */}
           <Button variant="outline" size="sm" className="glass glass-hover" asChild>
-            <Link to={`/partes?fecha=${fecha}`}>Ver parte del día</Link>
+            <Link to={parteDelDiaHref}>{parteDelDiaId ? "Ver parte del día" : "Ver partes de la semana"}</Link>
           </Button>
           {autosaveStatus !== "idle" && (
             <span className={cn("flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium", autosaveStatus === "saving" && "border-warning/40 bg-warning/10 text-warning", autosaveStatus === "saved" && "border-success/40 bg-success/10 text-success", autosaveStatus === "error" && "border-destructive/40 bg-destructive/10 text-destructive")}>
@@ -1237,6 +1283,15 @@ export default function CalidadJornadaPage() {
                         lote.lote_codigo ? <option key={lote.lote_codigo} value={lote.lote_codigo} /> : null
                       ))}
                     </datalist>
+                    {selected.numero_lote.trim() && (
+                      <Link
+                        to={`/trazabilidad?lote=${encodeURIComponent(selected.numero_lote.trim())}`}
+                        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        Ver trazabilidad
+                      </Link>
+                    )}
                   </div>
                   <div className="space-y-2 lg:col-span-2">
                     <Label htmlFor="productor-finca">Productor/Finca</Label>
@@ -1435,7 +1490,23 @@ export default function CalidadJornadaPage() {
                     ) : (
                       <div className="mt-3 space-y-2">
                         {selectedHistoricalSimilar.map((lote) => (
-                          <div key={lote.id} className="rounded-lg border border-border/60 bg-background/60 p-3">
+                          <div
+                            key={lote.id}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => {
+                              setHistoricoInforme(toCalidadInformeLote(lote));
+                              setHistoricoInformeOpen(true);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                setHistoricoInforme(toCalidadInformeLote(lote));
+                                setHistoricoInformeOpen(true);
+                              }
+                            }}
+                            className="cursor-pointer rounded-lg border border-border/60 bg-background/60 p-3 transition-colors hover:border-primary/40"
+                          >
                             <div className="flex items-center justify-between gap-2">
                               <p className="text-xs font-semibold text-muted-foreground">{formatCalidadDate(lote.fecha)}</p>
                               <Badge variant="outline" className={cn("shrink-0", QUALITY_STYLES[lote.calidad])}>
@@ -1526,7 +1597,7 @@ export default function CalidadJornadaPage() {
               <p className="text-xs text-muted-foreground">Quedaran visibles en el parte de {formatCalidadDate(fecha)} para que el informe no pierda contexto.</p>
             </div>
             <Button variant="outline" className="glass glass-hover" asChild>
-              <Link to={`/partes?fecha=${fecha}`}>Ir a partes</Link>
+              <Link to={parteDelDiaHref}>{parteDelDiaId ? "Ir a partes" : "Ver partes de la semana"}</Link>
             </Button>
           </CardContent>
         </Card>
@@ -1539,6 +1610,7 @@ export default function CalidadJornadaPage() {
       </Tabs>
 
       <PartFilePreviewDialog open={previewOpen} onOpenChange={setPreviewOpen} archivo={previewArchivo} />
+      <CalidadInformeDialog lote={historicoInforme} open={historicoInformeOpen} onOpenChange={setHistoricoInformeOpen} />
     </div>
   );
 }

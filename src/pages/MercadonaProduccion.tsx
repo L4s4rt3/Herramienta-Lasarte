@@ -19,8 +19,7 @@
 // cumple el tipo MercadonaSemanaConMetodos con esos dos campos reales y el
 // resto en null/vacio (no existe una fila en mercadona_semanas para esta
 // semana "de produccion", y no hace falta: nunca se leen).
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { BadgeCheck, PackageSearch, Percent, Scale, Timer } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -39,9 +38,33 @@ import type { MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
 import { formatMercadonaWeekRangeLabel, mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
 import { formatKg, formatPct } from "@/lib/format";
 
+const VALID_TABS = ["lotes", "productores"] as const;
+type TabValue = (typeof VALID_TABS)[number];
+
+function isTabValue(v: string | null): v is TabValue {
+  return !!v && (VALID_TABS as readonly string[]).includes(v);
+}
+
+/** Semana seleccionada desde ?anio=&semana= de la URL, o null si faltan/son inválidos (se usa el valor por defecto). */
+function parseSemanaParam(searchParams: URLSearchParams): MercadonaProduccionSemana | null {
+  const anio = Number(searchParams.get("anio"));
+  const semana = Number(searchParams.get("semana"));
+  if (!Number.isInteger(anio) || !Number.isInteger(semana) || anio <= 0 || semana <= 0) return null;
+  return { anio, semana };
+}
+
 export default function MercadonaProduccion() {
-  const [seleccionada, setSeleccionada] = useState<MercadonaProduccionSemana | null>(null);
-  const [tab, setTab] = useState<"lotes" | "productores">("lotes");
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Pestaña activa y semana seleccionada viven en la URL (?tab=, ?anio=&semana=)
+  // para que la página sea enlazable y recupere el estado al recargar. Se
+  // leen directamente de searchParams (sin useState propio, patrón de
+  // PartesList.tsx) y solo se escriben en respuesta a una acción del usuario
+  // (cambiar de pestaña, mover de semana), mezclando sobre los parámetros
+  // existentes: al no derivarse de un useEffect que dependa de searchParams
+  // (como el de AnalisisDiario.tsx), no hay riesgo de bucle de escritura.
+  const tab: TabValue = isTabValue(searchParams.get("tab")) ? (searchParams.get("tab") as TabValue) : "lotes";
+  const seleccionada = parseSemanaParam(searchParams);
   const { efectiva, isDefaultLoading } = useSemanaProduccionEfectiva(seleccionada);
 
   const rango = mercadonaWeekDateRange(efectiva.anio, efectiva.semana);
@@ -69,8 +92,19 @@ export default function MercadonaProduccion() {
     metodos: [],
   };
 
+  const handleTabChange = (v: string) => {
+    if (!isTabValue(v)) return;
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", v);
+    setSearchParams(next, { replace: true });
+  };
+
   const navigate = (direction: -1 | 1) => {
-    setSeleccionada(shiftSemanaMercadona(efectiva.anio, efectiva.semana, direction));
+    const siguiente = shiftSemanaMercadona(efectiva.anio, efectiva.semana, direction);
+    const next = new URLSearchParams(searchParams);
+    next.set("anio", String(siguiente.anio));
+    next.set("semana", String(siguiente.semana));
+    setSearchParams(next, { replace: true });
   };
 
   const cargandoResumen = isDefaultLoading || mercadona.isLoading;
@@ -95,7 +129,7 @@ export default function MercadonaProduccion() {
         </div>
       </header>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as "lotes" | "productores")} className="space-y-4">
+      <Tabs value={tab} onValueChange={handleTabChange} className="space-y-4">
         <TabsList className="w-full flex-wrap sm:w-auto">
           <TabsTrigger value="lotes">Lotes y semana</TabsTrigger>
           <TabsTrigger value="productores">Aprovechamiento por productor</TabsTrigger>

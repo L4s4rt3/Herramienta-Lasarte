@@ -140,7 +140,6 @@ bg-muted / text-muted-foreground
 | `Alert (default)` | `--glass-bg backdrop-blur-xl` | ✅ |
 | `Table (rows)` | `--glass-border`, `--glass-bg-strong` hover | ✅ |
 | `StatusBadge` | tokens semánticos | ✅ |
-| `SemaforoCard` | `bg-success/10`, `bg-warning/10`, `bg-destructive/10` | ✅ |
 
 ---
 

@@ -18,6 +18,10 @@ import {
   Euro,
   Receipt,
   Tags,
+  Waypoints,
+  Brush,
+  History,
+  Send,
   type LucideIcon,
 } from "lucide-react";
 
@@ -46,6 +50,16 @@ export interface TourStep {
    * (p.ej. acceso a Categoría segunda). Si no se define, el paso siempre se incluye.
    */
   requiresVentasCategoriaAccess?: boolean;
+  /**
+   * Igual que requiresVentasCategoriaAccess pero para el acceso a
+   * Comunicaciones de campaña (RPC can_access_comunicaciones_campo, exclusiva
+   * de Jesús y admin). NOTA: AppLayout.tsx (el único llamador de
+   * getVisibleTourSteps) todavía no pasa `hasComunicacionesCampoAccess` en
+   * los opts — mientras no se añada allí, cualquier paso con esta condición
+   * queda oculto para todos, admin incluido (falla cerrado a propósito, ver
+   * getVisibleTourSteps más abajo).
+   */
+  requiresComunicacionesCampoAccess?: boolean;
   /** Paso de una sección solo-admin (espejo de adminOnly en NAV_GROUPS). */
   adminOnly?: boolean;
 }
@@ -60,6 +74,15 @@ export const TOUR_STEPS: TourStep[] = [
     title: "Panel de producción",
     description:
       "Es la foto del día a día: producción de la semana, kg dados de alta, la Diferencia Sin Justificar (DJPMN, el cuadre entre lo que entra y lo que sale) con su semáforo, la velocidad de la planta y cuánto de lo confeccionado va a Mercadona. Si una semana aún no tiene datos, la app te enseña la anterior y te lo avisa.",
+  },
+  {
+    id: "entradas",
+    workspace: "produccion",
+    to: "/entradas",
+    icon: Truck,
+    title: "Entradas de fruta",
+    description:
+      "Aquí empieza cada lote: la entrada por báscula con su finca, agricultor, variedad y kg, y el stock de fruta sin procesar que queda en cámara. Se importa el parte de báscula por Excel, se puede cerrar un lote a mano cuando se da por terminado, y la pestaña de conciliación reparte los kg del calibrador entre lotes cuando una pasada mezcla varios camiones.",
   },
   {
     id: "calidad",
@@ -89,6 +112,15 @@ export const TOUR_STEPS: TourStep[] = [
       "La lupa sobre la producción: lotes uno a uno con su ficha completa (clasificación por clase y tamaño), calibres, destino de la fruta y productores. Los filtros de arriba (buscador, productor, producto) afectan a todas las pestañas a la vez.",
   },
   {
+    id: "trazabilidad",
+    workspace: "produccion",
+    to: "/trazabilidad",
+    icon: Waypoints,
+    title: "Trazabilidad",
+    description:
+      "La vida completa de un lote en una sola ficha: entrada por báscula, pasadas del calibrador, clasificación por calibre y destino, notas de calidad y en qué palets acabó. Se busca por código de lote (vale también el impreso en el palet) y el modo Por día de confección enseña, para una fecha, qué se volcó al calibrador y a qué clientes se expidió.",
+  },
+  {
     id: "productores",
     workspace: "produccion",
     to: "/productores",
@@ -102,7 +134,7 @@ export const TOUR_STEPS: TourStep[] = [
     workspace: "produccion",
     to: "/mercadona",
     icon: ShoppingCart,
-    title: "Mercadona",
+    title: "Mercadona (planta)",
     description:
       "La vista de producción del pedido a Mercadona: aprovechamiento, previsión y expediciones, sin datos de facturación (esos viven en el espacio Comercial). Sirve para seguir el día a día del pedido desde planta.",
   },
@@ -115,6 +147,41 @@ export const TOUR_STEPS: TourStep[] = [
     adminOnly: true,
     description:
       "El consumo de agua, electricidad, gasoil y tratamientos, con el consumo por kg de naranja de cada día y vistas por semana, mes o campaña. Apunta las lecturas de los contadores y la app calcula el consumo de cada día por ti.",
+  },
+  {
+    id: "limpieza",
+    workspace: "produccion",
+    to: "/limpieza",
+    icon: Brush,
+    title: "Limpieza de box",
+    adminOnly: true,
+    description:
+      "Los partes diarios del grupo de limpieza de box (o pies): cuánto se ha limpiado, las escaleras, los trabajadores del turno y sus horas. Solo administración.",
+  },
+  {
+    id: "historico",
+    workspace: "produccion",
+    to: "/historico",
+    icon: History,
+    title: "Importar histórico",
+    adminOnly: true,
+    description:
+      "Carga el histórico de producción de la campaña a partir del export del calibrador, para tener también los datos de antes de que arrancara la herramienta. Solo administración; normalmente es una carga que se hace una vez.",
+  },
+  {
+    id: "campo-comunicaciones",
+    workspace: "produccion",
+    to: "/campo/comunicaciones",
+    icon: Send,
+    title: "Comunicaciones de campaña",
+    // Exclusiva de Jesús y admin (misma RPC que CommandPalette/NAV_GROUPS:
+    // can_access_comunicaciones_campo). Ver la nota en
+    // TourStep.requiresComunicacionesCampoAccess: este paso queda oculto para
+    // todos (admin incluido) hasta que AppLayout.tsx pase
+    // hasComunicacionesCampoAccess a getVisibleTourSteps.
+    requiresComunicacionesCampoAccess: true,
+    description:
+      "Comunicados a agricultores y proveedores de cara a la campaña que entra: redactar, revisar destinatarios y enviar. Exclusivo de Jesús y administración.",
   },
   {
     id: "trucos-produccion",
@@ -132,7 +199,7 @@ export const TOUR_STEPS: TourStep[] = [
     workspace: "comercial",
     to: "/comercial/mercadona",
     icon: ShoppingCart,
-    title: "Mercadona",
+    title: "Mercadona (ventas)",
     description:
       "La vista comercial completa del pedido a Mercadona: aquí sí está la facturación, junto con el análisis del pedido, las expediciones y la previsión. Es la versión completa de la que se ve en Producción, con los números de venta incluidos.",
   },
@@ -281,11 +348,15 @@ export const TOUR_STEPS: TourStep[] = [
 /** Filtra los pasos del tour por espacio de trabajo y por los accesos del usuario actual. */
 export function getVisibleTourSteps(
   workspace: TourWorkspaceId,
-  opts: { hasVentasCategoriaAccess: boolean; isAdmin: boolean },
+  opts: { hasVentasCategoriaAccess: boolean; isAdmin: boolean; hasComunicacionesCampoAccess?: boolean },
 ): TourStep[] {
   return TOUR_STEPS.filter((step) => {
     if (step.workspace !== workspace) return false;
     if (step.requiresVentasCategoriaAccess && !opts.hasVentasCategoriaAccess) return false;
+    // Opcional a propósito (ver TourStep.requiresComunicacionesCampoAccess):
+    // si el llamador todavía no lo pasa, opts.hasComunicacionesCampoAccess es
+    // undefined y el paso queda fuera para todos, admin incluido.
+    if (step.requiresComunicacionesCampoAccess && !opts.hasComunicacionesCampoAccess) return false;
     if (step.adminOnly && !opts.isAdmin) return false;
     return true;
   });

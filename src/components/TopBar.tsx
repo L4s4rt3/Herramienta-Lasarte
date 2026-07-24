@@ -11,7 +11,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, GraduationCap, Search } from "lucide-react";
+import { Sparkles, GraduationCap, Search, ChevronLeft } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { WORKSPACES, workspaceDeRuta } from "@/lib/workspaces";
 
@@ -233,6 +233,19 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
   },
 };
 
+// Sub-detalle (p.ej. /partes/:id o /costes/asistencia/comparativa): la miga
+// final no tiene un label conocido en ROUTE_META (es un id, o un segmento
+// suelto), así que se deriva del propio segmento de la URL en vez de
+// inventarlo aquí — "Detalle" para lo que parece un identificador opaco
+// (uuid/numérico), o el segmento capitalizado si parece una palabra (p.ej.
+// "comparativa" → "Comparativa").
+function labelDeSegmentoDetalle(segmento: string): string {
+  if (!segmento) return "Detalle";
+  const esIdentificadorOpaco = /^[0-9a-f-]{8,}$/i.test(segmento) || /^\d+$/.test(segmento);
+  if (esIdentificadorOpaco) return "Detalle";
+  return segmento.charAt(0).toUpperCase() + segmento.slice(1).replace(/-/g, " ");
+}
+
 function TopBar() {
   const location = useLocation();
 
@@ -241,6 +254,15 @@ function TopBar() {
     .sort((a, b) => b.length - a.length)[0];
 
   const meta = baseRoute ? ROUTE_META[baseRoute] : null;
+  // Sub-detalle: la ruta actual cuelga de la página base (más profunda que
+  // baseRoute) en vez de SER la página base — p.ej. /partes/:id o
+  // /costes/asistencia/comparativa. En ese caso el label de la página base
+  // deja de ser el final de la miga: pasa a ser un enlace de vuelta a su ruta
+  // base, con una miga final para el detalle (ver JSX más abajo).
+  const esSubRuta = Boolean(baseRoute) && location.pathname !== baseRoute;
+  const detalleLabel = esSubRuta && baseRoute
+    ? labelDeSegmentoDetalle(location.pathname.slice(baseRoute.length + 1).split("/")[0] ?? "")
+    : null;
   // Chip de orientación: en qué gran sección estás (según la ruta actual).
   const seccion = WORKSPACES.find((w) => w.id === workspaceDeRuta(location.pathname));
 
@@ -269,14 +291,53 @@ function TopBar() {
                 <BreadcrumbSeparator />
               </>
             )}
-            <BreadcrumbItem>
-              <BreadcrumbPage>{meta?.label ?? "-"}</BreadcrumbPage>
-            </BreadcrumbItem>
+            {esSubRuta && baseRoute ? (
+              <>
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <NavLink to={baseRoute}>{meta?.label ?? "-"}</NavLink>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>
+                  <BreadcrumbPage>{detalleLabel}</BreadcrumbPage>
+                </BreadcrumbItem>
+              </>
+            ) : (
+              <BreadcrumbItem>
+                <BreadcrumbPage>{meta?.label ?? "-"}</BreadcrumbPage>
+              </BreadcrumbItem>
+            )}
           </BreadcrumbList>
         </Breadcrumb>
-        <p className="truncate text-sm font-semibold leading-tight text-foreground sm:hidden">
-          {meta?.label ?? "Dashboard"}
-        </p>
+        {/* Móvil (las migas de arriba están ocultas): título con "volver" propio
+            — flecha a la sección (si hay parent) y, en sub-detalle, el propio
+            título enlaza a la página base (mismo criterio que la miga de
+            escritorio). Fuera de sub-detalle el comportamiento es el mismo de
+            antes (texto plano, sin enlace). */}
+        <div className="flex items-center gap-1 sm:hidden">
+          {meta?.parent && (
+            <NavLink
+              to={meta.parent}
+              aria-label={`Volver a ${meta.parentLabel}`}
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </NavLink>
+          )}
+          {esSubRuta && baseRoute ? (
+            <NavLink
+              to={baseRoute}
+              className="truncate text-sm font-semibold leading-tight text-foreground hover:underline"
+            >
+              {meta?.label ?? "Dashboard"}
+            </NavLink>
+          ) : (
+            <p className="truncate text-sm font-semibold leading-tight text-foreground">
+              {meta?.label ?? "Dashboard"}
+            </p>
+          )}
+        </div>
         <p className="mt-0.5 line-clamp-1 text-[11px] leading-snug text-muted-foreground sm:text-xs">
           {meta?.subtitle ?? "Dashboard"}
         </p>

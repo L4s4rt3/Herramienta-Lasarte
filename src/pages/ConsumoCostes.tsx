@@ -845,7 +845,10 @@ export default function ConsumoCostes() {
         description: `${facturaNewRows.length} consumos guardados.`,
       });
       setFacturaImportResults([]);
-      setTab("registro");
+      // Tras guardar saltamos a "Histórico": es donde viven ahora las tablas de
+      // registros guardados (validación, consumos físicos, bases kg), así el
+      // usuario ve de inmediato lo que acaba de importar.
+      setTab("historico");
     } catch (error) {
       toast({
         title: "Error al importar",
@@ -2559,9 +2562,7 @@ export default function ConsumoCostes() {
                 </Card>
               </>
             )}
-          </TabsContent>
 
-          <TabsContent value="registro" className="space-y-6">
             <p className="panel-kicker">Validación y registros guardados</p>
             {issueRows.length === 0 ? (
               <Card className="glass-accented">

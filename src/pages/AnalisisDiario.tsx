@@ -22,6 +22,8 @@ import {
   buildClasesYGruposDesdeClasificacion, buildCalibresDesdeClasificacion,
 } from "@/hooks/useAnalisisDiario";
 import type { LoteResumen, ProductorResumen } from "@/hooks/useAnalisisDiario";
+import { useProductoresCatalogo } from "@/hooks/useProductoresCatalogo";
+import { resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import { DailyListTable } from "@/components/DailyListTable";
 import { MiniKpi } from "@/components/MiniKpi";
 import { AutoWeekFallbackNotice } from "@/components/AutoWeekFallbackNotice";
@@ -126,6 +128,14 @@ export default function AnalisisDiario() {
 
   const { data, loading, error, refetch } = useAnalisisDiario(weekRange.start, weekRange.end);
 
+  // Alias/catálogo de productores (misma fuente que Productores.tsx, cacheada
+  // por React Query: no duplica la consulta si esa página ya se visitó) — deja
+  // resolver el filtro de productor por CLAVE canónica (ver productorFiltroKey
+  // más abajo) en vez de por texto crudo exacto. Corrige el bug de "Ver sus
+  // lotes en Análisis diario" desde un productor con alias: el dossier navega
+  // con el nombre CANÓNICO, pero lotes_dia.productor es el texto crudo.
+  const { aliasPorNombreNormalizado, nombrePorProductorId } = useProductoresCatalogo();
+
   const hayDatos = data.totals.n_lotes > 0 || data.totals.kg_calibres > 0;
 
   const handleNavigateWeek = (direction: -1 | 1) => {
@@ -184,22 +194,47 @@ export default function AnalisisDiario() {
   // Opciones de productor/producto derivadas de los lotes del rango. El valor
   // filtrado actual se incluye siempre aunque no exista en el rango (p.ej. al
   // llegar por URL desde el dossier): así el select no se queda en blanco.
+  // Productor se deduplica por CLAVE canónica (resolveProductorGroupKey, mismo
+  // catálogo/alias que Productores.tsx): varios textos crudos del mismo
+  // productor (alias) colapsan en una sola opción con su nombre canónico, en
+  // vez de aparecer como entradas repetidas. El filtro (más abajo) compara por
+  // esa misma clave, no por el texto crudo exacto.
   const productorOptions = useMemo(() => {
-    const set = new Set(data.lotes.map((l) => l.productor).filter((p) => p && p !== "—"));
-    if (productorFiltro !== "todos") set.add(productorFiltro);
-    return Array.from(set).sort();
-  }, [data.lotes, productorFiltro]);
+    const nombrePorClave = new Map<string, string>();
+    for (const l of data.lotes) {
+      if (!l.productor || l.productor === "—") continue;
+      const { key, productorId } = resolveProductorGroupKey(l.productor, l.productor_id ?? null, aliasPorNombreNormalizado);
+      if (nombrePorClave.has(key)) continue;
+      nombrePorClave.set(key, productorId ? nombrePorProductorId.get(productorId) ?? l.productor : l.productor);
+    }
+    const nombres = new Set(nombrePorClave.values());
+    if (productorFiltro !== "todos") nombres.add(productorFiltro);
+    return Array.from(nombres).sort();
+  }, [data.lotes, aliasPorNombreNormalizado, nombrePorProductorId, productorFiltro]);
   const productoOptions = useMemo(() => {
     const set = new Set(data.lotes.map((l) => l.producto).filter((p) => p && p !== "—"));
     if (productoFiltro !== "todos") set.add(productoFiltro);
     return Array.from(set).sort();
   }, [data.lotes, productoFiltro]);
 
+  // Clave canónica del filtro de productor activo (null = "todos"). Se
+  // resuelve con el MISMO catálogo/alias que cada lote, así que da igual si
+  // productorFiltro es el nombre canónico (llegado por ?productor= desde el
+  // dossier) o un texto crudo concreto (elegido en el propio desplegable):
+  // ambos casan con el mismo grupo de lotes.
+  const productorFiltroKey = useMemo(
+    () => (productorFiltro === "todos" ? null : resolveProductorGroupKey(productorFiltro, null, aliasPorNombreNormalizado).key),
+    [productorFiltro, aliasPorNombreNormalizado],
+  );
+
   const hayFiltrosActivos = Boolean(searchLower) || productorFiltro !== "todos" || productoFiltro !== "todos";
 
   const filteredLotes = useMemo(() => {
     return data.lotes.filter((l) => {
-      if (productorFiltro !== "todos" && l.productor !== productorFiltro) return false;
+      if (productorFiltroKey) {
+        const { key } = resolveProductorGroupKey(l.productor, l.productor_id ?? null, aliasPorNombreNormalizado);
+        if (key !== productorFiltroKey) return false;
+      }
       if (productoFiltro !== "todos" && l.producto !== productoFiltro) return false;
       if (!searchLower) return true;
       return (
@@ -209,7 +244,7 @@ export default function AnalisisDiario() {
         normalizeText(l.fecha).includes(searchLower)
       );
     });
-  }, [data.lotes, searchLower, productorFiltro, productoFiltro]);
+  }, [data.lotes, searchLower, productorFiltroKey, productoFiltro, aliasPorNombreNormalizado]);
 
   const handleClearFiltros = () => {
     setSearch("");
@@ -232,7 +267,13 @@ export default function AnalisisDiario() {
   const filteredClasificacionRows = useMemo(() => {
     if (!hayFiltrosActivos) return data.clasificacionRows;
     return data.clasificacionRows.filter((r) => {
-      if (productorFiltro !== "todos" && r.productor !== productorFiltro) return false;
+      // lote_clasificacion no tiene columna productor_id propia (no está en la
+      // migración de canónicos): se resuelve solo por alias-de-nombre, sin id
+      // directo — igual que antes, pero por clave en vez de string exacto.
+      if (productorFiltroKey) {
+        const { key } = resolveProductorGroupKey(r.productor ?? "", null, aliasPorNombreNormalizado);
+        if (key !== productorFiltroKey) return false;
+      }
       if (productoFiltro !== "todos" && r.producto !== productoFiltro) return false;
       if (!searchLower) return true;
       return (
@@ -242,7 +283,7 @@ export default function AnalisisDiario() {
         normalizeText(r.fecha ?? "").includes(searchLower)
       );
     });
-  }, [data.clasificacionRows, hayFiltrosActivos, searchLower, productorFiltro, productoFiltro]);
+  }, [data.clasificacionRows, hayFiltrosActivos, searchLower, productorFiltroKey, productoFiltro, aliasPorNombreNormalizado]);
 
   const { clases: clasesMostradas, grupos: gruposMostrados } = useMemo(() => {
     if (!hayFiltrosActivos) return { clases: data.clases, grupos: data.grupos };

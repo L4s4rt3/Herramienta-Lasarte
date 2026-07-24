@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { calcularTphOperativa } from "@/lib/velocidadOperativa";
@@ -8,6 +9,13 @@ import {
 } from "@/lib/analisisDiarioProduccion";
 import { detectarTipoClasificacion as detectarGrupoDestinoLote } from "@/lib/destinoClasificacion";
 import { prefijoNumericoLote } from "@/lib/loteCodigo";
+import { esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
+
+// Cast local: lotes_dia.productor_id aun no esta en el Database generado
+// (migracion 20260714090000_productores_canonicos.sql). Mismo patron que
+// useProductores.ts / useTrazabilidadLote.ts para poder pedir esa columna con
+// degradado si el select explicito falla por no existir todavia.
+const SUPA = supabase as unknown as SupabaseClient<any>;
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -52,6 +60,15 @@ export interface LoteResumen {
   kg_industria?: number;
   notas?: string | null;
   hora_inicio?: string | null;
+  /**
+   * Catálogo de productores (migración 20260714090000_productores_canonicos.sql):
+   * id directo si esta fila ya lo tiene resuelto (trigger/backfill/asignación
+   * manual desde la cola de revisión); undefined si la columna aún no existe
+   * en este entorno. Permite a la página comparar por CLAVE canónica
+   * (resolveProductorGroupKey) en vez de por el texto crudo exacto — ver el
+   * filtro de productor en AnalisisDiario.tsx.
+   */
+  productor_id?: string | null;
   /** Desglose por lote desde lote_clasificacion, si el lote tiene "Informe LOTE" cargado. */
   clasificacion?: LoteClasificacionResumen;
   /** Detalle completo clase × tamaño de lote_clasificacion para este lote. */
@@ -474,7 +491,14 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       // ── 3. Lotes desde lotes_dia ───────────────────────────────────────────
       // lotes_dia tiene 1.187 filas tras el histórico: un rango amplio de
       // partIds puede devolver más de 1.000, se pagina con fetchAllRows.
-      let lotesRaw: Array<{
+      // Se pide también productor_id (migración 20260714090000_productores_canonicos.sql)
+      // para poder comparar/agrupar por CLAVE canónica (alias) en vez de por el
+      // texto crudo exacto: el ?productor= entrante puede traer el nombre
+      // CANÓNICO (llega desde "Ver sus lotes en Análisis diario" del dossier de
+      // Productores), que no siempre coincide con este texto crudo. Columna
+      // nueva: si todavía no existe en este entorno, se reintenta sin ella
+      // (degrada a resolver solo por alias-de-nombre, sin el id directo).
+      type LoteDiaAnalisisRow = {
         lote_codigo: string | null;
         productor: string | null;
         producto: string | null;
@@ -486,16 +510,32 @@ export function useAnalisisDiario(desde: string, hasta: string) {
         notas: string | null;
         hora_inicio: string | null;
         part_id: string;
-      }>;
+        productor_id?: string | null;
+      };
+      const LOTES_DIA_COLUMNAS_ANALISIS =
+        "lote_codigo, productor, producto, kg_peso_total, toneladas_hora, duracion_min, peso_fruta_promedio_g, kg_industria, notas, hora_inicio, part_id";
+      let lotesRaw: LoteDiaAnalisisRow[];
       try {
-        lotesRaw = await fetchAllRows((from, to) =>
-          supabase
-            .from("lotes_dia")
-            .select("lote_codigo, productor, producto, kg_peso_total, toneladas_hora, duracion_min, peso_fruta_promedio_g, kg_industria, notas, hora_inicio, part_id")
-            .in("part_id", partIds)
-            .order("id")
-            .range(from, to),
-        );
+        try {
+          lotesRaw = await fetchAllRows<LoteDiaAnalisisRow>((from, to) =>
+            SUPA
+              .from("lotes_dia")
+              .select(`${LOTES_DIA_COLUMNAS_ANALISIS}, productor_id`)
+              .in("part_id", partIds)
+              .order("id")
+              .range(from, to),
+          );
+        } catch (conIdErr) {
+          if (!esErrorTablaOColumnaInexistente(conIdErr)) throw conIdErr;
+          lotesRaw = await fetchAllRows<LoteDiaAnalisisRow>((from, to) =>
+            SUPA
+              .from("lotes_dia")
+              .select(LOTES_DIA_COLUMNAS_ANALISIS)
+              .in("part_id", partIds)
+              .order("id")
+              .range(from, to),
+          );
+        }
       } catch (lErr) {
         console.error("Error fetching lotes_dia:", lErr);
         setLoading(false);
@@ -643,6 +683,7 @@ export function useAnalisisDiario(desde: string, hasta: string) {
           kg_industria: Number(l.kg_industria) || 0,
           notas: l.notas ?? null,
           hora_inicio: l.hora_inicio ?? null,
+          productor_id: l.productor_id ?? null,
           clasificacion,
           detalle,
           calidad,

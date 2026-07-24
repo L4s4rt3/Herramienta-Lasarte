@@ -7,6 +7,7 @@
 // El envío reutiliza la Edge Function `enviar-comunicacion`; sin proveedor de
 // correo configurado la comunicación se guarda como borrador, sin bloquear.
 import { useMemo, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from "react";
+import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
 import {
   AlertTriangle, CheckCircle2, Clock, FileSpreadsheet, Info, Mail, Plus, Search,
@@ -835,7 +836,9 @@ function Header() {
       <div>
         <p className="panel-kicker flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />
-          Campo
+          <Link to="/produccion" className="text-muted-foreground transition-colors hover:text-foreground hover:underline">
+            Producción
+          </Link>
         </p>
         <h1 className="page-title">Comunicaciones de campaña</h1>
         <p className="page-subtitle">

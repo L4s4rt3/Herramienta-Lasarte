@@ -106,6 +106,7 @@ function AppLayoutContent() {
   const tourSteps = getVisibleTourSteps(workspaceActual, {
     hasVentasCategoriaAccess: ventasCategoriaAccess.hasAccess,
     isAdmin: role === "admin",
+    hasComunicacionesCampoAccess: comunicacionesCampoAccess.hasAccess,
   });
 
   // Arranque automático la primera vez que un usuario autenticado entra a un

@@ -155,10 +155,16 @@ export default function Productores() {
   const queryProductor = searchParams.get("productor");
   const queryTab = searchParams.get("tab");
   const activeTab: DetailTab = DETAIL_TABS.includes(queryTab as DetailTab) ? (queryTab as DetailTab) : "resumen";
+  // ?desde=&hasta= — mismos nombres de parámetro que Análisis diario (ver
+  // AnalisisDiario.tsx), para que el periodo sea compartible y se conserve al
+  // ir Productores ↔ Análisis diario (antes solo vivía en estado local).
+  const queryDesde = searchParams.get("desde");
+  const queryHasta = searchParams.get("hasta");
+  const hasQueryRange = Boolean(queryDesde && queryHasta);
 
-  const [periodo, setPeriodo] = useState<Periodo>("ultimas_4");
-  const [customDesde, setCustomDesde] = useState(() => daysAgo(30));
-  const [customHasta, setCustomHasta] = useState(() => today());
+  const [periodo, setPeriodo] = useState<Periodo>(() => (hasQueryRange ? "custom" : "ultimas_4"));
+  const [customDesde, setCustomDesde] = useState(() => queryDesde ?? daysAgo(30));
+  const [customHasta, setCustomHasta] = useState(() => queryHasta ?? today());
   const [selected, setSelected] = useState<string | null>(queryProductor);
   const [sortKey, setSortKey] = useState<SortKey>("kg");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -168,6 +174,33 @@ export default function Productores() {
     () => buildWeekRange(periodo, customDesde, customHasta),
     [periodo, customDesde, customHasta]
   );
+
+  // Re-hidrata el periodo si ?desde&hasta cambian externamente (navegación
+  // atrás/adelante, o un enlace ya montado) — mismo patrón que
+  // AnalisisDiario.tsx. Se compara contra el weekRange YA vigente para no
+  // forzar "custom" cuando el efecto de más abajo acaba de escribir a la URL
+  // exactamente el rango que ya representa el modo actual (p. ej.
+  // "Últimas 4 semanas" no debe convertirse en "Personalizado" solo porque su
+  // rango quedó también reflejado en la URL).
+  useEffect(() => {
+    if (!queryDesde || !queryHasta) return;
+    if (queryDesde === weekRange.start && queryHasta === weekRange.end) return;
+    setPeriodo("custom");
+    setCustomDesde(queryDesde);
+    setCustomHasta(queryHasta);
+  }, [queryDesde, queryHasta, weekRange]);
+
+  // Escribe el periodo actual a la URL (?desde=&hasta=) para que sea
+  // compartible/conservado al saltar a Análisis diario y volver. Se comparan
+  // los strings para no entrar en bucle con el efecto de arriba.
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    next.set("desde", weekRange.start);
+    next.set("hasta", weekRange.end);
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [weekRange, searchParams, setSearchParams]);
 
   const { data, loading, error, refetch } = useProductores(weekRange.start, weekRange.end);
 
@@ -290,12 +323,24 @@ export default function Productores() {
     }
   };
 
-  // Si llega un ?productor=X que existe en los datos, preseleccionarlo.
+  // Si llega un ?productor=X, preseleccionarlo. Acepta tanto el nombre
+  // CANÓNICO (enlace propio del ranking/"Ver análisis") como un texto CRUDO de
+  // origen (p. ej. desde la pestaña "Productores" de Análisis diario, que
+  // agrupa por texto crudo de lotes_dia): si no hay coincidencia exacta de
+  // nombre, se resuelve por CLAVE canónica (mismo catálogo/alias que el propio
+  // dossier) para que ambos casos abran el mismo productor — ver el bug de
+  // identidad de productor (aliases) en productoresCanonicos.ts.
   useEffect(() => {
-    if (queryProductor && data.productores.some((p) => p.productor === queryProductor)) {
-      setSelected(queryProductor);
+    if (!queryProductor || data.productores.length === 0) return;
+    const exacto = data.productores.find((p) => p.productor === queryProductor);
+    if (exacto) {
+      setSelected(exacto.productor);
+      return;
     }
-  }, [queryProductor, data.productores]);
+    const { key } = resolveProductorGroupKey(queryProductor, null, aliasPorNombreNormalizado);
+    const porClave = data.productores.find((p) => p.productorKey === key);
+    if (porClave) setSelected(porClave.productor);
+  }, [queryProductor, data.productores, aliasPorNombreNormalizado]);
 
   function handleSelect(productor: string | null) {
     setSelected(productor);
@@ -1764,6 +1809,15 @@ function PerfilDestinoCard({ perfil, pctGrupoMedio }: {
 // ─── Historial de lotes ───────────────────────────────────────────────────
 
 function HistorialLotes({ dossier, onLoteClick }: { dossier: ProductorDossier; onLoteClick: (partId: string) => void }) {
+  const navigate = useNavigate();
+  // El código de lote lleva a su trazabilidad (deep-link canónico); el resto
+  // de la fila conserva el acceso al parte (onLoteClick) como acción
+  // secundaria. stopPropagation para que el clic en el código no dispare
+  // también el onClick de la fila.
+  const irATrazabilidad = (e: React.MouseEvent, codigo: string) => {
+    e.stopPropagation();
+    navigate(`/trazabilidad?lote=${encodeURIComponent(codigo)}`);
+  };
   return (
     <Card className="glass-accented overflow-hidden">
       <CardContent className="p-0">
@@ -1795,7 +1849,20 @@ function HistorialLotes({ dossier, onLoteClick }: { dossier: ProductorDossier; o
                 >
                   <td className="px-3 py-1.5 whitespace-nowrap">{l.fecha !== "—" ? formatDateShort(l.fecha) : "—"}</td>
                   <td className="px-3 py-1.5 whitespace-nowrap text-muted-foreground">{l.hora_inicio || "—"}</td>
-                  <td className="px-3 py-1.5 font-medium">{l.lote_codigo}</td>
+                  <td className="px-3 py-1.5 font-medium">
+                    {l.lote_codigo !== "—" ? (
+                      <button
+                        type="button"
+                        onClick={(e) => irATrazabilidad(e, l.lote_codigo)}
+                        className="rounded text-left underline-offset-2 hover:text-primary hover:underline"
+                        title="Ver trazabilidad de este lote"
+                      >
+                        {l.lote_codigo}
+                      </button>
+                    ) : (
+                      l.lote_codigo
+                    )}
+                  </td>
                   <td className="px-3 py-1.5 text-muted-foreground max-w-[140px] truncate">{l.producto}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums font-medium">{formatKg(l.kg_peso_total)}</td>
                   <td className={cn("px-3 py-1.5 text-right tabular-nums font-semibold", tphClass(l.toneladas_hora))}>
@@ -1839,7 +1906,18 @@ function HistorialLotes({ dossier, onLoteClick }: { dossier: ProductorDossier; o
               onClick={() => l.part_id && onLoteClick(l.part_id)}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-semibold">{l.lote_codigo}</span>
+                {l.lote_codigo !== "—" ? (
+                  <button
+                    type="button"
+                    onClick={(e) => irATrazabilidad(e, l.lote_codigo)}
+                    className="text-sm font-semibold underline-offset-2 hover:text-primary hover:underline"
+                    title="Ver trazabilidad de este lote"
+                  >
+                    {l.lote_codigo}
+                  </button>
+                ) : (
+                  <span className="text-sm font-semibold">{l.lote_codigo}</span>
+                )}
                 <span className="text-[11px] text-muted-foreground">
                   {l.fecha !== "—" ? formatDateShort(l.fecha) : "—"}{l.hora_inicio ? ` · ${l.hora_inicio}` : ""}
                 </span>

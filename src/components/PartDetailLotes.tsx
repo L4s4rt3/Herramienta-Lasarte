@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -161,8 +162,20 @@ export default function PartDetailLotes({ lotes, loading, readOnly, onLoteUpdate
                 <tbody>
                   {lotes.map((l) => (
                     <tr key={l.id}>
-                      <td className="px-4 py-3 font-medium whitespace-nowrap">{l.lote_codigo || "—"}</td>
-                      <td className="px-4 py-3">{l.productor || "—"}</td>
+                      <td className="px-4 py-3 font-medium whitespace-nowrap">
+                        {l.lote_codigo ? (
+                          <Link to={`/trazabilidad?lote=${encodeURIComponent(l.lote_codigo)}`} className="hover:text-primary hover:underline">
+                            {l.lote_codigo}
+                          </Link>
+                        ) : "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {l.productor && l.productor !== "—" ? (
+                          <Link to={`/productores?productor=${encodeURIComponent(l.productor)}`} className="hover:text-primary hover:underline">
+                            {l.productor}
+                          </Link>
+                        ) : (l.productor || "—")}
+                      </td>
                       <td className="px-4 py-3 text-muted-foreground">{l.producto || "—"}</td>
                       <td className="px-4 py-3 text-right tabular-nums font-medium">{formatKg(l.kg_peso_total)}</td>
                       <td className={cn("px-4 py-3 text-right tabular-nums font-semibold", tphClass(l.toneladas_hora))}>
@@ -200,13 +213,26 @@ export default function PartDetailLotes({ lotes, loading, readOnly, onLoteUpdate
               {lotes.map((l) => (
                 <div key={l.id} className="px-4 py-3">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold">{l.lote_codigo || "—"}</span>
+                    {l.lote_codigo ? (
+                      <Link to={`/trazabilidad?lote=${encodeURIComponent(l.lote_codigo)}`} className="font-semibold hover:text-primary hover:underline">
+                        {l.lote_codigo}
+                      </Link>
+                    ) : (
+                      <span className="font-semibold">—</span>
+                    )}
                     <span className={cn("text-sm font-semibold tabular-nums", tphClass(l.toneladas_hora))}>
                       {l.toneladas_hora ? `${l.toneladas_hora.toFixed(1)} T/h` : "—"}
                     </span>
                   </div>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    {[l.productor, l.producto].filter(Boolean).join(" · ") || "—"}
+                    {l.productor && l.productor !== "—" ? (
+                      <Link to={`/productores?productor=${encodeURIComponent(l.productor)}`} className="hover:text-primary hover:underline">
+                        {l.productor}
+                      </Link>
+                    ) : l.productor}
+                    {l.productor && l.producto ? " · " : null}
+                    {l.producto}
+                    {!l.productor && !l.producto ? "—" : null}
                   </p>
                   <div className="mt-1.5 flex items-center justify-between text-xs text-muted-foreground">
                     <span className="tabular-nums">{formatKg(l.kg_peso_total)}</span>

@@ -58,8 +58,8 @@ const PAGES = [
   { to: "/produccion", label: "Panel de producción", icon: LayoutDashboard, keywords: "panel inicio dashboard produccion" },
   { to: "/entradas", label: "Entradas de fruta", icon: Truck, keywords: "entradas bascula camion stock camara lote finca" },
   { to: "/trazabilidad", label: "Trazabilidad", icon: Waypoints, keywords: "trazabilidad lote finca origen destino cadena seguimiento" },
-  { to: "/calidad", label: "Jornada de Calidad", icon: ClipboardCheck, keywords: "calidad lotes notas aerobotics finca productor" },
-  { to: "/partes", label: "Partes diarios", icon: FileText, keywords: "partes produccion diario" },
+  { to: "/calidad", label: "Calidad", icon: ClipboardCheck, keywords: "calidad lotes notas aerobotics finca productor jornada" },
+  { to: "/partes", label: "Partes", icon: FileText, keywords: "partes produccion diario diarios" },
   { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3, keywords: "analisis diario lotes calibres" },
   { to: "/productores", label: "Productores", icon: Sprout, keywords: "productores proveedores origen eficiencia" },
   { to: "/direccion", label: "Panel de dirección", icon: LayoutDashboard, keywords: "direccion jefe global resumen produccion comercial rrhh economico" },
@@ -74,21 +74,21 @@ const PAGES = [
   { to: "/costes/consumos", label: "Consumos", icon: Droplet, keywords: "consumos costes agua energia gasoil" },
   { to: "/limpieza", label: "Limpieza de box", icon: Brush, keywords: "limpieza box pies escaleras turnos trabajadores horas partes" },
   { to: "/historico", label: "Importar histórico", icon: History, keywords: "historico produccion campaña import excel calibrador informe" },
-  { to: "/costes/asistencia", label: "Asistencia diaria (RRHH)", icon: Users, keywords: "rrhh asistencia pasar lista trabajadores turnos" },
+  { to: "/costes/asistencia", label: "Asistencia diaria", icon: Users, keywords: "rrhh asistencia pasar lista trabajadores turnos" },
   { to: "/rrhh", label: "Panel de RRHH", icon: UserRound, keywords: "rrhh panel dashboard resumen asistencia rendimiento comparativa" },
-  { to: "/rrhh/personas", label: "Plantilla (RRHH)", icon: UserRound, keywords: "rrhh plantilla trabajadores fichas categoria antiguedad" },
-  { to: "/rrhh/ausencias", label: "Ausencias y bajas (RRHH)", icon: CalendarOff, keywords: "rrhh ausencias faltas bajas justificantes" },
-  { to: "/rrhh/amonestaciones", label: "Amonestaciones (RRHH)", icon: AlertTriangle, keywords: "rrhh amonestaciones sanciones documento firmado" },
-  { to: "/rrhh/vacaciones", label: "Vacaciones y horas (RRHH)", icon: Plane, keywords: "rrhh vacaciones dias horas bolsa saldo" },
-  { to: "/rrhh/nominas", label: "Nóminas (RRHH)", icon: Banknote, keywords: "rrhh nominas salario mensual" },
-  { to: "/rrhh/comunicaciones", label: "Comunicaciones (RRHH)", icon: Mail, keywords: "rrhh comunicaciones correos emails avisos horas vacaciones" },
+  { to: "/rrhh/personas", label: "Plantilla", icon: UserRound, keywords: "rrhh plantilla trabajadores fichas categoria antiguedad" },
+  { to: "/rrhh/ausencias", label: "Ausencias y bajas", icon: CalendarOff, keywords: "rrhh ausencias faltas bajas justificantes" },
+  { to: "/rrhh/amonestaciones", label: "Amonestaciones", icon: AlertTriangle, keywords: "rrhh amonestaciones sanciones documento firmado" },
+  { to: "/rrhh/vacaciones", label: "Vacaciones y horas", icon: Plane, keywords: "rrhh vacaciones dias horas bolsa saldo" },
+  { to: "/rrhh/nominas", label: "Nóminas", icon: Banknote, keywords: "rrhh nominas salario mensual" },
+  { to: "/rrhh/comunicaciones", label: "Comunicaciones", icon: Mail, keywords: "rrhh comunicaciones correos emails avisos horas vacaciones" },
   { to: "/rrhh/mercadona", label: "Mercadona (facturas)", icon: ShoppingCart, keywords: "rrhh mercadona facturas precios kg" },
   { to: "/economico", label: "Panel económico", icon: Banknote, keywords: "economico euros facturacion costes margen admin direccion" },
-  { to: "/economico/cmv", label: "CMV (Económico)", icon: Banknote, keywords: "economico cmv coste medio venta kg vendido escandallo margen direccion" },
-  { to: "/economico/facturacion", label: "Facturación (Económico)", icon: Banknote, keywords: "economico facturacion base iva mercadona euros direccion" },
-  { to: "/economico/costes", label: "Costes (Económico)", icon: Banknote, keywords: "economico costes consumos coste por kg euros direccion" },
-  { to: "/economico/fruta", label: "Compra de fruta (Económico)", icon: Banknote, keywords: "economico fruta bascula compra agricultor productor variedad lote euros direccion" },
-  { to: "/economico/precios", label: "Precios (Económico)", icon: Banknote, keywords: "economico precios tarifas agua luz gasoil direccion" },
+  { to: "/economico/cmv", label: "CMV", icon: Banknote, keywords: "economico cmv coste medio venta kg vendido escandallo margen direccion" },
+  { to: "/economico/facturacion", label: "Facturación", icon: Banknote, keywords: "economico facturacion base iva mercadona euros direccion" },
+  { to: "/economico/costes", label: "Costes", icon: Banknote, keywords: "economico costes consumos coste por kg euros direccion" },
+  { to: "/economico/fruta", label: "Compra de fruta", icon: Banknote, keywords: "economico fruta bascula compra agricultor productor variedad lote euros direccion" },
+  { to: "/economico/precios", label: "Precios", icon: Banknote, keywords: "economico precios tarifas agua luz gasoil direccion" },
 ];
 
 // Páginas económicas (jul 2026: fundidas en el espacio Dirección, sin
@@ -166,9 +166,12 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   // "Crear notas de calidad" / "Crear nuevo parte" llevan a secciones fuera
   // del alcance de "ventas" y "rrhh" (/calidad, /partes): no se ofrecen ahí.
   const visibleActions = isVentas || isRrhh ? [] : ACTIONS;
-  // Los resultados de búsqueda global (partes, productores) también quedan
-  // fuera del alcance de esos roles; se ocultan en vez de filtrar
-  // useGlobalSearch (hook fuera de alcance) para no tocar su firma/consultas.
+  // La búsqueda global solo indexa datos de Producción (lotes, productores,
+  // partes), cuyas fichas (/trazabilidad, /productores, /partes/:id) quedan
+  // fuera del alcance de "ventas" y "rrhh" (RoleRoute los redirige). Mostrar
+  // esos resultados a esos roles daría enlaces que rebotan a su home, así que
+  // se ocultan para ellos (igual que visiblePages/visibleActions). Si algún
+  // día se quiere que puedan consultarlos, hay que ampliar RoleRoute.tsx.
   const visibleSearchResults = isVentas || isRrhh ? [] : searchResults;
 
   const handleSelect = useCallback(
@@ -194,7 +197,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           <>
             <CommandGroup heading="Resultados">
               {visibleSearchResults.map((result) => {
-                const Icon = result.type === "parte" ? FileText : Sprout;
+                const Icon = result.type === "parte" ? FileText : result.type === "lote" ? Waypoints : Sprout;
                 return (
                   <CommandItem
                     key={`${result.type}-${result.id}`}

@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { KPICard } from "@/components/KPICard";
 import { FichaStrip } from "@/components/FichaStrip";
 import {
@@ -770,7 +771,14 @@ export default function PartDetail() {
     <div className="page-shell">
       <header className="page-header">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/partes")} title="Volver a Partes">
+          <Button
+            variant="ghost"
+            size="icon"
+            // Respeta el historial (p.ej. si se llegó desde la búsqueda global u otra
+            // pantalla); solo cae a /partes cuando no hay una página previa a la que volver.
+            onClick={() => (window.history.length > 1 ? navigate(-1) : navigate("/partes"))}
+            title="Volver"
+          >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="min-w-0">
@@ -798,17 +806,31 @@ export default function PartDetail() {
               ? <><Lock className="h-4 w-4" />Cerrar</>
               : <><Unlock className="h-4 w-4" />Reabrir</>}
           </Button>
-          <Button
-            variant="default"
-            onClick={analyze}
-            disabled={analyzing || archivos.length === 0}
-            className="glass glass-hover"
-          >
-            {analyzing
-              ? <><Loader2 className="h-4 w-4 animate-spin" />Analizando…</>
-              : <><Sparkles className="h-4 w-4" />Analizar parte</>
-            }
-          </Button>
+          {/* Un <Button disabled> no dispara eventos de puntero, así que el trigger
+              real del tooltip es el <span> que lo envuelve (mismo patrón que el botón
+              "Importar lotes del parte" en CalidadJornada.tsx). */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  variant="default"
+                  onClick={analyze}
+                  disabled={analyzing || archivos.length === 0}
+                  className="glass glass-hover"
+                >
+                  {analyzing
+                    ? <><Loader2 className="h-4 w-4 animate-spin" />Analizando…</>
+                    : <><Sparkles className="h-4 w-4" />Analizar parte</>
+                  }
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-[260px] text-xs">
+              {archivos.length === 0
+                ? <>Sube antes el parte en la pestaña <strong>Archivos</strong> para poder analizarlo con IA.</>
+                : <>Leer el parte con IA y precargar lotes/calibres.</>}
+            </TooltipContent>
+          </Tooltip>
           <Button onClick={save} disabled={saving || readOnly} className="glass glass-hover">
             <Save className="h-4 w-4" />Guardar
           </Button>

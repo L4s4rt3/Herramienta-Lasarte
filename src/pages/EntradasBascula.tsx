@@ -181,6 +181,36 @@ function RankingLoteRow({ lote, valorLabel }: { lote: string; valorLabel: string
   );
 }
 
+/** Fila de un mini-ranking de agricultor: mismo patrón visual que RankingLoteRow (flecha + hover), pero enlaza a su ficha en /productores y añade una línea de detalle (kg entrados y nº de lotes). Si el nombre es el placeholder "Sin agricultor" (lote sin agricultor asignado) no enlaza: no hay ficha real que abrir. */
+function RankingAgricultorRow({ productor, valorLabel, detalle }: { productor: string; valorLabel: string; detalle: string }) {
+  const esReal = productor !== "Sin agricultor";
+  const contenido = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex min-w-0 items-center gap-1 font-medium">
+          <span className="truncate">{productor}</span>
+          {esReal && <ArrowRight className="h-3 w-3 shrink-0 opacity-40" />}
+        </span>
+        <Badge variant="outline" className="shrink-0 border-destructive/40 bg-destructive/10 px-1.5 py-0 text-[11px] font-semibold text-destructive">
+          {valorLabel}
+        </Badge>
+      </div>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">{detalle}</p>
+    </>
+  );
+  if (!esReal) {
+    return <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-sm">{contenido}</div>;
+  }
+  return (
+    <Link
+      to={`/productores?productor=${encodeURIComponent(productor)}`}
+      className="block rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-sm transition-colors hover:bg-[var(--glass-bg-strong)]"
+    >
+      {contenido}
+    </Link>
+  );
+}
+
 function RankingCard({ titulo, icon: Icon, vacio, children }: {
   titulo: string;
   icon: typeof AlertTriangle;
@@ -423,7 +453,10 @@ function MermasCosteTab() {
       {/* Cobertura del podrido REAL (el usuario está extrayendo el Informe LOTE
           de toda la campaña, ~50/día) + export del informe de decisión. */}
       <div className="glass flex flex-wrap items-center gap-3 rounded-xl p-2.5">
-        <span className="text-xs text-muted-foreground">
+        <span
+          className="text-xs text-muted-foreground"
+          title="Prorrateo: se reparte el podrido total del parte del día entre los lotes procesados según su peso — una estimación, no un peso medido lote a lote como el Informe LOTE."
+        >
           Podrido con dato REAL (Informe LOTE):{" "}
           <span className="font-semibold tabular-nums text-foreground">
             {procesados.filter((l) => l.podridoCalibradorFuente === "real").length}
@@ -490,15 +523,12 @@ function MermasCosteTab() {
           </RankingCard>
           <RankingCard titulo="Pérdida por agricultor" icon={Users} vacio={topAgricultor.length === 0}>
             {topAgricultor.map((r) => (
-              <div key={r.key} className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-sm">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="min-w-0 truncate font-medium">{r.label}</span>
-                  <Badge variant="outline" className="border-destructive/40 bg-destructive/10 px-1.5 py-0 text-[11px] font-semibold text-destructive">
-                    {formatKg(r.kgPerdido)}
-                  </Badge>
-                </div>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">{formatKg(r.kgEntrada)} entrados · {r.nLotes} lote{r.nLotes === 1 ? "" : "s"}</p>
-              </div>
+              <RankingAgricultorRow
+                key={r.key}
+                productor={r.label}
+                valorLabel={formatKg(r.kgPerdido)}
+                detalle={`${formatKg(r.kgEntrada)} entrados · ${r.nLotes} lote${r.nLotes === 1 ? "" : "s"}`}
+              />
             ))}
           </RankingCard>
         </div>
@@ -518,7 +548,7 @@ function MermasCosteTab() {
                   <SortableTableHead label="Días" sk="dias" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
                   <SortableTableHead label="Merma" sk="merma_kg" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
                   <SortableTableHead label="Merma %" sk="merma_pct" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
-                  <SortableTableHead label="Podrido pre-calib." sk="podrido_pre" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
+                  <SortableTableHead label="Podrido pre-calib." sk="podrido_pre" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} info="Podrido de fruta apartada en los almacenes de precalibrado, antes de pasar por el calibrador de la central: estimado por prorrateo del parte, no un peso medido lote a lote." />
                   <SortableTableHead label="Podrido cal." sk="podrido_cal" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
                   <SortableTableHead label="Podrido man." sk="podrido_man" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
                 </TableRow>

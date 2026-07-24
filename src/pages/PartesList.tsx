@@ -260,6 +260,24 @@ export default function PartesList() {
   async function createParte() {
     if (!user) return;
     setCreating(true);
+    // partes_diarios no tiene UNIQUE sobre `date`: se comprueba antes de
+    // insertar para no crear dos partes del mismo día.
+    const { data: existente, error: existenteError } = await supabase
+      .from("partes_diarios")
+      .select("id")
+      .eq("date", newDate)
+      .maybeSingle();
+    if (existenteError) {
+      setCreating(false);
+      toast({ title: "Error", description: existenteError.message, variant: "destructive" });
+      return;
+    }
+    if (existente) {
+      setCreating(false);
+      toast({ title: "Ya existía un parte para ese día", description: formatDate(newDate) });
+      navigate(`/partes/${existente.id}`);
+      return;
+    }
     const { data, error } = await supabase
       .from("partes_diarios")
       .insert({ date: newDate, user_id: user.id, estado: "Borrador" })

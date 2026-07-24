@@ -199,6 +199,9 @@ export function LoteDetailSheet({ lote, open, onOpenChange }: LoteDetailSheetPro
   const tieneDetalle = clasesAgrupadas.length > 0;
   const kgClasificado = lote.clasificacion?.kg_clasificado ?? 0;
   const pctOf = (kg: number) => (totales.kg > 0 ? (kg / totales.kg) * 100 : null);
+  // "—" es el marcador de "sin dato" que usa useAnalisisDiario cuando el campo viene null de origen.
+  const loteCodigoValido = Boolean(lote.lote_codigo) && lote.lote_codigo !== "—";
+  const productorValido = Boolean(lote.productor) && lote.productor !== "—";
 
   const clasesPrincipales = clasesAgrupadas.slice(0, MAX_CLASES_VISIBLES);
   const clasesMinoritarias = clasesAgrupadas.length > MAX_CLASES_VISIBLES
@@ -239,7 +242,15 @@ export function LoteDetailSheet({ lote, open, onOpenChange }: LoteDetailSheetPro
             )}
           </div>
           <SheetDescription>
-            {lote.productor} · {lote.producto} · {formatFechaLarga(lote.fecha)}
+            {productorValido ? (
+              <Link
+                to={`/productores?productor=${encodeURIComponent(lote.productor)}`}
+                className="hover:text-primary hover:underline"
+                onClick={() => onOpenChange(false)}
+              >
+                {lote.productor}
+              </Link>
+            ) : lote.productor} · {lote.producto} · {formatFechaLarga(lote.fecha)}
           </SheetDescription>
         </SheetHeader>
 
@@ -343,13 +354,22 @@ export function LoteDetailSheet({ lote, open, onOpenChange }: LoteDetailSheetPro
         </div>
 
         {/* Pie fijo */}
-        {lote.part_id && (
-          <SheetFooter className="mt-5 border-t border-[var(--glass-border)] pt-4">
-            <Button asChild variant="outline" className="glass glass-hover ml-auto">
-              <Link to={`/partes/${lote.part_id}`}>
-                Ver parte del día <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Button>
+        {(loteCodigoValido || lote.part_id) && (
+          <SheetFooter className="mt-5 gap-2 border-t border-[var(--glass-border)] pt-4">
+            {loteCodigoValido && (
+              <Button asChild variant="outline" className="glass glass-hover" onClick={() => onOpenChange(false)}>
+                <Link to={`/trazabilidad?lote=${encodeURIComponent(lote.lote_codigo)}`}>
+                  Ver trazabilidad <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            )}
+            {lote.part_id && (
+              <Button asChild variant="outline" className="glass glass-hover" onClick={() => onOpenChange(false)}>
+                <Link to={`/partes/${lote.part_id}`}>
+                  Ver parte del día <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            )}
           </SheetFooter>
         )}
       </SheetContent>

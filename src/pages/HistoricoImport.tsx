@@ -19,6 +19,7 @@
  * operación delicada (crea partes/palets históricos) — solo administración.
  */
 import { useRef, useState, type DragEvent } from "react";
+import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { AlertTriangle, CheckCircle2, FileSpreadsheet, FileStack, History, Loader2, PackageSearch, ShieldAlert, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -108,7 +109,7 @@ export default function HistoricoImport() {
       <div className="page-shell">
         <header className="page-header">
           <div>
-            <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Producción</p>
+            <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" /><Link to="/produccion" className="text-muted-foreground transition-colors hover:text-foreground hover:underline">Producción</Link></p>
             <h1 className="page-title">Importar histórico</h1>
             <p className="page-subtitle">Carga del histórico de campaña desde el export del calibrador.</p>
           </div>
@@ -426,7 +427,7 @@ function HistoricoImportAdmin() {
       <header className="page-header">
         <div>
           {/* Acento de Producción (--seccion-acento-texto, FASE 2 del rediseño). */}
-          <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Producción</p>
+          <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" /><Link to="/produccion" className="text-muted-foreground transition-colors hover:text-foreground hover:underline">Producción</Link></p>
           <h1 className="page-title">Importar histórico</h1>
           <p className="page-subtitle">
             Carga el histórico de PRODUCCIÓN de toda la campaña desde el export del calibrador ("Informe PRODUCCION").

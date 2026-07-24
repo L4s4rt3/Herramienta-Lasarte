@@ -31,6 +31,7 @@ import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CerrarLoteDialog } from "@/components/CerrarLoteDialog";
 import { FuenteBadge, fuentePodridoAVariant } from "@/components/FuenteBadge";
+import { InfoTooltip } from "@/components/InfoTooltip";
 import { ProgressBarRow } from "@/components/ProgressBarRow";
 import { SortableTableHead, toggleSort, type SortDir } from "@/components/SortableColumn";
 import { toast } from "@/hooks/use-toast";
@@ -470,7 +471,11 @@ function DiaConfeccionPanel({ fecha, onFecha, onSelect }: {
                       {v.productor && <span className="min-w-0 truncate text-xs">{v.productor}</span>}
                       {v.producto && <span className="min-w-0 truncate text-xs text-muted-foreground">{v.producto}</span>}
                       {v.esPrecalibrado && (
-                        <Badge variant="outline" className="border-[var(--glass-border)] bg-muted px-1.5 py-0 text-[10px] font-normal text-muted-foreground">
+                        <Badge
+                          variant="outline"
+                          className="border-[var(--glass-border)] bg-muted px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+                          title="Fruta reintroducida desde precalibrado; cuenta como procesado del lote, no como productor."
+                        >
                           precalibrado
                         </Badge>
                       )}
@@ -657,6 +662,10 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
         { id: p.productor_id, nombre: p.productor },
       ))
     : undefined;
+  // Nombres de productor para los enlaces del aviso de discrepancia (constantes
+  // locales, no accedidas por optional chaining dentro del JSX).
+  const agricultorBascula = entrada?.agricultor || null;
+  const agricultorCalibrador = procesadoNoCoincide?.productor || null;
 
   // ─── Cierre manual del lote (decisión del dueño, 2026-07-15) ───────────────
   // "No procesado" se lee del estado ya calculado por buildStockEntradas (el
@@ -873,7 +882,14 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
               <DatoLinea label="Kg de entrada" valor={`${formatNumber(kgEntrada)} kg`} destacado />
               <DatoLinea label="Finca" valor={entrada.finca ?? "—"} />
               <DatoLinea label="Parcela" valor={entrada.parcela ?? "—"} />
-              <DatoLinea label="Agricultor" valor={entrada.agricultor ?? "—"} />
+              <DatoLinea
+                label="Agricultor"
+                valor={entrada.agricultor ? (
+                  <Link to={`/productores?productor=${encodeURIComponent(entrada.agricultor)}`} className="text-info hover:underline">
+                    {entrada.agricultor}
+                  </Link>
+                ) : "—"}
+              />
               <DatoLinea label="Variedad" valor={entrada.articulo ?? "—"} />
               <DatoLinea label="Envases" valor={entrada.envases ? `${entrada.envases} × ${entrada.tipo_envase ?? "envase"}` : "—"} />
               <DatoLinea label="Nº entrada / albarán" valor={entrada.num_entrada ?? "—"} />
@@ -904,8 +920,20 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
               <span>
                 ⚠ Productor no coincide entre báscula y calibrador:{" "}
-                <span className="font-semibold">{entrada?.agricultor || "—"}</span> vs{" "}
-                <span className="font-semibold">{procesadoNoCoincide.productor || "—"}</span>
+                {agricultorBascula ? (
+                  <Link to={`/productores?productor=${encodeURIComponent(agricultorBascula)}`} className="font-semibold text-info hover:underline">
+                    {agricultorBascula}
+                  </Link>
+                ) : (
+                  <span className="font-semibold">—</span>
+                )} vs{" "}
+                {agricultorCalibrador ? (
+                  <Link to={`/productores?productor=${encodeURIComponent(agricultorCalibrador)}`} className="font-semibold text-info hover:underline">
+                    {agricultorCalibrador}
+                  </Link>
+                ) : (
+                  <span className="font-semibold">—</span>
+                )}
               </span>
             </div>
           )}
@@ -1273,7 +1301,11 @@ function OrigenConfeccionAviso({ origen, kgEntrada, kgExpedido, onSelect }: {
                 {v.productor && <span className="min-w-0 truncate text-xs">{v.productor}</span>}
                 {v.producto && <span className="min-w-0 truncate text-xs text-muted-foreground">{v.producto}</span>}
                 {v.esPrecalibrado && (
-                  <Badge variant="outline" className="border-[var(--glass-border)] bg-muted px-1.5 py-0 text-[10px] font-normal text-muted-foreground">
+                  <Badge
+                    variant="outline"
+                    className="border-[var(--glass-border)] bg-muted px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+                    title="Fruta reintroducida desde precalibrado; cuenta como procesado del lote, no como productor."
+                  >
                     precalibrado
                   </Badge>
                 )}
@@ -1322,7 +1354,7 @@ function OrigenConfeccionAviso({ origen, kgEntrada, kgExpedido, onSelect }: {
   );
 }
 
-function DatoLinea({ label, valor, destacado = false }: { label: string; valor: string; destacado?: boolean }) {
+function DatoLinea({ label, valor, destacado = false }: { label: string; valor: React.ReactNode; destacado?: boolean }) {
   return (
     <div className="min-w-0">
       <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
@@ -1364,7 +1396,11 @@ function MermasYPerdidasCard({ lote }: { lote: string }) {
             <p className="flex items-center gap-1.5 text-sm font-semibold">
               Mermas y pérdidas
               {merma.cerradoManualmente && (
-                <Badge variant="outline" className="border-[var(--glass-border)] bg-[var(--glass-bg)] px-1.5 py-0 text-[10px] font-normal text-muted-foreground">
+                <Badge
+                  variant="outline"
+                  className="border-[var(--glass-border)] bg-[var(--glass-bg)] px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+                  title={merma.cerradoSinRegistro ? "Su procesado no consta bajo este código: excluido de mermas/podrido/forfait." : "El hueco cuenta como merma natural + podrido pre-calibrador."}
+                >
                   <Lock className="mr-1 h-2.5 w-2.5" /> {merma.cerradoSinRegistro ? "Cerrado sin análisis" : "Cerrado a mano"}
                 </Badge>
               )}
@@ -1462,6 +1498,7 @@ function MermasYPerdidasCard({ lote }: { lote: string }) {
                 )}>
                   {podridoPreCalibradorDestacado(merma) && <AlertTriangle className="h-3 w-3 shrink-0" />}
                   Podrido pre-calibrador:{" "}
+                  <InfoTooltip iconClassName="h-3 w-3">Podrido de fruta apartada en los almacenes de precalibrado, antes de pasar por el calibrador: estimado por prorrateo, no un peso medido lote a lote.</InfoTooltip>
                   <span className="tabular-nums">{formatKg(merma.podridoPreCalibradorKg ?? 0)}</span>
                   <FuenteBadge fuente="asumido" />
                 </p>

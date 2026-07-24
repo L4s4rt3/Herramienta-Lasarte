@@ -7,6 +7,7 @@ import { useEntradasBascula } from "@/hooks/useEntradasBascula";
 import { useMermaLotes } from "@/hooks/useMermaLote";
 import { useUltimaJornadaCalidad } from "@/hooks/useCalidadJornada";
 import { useUltimoParteLimpieza } from "@/hooks/useLimpiezaBox";
+import { useComunicacionesCampoAccess } from "@/hooks/useComunicacionesCampo";
 import { ConfeccionZonas } from "@/components/ConfeccionZonas";
 import { KPICard } from "@/components/KPICard";
 import { SemaforoPill } from "@/components/SemaforoPill";
@@ -35,8 +36,8 @@ import { cn } from "@/lib/utils";
 import {
   Truck, Package, TrendingDown, BarChart3,
   Gauge, Droplet, Plus, ShoppingCart,
-  Recycle, Trash2, Warehouse, AlertTriangle, ArrowRight, Clock,
-  ClipboardCheck, FileText, Waypoints, Sprout, Brush, History, LayoutDashboard,
+  Recycle, Trash2, Warehouse, AlertTriangle, ArrowRight, Clock, Info,
+  ClipboardCheck, FileText, Waypoints, Sprout, Brush, History, LayoutDashboard, Send,
   type LucideIcon,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -319,6 +320,9 @@ export default function Dashboard() {
   const mermaTotalTrend = previousWeekData ? currentWeekData.mermaTotalConDsjPct - previousWeekData.mermaTotalConDsjPct : 0;
   const chartDisplayData = weeklyRows;
   const sem = getSemaforo(currentWeekData.dsj_pct);
+  // Semana resuelta (tras el fallback automático de más arriba) pero sin partes:
+  // ni el semáforo ni los KPI de la fila "Línea" deben leerse como cifras reales.
+  const sinDatosSemana = currentWeekData.partes === 0;
 
   // Media de producción de las semanas visibles en "Evolución semanal": umbral
   // con significado (línea fantasma) que convierte el gráfico en una respuesta
@@ -403,6 +407,7 @@ export default function Dashboard() {
   // ─── Fila "La sección": accesos a toda producción con dato barato donde lo hay ─
   const { fecha: ultimaCalidadFecha } = useUltimaJornadaCalidad();
   const { data: ultimoParteLimpieza } = useUltimoParteLimpieza();
+  const comunicacionesCampoAccess = useComunicacionesCampoAccess();
   const seccionAccesos: SeccionAcceso[] = useMemo(() => [
     { to: "/entradas", label: "Entradas de fruta", icon: Truck, dato: !stockLoading ? `${formatKg(stock.kgEnCamara)} en cámara` : undefined },
     { to: "/trazabilidad", label: "Trazabilidad", icon: Waypoints, dato: "Ficha completa por lote" },
@@ -418,7 +423,12 @@ export default function Dashboard() {
         { to: "/historico", label: "Importar histórico", icon: History, dato: "Carga del histórico de campaña" },
       ]
       : []),
-  ], [stockLoading, stock.kgEnCamara, ultimaCalidadFecha, ultimoDiaConParte, mercadona.kg_mercadona, ultimoParteLimpieza, esAdmin]);
+    // Comunicaciones de campaña: única sección propia de Jesús; exclusiva de
+    // Jesús + admin (RPC can_access_comunicaciones_campo, patrón Categoría segunda).
+    ...(comunicacionesCampoAccess.hasAccess
+      ? [{ to: "/campo/comunicaciones", label: "Comunicaciones de campaña", icon: Send, dato: "Comunicados a agricultores y proveedores" }]
+      : []),
+  ], [stockLoading, stock.kgEnCamara, ultimaCalidadFecha, ultimoDiaConParte, mercadona.kg_mercadona, ultimoParteLimpieza, esAdmin, comunicacionesCampoAccess.hasAccess]);
 
   return (
     <div className="page-shell">
@@ -427,8 +437,17 @@ export default function Dashboard() {
       <header className="page-header">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <h1 className="page-title">Control de Producción</h1>
-            {!loading && <SemaforoPill dsjPct={currentWeekData.dsj_pct} />}
+            <h1 className="page-title">Panel de producción</h1>
+            {!loading && (
+              sinDatosSemana ? (
+                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-muted-foreground/25 bg-muted/30 px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+                  <Info className="h-3.5 w-3.5" />
+                  Sin datos esta semana
+                </span>
+              ) : (
+                <SemaforoPill dsjPct={currentWeekData.dsj_pct} />
+              )
+            )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <SelectorPeriodo
@@ -560,56 +579,60 @@ export default function Dashboard() {
           <>
             <KPICard
               label={`Producción S${currentWeek.weekNumber}`}
-              value={formatKg(currentWeekData.produccion)}
+              value={sinDatosSemana ? "—" : formatKg(currentWeekData.produccion)}
               icon={Truck}
+              to={`/analisis/diario?desde=${currentWeek.start}&hasta=${currentWeek.end}`}
               labelInfo="Producción real del calibrador: kg entrados, menos mujeres clase L y reciclado de mallas Z1/Z2."
-              delta={previousWeek ? `${weekChangePct >= 0 ? "+" : ""}${weekChangePct.toFixed(1)}%` : undefined}
+              delta={sinDatosSemana ? undefined : previousWeek ? `${weekChangePct >= 0 ? "+" : ""}${weekChangePct.toFixed(1)}%` : undefined}
               deltaTrend={weekChangePct >= 0 ? "up" : "down"}
-              hint={previousWeek ? `vs S${previousWeek.weekNumber}` : `${currentWeekData.partes} parte${currentWeekData.partes === 1 ? "" : "s"}`}
+              hint={sinDatosSemana ? "Sin partes esta semana" : previousWeek ? `vs S${previousWeek.weekNumber}` : `${currentWeekData.partes} parte${currentWeekData.partes === 1 ? "" : "s"}`}
             >
               <Sparkline values={weeklyRows.map((w) => w.produccion)} />
             </KPICard>
             <KPICard
               label="Kg dados de alta"
-              value={formatKg(currentWeekData.palets)}
+              value={sinDatosSemana ? "—" : formatKg(currentWeekData.palets)}
               icon={Package}
+              to={`/partes?vista=semana&fecha=${currentWeek.start}`}
               labelInfo="Palets ajustados: palets brutos dados de alta, menos el inventario pendiente de alta del día anterior."
-              delta={previousWeek ? `${paletsChangePct >= 0 ? "+" : ""}${paletsChangePct.toFixed(1)}%` : undefined}
+              delta={sinDatosSemana ? undefined : previousWeek ? `${paletsChangePct >= 0 ? "+" : ""}${paletsChangePct.toFixed(1)}%` : undefined}
               deltaTrend={paletsChangePct >= 0 ? "up" : "down"}
-              hint={previousWeek ? `vs S${previousWeek.weekNumber}` : undefined}
+              hint={sinDatosSemana ? "Sin partes esta semana" : previousWeek ? `vs S${previousWeek.weekNumber}` : undefined}
             />
             <KPICard
-              label="Dif. Sin Justificar"
-              value={formatKg(currentWeekData.dsj)}
+              label="DJPMN"
+              value={sinDatosSemana ? "—" : formatKg(currentWeekData.dsj)}
               icon={TrendingDown}
-              accent={sem.accent}
+              accent={sinDatosSemana ? "primary" : sem.accent}
+              to={`/partes?vista=semana&fecha=${currentWeek.start}`}
               labelInfo={DJPMN_HELP}
-              delta={`${currentWeekData.dsj_pct >= 0 ? "+" : ""}${currentWeekData.dsj_pct.toFixed(2)}%`}
+              delta={sinDatosSemana ? undefined : `${currentWeekData.dsj_pct >= 0 ? "+" : ""}${currentWeekData.dsj_pct.toFixed(2)}%`}
               deltaTrend={sem.deltaTrend}
-              hint={previousWeek ? `${dsjTrend >= 0 ? "+" : ""}${dsjTrend.toFixed(2)} pp vs S${previousWeek.weekNumber}` : undefined}
+              hint={sinDatosSemana ? "Sin partes esta semana" : previousWeek ? `${dsjTrend >= 0 ? "+" : ""}${dsjTrend.toFixed(2)} pp vs S${previousWeek.weekNumber}` : undefined}
             >
               <DsjScale dsjPct={currentWeekData.dsj_pct} />
             </KPICard>
             <KPICard
               label={`Mermas S${currentWeek.weekNumber}`}
-              value={`${currentWeekData.mermas_pct.toFixed(2)}%`}
+              value={sinDatosSemana ? "—" : `${currentWeekData.mermas_pct.toFixed(2)}%`}
               icon={Trash2}
+              to="/entradas?tab=mermas"
               labelInfo="Merma real de la semana: podrido manual (bolsa basura) + podrido del calibrador, sobre la producción real del calibrador. La línea '+ DSJ' de abajo añade además la diferencia sin justificar (con su signo: si sobra fruta puede bajar del valor principal) para ver toda la fruta perdida como merma."
-              delta={previousWeek ? `${mermasTrend >= 0 ? "+" : ""}${mermasTrend.toFixed(2)} pp` : undefined}
+              delta={sinDatosSemana ? undefined : previousWeek ? `${mermasTrend >= 0 ? "+" : ""}${mermasTrend.toFixed(2)} pp` : undefined}
               deltaTrend={mermasTrend > 0 ? "down" : mermasTrend < 0 ? "up" : "neutral"}
-              hint={previousWeek ? `${formatKg(currentWeekData.mermas)} · vs S${previousWeek.weekNumber}` : formatKg(currentWeekData.mermas)}
+              hint={sinDatosSemana ? "Sin partes esta semana" : previousWeek ? `${formatKg(currentWeekData.mermas)} · vs S${previousWeek.weekNumber}` : formatKg(currentWeekData.mermas)}
             >
               <div className="mt-2.5 flex items-center justify-between gap-2 rounded-md border-l-[3px] border-warning bg-warning/10 px-2.5 py-1.5">
                 <div className="min-w-0 leading-tight">
                   <p className="text-xs font-medium">Merma + DSJ</p>
-                  {previousWeek && (
+                  {!sinDatosSemana && previousWeek && (
                     <p className="text-[11px] text-muted-foreground">
                       {mermaTotalTrend >= 0 ? "+" : ""}{mermaTotalTrend.toFixed(2)} pp vs S{previousWeek.weekNumber}
                     </p>
                   )}
                 </div>
                 <span className="shrink-0 text-base font-bold tabular-nums">
-                  {currentWeekData.mermaTotalConDsjPct.toFixed(2)}%
+                  {sinDatosSemana ? "—" : `${currentWeekData.mermaTotalConDsjPct.toFixed(2)}%`}
                 </span>
               </div>
               <Sparkline values={weeklyRows.map((w) => w.mermas_pct)} />
@@ -618,6 +641,7 @@ export default function Dashboard() {
               label="Velocidad media"
               value={avgTph !== null ? `${avgTph.toFixed(1)} T/h` : "—"}
               icon={Gauge}
+              to={`/analisis/diario?desde=${currentWeek.start}&hasta=${currentWeek.end}`}
               labelInfo="T/h = kg producidos entre las horas de jornada de cada día: 8 h/día hasta el 1 jul 2026 y 7 h/día desde el 2 jul (hasta nuevo aviso). Objetivo de referencia: 14,5 T/h."
               delta={avgTph !== null ? `${avgTph - 14.5 >= 0 ? "+" : ""}${(avgTph - 14.5).toFixed(1)} T/h` : undefined}
               deltaTrend={avgTph !== null ? (avgTph >= 14.5 ? "up" : avgTph >= 12.5 ? "neutral" : "down") : "neutral"}

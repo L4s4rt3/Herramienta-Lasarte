@@ -39,11 +39,39 @@ interface Archivo {
 
 type CategoryId = (typeof CATEGORIES)[number]["id"];
 
+// Las etiquetas (GSTOCK/Produccion/InformeLote/Otro) son los VALORES que se guardan
+// en partes_archivos.file_type: no tocar, solo se humaniza la presentación (label/help).
+// Significado deducido de cómo los usa analizar-parte y analizar-lote-excel:
+// - GSTOCK: informe de palets/stock del calibrador (kg dados de alta).
+// - Produccion: informe de producción del calibrador (kg + detalle por lote).
+// - InformeLote: informe individual por lote (desglose de tamaños/calibres); se
+//   procesa solo al subirlo, sin esperar a "Analizar parte" (ver handleUpload en PartDetail).
+// - Otro: catch-all (fotos u otros documentos de apoyo); etiqueta neutra a falta de un uso único.
 const CATEGORIES = [
-  { id: "GSTOCK", label: "GSTOCK", icon: Database },
-  { id: "Produccion", label: "Producción", icon: Factory },
-  { id: "InformeLote", label: "Informes por lote", icon: Layers },
-  { id: "Otro", label: "Otro", icon: FileIcon },
+  {
+    id: "GSTOCK",
+    label: "GSTOCK",
+    icon: Database,
+    help: "Informe de stock/palets del calibrador (kg dados de alta).",
+  },
+  {
+    id: "Produccion",
+    label: "Producción",
+    icon: Factory,
+    help: "Informe de producción del calibrador, con detalle por lote.",
+  },
+  {
+    id: "InformeLote",
+    label: "Informes por lote",
+    icon: Layers,
+    help: "Desglose de tamaños/calibres de un lote. Se procesa solo, nada más subirlo.",
+  },
+  {
+    id: "Otro",
+    label: "Otro",
+    icon: FileIcon,
+    help: "Fotos u otros documentos de apoyo (p. ej. la hoja de lotes a mano).",
+  },
 ] as const;
 
 const LEGACY_CAT: Record<string, CategoryId> = {
@@ -139,6 +167,7 @@ export default function PartDetailArchivos({
                     {filesInCat.length}
                   </span>
                 </div>
+                <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">{c.help}</p>
                 <label className="mt-3 flex">
                   <input
                     type="file"

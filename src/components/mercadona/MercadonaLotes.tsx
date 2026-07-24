@@ -3,14 +3,17 @@
 // rinden de verdad para el cliente — ranking histórico de aprovechamiento
 // MDNA, lotes de la semana activa y calidad orientativa de esos días.
 import { useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { AlertTriangle, ChevronLeft, ChevronRight, ClipboardList, FileSearch, Package, ScrollText, TrendingUp, Trophy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { InfoTooltip } from "@/components/InfoTooltip";
 import { CalidadInformeDialog, type CalidadInformeLote } from "@/components/CalidadInformeDialog";
 import { useMercadona } from "@/hooks/useMercadona";
+import { useAuth } from "@/contexts/AuthProvider";
 import {
   buildCalidadIndex,
   computeProductoresRango,
@@ -30,7 +33,6 @@ import { buildPeriodoRange } from "@/lib/consumoPeriodoView";
 import { formatDate, formatKg, formatNumber, formatPct, toISODateLocal } from "@/lib/format";
 import { tphColor } from "@/lib/chartTheme";
 import { cn } from "@/lib/utils";
-import { toast } from "@/hooks/use-toast";
 
 type SortKey = "kg" | "tph" | "pctMdnaDia" | "pesoFrutaG";
 
@@ -234,6 +236,12 @@ function RankingHistoricoProductores({
   productoresData: MercadonaProductoresData;
   isLoading: boolean;
 }) {
+  const { role } = useAuth();
+  // Igual que en la tabla de lotes: solo admin/operario llegan a /productores
+  // (a "ventas" en /comercial/mercadona, RoleRoute lo rebota a su home), así
+  // que para ese rol se conserva el modal de calidad de siempre.
+  const puedeNavegarPlanta = role === "admin" || role === "operario";
+  const navigate = useNavigate();
   const [minKg, setMinKg] = useState<number>(DEFAULT_MIN_KG);
   const [periodoTipo, setPeriodoTipo] = useState<ProductoresPeriodoTipo>(DEFAULT_PERIODO_TIPO);
   const [offset, setOffset] = useState(0);
@@ -245,6 +253,14 @@ function RankingHistoricoProductores({
   const abrirCalidad = (productor: string) => {
     setProductorCalidad(productor);
     setCalidadAbierta(true);
+  };
+
+  const handleProductorClick = (productor: string) => {
+    if (puedeNavegarPlanta) {
+      navigate(`/productores?productor=${encodeURIComponent(productor)}`);
+      return;
+    }
+    abrirCalidad(productor);
   };
 
   const rango = useMemo(() => buildProductoresRango(periodoTipo, offset), [periodoTipo, offset]);
@@ -399,8 +415,9 @@ function RankingHistoricoProductores({
                     <span className="inline-flex items-center gap-1">
                       Calidad
                       <InfoTooltip>
-                        Pulsa una fila para ver los informes de calidad de ese productor cruzados con el
-                        aprovechamiento Mercadona de cada día.
+                        {puedeNavegarPlanta
+                          ? "Pulsa el nombre para abrir la ficha del productor; pulsa el icono de esta columna para ver sus informes de calidad cruzados con el aprovechamiento Mercadona de cada día."
+                          : "Pulsa una fila para ver los informes de calidad de ese productor cruzados con el aprovechamiento Mercadona de cada día."}
                       </InfoTooltip>
                     </span>
                   </TableHead>
@@ -414,17 +431,30 @@ function RankingHistoricoProductores({
                       key={p.productor}
                       role="button"
                       tabIndex={0}
-                      onClick={() => abrirCalidad(p.productor)}
+                      onClick={() => handleProductorClick(p.productor)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
-                          abrirCalidad(p.productor);
+                          handleProductorClick(p.productor);
                         }
                       }}
                       className="cursor-pointer transition-colors hover:bg-[var(--glass-bg-strong)]"
                     >
                       <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
-                      <TableCell className="max-w-[240px] truncate text-xs font-medium">{p.productor}</TableCell>
+                      <TableCell className="max-w-[240px] truncate text-xs font-medium">
+                        {puedeNavegarPlanta ? (
+                          <Link
+                            to={`/productores?productor=${encodeURIComponent(p.productor)}`}
+                            onClick={(e) => e.stopPropagation()}
+                            title="Ver ficha del productor"
+                            className="text-primary hover:underline"
+                          >
+                            {p.productor}
+                          </Link>
+                        ) : (
+                          p.productor
+                        )}
+                      </TableCell>
                       <TableCell className="text-right tabular-nums text-xs">{formatKg(p.kg)}</TableCell>
                       <TableCell className="text-right tabular-nums text-xs text-muted-foreground">{p.nLotes}</TableCell>
                       <TableCell className="text-right">
@@ -441,17 +471,37 @@ function RankingHistoricoProductores({
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <span
-                          className={cn(
-                            "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium",
-                            nInformes > 0
-                              ? "border-primary/30 bg-primary/10 text-primary"
-                              : "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground",
-                          )}
-                        >
-                          <ClipboardList className="h-3 w-3" />
-                          {nInformes > 0 ? nInformes : "—"}
-                        </span>
+                        {puedeNavegarPlanta ? (
+                          <button
+                            type="button"
+                            title="Ver contraste de calidad"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              abrirCalidad(p.productor);
+                            }}
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium transition-colors",
+                              nInformes > 0
+                                ? "border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
+                                : "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground hover:border-primary/30",
+                            )}
+                          >
+                            <ClipboardList className="h-3 w-3" />
+                            {nInformes > 0 ? nInformes : "—"}
+                          </button>
+                        ) : (
+                          <span
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium",
+                              nInformes > 0
+                                ? "border-primary/30 bg-primary/10 text-primary"
+                                : "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground",
+                            )}
+                          >
+                            <ClipboardList className="h-3 w-3" />
+                            {nInformes > 0 ? nInformes : "—"}
+                          </span>
+                        )}
                       </TableCell>
                     </TableRow>
                   );
@@ -483,7 +533,14 @@ function LotesSemanaTabla({
   calidadSemana: MercadonaCalidadSemana[];
   onAbrirInforme: (informe: CalidadInformeLote) => void;
 }) {
+  const { role } = useAuth();
+  // Solo admin/operario llegan a /trazabilidad (a "ventas" en
+  // /comercial/mercadona, RoleRoute lo rebota a su home): para ese rol se
+  // conserva el modal de calidad de siempre, sin enlaces que rebotarían.
+  const puedeNavegarPlanta = role === "admin" || role === "operario";
+  const navigate = useNavigate();
   const [sortKey, setSortKey] = useState<SortKey>("kg");
+  const [loteSinInforme, setLoteSinInforme] = useState<MercadonaLoteSemana | null>(null);
 
   const calidadIndex = useMemo(() => buildCalidadIndex(calidadSemana), [calidadSemana]);
 
@@ -494,18 +551,23 @@ function LotesSemanaTabla({
   }, [lotes, sortKey]);
 
   const handleLoteClick = (lote: MercadonaLoteSemana) => {
+    // Planta (admin/operario): el lote siempre lleva a su trazabilidad
+    // completa, nunca se queda en un callejón sin salida; el informe de
+    // calidad queda como acción secundaria en la columna "Calidad".
+    if (puedeNavegarPlanta) {
+      navigate(`/trazabilidad?lote=${encodeURIComponent(lote.loteCodigo)}`);
+      return;
+    }
     const match = matchCalidadParaLote(lote, calidadIndex);
     if (!match) {
-      toast({
-        title: "Sin informe de calidad",
-        description: `No hay ningún control de calidad asociado al lote ${lote.loteCodigo} (${lote.productor}).`,
-      });
+      setLoteSinInforme(lote);
       return;
     }
     onAbrirInforme(match.informe);
   };
 
   return (
+    <>
     <Card className="glass-accented overflow-hidden">
       <CardHeader className="pb-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -570,8 +632,9 @@ function LotesSemanaTabla({
                     <span className="inline-flex items-center gap-1">
                       Calidad
                       <InfoTooltip>
-                        Pulsa la fila para ver el informe de calidad de este lote (cruzado por número de lote o, si no
-                        hay, por productor y fecha).
+                        {puedeNavegarPlanta
+                          ? "El código de lote lleva a su trazabilidad completa; el icono de esta columna abre el informe de calidad si existe (cruzado por número de lote o, si no hay, por productor y fecha)."
+                          : "Pulsa la fila para ver el informe de calidad de este lote (cruzado por número de lote o, si no hay, por productor y fecha)."}
                       </InfoTooltip>
                     </span>
                   </TableHead>
@@ -595,7 +658,20 @@ function LotesSemanaTabla({
                       }}
                       className="cursor-pointer transition-colors hover:bg-[var(--glass-bg-strong)]"
                     >
-                      <TableCell className="text-xs font-medium">{l.loteCodigo}</TableCell>
+                      <TableCell className="text-xs font-medium">
+                        {puedeNavegarPlanta ? (
+                          <Link
+                            to={`/trazabilidad?lote=${encodeURIComponent(l.loteCodigo)}`}
+                            onClick={(e) => e.stopPropagation()}
+                            title="Ver trazabilidad del lote"
+                            className="text-primary hover:underline"
+                          >
+                            {l.loteCodigo}
+                          </Link>
+                        ) : (
+                          l.loteCodigo
+                        )}
+                      </TableCell>
                       <TableCell className="max-w-[180px] truncate text-xs">{l.productor}</TableCell>
                       <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground">{l.producto}</TableCell>
                       <TableCell className="text-right tabular-nums text-xs font-semibold">{formatKg(l.kg)}</TableCell>
@@ -609,17 +685,32 @@ function LotesSemanaTabla({
                         {l.pctMdnaDia != null ? formatPct(l.pctMdnaDia) : "—"}
                       </TableCell>
                       <TableCell className="text-right">
-                        <span
-                          className={cn(
-                            "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium",
-                            match
-                              ? "border-primary/30 bg-primary/10 text-primary"
-                              : "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground",
-                          )}
-                        >
-                          <FileSearch className="h-3 w-3" />
-                          {match ? "Ver" : "—"}
-                        </span>
+                        {puedeNavegarPlanta && match ? (
+                          <button
+                            type="button"
+                            title="Ver informe de calidad"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onAbrirInforme(match.informe);
+                            }}
+                            className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/20"
+                          >
+                            <FileSearch className="h-3 w-3" />
+                            Ver
+                          </button>
+                        ) : (
+                          <span
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium",
+                              match
+                                ? "border-primary/30 bg-primary/10 text-primary"
+                                : "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground",
+                            )}
+                          >
+                            <FileSearch className="h-3 w-3" />
+                            {match ? "Ver" : "—"}
+                          </span>
+                        )}
                       </TableCell>
                     </TableRow>
                   );
@@ -630,6 +721,29 @@ function LotesSemanaTabla({
         )}
       </CardContent>
     </Card>
+    <Dialog
+      open={!!loteSinInforme}
+      onOpenChange={(open) => {
+        if (!open) setLoteSinInforme(null);
+      }}
+    >
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Sin informe de calidad</DialogTitle>
+          <DialogDescription>
+            {loteSinInforme ? `Lote ${loteSinInforme.loteCodigo} · ${loteSinInforme.productor}` : ""}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col items-center gap-3 py-6 text-center">
+          <FileSearch className="h-9 w-9 text-muted-foreground/50" />
+          <p className="max-w-sm text-sm text-muted-foreground">
+            Este lote no tiene informe de calidad todavía. El cruce se hace por número de lote o, si no hay, por
+            productor y fecha.
+          </p>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 

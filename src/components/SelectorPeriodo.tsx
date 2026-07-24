@@ -4,10 +4,12 @@
 // reales (día / semana / mes / campaña, más un rango libre): WeekSelector,
 // los chevrons ad-hoc de Dashboard/MercadonaProduccion/Mercadona/
 // CalidadJornada/Asistencia, los 3 botones sueltos de EconomicoPanel y
-// ConsumoPeriodoSelector. WeekSelector, PartesPeriodoNav y ConsumoPeriodoSelector
-// siguen existiendo como wrappers finos de este componente (para no tocar a
-// sus consumidores actuales) — los consumidores nuevos deberían usar este
-// componente directamente.
+// ConsumoPeriodoSelector. PartesPeriodoNav y ConsumoPeriodoSelector sí siguen
+// existiendo como wrappers finos de este componente (para no tocar a sus
+// consumidores actuales) — los consumidores nuevos deberían usar este
+// componente directamente. WeekSelector, en cambio, quedó fuera de esta
+// unificación: sigue siendo independiente, con su propio modelo de datos
+// (`Periodo`), y lo usan Análisis diario y Productores.
 //
 // Totalmente controlado: `value` + `onChange`. Toda la aritmética de fechas
 // vive en src/lib/selectorPeriodo.ts (que a su vez reutiliza
