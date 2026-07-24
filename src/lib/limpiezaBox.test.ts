@@ -3,11 +3,35 @@ import {
   PIES_A_BOX,
   agregarLimpiezaCoste,
   boxAPies,
+  jornadaFueraLineaPorLimpieza,
   piesABox,
   resumenLimpiezaEnRango,
   resumenLimpiezaPorSemanaIso,
   sumaHoras,
 } from "./limpiezaBox";
+
+describe("jornadaFueraLineaPorLimpieza", () => {
+  it("suma las horas de cada trabajador y las convierte a fracción de jornada de 8h", () => {
+    expect(jornadaFueraLineaPorLimpieza([
+      { trabajador_id: "a", horas: 2 },
+      { trabajador_id: "a", horas: 3 },
+      { trabajador_id: "b", horas: "4" },
+    ])).toEqual({ a: 5 / 8, b: 0.5 });
+  });
+
+  it("tope en jornada completa; ignora nombres libres y horas no válidas", () => {
+    expect(jornadaFueraLineaPorLimpieza([
+      { trabajador_id: "a", horas: 12 },
+      { trabajador_id: null, horas: 4 },
+      { trabajador_id: "b", horas: 0 },
+      { trabajador_id: "c", horas: "x" },
+    ])).toEqual({ a: 1 });
+  });
+
+  it("admite una jornada distinta de 8h", () => {
+    expect(jornadaFueraLineaPorLimpieza([{ trabajador_id: "a", horas: 3 }], 6)).toEqual({ a: 0.5 });
+  });
+});
 
 describe("conversión pies ↔ box", () => {
   it("la constante refleja la equivalencia del dueño: 48 pies = 144 box", () => {

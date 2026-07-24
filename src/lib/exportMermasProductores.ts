@@ -176,7 +176,7 @@ export async function exportarMermasProductores(filas: FilaMermaExport[], usuari
   const ctx = crearLibroLasarte({
     titulo: "Podrido y mermas por productor, finca y lote",
     periodo: "Campaña completa (lotes procesados)",
-    usuario,
+    usuario: usuario ?? undefined,
     clasificacion: "Interno",
   });
 

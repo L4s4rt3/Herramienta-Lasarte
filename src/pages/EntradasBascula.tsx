@@ -56,7 +56,7 @@ import {
 } from "@/lib/mermaLote";
 import { exportarMermasProductores, type FilaMermaExport } from "@/lib/exportMermasProductores";
 import { casarMermaCamara, parseMermaCamaraRows } from "@/lib/mermaCamaraImport";
-import { resolveProductorGroupKey } from "@/lib/productoresCanonicos";
+import { esEntradaPrecalibrado, resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import { cn } from "@/lib/utils";
 
 const ESTADO_BADGE: Record<StockEstado, { label: string; className: string }> = {
@@ -311,7 +311,10 @@ function MermasCosteTab() {
         registros,
         entradas.map((e) => ({ id: e.id, lote: e.lote, fecha: e.fecha, kg_entrada: Number(e.kg_entrada) || 0, finca: e.finca })),
       );
-      const SUPA_LOCAL = supabase as unknown as SupabaseClient<Record<string, never>>;
+      // merma_camara_kg / fecha_salida_camara: columnas de la migración
+      // 20260721150000, aún no reflejadas en los tipos generados (types.ts).
+      // Cliente sin esquema tipado (Database=any) hasta regenerar los tipos.
+      const SUPA_LOCAL = supabase as unknown as SupabaseClient;
       for (const c of casados) {
         const { error } = await SUPA_LOCAL
           .from("entradas_bascula")

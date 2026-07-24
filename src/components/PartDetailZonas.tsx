@@ -1,9 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { InfoTooltip } from "@/components/InfoTooltip";
-import { formatKg } from "@/lib/format";
-import { Users, TriangleAlert } from "lucide-react";
-import type { RendimientoSinZona } from "@/lib/asistenciaPlantilla";
+import { formatKg, formatPersonas } from "@/lib/format";
+import { Users, TriangleAlert, Sparkles, ArrowRightLeft } from "lucide-react";
+import type { RendimientoFueraLinea, RendimientoSinZona } from "@/lib/asistenciaPlantilla";
 
 export interface ZonaRendimientoItem {
   grupo: string;
@@ -21,9 +21,11 @@ interface PartDetailZonasProps {
   kgPersonaGeneral: number;
   presentesComputables: number;
   sinZona?: RendimientoSinZona | null;
+  fueraLinea?: RendimientoFueraLinea | null;
+  refuerzoMesas?: RendimientoFueraLinea | null;
 }
 
-export default function PartDetailZonas({ loading, zonas, kgPersonaGeneral, presentesComputables, sinZona }: PartDetailZonasProps) {
+export default function PartDetailZonas({ loading, zonas, kgPersonaGeneral, presentesComputables, sinZona, fueraLinea, refuerzoMesas }: PartDetailZonasProps) {
   const hayDatos = zonas ? zonas.some((z) => z.personas > 0) : false;
   const maxKg = zonas ? Math.max(...zonas.map((z) => z.kg), 1) : 1;
 
@@ -36,7 +38,7 @@ export default function PartDetailZonas({ loading, zonas, kgPersonaGeneral, pres
             <div className="flex items-center gap-1.5">
               <p className="panel-kicker">Personal</p>
               <InfoTooltip iconClassName="h-3 w-3">
-                Kg clasificados de cada zona repartidos entre las personas presentes ese día. Incluye la plantilla de arranque de línea (15 personas: encargadas, tría de podrido, aéreo, carretilleros, transpaletas, producción y mantenimiento), que suma a la dotación de cada zona — igual que en Asistencia. Necesita la asistencia de ese día ya marcada.
+                Kg clasificados de cada zona repartidos entre las personas presentes ese día. Incluye la plantilla de arranque de línea (15 personas: encargadas, tría de podrido, aéreo, carretilleros, transpaletas, producción y mantenimiento), que suma a la dotación de cada zona — igual que en Asistencia. Quien viene con su puesto ya cubierto cuenta como refuerzo de Envasado, y las horas apuntadas en Limpieza de box se descuentan del reparto (quien limpia no está en línea ese rato). Necesita la asistencia de ese día ya marcada.
               </InfoTooltip>
             </div>
             <CardTitle className="text-base">Rendimiento por zonas</CardTitle>
@@ -64,7 +66,7 @@ export default function PartDetailZonas({ loading, zonas, kgPersonaGeneral, pres
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold">{z.label}</p>
                       <p className="text-xs text-muted-foreground">
-                        {z.objetivo ? `${z.personas}/${z.objetivo} presentes` : "kg del informe"}
+                        {z.objetivo ? `${formatPersonas(z.personas)}/${z.objetivo} presentes` : "kg del informe"}
                       </p>
                     </div>
                     <div className="shrink-0 text-right">
@@ -91,6 +93,28 @@ export default function PartDetailZonas({ loading, zonas, kgPersonaGeneral, pres
                 </div>
               ))}
             </div>
+            {refuerzoMesas && refuerzoMesas.presentes > 0 && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 text-xs text-muted-foreground">
+                <ArrowRightLeft className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <p>
+                  <span className="font-semibold text-foreground">
+                    {refuerzoMesas.presentes} de refuerzo en Envasado
+                  </span>{" "}
+                  (su puesto ya estaba cubierto): {refuerzoMesas.personas.join(", ")}.
+                </p>
+              </div>
+            )}
+            {fueraLinea && fueraLinea.presentes > 0 && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 text-xs text-muted-foreground">
+                <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <p>
+                  <span className="font-semibold text-foreground">
+                    {fueraLinea.presentes} con horas en limpieza de box
+                  </span>
+                  : {fueraLinea.personas.join(", ")}. Quien pasa la jornada entera limpiando no cuenta en el reparto.
+                </p>
+              </div>
+            )}
             {sinZona && sinZona.presentes > 0 && (
               <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
                 <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />

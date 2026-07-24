@@ -50,10 +50,28 @@ export interface RendimientoSinZona {
   personas: string[];
 }
 
+/** Presentes con horas fuera de línea ese día (p. ej. limpiando box). */
+export interface RendimientoFueraLinea {
+  presentes: number;
+  personas: string[];
+}
+
 export interface RendimientoZonasAlmacen {
   lineaComun: RendimientoLineaComun;
   zonas: RendimientoZonaAlmacen[];
   sinZona: RendimientoSinZona;
+  /**
+   * Presentes con horas apuntadas en limpieza de box. Informativo: quien
+   * limpia unas horas sigue contando como presente entero en su zona; solo
+   * quien pasa la JORNADA COMPLETA limpiando queda fuera del reparto.
+   */
+  fueraLinea: RendimientoFueraLinea;
+  /**
+   * Presentes reconocidos cuyo puesto ya estaba cubierto: refuerzan Envasado
+   * (mesas) en el reparto — cuando vienen todos los candidatos de un puesto,
+   * el que sobra va a mesas (decisión del dueño).
+   */
+  refuerzoMesas: RendimientoFueraLinea;
 }
 
 const ARRANQUE_PUESTOS: PlantillaPuesto[] = [
@@ -182,10 +200,20 @@ export function calcularRendimientoZonasAlmacen({
   trabajadores,
   asistencia,
   kgPorZona,
+  jornadaFueraLinea,
 }: {
   trabajadores: readonly { id: string; nombre?: string | null; zona?: string | null; activo: boolean }[];
   asistencia: Record<string, boolean>;
   kgPorZona: Record<ZonaProductivaAlmacenId, number>;
+  /**
+   * Fracción de jornada (0..1) que cada trabajador pasó FUERA de la línea ese
+   * día (p. ej. horas de limpieza de box / jornada de 8h). Las personas no se
+   * parten: quien limpió unas horas sigue contando como presente ENTERO en su
+   * zona (y sale listado en `fueraLinea` a título informativo); solo quien
+   * llega a la jornada completa (fracción 1) queda fuera del reparto — ese
+   * día no estuvo en ninguna zona. Sin entrada = jornada completa en línea.
+   */
+  jornadaFueraLinea?: Record<string, number>;
 }): RendimientoZonasAlmacen {
   const trabajadoresActivos = trabajadores.filter((trabajador) => trabajador.activo);
   const trabajadoresPorNombre = new Map(
@@ -194,6 +222,13 @@ export function calcularRendimientoZonasAlmacen({
       .map((trabajador) => [normalizarClavePersona(trabajador.nombre), trabajador]),
   );
   const estaPresente = (trabajador: { id: string }) => asistencia[trabajador.id] === true;
+  const fraccionFuera = (id: string) => {
+    const f = Number(jornadaFueraLinea?.[id]);
+    return Number.isFinite(f) ? Math.min(1, Math.max(0, f)) : 0;
+  };
+  /** Presente Y con algo de jornada en línea (no pasó el día entero fuera). */
+  const cuentaEnLinea = (trabajador: { id: string }) =>
+    estaPresente(trabajador) && fraccionFuera(trabajador.id) < 1;
   const esCargaDescarga = (trabajador: { zona?: string | null }) =>
     normalizarClavePersona(trabajador.zona) === normalizarClavePersona("Carga y descarga");
   const esEnvasadoFlexible = (trabajador: { zona?: string | null }) => {
@@ -204,6 +239,14 @@ export function calcularRendimientoZonasAlmacen({
       zona === normalizarClavePersona("Envasado");
   };
 
+  // Cuenta la gente de un bloque de puestos cubriendo sus plazas y detectando
+  // el EXCEDENTE: si un puesto lista más candidatos que plazas (sustitutos) y
+  // ese día vienen todos, el sobrante no se queda en el bloque — refuerza
+  // Envasado (mesas), que es a donde va esa gente en la práctica (decisión
+  // del dueño). El excedente se recoge DESPUÉS de cubrir todas las plazas del
+  // bloque, para que un candidato compartido entre puestos (p. ej. el
+  // sustituto de carretillero que también es transpaleta) ocupe su otra plaza
+  // antes de darlo por sobrante.
   const countForPuestos = (
     puestos: readonly PlantillaPuesto[],
     usedPresentes = new Set<string>(),
@@ -215,55 +258,59 @@ export function calcularRendimientoZonasAlmacen({
     const usados = new Set(usedPresentes);
     // Dedup de "activos": un trabajador que aparece en varios puestos cuenta una sola vez.
     const usadosActivos = new Set<string>();
+    // Todos los candidatos del bloque, para detectar el excedente al final.
+    const candidatosBloque = new Map<string, (typeof trabajadoresActivos)[number]>();
 
     for (const puesto of puestos) {
+      let candidatos: typeof trabajadoresActivos;
       if (puesto.personas?.length) {
-        const candidatos = puesto.personas
+        candidatos = puesto.personas
           .map((persona) => trabajadoresPorNombre.get(normalizarClavePersona(persona)))
           .filter((trabajador): trabajador is NonNullable<typeof trabajador> => Boolean(trabajador));
-        let nuevosActivos = 0;
-        for (const candidato of candidatos) {
-          if (nuevosActivos >= puesto.trabajadores) break;
-          if (usadosActivos.has(candidato.id)) continue;
-          usadosActivos.add(candidato.id);
-          nuevosActivos += 1;
-        }
-        activos += nuevosActivos;
-
-        let cubiertos = 0;
-        for (const candidato of candidatos) {
-          if (cubiertos >= puesto.trabajadores) break;
-          if (usados.has(candidato.id) || !estaPresente(candidato)) continue;
-          usados.add(candidato.id);
-          cubiertos += 1;
-        }
-        presentes += cubiertos;
-        continue;
+      } else {
+        if (!allowZonaFallback) continue;
+        candidatos = trabajadoresActivos.filter((trabajador) =>
+          trabajador.zona &&
+          zonasConFallback.has(trabajador.zona) &&
+          !usedPresentes.has(trabajador.id)
+        );
       }
 
-      if (!allowZonaFallback) continue;
-      const candidatos = trabajadoresActivos.filter((trabajador) =>
-        trabajador.zona &&
-        zonasConFallback.has(trabajador.zona) &&
-        !usados.has(trabajador.id)
-      );
-      let nuevosActivos = 0;
       for (const candidato of candidatos) {
-        if (nuevosActivos >= puesto.trabajadores) break;
-        if (usadosActivos.has(candidato.id)) continue;
-        usadosActivos.add(candidato.id);
-        nuevosActivos += 1;
+        if (!usadosActivos.has(candidato.id)) {
+          usadosActivos.add(candidato.id);
+          activos += 1;
+        }
+        candidatosBloque.set(candidato.id, candidato);
       }
-      activos += nuevosActivos;
-      const presentesPuesto = candidatos.filter(estaPresente).slice(0, puesto.trabajadores);
-      for (const trabajador of presentesPuesto) usados.add(trabajador.id);
-      presentes += presentesPuesto.length;
+
+      let cubiertos = 0;
+      for (const candidato of candidatos) {
+        if (cubiertos >= puesto.trabajadores) break;
+        // Quien pasa el día entero fuera de línea no ocupa plaza: la deja
+        // libre para el sustituto (y no cae a "Sin zona": ya sabemos dónde está).
+        if (usados.has(candidato.id) || !cuentaEnLinea(candidato)) continue;
+        usados.add(candidato.id);
+        presentes += 1;
+        cubiertos += 1;
+      }
+    }
+
+    // Excedente: presentes reconocidos del bloque cuyas plazas ya estaban
+    // cubiertas. Se marcan como usados (no son "Sin zona") y se listan como
+    // sobrantes para el refuerzo de mesas.
+    const sobrantes: Array<{ id: string; nombre?: string | null }> = [];
+    for (const candidato of candidatosBloque.values()) {
+      if (usados.has(candidato.id) || !cuentaEnLinea(candidato)) continue;
+      usados.add(candidato.id);
+      sobrantes.push(candidato);
     }
 
     return {
       activos,
       presentes,
       usadosPresentes: usados,
+      sobrantes,
     };
   };
 
@@ -273,19 +320,22 @@ export function calcularRendimientoZonasAlmacen({
       !usados.has(trabajador.id) &&
       !esCargaDescarga(trabajador) &&
       esEnvasadoFlexible(trabajador) &&
-      estaPresente(trabajador)
+      cuentaEnLinea(trabajador)
     ).length;
 
   const buildZona = (
     bloque: (typeof ASISTENCIA_ZONAS_PRODUCTIVAS)[number],
     kg: number,
     counts: ReturnType<typeof countForPuestos>,
+    refuerzo = 0,
   ) => {
     const deficitZona = Math.max(0, bloque.total - counts.presentes);
     const sustituciones = Math.min(deficitZona, envasadoDisponibleParaSustituir(counts.usadosPresentes));
-    const presentesZona = counts.presentes + sustituciones;
+    const presentesZona = counts.presentes + sustituciones + refuerzo;
     const objetivo = ASISTENCIA_PLANTILLA_OPERATIVA.arranque.total + bloque.total;
-    const presentes = Math.min(objetivo, linea.presentes + presentesZona);
+    // Sin tope por objetivo: si vino más gente de la dotación, el kg/persona
+    // se reparte entre los que realmente estuvieron.
+    const presentes = linea.presentes + presentesZona;
 
     return {
       id: bloque.id as ZonaProductivaAlmacenId,
@@ -304,11 +354,24 @@ export function calcularRendimientoZonasAlmacen({
   // qué presentes ya quedaron asignados a un puesto — para poder detectar al
   // final quién se queda fuera y no perderlo en silencio.
   const usadosGlobal = new Set(linea.usadosPresentes);
+
+  // Carga y descarga se cuenta ANTES de las zonas (sus candidatos —zona
+  // exacta "Carga y descarga"— no compiten con ningún otro bloque): no forma
+  // parte del reparto por zonas ni de la línea, pero sus presentes cuentan
+  // como "asignados" para no acabar en "Sin zona". Su excedente NO refuerza
+  // mesas: carga y descarga ya está fuera del kg/persona.
+  const cargaDescarga = countForPuestos(ASISTENCIA_PLANTILLA_OPERATIVA.cargaDescarga.puestos, usadosGlobal);
+  for (const trabajadorId of cargaDescarga.usadosPresentes) usadosGlobal.add(trabajadorId);
+
+  // El excedente reconocido (línea y zonas) va acumulándose y desemboca en
+  // mesas, la última zona productiva del array.
+  const refuerzoMesasPersonas = [...linea.sobrantes];
   const zonas = ASISTENCIA_ZONAS_PRODUCTIVAS.map((bloque) => {
     const zonaId = bloque.id as ZonaProductivaAlmacenId;
     const counts = countForPuestos(bloque.puestos, usadosGlobal);
     for (const trabajadorId of counts.usadosPresentes) usadosGlobal.add(trabajadorId);
-    return buildZona(bloque, kgPorZona[zonaId] ?? 0, counts);
+    refuerzoMesasPersonas.push(...counts.sobrantes);
+    return buildZona(bloque, kgPorZona[zonaId] ?? 0, counts, bloque.id === "mesas" ? refuerzoMesasPersonas.length : 0);
   });
   const kgIndustria = kgPorZona.industria ?? 0;
   zonas.push({
@@ -316,7 +379,7 @@ export function calcularRendimientoZonasAlmacen({
     nombre: "Industria",
     objetivo: ASISTENCIA_PLANTILLA_OPERATIVA.arranque.total,
     activos: linea.activos,
-    presentes: Math.min(ASISTENCIA_PLANTILLA_OPERATIVA.arranque.total, linea.presentes),
+    presentes: linea.presentes,
     kg: kgIndustria,
     kgPersonaPresentes: linea.presentes > 0 ? kgIndustria / linea.presentes : 0,
     kgPersonaObjetivo: ASISTENCIA_PLANTILLA_OPERATIVA.arranque.total > 0
@@ -325,21 +388,31 @@ export function calcularRendimientoZonasAlmacen({
     diferenciaDotacion: linea.presentes - ASISTENCIA_PLANTILLA_OPERATIVA.arranque.total,
   });
 
-  // Carga y descarga tiene su propio bloque (no forma parte del reparto por
-  // zonas productivas ni de la línea) — sus presentes cuentan como
-  // "asignados" para no acabar en "Sin zona", aunque no tengan kg/persona.
-  const cargaDescarga = countForPuestos(ASISTENCIA_PLANTILLA_OPERATIVA.cargaDescarga.puestos, usadosGlobal);
-  for (const trabajadorId of cargaDescarga.usadosPresentes) usadosGlobal.add(trabajadorId);
-
   // Cualquier persona presente ese día que no haya quedado asignada a ningún
   // puesto conocido (ni por nombre, ni por zona-fallback, ni carga y
   // descarga) se agrupa en "Sin zona" en vez de desaparecer del recuento.
+  // Quien pasó la jornada COMPLETA fuera de línea (fracción 1, p. ej. todo el
+  // día limpiando box) no es "sin zona": ya sabemos dónde estuvo.
   const presentesSinZona = trabajadoresActivos.filter(
-    (trabajador) => estaPresente(trabajador) && !usadosGlobal.has(trabajador.id),
+    (trabajador) =>
+      estaPresente(trabajador) && !usadosGlobal.has(trabajador.id) && fraccionFuera(trabajador.id) < 1,
   );
   const sinZona: RendimientoSinZona = {
     presentes: presentesSinZona.length,
     personas: presentesSinZona.map((trabajador) => trabajador.nombre ?? trabajador.id),
+  };
+
+  const presentesFueraLinea = trabajadoresActivos.filter(
+    (trabajador) => estaPresente(trabajador) && fraccionFuera(trabajador.id) > 0,
+  );
+  const fueraLinea: RendimientoFueraLinea = {
+    presentes: presentesFueraLinea.length,
+    personas: presentesFueraLinea.map((trabajador) => trabajador.nombre ?? trabajador.id),
+  };
+
+  const refuerzoMesas: RendimientoFueraLinea = {
+    presentes: refuerzoMesasPersonas.length,
+    personas: refuerzoMesasPersonas.map((trabajador) => trabajador.nombre ?? trabajador.id),
   };
 
   return {
@@ -350,6 +423,8 @@ export function calcularRendimientoZonasAlmacen({
     },
     zonas,
     sinZona,
+    fueraLinea,
+    refuerzoMesas,
   };
 }
 

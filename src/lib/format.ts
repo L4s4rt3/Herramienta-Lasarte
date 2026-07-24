@@ -13,6 +13,14 @@ export const formatPct = (v: number | null | undefined, digits = 1) =>
 export const formatNumber = (v: number | null | undefined, digits = 0) =>
   (digits === 0 ? _nf : _nfCustom(digits)).format(Number(v || 0));
 
+// Personas del rendimiento por zonas: siempre enteras (una persona no se
+// parte — decisión del dueño). El fallback a un decimal es solo defensivo por
+// si algún cálculo devolviera fracción; no debería verse en pantalla.
+export const formatPersonas = (v: number | null | undefined): string => {
+  const n = Number(v || 0);
+  return Number.isInteger(n) ? _nf.format(n) : _nfCustom(1).format(n);
+};
+
 // Euros con "—" para null/NaN (en vez de "0,00 €", que sugeriría un dato real
 // de cero en vez de "sin dato"). Única fuente: antes había 6 copias locales
 // idénticas en EconomicoPanel/Cmv/Costes/Fruta/Facturacion/DireccionDashboard

@@ -59,6 +59,7 @@ import {
   type TrabajadorNoResuelto,
 } from "@/lib/asistenciaTrabajadores";
 import { useTrabajadoresAlias } from "@/hooks/useTrabajadoresAlias";
+import { useLimpiezaJornadaFueraLinea } from "@/hooks/useLimpiezaJornadaFueraLinea";
 import {
   BAJA_LABORAL_MOTIVO,
   cargarSemanasAsistenciaExportables,
@@ -447,6 +448,9 @@ export default function Asistencia() {
   const asistencia = asistenciaDiaData?.asistencia ?? {};
   const asistenciaMotivos = asistenciaDiaData?.asistenciaMotivos ?? {};
   const upsertRegistros = useUpsertAsistenciaRegistros();
+  // Horas de limpieza de box del día → fracción de jornada fuera de línea,
+  // descontada del rendimiento por zonas (igual que en el detalle del parte).
+  const { data: jornadaFueraLineaDia } = useLimpiezaJornadaFueraLinea(selectedDate);
   const [grupos] = useState<string[]>(loadStoredGrupos);
   const [importingMode, setImportingMode] = useState<"daily" | "weekly" | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1079,7 +1083,8 @@ export default function Asistencia() {
       mesas: rendimientoConfeccion.Envasadoras.kg,
       industria: rendimientoConfeccion.Industria.kg,
     },
-  }), [activos, asistencia, rendimientoConfeccion]);
+    jornadaFueraLinea: jornadaFueraLineaDia ?? {},
+  }), [activos, asistencia, rendimientoConfeccion, jornadaFueraLineaDia]);
   const rendimientoZonaByGrupo = useMemo(() => new Map([
     ["Envasadoras", rendimientoZonasAlmacen.zonas.find((zona) => zona.id === "mesas")],
     ["Industria", rendimientoZonasAlmacen.zonas.find((zona) => zona.id === "industria")],

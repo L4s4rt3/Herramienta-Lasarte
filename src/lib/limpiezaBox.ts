@@ -11,6 +11,7 @@
  * poder testearlo sin red (ver limpiezaBox.test.ts).
  */
 import { getIsoWeekNumber, getWeekStart, toIsoDate } from "@/lib/isoWeek";
+import { JORNADA_BASE_HORAS } from "@/lib/costePersonal";
 
 /** 48 pies = 144 box → 1 pie = 3 box. */
 export const PIES_A_BOX = 3;
@@ -149,6 +150,43 @@ export function agregarLimpiezaCoste(
   }
 
   return { horasTotal, horasConCoste, horasSinCoste, eurTotal, nPersonasSinCoste: sinCosteNombres.size };
+}
+
+// ─── Jornada fuera de línea por limpieza (rendimiento por zonas) ────────────
+// Quien limpia box parte del día no está produciendo en la línea ese rato:
+// el rendimiento por zonas (calcularRendimientoZonasAlmacen) descuenta esa
+// fracción de jornada de su presencia en el reparto de kg.
+
+export interface LimpiezaHorasTrabajadorRow {
+  /** null = nombre libre sin resolver a plantilla (no se puede descontar). */
+  trabajador_id: string | null;
+  horas: number | string | null | undefined;
+}
+
+/**
+ * Fracción de jornada (0..1) que cada trabajador de plantilla pasó limpiando
+ * box un día: suma sus horas en todos los partes de limpieza de esa fecha y
+ * divide por la jornada base (8h), con tope en 1. Solo filas con
+ * `trabajador_id` resuelto; los nombres libres no se pueden cruzar con la
+ * asistencia y se ignoran.
+ */
+export function jornadaFueraLineaPorLimpieza(
+  filas: readonly LimpiezaHorasTrabajadorRow[],
+  jornadaHoras: number = JORNADA_BASE_HORAS,
+): Record<string, number> {
+  const jornada = Number.isFinite(jornadaHoras) && jornadaHoras > 0 ? jornadaHoras : JORNADA_BASE_HORAS;
+  const horasPorId = new Map<string, number>();
+  for (const fila of filas) {
+    if (!fila.trabajador_id) continue;
+    const horas = Number(fila.horas);
+    if (!Number.isFinite(horas) || horas <= 0) continue;
+    horasPorId.set(fila.trabajador_id, (horasPorId.get(fila.trabajador_id) ?? 0) + horas);
+  }
+  const fracciones: Record<string, number> = {};
+  for (const [id, horas] of horasPorId) {
+    fracciones[id] = Math.min(1, horas / jornada);
+  }
+  return fracciones;
 }
 
 export interface ResumenSemanaLimpieza extends ResumenLimpieza {

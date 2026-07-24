@@ -4,7 +4,6 @@ import {
   contarBoxesReciclaje,
   familiaVariedad,
   mismaFamiliaVariedad,
-  TARA_BOX_RECICLAJE,
   type EntradaConciliacion,
 } from "./conciliacionKg";
 
@@ -174,7 +173,7 @@ describe("conciliarKgProcesados — precalibrado", () => {
   });
 });
 
-describe("conciliarKgProcesados — reciclaje diario (neto = bruto − tara de los box)", () => {
+describe("conciliarKgProcesados — reciclaje diario (Z1/Z2 ya netos de tara)", () => {
   it("contarBoxesReciclaje suma todas las menciones 'N BOX' del texto", () => {
     expect(contarBoxesReciclaje("26042712 + 7 BOX DE RECICLAJE")).toBe(7);
     expect(contarBoxesReciclaje("26042411+PREC 26063001+8 BOX DE 4K M")).toBe(8);
@@ -183,13 +182,13 @@ describe("conciliarKgProcesados — reciclaje diario (neto = bruto − tara de l
     expect(contarBoxesReciclaje(null)).toBe(0);
   });
 
-  it("el ejemplo del dueño: 700 kg brutos en Z1 y 3 box → 700 − 3×30 = 610 kg netos descontados del día", () => {
+  it("descuenta directamente los kg netos guardados en Z1/Z2 sin aplicar una segunda tara", () => {
     const res = conciliarKgProcesados(
       [entrada({ lote: "26050101", kg_entrada: 50000 })],
       [{ lote_codigo: "26050101", kg_peso_total: 20610, date: "2026-05-03" }],
-      [{ fecha: "2026-05-03", kgBruto: 700, nBox: 3 }],
+      [{ fecha: "2026-05-03", kgBruto: 610, nBox: 3 }],
     );
-    expect(res.kgReciclajeEstimado).toBeCloseTo(700 - 3 * TARA_BOX_RECICLAJE); // 610
+    expect(res.kgReciclajeEstimado).toBeCloseTo(610);
     expect(res.procesados[0].kg_peso_total).toBeCloseTo(20000);
     expect(res.reciclaje[0]).toMatchObject({ lote: "(parte del 2026-05-03)", nBox: 3, kg: 610 });
   });
@@ -204,8 +203,8 @@ describe("conciliarKgProcesados — reciclaje diario (neto = bruto − tara de l
         { lote_codigo: "26050101+2 BOX DE RECICLAJE", kg_peso_total: 10000, date: "2026-05-03" },
         { lote_codigo: "26050102", kg_peso_total: 20000, date: "2026-05-03" },
       ],
-      // Bruto 700, 2 box → neto 640: todo cabe en la pasada que anota los box.
-      [{ fecha: "2026-05-03", kgBruto: 700, nBox: 2 }],
+      // 640 kg netos: todo cabe en la pasada que anota los box.
+      [{ fecha: "2026-05-03", kgBruto: 640, nBox: 2 }],
     );
     const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
     expect(kg.get("26050101")).toBeCloseTo(10000 - 640, 0);

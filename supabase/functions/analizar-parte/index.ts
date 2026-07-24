@@ -24,10 +24,11 @@ Deno.serve(async (req) => {
     console.log("[AUTH] Header present:", !!authHeader);
     if (!authHeader) return json({ error: "No autorizado" }, 401);
 
-    const { part_id, current_values } = await req.json();
+    const { part_id, current_values, vision_crops } = await req.json();
     if (!part_id || typeof part_id !== "string") {
       return json({ error: "part_id requerido" }, 400);
     }
+    const visionWeightCrops = sanitizeVisionCrops(vision_crops);
 
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -37,8 +38,10 @@ Deno.serve(async (req) => {
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     const DEEPSEEK_API_KEY = Deno.env.get("DEEPSEEK_API_KEY");
     const NVIDIA_API_KEY = Deno.env.get("NVIDIA_API_KEY");
-    if (!OPENCODE_API_KEY && !GROQ_API_KEY && !GEMINI_API_KEY && !DEEPSEEK_API_KEY && !NVIDIA_API_KEY) {
-      return json({ error: "Ninguna API key configurada (OPENCODE/GROQ/DEEPSEEK/NVIDIA)" }, 500);
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    const OPENROUTER_VISION_MODEL = Deno.env.get("OPENROUTER_VISION_MODEL") ?? "google/gemma-4-26b-a4b-it:free";
+    if (!OPENCODE_API_KEY && !GROQ_API_KEY && !GEMINI_API_KEY && !DEEPSEEK_API_KEY && !NVIDIA_API_KEY && !OPENROUTER_API_KEY) {
+      return json({ error: "Ninguna API key configurada (OPENCODE/GROQ/GEMINI/DEEPSEEK/NVIDIA/OPENROUTER)" }, 500);
     }
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
@@ -613,14 +616,42 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
 
     // ── Foto diaria de lotes (visión): comentarios, kg industria, P1/P2,
     // boxes echados y lotes juntados anotados a mano → campos manuales de
-    // lotes_dia. Va al FINAL, con los lotes del parte ya insertados, y solo
-    // AÑADE (nunca pisa una nota escrita a mano; los kg solo si la foto trae
-    // valor > 0). Workflow del dueño, 22-jul-2026.
-    let fotoResumen: { extraidos: number; aplicados: number } | null = null;
-    if (fotosLotes.length > 0 && GEMINI_API_KEY) {
-      const vision = await callVisionFotoLotes(fotosLotes, GEMINI_API_KEY);
-      const items = Array.isArray(vision.data?.lotes_foto) ? vision.data.lotes_foto : [];
+    // lotes_dia. Va al FINAL, con los lotes del parte ya insertados. La nota
+    // de la foto SUSTITUYE la lectura anterior para que un reanálisis no la
+    // concatene ni la duplique; los kg solo se actualizan si trae valor > 0.
+    let fotoResumen: {
+      imagenes: number;
+      extraidos: number;
+      aplicados: number;
+      no_emparejados: string[];
+      dudas: string[];
+      fecha_detectada: string | null;
+      modelo: string | null;
+      modelo_pesos: string | null;
+      recortes_pesos: number;
+      pesos_extraidos: number;
+      warning: string | null;
+    } | null = null;
+    if (fotosLotes.length > 0) {
+      const unavailable = { data: {}, success: false, model: null, warning: "OPENROUTER_API_KEY no configurada" };
+      const [vision, weightVision] = await Promise.all([
+        OPENROUTER_API_KEY
+          ? callVisionFotoLotes(fotosLotes, OPENROUTER_API_KEY, OPENROUTER_VISION_MODEL, String(parte.date ?? ""), "full")
+          : Promise.resolve(unavailable),
+        OPENROUTER_API_KEY && visionWeightCrops.length > 0
+          ? callVisionFotoLotes(visionWeightCrops, OPENROUTER_API_KEY, OPENROUTER_VISION_MODEL, String(parte.date ?? ""), "weights")
+          : Promise.resolve({ data: {}, success: false, model: null, warning: null }),
+      ]);
+      const fechaEsperada = normalizeVisionDate(parte.date);
+      const fechaDetectada = normalizeVisionDate(vision.data?.fecha_produccion);
+      const fechaNoCoincide = Boolean(fechaEsperada && fechaDetectada && fechaEsperada !== fechaDetectada);
+      const fullItems = Array.isArray(vision.data?.lotes_foto) ? vision.data.lotes_foto : [];
+      const weightItems = Array.isArray(weightVision.data?.lotes_pesos) ? weightVision.data.lotes_pesos : [];
+      const itemsExtraidos = mergeVisionLotWeights(fullItems, weightItems, visionWeightCrops.length > 0);
+      const items = fechaNoCoincide ? [] : itemsExtraidos;
       let aplicados = 0;
+      const noEmparejados: string[] = [];
+      const dudasLectura: string[] = [];
       if (items.length > 0) {
         const { data: lotesRows } = await admin
           .from("lotes_dia")
@@ -630,6 +661,10 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
         const normTxt = (s: unknown) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().trim();
         for (const item of items) {
           const code = norm8(item.lote_codigo);
+          const dudasItem = Array.isArray(item.dudas)
+            ? item.dudas.map((v: unknown) => String(v ?? "").trim()).filter(Boolean)
+            : [];
+          for (const duda of dudasItem) dudasLectura.push(`${code ?? "lote sin identificar"}: ${duda}`);
           let row = code ? (lotesRows ?? []).find((l: any) => norm8(l.lote_codigo) === code) : undefined;
           if (!row) {
             const p = normTxt(item.productor);
@@ -638,33 +673,86 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
               if (cands.length === 1) row = cands[0]; // solo si es inequívoco
             }
           }
-          if (!row) continue;
+          if (!row) {
+            noEmparejados.push(code ?? (String(item.productor ?? "").trim() || "sin identificar"));
+            continue;
+          }
           const patch: Record<string, unknown> = {};
-          const kgInd = Number(item.kg_industria) || 0;
-          const kgP1 = Number(item.kg_prec1) || 0;
-          const kgP2 = Number(item.kg_prec2) || 0;
+          const kgInd = parseVisionKg(item.kg_industria);
+          const kgP1 = parseVisionKg(item.kg_prec1);
+          const kgP2 = parseVisionKg(item.kg_prec2);
           if (kgInd > 0) patch.kg_industria = kgInd;
           if (kgP1 > 0) patch.kg_precalibrado_z1 = kgP1;
           if (kgP2 > 0) patch.kg_precalibrado_z2 = kgP2;
           const trozos: string[] = [];
           const comentario = String(item.comentario ?? "").trim();
           if (comentario) trozos.push(comentario);
-          const boxes = Number(item.boxes_echados) || 0;
-          if (boxes > 0) trozos.push(`Se echaron ${boxes} box`);
+          const incidencias = Array.isArray(item.incidencias)
+            ? item.incidencias.map((v: unknown) => String(v ?? "").trim()).filter(Boolean)
+            : [];
+          for (const incidencia of incidencias) trozos.push(`Incidencia: ${incidencia}`);
+          const movimientos = Array.isArray(item.movimientos_box) ? item.movimientos_box : [];
+          for (const movimiento of movimientos) {
+            const textoOriginal = String(movimiento?.texto_original ?? "").trim();
+            if (textoOriginal) {
+              trozos.push(`Box: ${textoOriginal}`);
+              continue;
+            }
+            const boxes = parseVisionKg(movimiento?.boxes);
+            const destino = visionBoxDestination(movimiento?.destino);
+            const kgTotal = parseVisionKg(movimiento?.kg_total);
+            const pesoPorBox = parseVisionDecimal(movimiento?.peso_por_box_kg);
+            const categoria = String(movimiento?.categoria ?? "").trim();
+            const partesMovimiento = [
+              boxes > 0 ? `${boxes} box` : "Movimiento de box",
+              destino ? `a ${destino}` : "",
+              kgTotal > 0 ? `(${kgTotal} kg totales)` : "",
+              pesoPorBox > 0 ? `(${formatVisionNumber(pesoPorBox)} kg/box)` : "",
+              categoria ? `[${categoria}]` : "",
+            ].filter(Boolean);
+            trozos.push(partesMovimiento.join(" "));
+          }
+          // Compatibilidad con respuestas del esquema anterior. Solo se usa
+          // cuando el modelo no ha devuelto movimientos con destino.
+          const boxes = parseVisionKg(item.boxes_echados);
+          if (movimientos.length === 0 && boxes > 0) trozos.push(`Se echaron ${boxes} box (destino no identificado)`);
           const juntado = String(item.juntado_con ?? "").trim();
           if (juntado) trozos.push(`JUNTADO CON ${juntado}`);
           if (trozos.length > 0) {
-            const notaFoto = trozos.join(" · ");
-            const notaActual = String((row as any).notas ?? "").trim();
-            patch.notas = notaActual && !notaActual.includes(notaFoto) ? `${notaActual} · ${notaFoto}` : (notaActual || notaFoto);
+            const notaFoto = Array.from(new Set(trozos.map((t) => t.trim()).filter(Boolean))).join(" · ");
+            patch.notas = notaFoto;
           }
           if (Object.keys(patch).length === 0) continue;
           await admin.from("lotes_dia").update(patch).eq("id", (row as any).id);
           aplicados += 1;
         }
       }
-      fotoResumen = { extraidos: items.length, aplicados };
-      console.log(`[FOTO] lotes actualizados desde la foto: ${fotoResumen.aplicados}/${fotoResumen.extraidos}`);
+      fotoResumen = {
+        imagenes: fotosLotes.length,
+        extraidos: itemsExtraidos.length,
+        aplicados,
+        no_emparejados: noEmparejados,
+        dudas: dudasLectura,
+        fecha_detectada: fechaDetectada,
+        modelo: vision.model,
+        modelo_pesos: weightVision.model,
+        recortes_pesos: visionWeightCrops.length,
+        pesos_extraidos: weightItems.length,
+        warning: fechaNoCoincide
+          ? `La fecha de la foto (${fechaDetectada}) no coincide con la del parte (${fechaEsperada}); no se aplicaron datos`
+          : [
+              vision.warning,
+              visionWeightCrops.length > 0 ? weightVision.warning : null,
+              vision.success && items.length === 0 ? "La foto no produjo ningún lote legible" : null,
+            ].filter(Boolean).join(" | ") || null,
+      };
+      update.resumen_ia._foto_lotes = fotoResumen;
+      const { error: fotoMetaErr } = await admin
+        .from("partes_diarios")
+        .update({ resumen_ia: update.resumen_ia })
+        .eq("id", part_id);
+      if (fotoMetaErr) console.warn("[FOTO] no se pudo guardar el resumen:", fotoMetaErr.message);
+      console.log(`[FOTO] lotes actualizados desde la foto: ${fotoResumen.aplicados}/${fotoResumen.extraidos}; modelo=${fotoResumen.modelo ?? "ninguno"}`);
     }
 
     return json({
@@ -677,7 +765,10 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
         campo: (serverPalets as any[]).filter((p: any) => p.es_campo).length,
         ...(fotoResumen ? { foto_lotes: fotoResumen } : {}),
       },
-      server_side: server, ai: aiData, ai_warning: aiWarning,
+      server_side: server,
+      ai: aiData,
+      ai_warning: aiWarning,
+      vision_warning: fotoResumen?.warning ?? null,
     });
   } catch (e) {
     console.error("analizar-parte", e);
@@ -1068,65 +1159,254 @@ function extractPaletsDetalle(rows: any[][]): any[] {
 // El operario entrega cada día una FOTO de la hoja de lotes con anotaciones a
 // mano por lote: comentarios, kg de industria, P1 (kg apartados a
 // precalibrado 1), cuántos box se echaron y marcas de lotes juntados
-// (workflow del dueño, 22-jul-2026). Solo Gemini (multimodal) puede leerla:
-// se le pasa la imagen en base64 por el endpoint OpenAI-compatible.
-const FOTO_LOTES_PROMPT = `Analista de planta cítrica Lasarte SAT. La imagen es la hoja DIARIA de lotes escrita a mano por el encargado: una fila/bloque por lote procesado, con su código (8 dígitos, formato AAMMDDNN, p. ej. 26071601) o el nombre del productor/finca, y anotaciones.
+// (workflow del dueño, 22-jul-2026). Se envía en base64 a OpenRouter,
+// usando modelos gratuitos con visión y fallback si uno está saturado.
+const FOTO_LOTES_PROMPT = `Analista de planta cítrica Lasarte SAT. La imagen es una hoja DIARIA de producción escrita a mano: la fecha grande del encabezado pertenece al parte y cada bloque horizontal corresponde a una pegatina de lote.
 
-Extrae SOLO lo que esté escrito (no inventes nada; campo ausente = 0 o ""):
-- lote_codigo: los 8 dígitos si son legibles, si no "".
-- productor: nombre de productor/finca escrito junto al lote (para casar si no hay código).
-- comentario: el texto de la nota tal cual (calidad, defectos, incidencias).
-- kg_industria: kg a industria anotados para ese lote.
-- kg_prec1: kg apartados a precalibrado 1 ("P1").
-- kg_prec2: kg apartados a precalibrado 2 ("P2") si aparece.
-- boxes_echados: nº de box que se echaron/añadieron a ese lote.
-- juntado_con: si la hoja marca que este lote se juntó con otro, el código o texto del otro lote; si no "".
+REGLAS DE LECTURA (basadas en las hojas reales de esta planta):
+1. Extrae SOLO lo visible. No completes cifras ni palabras dudosas. Campo ausente = 0, "" o [].
+2. lote_codigo es el número grande impreso de 8 dígitos de la pegatina (p. ej. 26071601). La fecha pequeña impresa en la pegatina es la fecha de entrada del lote: NO es fecha_produccion.
+3. La fecha grande manuscrita del encabezado ("PRODUCCIÓN DD.MM.AAAA" o similar) es fecha_produccion. Devuélvela como YYYY-MM-DD.
+4. "I", "I-" o "Industria" junto a una cifra significa kg_industria. "P1"/"PREC1" y "P2"/"PREC2" junto a una cifra significan kg_prec1/kg_prec2. Devuelve kilos como número sin separador de miles: "2.566 kg" = 2566.
+5. NO confundas peso por caja con kilos totales. Ejemplo: "PREC 4 kg MONA - 43 box" significa 43 cajas con peso_por_box_kg=4 y categoría MONA; NO significa kg_prec1=4.
+6. Distingue los destinos escritos de las cajas: reciclaje, PREC1, PREC2, industria u otro. El "Nº envases entrada" impreso en la pegatina NO es un movimiento; solo cuenta correcciones o movimientos manuscritos.
+7. Paros, averías, hueco de volcador, mallas llenas, calibrador, transportador, velocidad y limpieza son incidencias. Calidad de fruta (podrío, deshidratado, densidad, verde, manchada, blanda, saltamontes) va en comentario. No conviertas estos textos en kilos ni cajas.
+8. Si una flecha o llave une lotes, usa juntado_con. Si algo no es inequívoco, consérvalo en dudas y deja a cero el campo estructurado.
+9. Devuelve cada lote una sola vez aunque la misma hoja aparezca duplicada o con otro encuadre.
 
-Responde SOLO JSON: {"lotes_foto":[{"lote_codigo":"","productor":"","comentario":"","kg_industria":0,"kg_prec1":0,"kg_prec2":0,"boxes_echados":0,"juntado_con":""}]}`;
+Responde SOLO JSON con este contrato exacto:
+{"fecha_produccion":"YYYY-MM-DD o vacío","lotes_foto":[{"lote_codigo":"","productor":"","kg_industria":0,"kg_prec1":0,"kg_prec2":0,"movimientos_box":[{"destino":"reciclaje|prec1|prec2|industria|otro","boxes":0,"kg_total":0,"peso_por_box_kg":0,"categoria":"","texto_original":""}],"incidencias":[],"comentario":"","juntado_con":"","confianza":{"lote_codigo":0.0,"kg_industria":0.0,"kg_prec1":0.0,"kg_prec2":0.0,"contenido":0.0},"dudas":[]}]}`;
+
+const FOTO_PESOS_PROMPT = `Las imágenes son recortes ampliados y solapados SOLO de la columna de pegatinas de una misma hoja diaria de producción de Lasarte SAT.
+
+Por cada pegatina lee:
+- lote_codigo: número grande impreso de 8 dígitos.
+- texto_industria: copia literal de la anotación manuscrita que empiece por I, I- o I.xxx junto a la pegatina.
+- texto_prec1: copia literal de la anotación manuscrita P1/P1- (el 1 puede parecer I o l).
+- texto_prec2: copia literal de la anotación manuscrita P2/P2-.
+
+No uses fechas, Nº envases, pesos impresos, RESTO BOX, densidad ni cifras de comentarios. No asignes una cifra si no ves también la etiqueta I/P1/P2. El punto manuscrito separa miles: 12.200 = 12200. Los recortes se solapan: devuelve cada lote una sola vez. Si dudas entre P1 y P2, deja ambos a 0 y explica la duda.
+
+Responde SOLO JSON:
+{"lotes_pesos":[{"lote_codigo":"","kg_industria":0,"kg_prec1":0,"kg_prec2":0,"texto_industria":"","texto_prec1":"","texto_prec2":"","confianza":0.0,"dudas":[]}]}`;
+
+function sanitizeVisionCrops(value: unknown): Array<{ mime: string; b64: string }> {
+  if (!Array.isArray(value)) return [];
+  const result: Array<{ mime: string; b64: string }> = [];
+  let totalChars = 0;
+  for (const raw of value.slice(0, 10)) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    const mime = String(item.mime ?? "").toLowerCase();
+    const b64 = String(item.b64 ?? "").trim();
+    if (!/^image\/(?:jpeg|png|webp)$/.test(mime)) continue;
+    if (b64.length < 100 || b64.length > 1_500_000 || !/^[a-z0-9+/=]+$/i.test(b64)) continue;
+    if (totalChars + b64.length > 5_500_000) break;
+    totalChars += b64.length;
+    result.push({ mime, b64 });
+  }
+  return result;
+}
+
+function normalizeVisionDate(value: unknown): string | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const iso = raw.match(/\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+  const local = raw.match(/\b(\d{1,2})[-/.](\d{1,2})[-/.](20\d{2})\b/);
+  if (local) return `${local[3]}-${local[2].padStart(2, "0")}-${local[1].padStart(2, "0")}`;
+  return null;
+}
+
+function parseVisionKg(value: unknown): number {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    const rawNumber = String(value);
+    return /^\d{1,3}\.\d{3}$/.test(rawNumber) ? Math.round(value * 1000) : value;
+  }
+  let raw = String(value ?? "").trim().replace(/\s+/g, "");
+  if (!raw) return 0;
+  raw = raw.replace(/kg$/i, "");
+  // En estas hojas el punto suele ser separador de miles: 2.566 = 2566 kg.
+  if (/^\d{1,3}(\.\d{3})+$/.test(raw)) raw = raw.replace(/\./g, "");
+  else raw = raw.replace(",", ".");
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function parseVisionDecimal(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) && value > 0 ? value : 0;
+  const parsed = Number(String(value ?? "").trim().replace(/\s+/g, "").replace(",", "."));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function formatVisionNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(value).replace(".", ",");
+}
+
+function visionBoxDestination(value: unknown): string {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  const labels: Record<string, string> = {
+    reciclaje: "reciclaje",
+    prec1: "PREC 1",
+    prec2: "PREC 2",
+    industria: "industria",
+    otro: "otro destino",
+  };
+  return labels[normalized] ?? "";
+}
+
+function extractLabeledVisionWeight(rawValue: unknown, kind: "industria" | "p1" | "p2"): number {
+  const raw = String(rawValue ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
+  if (!raw) return 0;
+  const numberPattern = "(\\d{1,3}(?:[.\\s]\\d{3})+|\\d+(?:,\\d+)?)";
+  const label = kind === "industria"
+    ? "I(?:ND(?:USTRIA)?)?(?:\\.[A-Z]+)?"
+    : kind === "p1" ? "P[1IL]" : "P2";
+  const match = raw.match(new RegExp(`(?:^|\\b)${label}\\s*[-:=]?\\s*${numberPattern}\\s*(?:KG)?`, "i"));
+  return match ? parseVisionKg(match[1]) : 0;
+}
+
+function mergeVisionLotWeights(fullItemsRaw: unknown[], weightItemsRaw: unknown[], hasCrops: boolean): any[] {
+  const norm8 = (value: unknown) => String(value ?? "").match(/\d{8}/)?.[0] ?? "";
+  const result = fullItemsRaw
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({ ...(item as Record<string, unknown>) }));
+  const byCode = new Map<string, any>();
+  for (const item of result) {
+    const code = norm8(item.lote_codigo);
+    if (code) byCode.set(code, item);
+    if (hasCrops) {
+      // Con recortes disponibles no se aceptan kilos inferidos desde la hoja
+      // completa, porque pueden proceder de densidad u otras observaciones.
+      item.kg_industria = 0;
+      item.kg_prec1 = 0;
+      item.kg_prec2 = 0;
+    }
+  }
+
+  for (const rawItem of weightItemsRaw) {
+    if (!rawItem || typeof rawItem !== "object") continue;
+    const weight = rawItem as Record<string, unknown>;
+    const code = norm8(weight.lote_codigo);
+    if (!code) continue;
+    let target = byCode.get(code);
+    if (!target) {
+      target = {
+        lote_codigo: code,
+        productor: "",
+        comentario: "",
+        movimientos_box: [],
+        incidencias: [],
+        juntado_con: "",
+        dudas: [],
+      };
+      result.push(target);
+      byCode.set(code, target);
+    }
+
+    const evidence = [weight.texto_industria, weight.texto_prec1, weight.texto_prec2];
+    const kgIndustria = Math.max(...evidence.map((text) => extractLabeledVisionWeight(text, "industria")));
+    const kgP1 = Math.max(...evidence.map((text) => extractLabeledVisionWeight(text, "p1")));
+    const kgP2 = Math.max(...evidence.map((text) => extractLabeledVisionWeight(text, "p2")));
+    target.kg_industria = kgIndustria;
+    target.kg_prec1 = kgP1;
+    target.kg_prec2 = kgP2;
+    const doubts = [
+      ...(Array.isArray(target.dudas) ? target.dudas : []),
+      ...(Array.isArray(weight.dudas) ? weight.dudas : []),
+    ].map((value) => String(value ?? "").trim()).filter(Boolean);
+    target.dudas = Array.from(new Set(doubts));
+  }
+  return result;
+}
 
 async function callVisionFotoLotes(
   imagenes: Array<{ mime: string; b64: string }>,
-  geminiKey: string,
-): Promise<{ data: any; success: boolean }> {
-  const content: any[] = [{ type: "text", text: "Extrae los datos de la(s) hoja(s) de lotes de hoy." }];
+  openRouterKey: string,
+  preferredModel: string,
+  expectedDate: string,
+  mode: "full" | "weights" = "full",
+): Promise<{ data: any; success: boolean; model: string | null; warning: string | null }> {
+  const responseKey = mode === "weights" ? "lotes_pesos" : "lotes_foto";
+  const systemPrompt = mode === "weights" ? FOTO_PESOS_PROMPT : FOTO_LOTES_PROMPT;
+  const content: any[] = [{
+    type: "text",
+    text: mode === "weights"
+      ? "Lee exclusivamente las anotaciones I/P1/P2 de estos recortes ampliados."
+      : `Extrae los datos de la(s) hoja(s). La fecha esperada del parte es ${expectedDate || "desconocida"}; aun así, informa la fecha que realmente leas en la imagen.`,
+  }];
   for (const img of imagenes) {
     content.push({ type: "image_url", image_url: { url: `data:${img.mime};base64,${img.b64}` } });
   }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45000);
-  try {
-    const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + geminiKey },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: "gemini-2.0-flash",
-        messages: [{ role: "system", content: FOTO_LOTES_PROMPT }, { role: "user", content }],
-        temperature: 0.1,
-        max_tokens: 4096,
-      }),
-    });
-    clearTimeout(timeout);
-    if (!resp.ok) {
-      console.warn("[IA-foto_lotes] Gemini status=" + resp.status);
-      return { data: {}, success: false };
-    }
-    const jsonResp = await resp.json();
-    let text = jsonResp?.choices?.[0]?.message?.content ?? "{}";
-    console.log("[IA-foto_lotes] raw (first 300):", String(text).slice(0, 300));
-    text = String(text).replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+  const models = Array.from(new Set([
+    preferredModel,
+    "google/gemma-4-26b-a4b-it:free",
+    "google/gemma-4-31b-it:free",
+    "openrouter/free",
+  ].filter(Boolean)));
+  const errors: string[] = [];
+
+  for (const model of models) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
     try {
-      return { data: JSON.parse(text), success: true };
-    } catch {
-      const m = text.match(/\{[\s\S]*\}/);
-      if (m) { try { return { data: JSON.parse(m[0]), success: true }; } catch { /* cae abajo */ } }
-      return { data: {}, success: false };
+      console.log(`[IA-foto_lotes] OpenRouter modelo=${model}`);
+      const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + openRouterKey,
+          "X-Title": "Herramienta Lasarte",
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "system", content: systemPrompt }, { role: "user", content }],
+          response_format: { type: "json_object" },
+          temperature: 0.1,
+          max_tokens: 4096,
+        }),
+      });
+      clearTimeout(timeout);
+      if (!resp.ok) {
+        const detail = String(await resp.text()).slice(0, 300);
+        errors.push(`${model}: HTTP ${resp.status}`);
+        console.warn(`[IA-foto_lotes] ${model} status=${resp.status} detail=${detail}`);
+        continue;
+      }
+      const jsonResp = await resp.json();
+      const actualModel = String(jsonResp?.model ?? model);
+      let text = jsonResp?.choices?.[0]?.message?.content ?? "{}";
+      console.log(`[IA-foto_lotes] ${model} raw (first 300):`, String(text).slice(0, 300));
+      text = String(text).replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+      try {
+        const data = JSON.parse(text);
+        if (Array.isArray(data?.[responseKey])) return { data, success: true, model: actualModel, warning: null };
+      } catch {
+        const match = text.match(/\{[\s\S]*\}/);
+        if (match) {
+          try {
+            const data = JSON.parse(match[0]);
+            if (Array.isArray(data?.[responseKey])) return { data, success: true, model: actualModel, warning: null };
+          } catch { /* probar el siguiente modelo */ }
+        }
+      }
+      errors.push(`${model}: respuesta JSON inválida`);
+    } catch (e) {
+      clearTimeout(timeout);
+      const message = e instanceof Error ? e.message : String(e);
+      errors.push(`${model}: ${message}`);
+      console.warn(`[IA-foto_lotes] ${model} error`, e);
     }
-  } catch (e) {
-    clearTimeout(timeout);
-    console.warn("[IA-foto_lotes] error", e);
-    return { data: {}, success: false };
   }
+
+  return {
+    data: {},
+    success: false,
+    model: null,
+    warning: "No se pudo leer la foto con OpenRouter. " + errors.join(" | "),
+  };
 }
 
 // ─── Helper: llamar IA para un subagente específico ──────────────────────────

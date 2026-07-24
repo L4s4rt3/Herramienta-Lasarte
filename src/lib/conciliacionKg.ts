@@ -81,13 +81,8 @@ export interface ProcesadoConciliado {
 }
 
 /**
- * TARA de un box de reciclaje: el envase de plástico vacío pesa ~30 kg (dato
- * del dueño, 21-jul-2026, con su ejemplo: "700 kg de reciclaje en Z1 y son 3
- * box → 700 − 90 = 610 kg netos"). El parte apunta el reciclado de malla
- * Z1/Z2 en BRUTO (fruta + envases): el neto de fruta que vuelve a la línea es
- * bruto − nBox × TARA. Esa fruta ya está contada en su lote original, así que
- * el neto diario se descuenta de las pasadas del día ANTES de atribuir kg a
- * las entradas (si no, infla lotes y fabrica excesos falsos).
+ * Tara física de un box. Se aplica al introducir los datos manuales de cada
+ * zona; la conciliación recibe Z1/Z2 ya netos y no vuelve a descontarla.
  */
 export const TARA_BOX_RECICLAJE = 30;
 
@@ -170,9 +165,9 @@ interface RegistroLote {
 export interface ReciclajeDiaInput {
   /** Fecha ISO del parte. */
   fecha: string;
-  /** Kg BRUTOS de reciclaje del parte ese día (reciclado malla Z1 + Z2: fruta + envases). */
+  /** Kg NETOS de reciclaje del parte. El nombre se mantiene por compatibilidad histórica. */
   kgBruto: number;
-  /** Nº de box de reciclaje del parte (partes_diarios.box_reciclaje): su tara (nBox × 30 kg) se resta del bruto. */
+  /** Nº de box de reciclaje: sirve para trazabilidad y para localizar las pasadas receptoras. */
   nBox: number;
 }
 
@@ -180,9 +175,8 @@ export function conciliarKgProcesados(
   entradas: EntradaConciliacion[],
   pasadas: PasadaConciliacion[],
   /**
-   * Reciclaje DIARIO del parte. El neto de fruta reciclada del día es
-   * kgBruto − nBox × TARA_BOX_RECICLAJE, y se descuenta de las pasadas de esa
-   * fecha ANTES de atribuir kg a las entradas: primero a las pasadas que
+   * Reciclaje DIARIO del parte. Z1+Z2 ya llegan netos de tara y se descuentan
+   * de las pasadas de esa fecha ANTES de atribuir kg a las entradas: primero a las pasadas que
    * anotan boxes en su nombre ("+7 BOX DE RECICLAJE", en proporción a sus
    * boxes — localizan por dónde volvió la fruta), y el resto proporcional a
    * los kg de todas las pasadas del día. Sin dato del parte no se descuenta
@@ -240,7 +234,7 @@ export function conciliarKgProcesados(
     if (fecha && (!r.ultimaFecha || fecha > r.ultimaFecha)) r.ultimaFecha = fecha;
   };
 
-  // ── Fase 0: reciclaje DIARIO del parte (neto = bruto − nBox × tara) ────────
+  // ── Fase 0: reciclaje DIARIO del parte (Z1+Z2 ya llegan netos) ────────────
   // El neto de fruta reciclada del día se descuenta de las pasadas de esa
   // fecha: primero a las que anotan boxes en el nombre (proporcional a sus
   // boxes: localizan por dónde volvió la fruta), el resto proporcional a los
@@ -278,8 +272,8 @@ export function conciliarKgProcesados(
   }
 
   for (const [fecha, dia] of reciclajeDiaAgregado) {
-    // Neto de fruta: al bruto del parte se le resta la tara de sus boxes.
-    let neto = Math.max(0, dia.kgBruto - dia.nBox * TARA_BOX_RECICLAJE);
+    // Los campos manuales Z1/Z2 ya tienen descontada la tara de sus boxes.
+    let neto = Math.max(0, dia.kgBruto);
     if (neto <= 0) continue;
     const grupo = pasadasPorDia.get(fecha);
     if (!grupo || grupo.length === 0) continue; // día sin pasadas: nada de lo que descontar
@@ -337,6 +331,7 @@ export function conciliarKgProcesados(
       excesosSinColocar.push({ lote: texto.trim() || "(sin código)", kg });
       continue;
     }
+    const firstCode = codes[0]!;
 
     let restante = kg;
     for (const code of codes) {
@@ -347,13 +342,13 @@ export function conciliarKgProcesados(
       if (absorbe <= 0) continue;
       tocar(r, absorbe, p.date, false);
       restante -= absorbe;
-      if (code !== codes[0]) {
-        movimientos.push({ de: codes[0], a: code, kg: absorbe, motivo: "multi_codigo" });
+      if (code !== firstCode) {
+        movimientos.push({ de: firstCode, a: code, kg: absorbe, motivo: "multi_codigo" });
       }
     }
 
     if (restante > 0.5) {
-      const donante = codes[0];
+      const donante = firstCode;
       const acc = excesoPorLote.get(donante) ?? { kg: 0, ultimaFecha: null };
       acc.kg += restante;
       const fecha = p.date ?? null;

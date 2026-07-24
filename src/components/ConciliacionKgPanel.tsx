@@ -4,7 +4,7 @@
 //
 // Enseña, en este orden: (1) KPIs del reparto, (2) los movimientos entre
 // lotes agregados por origen→destino con su motivo, (3) los boxes de
-// reciclaje descontados (~30 kg/box, dato del dueño), y (4) la cola de
+// reciclaje descontados (Z1/Z2 netos), y (4) la cola de
 // revisión: exceso que NO encontró receptor y que alguien debe mirar a mano
 // (códigos con errores de tecleo, excesos sin lote hermano con pendiente…).
 // Todo enlaza a la ficha de Trazabilidad del lote.
@@ -14,7 +14,6 @@ import { AlertTriangle, ArrowRight, Recycle, Scale } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { ConciliacionKg, MovimientoKg } from "@/lib/conciliacionKg";
-import { TARA_BOX_RECICLAJE } from "@/lib/conciliacionKg";
 import type { StockLoteRow } from "@/lib/entradasBascula";
 import { formatKgCompact as formatKg, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -108,7 +107,7 @@ export function ConciliacionKgPanel({ conciliacion, filasStock }: {
                 lotes (camiones seguidos sin cambiar el código, boxes de reciclaje, precalibrado). Aquí se ve cómo se
                 ha repartido cada kg: los lotes con más kg que su entrada ceden el exceso a lotes con pendiente —
                 primero misma finca y variedad, luego misma variedad — y el reciclaje del parte (reciclado malla
-                Z1+Z2 en bruto, menos {TARA_BOX_RECICLAJE} kg de tara por box) se descuenta de las pasadas de su día:
+                Z1+Z2, ya neto de la tara de sus box) se descuenta de las pasadas de su día:
                 es fruta que vuelve de la línea, ya contada en su lote. El stock y las fichas usan estos números; los
                 datos crudos del calibrador no se modifican.
               </p>
@@ -127,7 +126,7 @@ export function ConciliacionKgPanel({ conciliacion, filasStock }: {
             <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
               <p className="text-xs font-semibold text-muted-foreground">Reciclaje descontado (neto)</p>
               <p className="mt-1 text-lg font-bold tabular-nums">{formatKg(kgReciclajeEstimado)}</p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">{formatNumber(totalBoxes)} box · bruto − {TARA_BOX_RECICLAJE} kg tara/box</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">{formatNumber(totalBoxes)} box · kg ya netos de tara</p>
             </div>
             <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
               <p className="text-xs font-semibold text-muted-foreground">Movimientos</p>

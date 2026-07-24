@@ -141,15 +141,16 @@ describe("asistenciaPlantilla", () => {
     // Reproduce el parte real del 2026-07-01 (52 personas presentes ese dia).
     // Hay dos causas reales de perdida silenciosa que este test cubre:
     //  1) "Tamara Martin Galvez" tiene zona "Segunda", que no aparece en
-    //     ninguna lista de puestos ni en ningun fallback por zona.
+    //     ninguna lista de puestos ni en ningun fallback por zona: es la
+    //     unica que debe acabar en "sinZona" (no hay forma de asignarla).
     //  2) Los puestos "Carretillero final linea" (objetivo 1, candidatos
     //     Alejandro Carmona/Juan Prieto) y "Produccion" (objetivo 3,
     //     candidatos Ana Maria Rodriguez Ramos/Rocio Flores Ancio/Sara Hans
     //     Doblas/Silvia Cerro Ojeda) listan mas nombres que plazas: si todos
     //     esos candidatos estan presentes a la vez, el sobrante (aqui: Juan
-    //     Prieto y Silvia Cerro Ojeda) tambien desaparecia sin dejar rastro.
-    // Antes ambos casos hacian que el rendimiento por zona "solo cogiera
-    // algunas personas"; ahora deben aparecer en "sinZona" en vez de perderse.
+    //     Prieto y Silvia Cerro Ojeda) NO es "sin zona" — cuando viene todo
+    //     el mundo, el que sobra de su puesto va a mesas (decision del
+    //     dueño): cuenta como refuerzo de Envasado en el reparto.
     const nombre = (n: string) => n; // helper solo para legibilidad
     const trabajadores = [
       { id: "1", nombre: nombre("Marta Ariza"), zona: "Aereo", activo: true },
@@ -216,11 +217,16 @@ describe("asistenciaPlantilla", () => {
     });
 
     // La unica persona que de verdad no se puede asignar es "Tamara Martin
-    // Galvez" (zona "Segunda"): debe aparecer en sinZona, no perderse.
-    expect(rendimiento.sinZona.presentes).toBe(3);
-    expect(rendimiento.sinZona.personas.sort()).toEqual(
-      ["Juan Prieto", "Silvia Cerro Ojeda", "Tamara Martin Galvez"].sort(),
-    );
+    // Galvez" (zona "Segunda"): debe aparecer en sinZona, no perderse. Juan
+    // Prieto y Silvia Cerro Ojeda (candidatos de sobra de su puesto) van de
+    // refuerzo a mesas, no a sinZona.
+    expect(rendimiento.sinZona.presentes).toBe(1);
+    expect(rendimiento.sinZona.personas).toEqual(["Tamara Martin Galvez"]);
+    expect([...rendimiento.refuerzoMesas.personas].sort()).toEqual(["Juan Prieto", "Silvia Cerro Ojeda"]);
+    expect(rendimiento.refuerzoMesas.presentes).toBe(2);
+    // Mesas recibe el refuerzo: linea (15) + mozos presentes (3) +
+    // envasadoras presentes (10) + 2 de refuerzo.
+    expect(rendimiento.zonas.find((zona) => zona.id === "mesas")?.presentes).toBe(30);
 
     // El resto (51 personas) debe quedar contado en algun bloque: linea +
     // zonas productivas + carga y descarga (verificado indirectamente: solo
@@ -233,8 +239,54 @@ describe("asistenciaPlantilla", () => {
     // zona individualmente refleja gente real y que "Segunda" no infla
     // ninguna zona de forma indebida.
     expect(totalContadoEnZonasProductivas).toBeGreaterThan(0);
-    // La linea de arranque tiene 15 plazas y, aunque hay 17 candidatos
-    // presentes para esos puestos, solo se cubren las 15 plazas reales.
+    // La linea de arranque cubre sus 15 plazas; los 2 candidatos de sobra
+    // (Juan Prieto y Silvia Cerro Ojeda) no inflan la linea — van a mesas.
+    expect(rendimiento.lineaComun.objetivo).toBe(15);
     expect(rendimiento.lineaComun.presentes).toBe(15);
+  });
+
+  it("cruza la limpieza de box con el reparto: personas enteras, jornada completa fuera", () => {
+    const trabajadores = [
+      { id: "alejandro", nombre: "Alejandro Carmona", zona: "Carretillero final linea", activo: true },
+      { id: "juan", nombre: "Juan Prieto", zona: "Carretillero final linea", activo: true },
+      { id: "tamara", nombre: "Tamara Martin Galvez", zona: "Segunda", activo: true },
+      { id: "env1", nombre: "Envasadora 1", zona: "Envasadoras", activo: true },
+    ];
+    const asistencia = { alejandro: true, juan: true, tamara: true, env1: true };
+
+    const rendimiento = calcularRendimientoZonasAlmacen({
+      trabajadores,
+      asistencia,
+      kgPorZona: { mallas: 0, granelRp: 0, mesas: 8000, industria: 0 },
+      // Juan limpió box 5h de su jornada de 8h; Tamara la jornada completa.
+      jornadaFueraLinea: { juan: 5 / 8, tamara: 1 },
+    });
+
+    // Las personas no se parten: Juan limpió unas horas pero estuvo, así que
+    // cuenta ENTERO — Alejandro cubre la única plaza de carretillero final y
+    // Juan va de refuerzo a mesas como 1 persona.
+    expect(rendimiento.lineaComun.presentes).toBe(1);
+    expect(rendimiento.refuerzoMesas.personas).toEqual(["Juan Prieto"]);
+    expect(rendimiento.refuerzoMesas.presentes).toBe(1);
+    // Mesas: linea (1) + envasadora (1) + refuerzo de Juan (1) — enteros.
+    expect(rendimiento.zonas.find((zona) => zona.id === "mesas")?.presentes).toBe(3);
+    // Tamara pasó la jornada COMPLETA limpiando: fuera del reparto, y tampoco
+    // es "sin zona" — sabemos dónde estuvo, no hay nada que revisar en su ficha.
+    expect(rendimiento.sinZona.presentes).toBe(0);
+    // Ambas salen en el listado informativo de limpieza.
+    expect(rendimiento.fueraLinea.presentes).toBe(2);
+    expect([...rendimiento.fueraLinea.personas].sort()).toEqual(["Juan Prieto", "Tamara Martin Galvez"]);
+
+    // Sin el parámetro, no hay limpieza que listar y Tamara vuelve a ser
+    // "sin zona".
+    const sinDescuento = calcularRendimientoZonasAlmacen({
+      trabajadores,
+      asistencia,
+      kgPorZona: { mallas: 0, granelRp: 0, mesas: 8000, industria: 0 },
+    });
+    expect(sinDescuento.lineaComun.presentes).toBe(1);
+    expect(sinDescuento.refuerzoMesas.presentes).toBe(1);
+    expect(sinDescuento.fueraLinea.presentes).toBe(0);
+    expect(sinDescuento.sinZona.personas).toEqual(["Tamara Martin Galvez"]);
   });
 });

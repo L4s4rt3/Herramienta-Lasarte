@@ -28,6 +28,7 @@ import {
   calcularRendimientoGrupos, calcularResumenKgPersonaOperacion, RENDIMIENTO_GRUPOS,
 } from "@/lib/asistenciaRendimiento";
 import { calcularRendimientoZonasAlmacen } from "@/lib/asistenciaPlantilla";
+import { useLimpiezaJornadaFueraLinea } from "@/hooks/useLimpiezaJornadaFueraLinea";
 import {
   attachmentCountMap, calidadSummary, buildCalidadIncidentRows,
   type CalidadAdjunto, type CalidadEstado, type CalidadLote,
@@ -101,6 +102,84 @@ interface Archivo {
   mime_type: string | null;
   file_size: number | null;
   uploaded_at: string;
+}
+
+interface VisionCropPayload {
+  mime: "image/jpeg";
+  b64: string;
+  source_id: string;
+  segment: number;
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("No se pudo leer el recorte"));
+    reader.onload = () => {
+      const value = String(reader.result ?? "");
+      resolve(value.includes(",") ? value.slice(value.indexOf(",") + 1) : value);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Genera en memoria cinco franjas solapadas de la columna de pegatinas.
+ * La columna de observaciones queda fuera para que cifras como "densidad 724"
+ * no se confundan con P1/P2. Los recortes se mandan en la invocación y nunca
+ * se guardan en Storage.
+ */
+async function buildVisionWeightCrops(files: Archivo[]): Promise<VisionCropPayload[]> {
+  const imageFiles = files.filter((file) =>
+    Boolean(file.file_path) && (
+      String(file.mime_type ?? "").startsWith("image/") ||
+      /\.(jpe?g|png|webp)$/i.test(file.file_name ?? "")
+    )
+  ).slice(0, 2);
+  const result: VisionCropPayload[] = [];
+  let totalBase64Chars = 0;
+
+  for (const file of imageFiles) {
+    if (!file.file_path) continue;
+    const { data: blob, error } = await supabase.storage.from("partes-archivos").download(file.file_path);
+    if (error || !blob) {
+      console.warn("[FOTO] no se pudo preparar recortes", file.file_name, error);
+      continue;
+    }
+    let bitmap: ImageBitmap | null = null;
+    try {
+      bitmap = await createImageBitmap(blob, { imageOrientation: "from-image" });
+      const sourceWidth = Math.max(1, Math.round(bitmap.width * 0.62));
+      const cropHeight = Math.max(1, Math.round(bitmap.height * 0.28));
+      const lastY = Math.max(0, bitmap.height - cropHeight);
+      for (let segment = 0; segment < 5; segment++) {
+        const y = Math.round(lastY * (segment / 4));
+        const scale = Math.min(2, 1800 / sourceWidth);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+        canvas.height = Math.max(1, Math.round(cropHeight * scale));
+        const context = canvas.getContext("2d");
+        if (!context) continue;
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = "high";
+        context.drawImage(bitmap, 0, y, sourceWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+        const cropBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+        if (!cropBlob) continue;
+        const b64 = await blobToBase64(cropBlob);
+        totalBase64Chars += b64.length;
+        if (totalBase64Chars > 5_500_000) {
+          console.warn("[FOTO] límite de recortes alcanzado; se omiten los restantes");
+          return result;
+        }
+        result.push({ mime: "image/jpeg", b64, source_id: file.id, segment: segment + 1 });
+      }
+    } catch (error) {
+      console.warn("[FOTO] no se pudieron generar recortes", file.file_name, error);
+    } finally {
+      bitmap?.close();
+    }
+  }
+  return result;
 }
 
 // box_reciclaje todavía no está en el Database generado (migración
@@ -295,7 +374,9 @@ export default function PartDetail() {
   });
 
   async function saveLoteUpdate(loteId: string, patch: { notas?: string | null; kg_industria?: number; kg_precalibrado_z1?: number; kg_precalibrado_z2?: number }) {
-    const { error } = await (supabase as unknown as import("@supabase/supabase-js").SupabaseClient<Record<string, never>>).from("lotes_dia").update(patch).eq("id", loteId);
+    // kg_precalibrado_z1/z2: columnas de la migración 20260722100000, aún no
+    // reflejadas en types.ts. Cliente sin esquema tipado hasta regenerar tipos.
+    const { error } = await (supabase as unknown as import("@supabase/supabase-js").SupabaseClient).from("lotes_dia").update(patch).eq("id", loteId);
     if (error) {
       toast({ title: "Error guardando el lote", description: error.message, variant: "destructive" });
       return;
@@ -357,6 +438,10 @@ export default function PartDetail() {
     },
   });
 
+  // Horas de limpieza de box del día → fracción de jornada fuera de línea por
+  // trabajador, que el rendimiento por zonas descuenta del reparto.
+  const { data: jornadaFueraLinea } = useLimpiezaJornadaFueraLinea(parte?.date);
+
   const rendimientoZonas = useMemo(() => {
     if (!parte || !cascade || !trabajadoresList || !asistenciaDelDia) return null;
     const asistenciaMap: Record<string, boolean> = {};
@@ -395,6 +480,7 @@ export default function PartDetail() {
         mesas: grupos.Envasadoras.kg,
         industria: grupos.Industria.kg,
       },
+      jornadaFueraLinea: jornadaFueraLinea ?? {},
     });
     const zonaById = new Map(zonasAlmacen.zonas.map((z) => [z.id, z]));
     const zonaByGrupo: Record<string, (typeof zonasAlmacen.zonas)[number] | undefined> = {
@@ -422,8 +508,10 @@ export default function PartDetail() {
       kgPersonaGeneral: resumen.kgPersona,
       presentesComputables: resumen.presentesComputables,
       sinZona: zonasAlmacen.sinZona,
+      fueraLinea: zonasAlmacen.fueraLinea,
+      refuerzoMesas: zonasAlmacen.refuerzoMesas,
     };
-  }, [parte, cascade, trabajadoresList, asistenciaDelDia, productoDelDia]);
+  }, [parte, cascade, trabajadoresList, asistenciaDelDia, productoDelDia, jornadaFueraLinea]);
 
   // Resumen de calidad del día (detalle completo en la pestaña Calidad).
   const { data: calidadDelDia } = useQuery({
@@ -473,13 +561,13 @@ export default function PartDetail() {
       const abs = Math.abs(cascade.dsj_pct);
       payload.estado = abs > 3 ? "Con descuadre" : abs >= 1 ? "Analizado" : "Validado";
     }
-    let { error } = await supabase.from("partes_diarios").update(payload).eq("id", parte.id);
+    let { error } = await supabase.from("partes_diarios").update(payload as TablesUpdate<"partes_diarios">).eq("id", parte.id);
     // Degradado: si la columna box_reciclaje aún no existe en la BD
     // (migración 20260721140000 sin aplicar), reintenta sin ella para no
     // bloquear el guardado del resto del parte.
     if (error && /box_reciclaje/.test(error.message)) {
       delete payload.box_reciclaje;
-      ({ error } = await supabase.from("partes_diarios").update(payload).eq("id", parte.id));
+      ({ error } = await supabase.from("partes_diarios").update(payload as TablesUpdate<"partes_diarios">).eq("id", parte.id));
     }
     setSaving(false);
     if (error) return toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -590,6 +678,22 @@ export default function PartDetail() {
   async function analyze() {
     if (!parte) return;
     setAnalyzing(true);
+    type AnalyzeParteResult = {
+      vision_warning?: string | null;
+      detalles_insertados?: {
+        foto_lotes?: {
+          extraidos: number;
+          aplicados: number;
+          no_emparejados?: string[];
+          dudas?: string[];
+          modelo?: string | null;
+          modelo_pesos?: string | null;
+          recortes_pesos?: number;
+          pesos_extraidos?: number;
+        };
+      };
+    };
+    let analysisResult: AnalyzeParteResult | null = null;
     try {
       // Enviar valores actuales del formulario (incluyendo no guardados)
       const currentValues = {
@@ -598,10 +702,12 @@ export default function PartDetail() {
         kg_inventario_sin_alta: Number(parte.kg_inventario_sin_alta) || 0,
         kg_podrido_bolsa_basura: Number(parte.kg_podrido_bolsa_basura) || 0,
       };
+      const visionCrops = await buildVisionWeightCrops(archivos);
       
-      const { error } = await supabase.functions.invoke("analizar-parte", {
-        body: { part_id: parte.id, current_values: currentValues },
+      const { data, error } = await supabase.functions.invoke("analizar-parte", {
+        body: { part_id: parte.id, current_values: currentValues, vision_crops: visionCrops },
       });
+      analysisResult = data as AnalyzeParteResult | null;
       
       if (error) {
         const detail = typeof error.context === "string"
@@ -623,10 +729,29 @@ export default function PartDetail() {
     // "vacío" previo al análisis durante los 5 min de staleTime global).
     await queryClient.invalidateQueries({ queryKey: ["parte-detail", parte.id] });
 
-    toast({
-      title: "✅ Análisis completado",
-      description: "Cascada actualizada con los datos de IA"
-    });
+    const foto = analysisResult?.detalles_insertados?.foto_lotes;
+    if (analysisResult?.vision_warning) {
+      toast({
+        title: "Análisis completado con aviso en la foto",
+        description: analysisResult.vision_warning,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (foto) {
+      const pendientes = foto.no_emparejados?.length
+        ? ` Sin correspondencia: ${foto.no_emparejados.join(", ")}.`
+        : "";
+      const dudas = foto.dudas?.length
+        ? ` ${foto.dudas.length} lectura(s) dudosa(s) quedaron sin convertir a campos.`
+        : "";
+      toast({
+        title: "✅ Foto analizada",
+        description: `${foto.extraidos} lotes leídos; ${foto.aplicados} aplicados.${pendientes}${dudas}`,
+      });
+      return;
+    }
+    toast({ title: "✅ Análisis completado", description: "Cascada actualizada con los datos de IA" });
   }
 
   if (!parte || !cascade) {
@@ -817,6 +942,8 @@ export default function PartDetail() {
           kgPersonaGeneral={rendimientoZonas?.kgPersonaGeneral ?? 0}
           presentesComputables={rendimientoZonas?.presentesComputables ?? 0}
           sinZona={rendimientoZonas?.sinZona ?? null}
+          fueraLinea={rendimientoZonas?.fueraLinea ?? null}
+          refuerzoMesas={rendimientoZonas?.refuerzoMesas ?? null}
         />
       </div>
 

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,7 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useConsumosFisicos, useKgVendidosDerivados } from "@/hooks/useConsumosFisicos";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Trash2, Save, History, BarChart3, Settings, Droplet, Zap, Fuel, FlaskConical, FileText, FileSpreadsheet, CalendarDays, Upload, CheckCircle2, AlertTriangle, Pencil, X, ChevronDown, ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { Plus, Trash2, Save, History, BarChart3, Settings, Droplet, Zap, Fuel, FlaskConical, FileText, FileSpreadsheet, CalendarDays, Upload, CheckCircle2, AlertTriangle, Pencil, X, ChevronDown, ChevronLeft, ChevronRight, Download, Camera, Loader2 } from "lucide-react";
 import { today, formatNumber, formatDate } from "@/lib/format";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -80,6 +80,11 @@ import {
   FACTURAS_CAMPANA_2025_2026_ELECTRICIDAD_CONSUMOS,
   FACTURAS_CAMPANA_2025_2026_RANGE,
 } from "@/lib/facturasCampana2025_2026";
+import {
+  normalizeWaterMeterVisionResult,
+  prepareWaterMeterPhoto,
+  type WaterMeterVisionResult,
+} from "@/lib/waterMeterVision";
 
 const ZONAS = [
   { value: "drencher", label: "Drencher" },
@@ -357,6 +362,10 @@ export default function ConsumoCostes() {
   const [aguaContadorTratamiento, setAguaContadorTratamiento] = useState("");
   const [aguaContadorJabon, setAguaContadorJabon] = useState("");
   const [aguaDrencher, setAguaDrencher] = useState("");
+  const aguaFotoInputRef = useRef<HTMLInputElement>(null);
+  const [aguaFotoLoading, setAguaFotoLoading] = useState(false);
+  const [aguaFotoPreview, setAguaFotoPreview] = useState<string | null>(null);
+  const [aguaFotoVision, setAguaFotoVision] = useState<WaterMeterVisionResult | null>(null);
   // Atribución manual del consumo: por defecto REGLA 1 (día(s) anterior(es) a la
   // foto); activando esto, el consumo de esta tanda de lecturas se atribuye a un
   // día o rango concreto elegido a mano.
@@ -554,6 +563,46 @@ export default function ConsumoCostes() {
     });
   };
 
+  const analizarFotoContadorGeneral = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setAguaFotoLoading(true);
+    setAguaFotoVision(null);
+    try {
+      const image = await prepareWaterMeterPhoto(file);
+      setAguaFotoPreview(image.previewUrl);
+      const { data, error } = await supabase.functions.invoke("analizar-contador-agua", {
+        body: {
+          image: { mime: image.mime, b64: image.b64 },
+          lectura_anterior_m3: lecturaAguaAnterior?.lecturaM3 ?? null,
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(String(data.error));
+
+      const result = normalizeWaterMeterVisionResult(data);
+      setAguaFotoVision(result);
+      setAguaContadorGeneral(String(result.lectura_m3));
+      toast({
+        title: "Lectura detectada",
+        description: result.confianza <= 0.5 && Number.isInteger(result.lectura_m3)
+          ? `${formatNumber(result.lectura_m3, 0)} m3 confirmados en la ventanilla. Completa las agujas decimales antes de guardar.`
+          : `${formatNumber(result.lectura_m3, 3)} m3 · ${Math.round(result.confianza * 100)}% de confianza. Revisa el número antes de guardar.`,
+      });
+    } catch (error) {
+      setAguaFotoPreview(null);
+      toast({
+        title: "No se pudo leer el contador",
+        description: errorMessage(error),
+        variant: "destructive",
+      });
+    } finally {
+      setAguaFotoLoading(false);
+    }
+  };
+
   const guardarLecturaAguaDiaria = () => {
     const lecturaContadorM3 = parseConsumoNumber(aguaContadorGeneral);
     const lecturaContadorTratamientoM3 = parseConsumoNumber(aguaContadorTratamiento);
@@ -727,6 +776,8 @@ export default function ConsumoCostes() {
       setAguaContadorTratamiento("");
       setAguaContadorJabon("");
       setAguaDrencher("");
+      setAguaFotoPreview(null);
+      setAguaFotoVision(null);
       setAtribucionManual(false);
       setAtribDesde("");
       setAtribHasta("");
@@ -1460,6 +1511,57 @@ export default function ConsumoCostes() {
                   <div className="glass p-4 space-y-2">
                     <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">1 · Contador general (m3)</Label>
                     <Input inputMode="decimal" value={aguaContadorGeneral} onChange={(e) => setAguaContadorGeneral(e.target.value)} placeholder="38659" />
+                    <input
+                      ref={aguaFotoInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      capture="environment"
+                      className="hidden"
+                      onChange={analizarFotoContadorGeneral}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      disabled={aguaFotoLoading}
+                      onClick={() => aguaFotoInputRef.current?.click()}
+                    >
+                      {aguaFotoLoading
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : <Camera className="h-4 w-4" />}
+                      {aguaFotoLoading ? "Leyendo contador…" : "Leer foto"}
+                    </Button>
+                    {(aguaFotoPreview || aguaFotoVision) && (
+                      <div className="flex items-center gap-2 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg-strong)] p-2">
+                        {aguaFotoPreview && (
+                          <img
+                            src={aguaFotoPreview}
+                            alt="Foto seleccionada del contador general"
+                            className="h-12 w-12 shrink-0 rounded-md object-cover"
+                          />
+                        )}
+                        <div className="min-w-0 text-xs">
+                          {aguaFotoVision ? (
+                            <>
+                              <p className="font-semibold text-foreground">
+                                {aguaFotoVision.confianza <= 0.5 && Number.isInteger(aguaFotoVision.lectura_m3)
+                                  ? `${formatNumber(aguaFotoVision.lectura_m3, 0)} m3 · solo ventanilla`
+                                  : `${formatNumber(aguaFotoVision.lectura_m3, 3)} m3 · ${Math.round(aguaFotoVision.confianza * 100)}%`}
+                              </p>
+                              <p className="text-muted-foreground">
+                                Resultado editable antes de guardar
+                              </p>
+                              {aguaFotoVision.dudas.length > 0 && (
+                                <p className="mt-1 text-warning">{aguaFotoVision.dudas.join(" · ")}</p>
+                              )}
+                            </>
+                          ) : (
+                            <p className="text-muted-foreground">Preparando fotografía…</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="glass p-4 space-y-2">
                     <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">2 · Línea tratamiento agua (m3)</Label>

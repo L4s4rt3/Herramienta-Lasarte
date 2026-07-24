@@ -126,9 +126,8 @@ export function useEntradasBascula() {
           kg_industria: Number(l.kg_industria) || 0,
           notas: l.notas,
         })),
-        // Reciclado del parte: bruto (malla Z1+Z2, fruta + envases) y nº de
-        // box; el neto = bruto − nBox × 30 kg de tara lo calcula la
-        // conciliación (ver conciliacionKg.ts, regla del dueño 21-jul-2026).
+        // Reciclado del parte: Z1+Z2 ya se guardan netos de tara. El nº de
+        // box se conserva para trazabilidad y reparto entre pasadas.
         reciclajePorDia: partes
           .map((p) => ({
             fecha: p.date,
