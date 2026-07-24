@@ -110,8 +110,19 @@ describe("calidad MVP domain", () => {
   it("creates a useful draft report from structured data", () => {
     const report = createCalidadDraftReport(lote({ calidad: "Regular", defectos: ["Golpe", "Podrido"] }), 3, []);
     expect(report.informe).toContain("Finca A");
-    expect(report.informe).toContain("regular");
+    expect(report.informe).toContain("Calidad: Regular");
+    expect(report.informe).not.toContain("Entrada regular");
     expect(report.informe).toContain("Golpe");
-    expect(report.accion_recomendada).toContain("Revisar");
+    expect(report.accion_recomendada).toContain("seguimiento");
+  });
+
+  it("keeps quality as a label (not an agreeing adjective) and skips the evidence clause with 0 photos", () => {
+    const bueno = createCalidadDraftReport(lote({ calidad: "Bueno" }), 0, []);
+    expect(bueno.informe).toContain("Calidad: Bueno");
+    expect(bueno.informe).not.toContain("Entrada bueno");
+    expect(bueno.informe).not.toContain("como evidencia");
+
+    const pesimo = createCalidadDraftReport(lote({ calidad: "Pésimo" }), 0, []);
+    expect(pesimo.informe).not.toContain("Entrada pésimo");
   });
 });

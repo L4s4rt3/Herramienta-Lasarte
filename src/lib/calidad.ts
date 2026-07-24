@@ -258,17 +258,13 @@ export function createCalidadDraftReport(lote: CalidadLote, photoCount: number, 
   ].join(" - ");
   const defects = (lote.defectos ?? []).length > 0 ? ` Defectos marcados: ${(lote.defectos ?? []).join(", ")}.` : "";
   const photoText = photoCount === 1 ? "1 foto adjunta" : `${photoCount} fotos adjuntas`;
-  const actionByQuality: Record<CalidadEstado, string> = {
-    Excelente: "Mantener trazabilidad del lote y liberar si la inspeccion visual coincide con la calidad marcada.",
-    Bueno: "Mantener trazabilidad del lote y liberar si la inspeccion visual coincide con la calidad marcada.",
-    Regular: "Revisar en linea, controlar calibre/color y dejar seguimiento en el parte.",
-    Deficiente: "Separar para seguimiento, reforzar control visual y avisar a produccion antes de mezclar.",
-    Pésimo: "Bloquear el lote, documentar con fotos y escalar a responsable de calidad antes de procesar.",
-  };
+  // Sin adjetivo de calidad concordando con "entrada" (femenino): "Calidad: Bueno"
+  // es una etiqueta:valor, no una frase que deba concordar en género.
+  const evidence = photoCount > 0 ? ` ${photoText} como evidencia.` : "";
 
   return {
-    informe: `Entrada ${lote.calidad.toLocaleLowerCase("es")} de ${trace}. ${photoText} como evidencia.${defects}`,
-    accion_recomendada: actionByQuality[lote.calidad] || "Revisar lote antes de procesar.",
+    informe: `Entrada de ${trace}. Calidad: ${lote.calidad}.${evidence}${defects}`,
+    accion_recomendada: CALIDAD_COMENTARIO_ACCION[lote.calidad] ?? "Revisar lote antes de procesar.",
   };
 }
 
@@ -284,30 +280,73 @@ export function findCalidadHistoricoSimilar(current: CalidadLote, history: Calid
     .slice(0, 3);
 }
 
-export function buildCalidadComentarioSugerido(current: CalidadLote, history: CalidadLote[] = [], photoCount = 0) {
-  const similar = findCalidadHistoricoSimilar(current, history);
-  const trace = [
-    current.productor_finca_nombre || "productor/finca pendiente",
-    current.variedad || current.producto || "variedad pendiente",
-    current.cantidad || "box pendiente",
-    current.hora ? `${formatHoraCorta(current.hora)} h` : "hora pendiente",
-  ].join(" - ");
-  const defects = (current.defectos ?? []).length > 0 ? ` Defectos marcados: ${(current.defectos ?? []).join(", ")}.` : "";
-  const photoText = photoCount === 1 ? "1 foto adjunta" : `${photoCount} fotos adjuntas`;
-  const historyText = similar.length > 0
-    ? ` Historico similar: ${similar.map((lote) => `${lote.fecha} ${lote.calidad}`).join("; ")}.`
-    : " Sin historico similar registrado para comparar.";
-  const actionByQuality: Record<CalidadEstado, string> = {
-    Excelente: "Mantener trazabilidad del lote y liberar si la inspeccion visual coincide con la calidad marcada.",
-    Bueno: "Mantener trazabilidad del lote y liberar si la inspeccion visual coincide con la calidad marcada.",
-    Regular: "Revisar en linea, controlar calibre/color y dejar seguimiento en el parte.",
-    Deficiente: "Separar para seguimiento, reforzar control visual y avisar a produccion antes de mezclar.",
-    Pésimo: "Bloquear el lote, documentar con fotos y escalar a responsable de calidad antes de procesar.",
-  };
+// Frase corta por defecto marcado, en el registro conciso de Eusebio
+// (vocabulario de calidad de cítricos: calibre, pigmentación, deshidratación...).
+const CALIDAD_COMENTARIO_DEFECTO_FRASES: Record<string, string> = {
+  Rameado: "Rameado superficial en algunas piezas.",
+  Golpe: "Piezas con golpes.",
+  Podrido: "Presencia de podrido en algunas piezas.",
+  Mancha: "Manchas superficiales en varias piezas.",
+  "Calibre irregular": "Calibre irregular.",
+  "Color verde": "Pigmentación verde residual en algunas piezas.",
+  "Piel blanda": "Piel blanda en algunas piezas.",
+  Deshidratado: "Ligera deshidratación superficial en algunas piezas.",
+  Plaga: "Indicios de plaga.",
+};
 
-  return normalizeComentario(
-    `Entrada ${current.calidad.toLocaleLowerCase("es")} de ${trace}. ${photoText} como evidencia.${defects}${historyText}\n\nAccion recomendada: ${actionByQuality[current.calidad]}`,
-  );
+// Observación cuando no hay ningún defecto marcado.
+const CALIDAD_COMENTARIO_SIN_DEFECTOS: Record<CalidadEstado, string> = {
+  Excelente: "Materia prima en buen estado general. Fruta firme y bien conformada.",
+  Bueno: "Materia prima en buen estado general. Fruta firme y bien conformada.",
+  Regular: "Materia prima en estado aceptable. Sin defectos concretos marcados.",
+  Deficiente: "Estado general por debajo de lo aceptable. Revisar el lote en línea.",
+  Pésimo: "Estado general por debajo de lo aceptable. Revisar el lote en línea.",
+};
+
+// Cualificador de alcance/representatividad que se añade tras las frases de
+// defecto (solo cuando hay al menos una); Excelente no lleva cualificador.
+const CALIDAD_COMENTARIO_ALCANCE: Partial<Record<CalidadEstado, string>> = {
+  Bueno: "Defecto puntual, no representativo del lote.",
+  Regular: "Incidencia presente en parte del lote.",
+  Deficiente: "Afecta a un porcentaje significativo de piezas. Fruta apta para segunda categoría o uso industrial.",
+  Pésimo: "Afecta a la mayor parte del lote.",
+};
+
+const CALIDAD_COMENTARIO_ACCION: Record<CalidadEstado, string> = {
+  Excelente: "Sin actuación. Fruta aceptada en línea.",
+  Bueno: "Sin actuación. Fruta aceptada en línea.",
+  Regular: "Fruta aceptada con seguimiento. Se controla calibre y color en línea.",
+  Deficiente: "Se recorta la primera categoría. Fruta reclasificada. Se notifica a responsable para ajuste de planificación.",
+  Pésimo: "Lote bloqueado. Se documenta con fotografías y se escala a responsable de calidad antes de procesar.",
+};
+
+/** Frase de un defecto marcado; "Otro" usa el texto libre de defecto_otro (o null si viene vacío). */
+function calidadDefectoFrase(defecto: string, defectoOtro: string): string | null {
+  if (defecto === "Otro") {
+    const texto = defectoOtro.trim();
+    if (!texto) return null;
+    return /[.!?]$/.test(texto) ? texto : `${texto}.`;
+  }
+  return CALIDAD_COMENTARIO_DEFECTO_FRASES[defecto] ?? null;
+}
+
+/**
+ * Genera el comentario sugerido en el registro conciso y directo del diario de
+ * producción (frases declarativas cortas, vocabulario de calidad de cítricos),
+ * a partir únicamente de los campos estructurados del lote. Determinista, sin
+ * IA. `_history` y `_photoCount` ya no se usan en el texto (se mantienen por
+ * compatibilidad de firma con el llamador en CalidadJornada.tsx).
+ */
+export function buildCalidadComentarioSugerido(current: CalidadLote, _history: CalidadLote[] = [], _photoCount = 0) {
+  const frasesDefectos = (current.defectos ?? [])
+    .map((defecto) => calidadDefectoFrase(defecto, current.defecto_otro ?? ""))
+    .filter((frase): frase is string => Boolean(frase));
+
+  const observacion = frasesDefectos.length > 0
+    ? [...frasesDefectos, CALIDAD_COMENTARIO_ALCANCE[current.calidad]].filter((parte): parte is string => Boolean(parte)).join(" ")
+    : CALIDAD_COMENTARIO_SIN_DEFECTOS[current.calidad];
+
+  return normalizeComentario(`${observacion}\n\nAccion recomendada: ${CALIDAD_COMENTARIO_ACCION[current.calidad]}`);
 }
 
 export function calidadSummary(lotes: CalidadLote[], attachmentCounts: Record<string, number> = {}): CalidadSummary {
