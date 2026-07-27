@@ -136,20 +136,39 @@ export function useMermaLotes() {
       // partes_diarios va camino de las 1.000 filas (207 y creciendo): sin
       // filtro de fecha (se quiere el histórico completo), así que se pagina
       // igual por seguridad de cara al futuro en vez de esperar a que rompa.
-      const partes = await fetchAllRows<{
+      type ParteRow = {
         id: string;
         date: string | null;
         kg_podrido_calibrador_auto: number | null;
         kg_podrido_bolsa_basura: number | null;
-      }>((from, to) =>
-        supabase
-          .from("partes_diarios")
-          .select("id, date, kg_podrido_calibrador_auto, kg_podrido_bolsa_basura")
-          .order("id")
-          .range(from, to),
-      );
+        kg_podrido_bateas?: number | null;
+      };
+      // kg_podrido_bateas (migración 20260727120000): medición diaria del
+      // podrido de bateas pre-calibrador. Degradado si la columna aún no
+      // existe (mismo patrón que box_reciclaje en useEntradasBascula.ts).
+      const fetchPartes = async (): Promise<ParteRow[]> => {
+        try {
+          return await fetchAllRows<ParteRow>((from, to) =>
+            SUPA
+              .from("partes_diarios")
+              .select("id, date, kg_podrido_calibrador_auto, kg_podrido_bolsa_basura, kg_podrido_bateas")
+              .order("id")
+              .range(from, to),
+          );
+        } catch (e) {
+          if (!esErrorTablaOColumnaInexistente(e)) throw e;
+          return fetchAllRows<ParteRow>((from, to) =>
+            supabase
+              .from("partes_diarios")
+              .select("id, date, kg_podrido_calibrador_auto, kg_podrido_bolsa_basura")
+              .order("id")
+              .range(from, to),
+          );
+        }
+      };
+      const partes = await fetchPartes();
       // toNumOrNull (NO toNum): un parte histórico importado (migración
-      // 20260716090000) puede traer estas dos columnas a NULL a propósito
+      // 20260716090000) puede traer estas columnas a NULL a propósito
       // ("no hay dato", ver mermaLote.ts) — toNum las convertiría en un 0
       // real falso. El null se propaga tal cual para que computeMermaLotes
       // decida "desconocido".
@@ -158,6 +177,7 @@ export function useMermaLotes() {
         date: p.date ?? null,
         kg_podrido_calibrador_auto: toNumOrNull(p.kg_podrido_calibrador_auto),
         kg_podrido_bolsa_basura: toNumOrNull(p.kg_podrido_bolsa_basura),
+        kg_podrido_bateas: toNumOrNull(p.kg_podrido_bateas),
       }));
     },
     enabled: Boolean(user),

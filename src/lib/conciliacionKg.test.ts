@@ -248,7 +248,7 @@ describe("conciliarKgProcesados — capacidad de cámara (tope de merma)", () =>
       [entrada({ lote: "26042811", kg_entrada: 20000, fecha: "2026-04-28" })],
       [{ lote_codigo: "26042811", kg_peso_total: 20000, date: "2026-07-07" }], // 70 días
     );
-    const esperado = 20000 * (1 - 0.000553 * 70);
+    const esperado = 20000 * (1 - 0.000513 * 70);
     expect(res.procesados[0].kg_peso_total).toBeCloseTo(esperado, 0);
     expect(res.excesosSinColocar[0].kg).toBeCloseTo(20000 - esperado, 0);
   });

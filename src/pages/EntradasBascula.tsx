@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CamarasExternasCard } from "@/components/CamarasExternasCard";
 import { CerrarLoteDialog } from "@/components/CerrarLoteDialog";
 import { CerrarLotesEnBloqueDialog } from "@/components/CerrarLotesEnBloqueDialog";
 import { ConciliacionKgPanel } from "@/components/ConciliacionKgPanel";
@@ -56,6 +57,7 @@ import {
 } from "@/lib/mermaLote";
 import { exportarMermasProductores, type FilaMermaExport } from "@/lib/exportMermasProductores";
 import { casarMermaCamara, parseMermaCamaraRows } from "@/lib/mermaCamaraImport";
+import type { SenalesRecepcion } from "@/lib/camarasExternas";
 import { esEntradaPrecalibrado, resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import { cn } from "@/lib/utils";
 
@@ -323,9 +325,11 @@ function MermasCosteTab() {
   };
 
   // ─── Import del registro de mermas de cámara (Excel manual de Guadex/
-  // Espalmex): casa cada camión por (fecha, kg exactos) con su entrada y
-  // guarda merma_camara_kg + fecha_salida_camara. Es el dato MEDIDO que acota
-  // la conciliación y sustituye a la estimación por tasa (regla 21-jul-2026). ─
+  // Espalmex): casa cada camión por (fecha, kg exactos) con su entrada —o de
+  // forma aproximada con aviso si el papel trae la finca o los kg ligeramente
+  // distintos de báscula— y guarda merma_camara_kg + fecha_salida_camara. Es
+  // el dato MEDIDO que acota la conciliación y sustituye a la estimación por
+  // tasa (regla 21-jul-2026). ─
   const handleImportarMermaCamara = async (file: File | null) => {
     if (!file) return;
     setImportandoCamara(true);
@@ -354,9 +358,10 @@ function MermasCosteTab() {
       }
       queryClient.invalidateQueries({ queryKey: ["entradas_bascula"] });
       queryClient.invalidateQueries({ queryKey: ["merma-lote"] });
+      const aproximados = casados.filter((c) => c.aviso);
       toast({
         title: "Mermas de cámara importadas",
-        description: `${casados.length} camión(es) casados con su lote${sinCasar.length ? `, ${sinCasar.length} sin casar (sin entrada con esa fecha y kg)` : ""}${ambiguos.length ? `, ${ambiguos.length} ambiguo(s)` : ""}${descartadas.length ? `, ${descartadas.length} fila(s) descartada(s)` : ""}.`,
+        description: `${casados.length} camión(es) casados con su lote${aproximados.length ? ` (${aproximados.length} aproximado(s): ${aproximados.map((c) => `${c.lote} — ${c.aviso}`).join("; ")})` : ""}${sinCasar.length ? `, ${sinCasar.length} sin casar (sin entrada con esa fecha y kg)` : ""}${ambiguos.length ? `, ${ambiguos.length} ambiguo(s)` : ""}${descartadas.length ? `, ${descartadas.length} fila(s) descartada(s)` : ""}.`,
       });
     } catch (e) {
       toast({ title: "No se pudo importar", description: errorMessage(e), variant: "destructive" });
@@ -679,6 +684,28 @@ export default function EntradasBascula() {
   const [highlightLote, setHighlightLote] = useState<string | null>(null);
   const [bloqueDialogOpen, setBloqueDialogOpen] = useState(false);
   const [bloqueTerminadosDialogOpen, setBloqueTerminadosDialogOpen] = useState(false);
+
+  // ─── Señales para las cámaras externas (Guadex/Zamexfruit) ─────────────────
+  // El estado de cada camión externo se DERIVA de datos que ya fluyen a diario
+  // (ver src/lib/camarasExternas.ts): lotes con salida de cámara medida (Excel
+  // de mermas → entradas_bascula.fecha_salida_camara/merma_camara_kg) y lotes
+  // con alguna pasada de calibrador (partes diarios). Nada se mueve a mano.
+  const senalesCamaraExterna = useMemo((): SenalesRecepcion => {
+    const salidaPorLote = new Map<string, string | null>();
+    for (const e of entradas) {
+      const salida = (e as { fecha_salida_camara?: string | null }).fecha_salida_camara ?? null;
+      const merma = (e as { merma_camara_kg?: number | null }).merma_camara_kg ?? null;
+      if (salida == null && merma == null) continue;
+      const lote8 = normalizarLoteCodigo(e.lote);
+      if (lote8) salidaPorLote.set(lote8, salida);
+    }
+    const lotesProcesados = new Set<string>();
+    for (const p of procesados) {
+      const lote8 = normalizarLoteCodigo(p.lote_codigo);
+      if (lote8) lotesProcesados.add(lote8);
+    }
+    return { salidaPorLote, lotesProcesados };
+  }, [entradas, procesados]);
   const [conciliarDialogOpen, setConciliarDialogOpen] = useState(false);
 
   // ─── Conectividad: llegada desde Trazabilidad con ?lote= ────────────────
@@ -1220,6 +1247,9 @@ export default function EntradasBascula() {
               </CardContent>
             </Card>
           )}
+
+          {/* ─── Cámaras externas (Guadex/Zamexfruit): dónde está la fruta ── */}
+          <CamarasExternasCard senales={senalesCamaraExterna} />
 
           {(movimientosPrecalibrado.count > 0 || derivadosCampoCit.count > 0) && (
             <div className="space-y-1 px-1">

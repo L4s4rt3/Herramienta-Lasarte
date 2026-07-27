@@ -380,9 +380,9 @@ describe("perdidaSimulada — composición ADITIVA (no multiplicativa) de los 3 
   });
 
   it("consistente con el criterio real: alimentando forfaitProyectado da el mismo resultado que sumar las fracciones a mano", () => {
-    const pct = perdidaSimulada({ pctPodridoReferencia: 0.04382, pctMermaNatural: 24 * 0.000553, pctPodridoNoPesado: 0.03 });
-    // TASA_MERMA_NATURAL_DIA (0,0553%/día) × 24 días ≈ 1,327% — mismo cálculo que mermaNaturalEstimadaKg en mermaLote.ts.
-    expect(pct).toBeCloseTo(0.04382 + 0.013272 + 0.03, 6);
+    const pct = perdidaSimulada({ pctPodridoReferencia: 0.04382, pctMermaNatural: 24 * 0.000513, pctPodridoNoPesado: 0.03 });
+    // TASA_MERMA_NATURAL_DIA (0,0513%/día) × 24 días ≈ 1,231% — mismo cálculo que mermaNaturalEstimadaKg en mermaLote.ts.
+    expect(pct).toBeCloseTo(0.04382 + 0.012312 + 0.03, 6);
     expect(forfaitProyectado(0.5, pct)).toBeCloseTo(0.5 / (1 - pct));
   });
 

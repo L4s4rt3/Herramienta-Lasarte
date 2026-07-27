@@ -32,6 +32,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CerrarLoteDialog } from "@/components/CerrarLoteDialog";
 import { FuenteBadge, fuentePodridoAVariant } from "@/components/FuenteBadge";
 import { InfoTooltip } from "@/components/InfoTooltip";
+import { InspeccionesPodridoCard } from "@/components/InspeccionesPodridoCard";
 import { ProgressBarRow } from "@/components/ProgressBarRow";
 import { SortableTableHead, toggleSort, type SortDir } from "@/components/SortableColumn";
 import { toast } from "@/hooks/use-toast";
@@ -49,7 +50,7 @@ import {
 } from "@/lib/entradasBascula";
 import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatKgCompact as formatKg, formatNumber, formatPct, today } from "@/lib/format";
-import type { MermaLote } from "@/lib/mermaLote";
+import { TASA_MERMA_NATURAL_DIA, type MermaLote } from "@/lib/mermaLote";
 import { interpretarCodigoLote, type MotivoIncoherenciaExpedicion } from "@/lib/origenConfeccion";
 import type { OrigenConfeccionLote } from "@/hooks/useTrazabilidadLote";
 import { productorNoCoincide } from "@/lib/productoresCanonicos";
@@ -1182,6 +1183,9 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
       {/* Mermas y pérdidas: merma natural (medida + desglose natural/sin justificar) + podrido (real/estimado), en kg/%; el detalle en € vive solo en Económico */}
       {entrada && <MermasYPerdidasCard lote={data.lote} />}
 
+      {/* Muestreos manuales de podrido (contar podridas por box): señal de calidad para contrastar con el podrido pesado */}
+      {entrada && <InspeccionesPodridoCard lote={data.lote} />}
+
       {/* Origen agrícola como pie: cierre del círculo */}
       {entrada?.finca && (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1488,7 +1492,7 @@ function MermasYPerdidasCard({ lote }: { lote: string }) {
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   {merma.mermaCamaraReal
                     ? <>Merma de cámara (registro real):</>
-                    : <>Natural estimada (0,055%/día × {merma.diasEnCamara} días):</>}{" "}
+                    : <>Natural estimada ({(TASA_MERMA_NATURAL_DIA * 100).toLocaleString("es-ES", { maximumFractionDigits: 4 })}%/día × {merma.diasEnCamara} días):</>}{" "}
                   <span className="font-semibold text-foreground tabular-nums">{formatKg(merma.mermaNaturalEstimadaKg)}</span>
                   <FuenteBadge fuente={merma.mermaCamaraReal ? "real" : "asumido"} />
                 </p>
@@ -1498,10 +1502,17 @@ function MermasYPerdidasCard({ lote }: { lote: string }) {
                 )}>
                   {podridoPreCalibradorDestacado(merma) && <AlertTriangle className="h-3 w-3 shrink-0" />}
                   Podrido pre-calibrador:{" "}
-                  <InfoTooltip iconClassName="h-3 w-3">Podrido de fruta apartada en los almacenes de precalibrado, antes de pasar por el calibrador: estimado por prorrateo, no un peso medido lote a lote.</InfoTooltip>
+                  <InfoTooltip iconClassName="h-3 w-3">Podrido retirado en la tría antes de pasar por el calibrador. Sin medición de bateas es una asunción (merma medida − natural); con bateas pesadas (desde el 22-jul-2026) se muestra además el dato medido, prorrateado por día.</InfoTooltip>
                   <span className="tabular-nums">{formatKg(merma.podridoPreCalibradorKg ?? 0)}</span>
                   <FuenteBadge fuente="asumido" />
                 </p>
+                {merma.podridoBateasKg != null && (
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    De ellos, medidos en bateas (pesada diaria de la tría):{" "}
+                    <span className="font-semibold text-foreground tabular-nums">{formatKg(merma.podridoBateasKg)}</span>
+                    <FuenteBadge fuente="estimado" title="Pesada diaria real de las bateas, repartida entre los lotes del día por prorrateo de kg." />
+                  </p>
+                )}
               </div>
             ) : null}
           </div>

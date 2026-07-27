@@ -60,6 +60,8 @@ interface Parte {
   kg_reciclado_malla_z2: number;
   kg_inventario_sin_alta: number;
   kg_podrido_bolsa_basura: number;
+  /** Podrido pesado en las bateas de la tría PRE-calibrador (migración 20260727120000). null = sin medición ese día (histórico anterior al 22-jul-2026), no un 0. */
+  kg_podrido_bateas: number | null;
   /** Nº de box de reciclaje del día (~30 kg/box, dato manual; migración 20260721140000). */
   box_reciclaje: number;
   kg_produccion_calibrador: number;
@@ -186,7 +188,7 @@ async function buildVisionWeightCrops(files: Archivo[]): Promise<VisionCropPaylo
 // box_reciclaje todavía no está en el Database generado (migración
 // 20260721140000 pendiente de regenerar tipos): se añade a mano, mismo
 // patrón que cerrado_at/cierre_modo en useEntradasBascula.ts.
-type ParteUpdatePayload = TablesUpdate<"partes_diarios"> & { box_reciclaje?: number };
+type ParteUpdatePayload = TablesUpdate<"partes_diarios"> & { box_reciclaje?: number; kg_podrido_bateas?: number | null };
 
 function normalizeParte(raw: Partial<CachedParte> & { id: string; date: string; estado: string }): Parte {
   return {
@@ -198,6 +200,11 @@ function normalizeParte(raw: Partial<CachedParte> & { id: string; date: string; 
     kg_reciclado_malla_z2: Number(raw.kg_reciclado_malla_z2) || 0,
     kg_inventario_sin_alta: Number(raw.kg_inventario_sin_alta) || 0,
     kg_podrido_bolsa_basura: Number(raw.kg_podrido_bolsa_basura) || 0,
+    // null se conserva (sin medición, distinto de 0 medido) — ver mermaLote.ts.
+    kg_podrido_bateas: (() => {
+      const v = (raw as { kg_podrido_bateas?: number | null }).kg_podrido_bateas;
+      return v == null ? null : Number(v) || 0;
+    })(),
     box_reciclaje: Number((raw as { box_reciclaje?: number | null }).box_reciclaje) || 0,
     kg_produccion_calibrador: Number(raw.kg_produccion_calibrador) || 0,
     kg_mujeres_calibrador: Number(raw.kg_mujeres_calibrador) || 0,
@@ -558,6 +565,10 @@ export default function PartDetail() {
       notas_inventario: parte.notas_inventario,
     };
     PART_DETAIL_MANUAL_FIELDS.forEach((f) => (payload[f.key] = Number(parte[f.key] || 0)));
+    // Bateas: null = "sin medición" y debe SEGUIR siendo null al guardar un
+    // parte antiguo sin tocar ese campo (el forEach lo habría coercido a 0,
+    // que el modelo trataría como un 0 MEDIDO). Ver mermaLote.ts.
+    payload.kg_podrido_bateas = parte.kg_podrido_bateas == null ? null : Number(parte.kg_podrido_bateas) || 0;
     if (parte.estado !== "Borrador") {
       const abs = Math.abs(cascade.dsj_pct);
       payload.estado = abs > 3 ? "Con descuadre" : abs >= 1 ? "Analizado" : "Validado";
@@ -568,6 +579,11 @@ export default function PartDetail() {
     // bloquear el guardado del resto del parte.
     if (error && /box_reciclaje/.test(error.message)) {
       delete payload.box_reciclaje;
+      ({ error } = await supabase.from("partes_diarios").update(payload as TablesUpdate<"partes_diarios">).eq("id", parte.id));
+    }
+    // Mismo degradado para kg_podrido_bateas (migración 20260727120000).
+    if (error && /kg_podrido_bateas/.test(error.message)) {
+      delete payload.kg_podrido_bateas;
       ({ error } = await supabase.from("partes_diarios").update(payload as TablesUpdate<"partes_diarios">).eq("id", parte.id));
     }
     setSaving(false);

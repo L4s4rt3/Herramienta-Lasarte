@@ -4,6 +4,10 @@ export const PART_DETAIL_MANUAL_FIELDS = [
   { key: "kg_reciclado_malla_z2", label: "Reciclado malla Z2", unidad: "kg" },
   { key: "kg_inventario_sin_alta", label: "Inventario final sin dar de alta", unidad: "kg" },
   { key: "kg_podrido_bolsa_basura", label: "Podrido manual (bolsa basura)", unidad: "kg" },
+  // Bateas de la tría PRE-calibrador, pesadas a diario desde el 22-jul-2026.
+  // Vacío = sin medición (null en BD, no un 0): el modelo de mermas lo
+  // distingue (mermaLote.ts, podridoBateasKg).
+  { key: "kg_podrido_bateas", label: "Podrido bateas (pre-calibrador)", unidad: "kg" },
   // Z1 y Z2 ya se guardan netos de tara. Este campo conserva el número de
   // envases físicos para trazabilidad y reparto entre pasadas.
   { key: "box_reciclaje", label: "Box de reciclaje (nº)", unidad: "box" },

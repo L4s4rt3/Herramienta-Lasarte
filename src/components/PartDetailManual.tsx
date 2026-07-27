@@ -28,6 +28,8 @@ interface Parte {
   kg_reciclado_malla_z2: number;
   kg_inventario_sin_alta: number;
   kg_podrido_bolsa_basura: number;
+  /** Podrido pesado en las bateas de la tría PRE-calibrador (migración 20260727120000). null = sin medición (no un 0), ver mermaLote.ts. */
+  kg_podrido_bateas: number | null;
   /** Nº de box de reciclaje del día (~30 kg/box); la conciliación de kg lo descuenta del procesado (migración 20260721140000). */
   box_reciclaje: number;
   kg_produccion_calibrador: number;
@@ -238,7 +240,10 @@ export default function PartDetailManual({
                     min="0"
                     inputMode={f.unidad === "box" ? "numeric" : "decimal"}
                     disabled={readOnly}
-                    value={String(parte[f.key] ?? 0)}
+                    // null = "sin medición" (solo kg_podrido_bateas puede serlo):
+                    // se muestra vacío, no como un 0 que parezca medido.
+                    value={parte[f.key] == null ? "" : String(parte[f.key])}
+                    placeholder={f.key === "kg_podrido_bateas" ? "sin medición" : undefined}
                     onChange={(e) => update(f.key, Number(e.target.value))}
                     className={NUMBER_INPUT_CLASS}
                   />

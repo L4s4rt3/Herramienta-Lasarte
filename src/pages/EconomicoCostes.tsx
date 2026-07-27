@@ -1093,7 +1093,7 @@ export default function EconomicoCostes() {
               value={formatEuro(mermaAgregado.eurNaturalEstimadaTotal)}
               icon={Scale}
               hint={`${formatKg(mermaAgregado.kgNaturalEstimadaTotal)} · deshidratación esperada por días en cámara`}
-              labelInfo="Σ mermaNaturalEstimadaKg × €/kg de compra de cada lote: la parte de la merma medida que se explica solo por el tiempo en cámara (TASA_MERMA_NATURAL_DIA = 0,0553%/día, derivada del registro manual del dueño)."
+              labelInfo="Σ mermaNaturalEstimadaKg × €/kg de compra de cada lote: la parte de la merma medida que se explica solo por el tiempo en cámara (TASA_MERMA_NATURAL_DIA = 0,0513%/día, derivada del registro manual del dueño)."
             />
             <KPICard
               label="Podrido pre-calibrador (asumido)"

@@ -495,7 +495,7 @@ describe("computeMermaLotes — diasEnCamara (fecha de entrada -> última fecha 
 describe("computeMermaLotes — mermaNaturalEstimadaKg: tasa aplicada bien (kg × tasa × días)", () => {
   it("cuando la merma medida es mayor que el techo por días, la estimación es exactamente kgEntrada × TASA × días", () => {
     const entradas = [entrada({ lote: "26050101", kg_entrada: 10000, fecha: "2026-05-01" })];
-    // kgCalibrador = 9700 (97%, sigue "procesado") -> mermaMedida = 300. Techo por 50 días: 10000*0.000553*50 = 276.5 (< 300, se clampa).
+    // kgCalibrador = 9700 (97%, sigue "procesado") -> mermaMedida = 300. Techo por 50 días: 10000*0.000513*50 = 256.5 (< 300, se clampa).
     const lotesDia: LoteDiaKgInput[] = [{ lote_codigo: "26050101", kg_peso_total: 9700, part_id: "p1" }];
     const partes: ParteMermaInput[] = [
       { part_id: "p1", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0, date: "2026-06-20" },
@@ -513,7 +513,7 @@ describe("computeMermaLotes — mermaNaturalEstimadaKg: tasa aplicada bien (kg �
 describe("computeMermaLotes — clamp de mermaNaturalEstimadaKg a la merma medida", () => {
   it("poco tiempo en cámara pero mucha merma: la estimación queda pequeña y casi todo va a 'sin justificar'", () => {
     const entradas = [entrada({ lote: "26050101", kg_entrada: 10000, fecha: "2026-05-01" })];
-    // kgCalibrador = 9700 (97%, sigue "procesado") -> mermaMedida = 300, pero solo 5 días en cámara -> techo = 10000*0.000553*5 = 27.65.
+    // kgCalibrador = 9700 (97%, sigue "procesado") -> mermaMedida = 300, pero solo 5 días en cámara -> techo = 10000*0.000513*5 = 25.65.
     const lotesDia: LoteDiaKgInput[] = [{ lote_codigo: "26050101", kg_peso_total: 9700, part_id: "p1" }];
     const partes: ParteMermaInput[] = [
       { part_id: "p1", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0, date: "2026-05-06" },
@@ -530,7 +530,7 @@ describe("computeMermaLotes — clamp de mermaNaturalEstimadaKg a la merma medid
 
   it("mucho tiempo en cámara: la estimación se clampa a la medida y 'sin justificar' es 0", () => {
     const entradas = [entrada({ lote: "26050101", kg_entrada: 1000, fecha: "2026-05-01" })];
-    // kgCalibrador = 980 (98%, "procesado") -> mermaMedida = 20 (poca), pero 200 días en cámara -> techo = 1000*0.000553*200 = 110.6 (> 20).
+    // kgCalibrador = 980 (98%, "procesado") -> mermaMedida = 20 (poca), pero 200 días en cámara -> techo = 1000*0.000513*200 = 102.6 (> 20).
     const lotesDia: LoteDiaKgInput[] = [{ lote_codigo: "26050101", kg_peso_total: 980, part_id: "p1" }];
     const partes: ParteMermaInput[] = [
       { part_id: "p1", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0, date: "2026-11-17" }, // 200 días tras 2026-05-01
@@ -674,8 +674,8 @@ describe("computeMermaLotes — cerradoManualmente", () => {
   it("caso real 26061203: cerrado_at fuerza 'procesado' aunque el calibrador no llegue al umbral, con la merma completa calculable", () => {
     // entrada 24.900 kg, calibrador 23.360 kg (93,8%) -> sin cerrar sería "parcial"
     // eterno. Cerrado manualmente: mermaMedida = 24900 - 23360 = 1540 kg. Con
-    // ~30 días en cámara, natural ≈ 24900*0.000553*30 ≈ 413 kg y el resto
-    // (≈1127 kg) es podrido pre-calibrador (asumido).
+    // ~30 días en cámara, natural ≈ 24900*0.000513*30 ≈ 383 kg y el resto
+    // (≈1157 kg) es podrido pre-calibrador (asumido).
     const entradas = [entrada({ lote: "26061203", kg_entrada: 24900, fecha: "2026-06-12", cerrado_at: "2026-07-15T10:00:00Z" })];
     const lotesDia: LoteDiaKgInput[] = [{ lote_codigo: "26061203", kg_peso_total: 23360, part_id: "p1" }];
     const partes: ParteMermaInput[] = [
@@ -690,8 +690,8 @@ describe("computeMermaLotes — cerradoManualmente", () => {
     expect(resultado.diasEnCamara).toBe(30);
 
     const naturalEsperada = 24900 * TASA_MERMA_NATURAL_DIA * 30;
-    expect(resultado.mermaNaturalEstimadaKg).toBeCloseTo(naturalEsperada, 3); // ≈ 413 kg
-    expect(resultado.podridoPreCalibradorKg).toBeCloseTo(1540 - naturalEsperada, 3); // ≈ 1127 kg
+    expect(resultado.mermaNaturalEstimadaKg).toBeCloseTo(naturalEsperada, 3); // ≈ 383 kg
+    expect(resultado.podridoPreCalibradorKg).toBeCloseTo(1540 - naturalEsperada, 3); // ≈ 1157 kg
 
     // Conservación exacta de siempre, también en un lote cerrado a mano.
     const suma = (resultado.mermaNaturalEstimadaKg ?? 0) + (resultado.podridoPreCalibradorKg ?? 0);
@@ -1092,5 +1092,57 @@ describe("mapPodridoAggToClasificacionInput", () => {
     expect(resultadoVista[1].podridoCalibradorFuente).toBe("real");
     expect(resultadoVista[1].podridoCalibradorKg).toBe(0);
     expect(resultadoVista[2].podridoCalibradorFuente).toBe("prorrateo");
+  });
+});
+
+// ─── podridoBateasKg: medición diaria de bateas pre-calibrador (27-jul-2026) ─
+
+describe("computeMermaLotes — podridoBateasKg (bateas de tría pesadas a diario)", () => {
+  it("prorratea las bateas del parte por cuota de kg, igual que el podrido manual", () => {
+    const entradas = [
+      entrada({ lote: "26050101", kg_entrada: 6000, fecha: "2026-07-01" }),
+      entrada({ lote: "26050102", kg_entrada: 4000, fecha: "2026-07-01" }),
+    ];
+    const lotesDia: LoteDiaKgInput[] = [
+      { lote_codigo: "26050101", kg_peso_total: 6000, part_id: "p1" },
+      { lote_codigo: "26050102", kg_peso_total: 4000, part_id: "p1" },
+    ];
+    const partes: ParteMermaInput[] = [
+      { part_id: "p1", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0, kg_podrido_bateas: 1000, date: "2026-07-22" },
+    ];
+    const res = computeMermaLotes(entradas, lotesDia, [], partes);
+    expect(res.find((l) => l.lote === "26050101")!.podridoBateasKg).toBeCloseTo(600);
+    expect(res.find((l) => l.lote === "26050102")!.podridoBateasKg).toBeCloseTo(400);
+  });
+
+  it("sin dato de bateas en ningún parte del lote → null (histórico anterior a la medición), no 0", () => {
+    const entradas = [entrada({ lote: "26050101", kg_entrada: 1000 })];
+    const lotesDia: LoteDiaKgInput[] = [{ lote_codigo: "26050101", kg_peso_total: 990, part_id: "p1" }];
+    const partes: ParteMermaInput[] = [{ part_id: "p1", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0 }];
+    const [resultado] = computeMermaLotes(entradas, lotesDia, [], partes);
+    expect(resultado.podridoBateasKg).toBeNull();
+  });
+
+  it("las bateas NO alteran la conservación del desglose (natural estimada + pre-calibrador = merma medida): son la parte medida, no un sumando nuevo", () => {
+    const entradas = [entrada({ lote: "26050101", kg_entrada: 10000, fecha: "2026-05-01" })];
+    const lotesDia: LoteDiaKgInput[] = [{ lote_codigo: "26050101", kg_peso_total: 9700, part_id: "p1" }];
+    const partes: ParteMermaInput[] = [
+      { part_id: "p1", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0, kg_podrido_bateas: 250, date: "2026-06-20" },
+    ];
+    const [resultado] = computeMermaLotes(entradas, lotesDia, [], partes);
+    expect(resultado.podridoBateasKg).toBeCloseTo(250);
+    const suma = (resultado.mermaNaturalEstimadaKg ?? 0) + (resultado.podridoPreCalibradorKg ?? 0);
+    expect(suma).toBeCloseTo(Math.max(0, resultado.mermaNaturalKg ?? 0));
+  });
+
+  it("cierre 'sin_registro': también las bateas quedan anuladas (null) como el resto de campos de merma", () => {
+    const entradas = [entrada({ lote: "26050101", kg_entrada: 10000, fecha: "2026-05-01", cerrado_at: "2026-07-20T10:00:00Z", cierre_modo: "sin_registro" })];
+    const lotesDia: LoteDiaKgInput[] = [{ lote_codigo: "26050101", kg_peso_total: 5000, part_id: "p1" }];
+    const partes: ParteMermaInput[] = [
+      { part_id: "p1", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0, kg_podrido_bateas: 500, date: "2026-07-22" },
+    ];
+    const [resultado] = computeMermaLotes(entradas, lotesDia, [], partes);
+    expect(resultado.cerradoSinRegistro).toBe(true);
+    expect(resultado.podridoBateasKg).toBeNull();
   });
 });
