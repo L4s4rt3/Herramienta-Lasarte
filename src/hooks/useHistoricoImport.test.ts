@@ -125,6 +125,7 @@ function informe(overrides: Partial<InformeLote> & { loteCodigo: string; fechaCo
     productorNombre: "INVERMARMELO",
     productorCodigo: "71",
     variedad: "VALENCIA DELTA",
+    horaComienzo: null,
     toneladasHora: null,
     pesoFrutaPromedioG: null,
     duracionLoteMin: null,
@@ -191,6 +192,38 @@ describe("planImportInformesLote — dedup por (fecha, lote) e independencia cla
     expect(plan.items[1]).toMatchObject({ insertaClasificacion: false, reparaLotesDia: false });
     expect(plan.nClasificacionesNuevas).toBe(1);
     expect(plan.kgReparados).toBeCloseTo(10.7);
+  });
+
+  it("caso real 25/26: DOS pasadas del mismo lote el MISMO día con HORAS distintas son informes distintos — ambas se importan", () => {
+    // 25101601: arranque en falso a las 05:43 (20 s) y pasada real a las
+    // 05:47 el 24-oct — con el dedup por (fecha, clave) la segunda se perdía.
+    const plan = planImportInformesLote(
+      [
+        archivo("25101601.xlsx", informe({ loteCodigo: "25101601", fechaComienzo: "2025-10-24", horaComienzo: "05:43", kgTotal: 262 })),
+        archivo("25101601 OTRO.xlsx", informe({ loteCodigo: "25101601", fechaComienzo: "2025-10-24", horaComienzo: "05:47", kgTotal: 12093 })),
+      ],
+      new Map(), new Map(),
+    );
+    expect(plan.items[0]).toMatchObject({ insertaClasificacion: true, reparaLotesDia: true });
+    expect(plan.items[1]).toMatchObject({ insertaClasificacion: true, reparaLotesDia: true });
+    expect(plan.nClasificacionesNuevas).toBe(2);
+    expect(plan.kgReparados).toBeCloseTo(262 + 12093);
+  });
+
+  it("misma (fecha, lote, hora) repetida en la tanda: sigue siendo un duplicado (se salta el segundo)", () => {
+    const inf = informe({ loteCodigo: "25101601", fechaComienzo: "2025-10-24", horaComienzo: "05:47" });
+    const plan = planImportInformesLote([archivo("a.xlsx", inf), archivo("a (2).xlsx", inf)], new Map(), new Map());
+    expect(plan.nClasificacionesNuevas).toBe(1);
+    expect(plan.nYaTenianInforme).toBe(1);
+  });
+
+  it("(fecha, lote) ya cubierto en BD: se salta aunque la hora sea distinta (la BD no guarda hora — documentado)", () => {
+    const plan = planImportInformesLote(
+      [archivo("a.xlsx", informe({ loteCodigo: "25101601", fechaComienzo: "2025-10-24", horaComienzo: "05:47" }))],
+      mapa([["2025-10-24", ["25101601"]]]),
+      mapa([["2025-10-24", ["25101601"]]]),
+    );
+    expect(plan.items[0]).toMatchObject({ insertaClasificacion: false, reparaLotesDia: false });
   });
 
   it("descarta con motivo los informes sin fecha o sin filas con kg", () => {

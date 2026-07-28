@@ -826,25 +826,31 @@ export interface PlanImportInformesLote {
 /**
  * Decide qué hará el import con cada informe parseado, contra el estado
  * actual de lote_clasificacion y lotes_dia (ambos como fecha→Set<clave>).
- * Función PURA y sin efectos sobre sus argumentos (copia los sets antes de
- * marcar): la preview de la página y la mutación usan EXACTAMENTE esta misma
- * lógica, así que ven la misma unidad de trabajo. Dos informes de la misma
- * (fecha, clave) dentro de la MISMA tanda: el primero decide, el segundo se
- * trata como "ya tenía" (dedup también dentro de la tanda).
+ * Función PURA y sin efectos sobre sus argumentos: la preview de la página y
+ * la mutación usan EXACTAMENTE esta misma lógica, así que ven la misma unidad
+ * de trabajo.
+ *
+ * IDENTIDAD de un informe DENTRO de la tanda = (fecha, clave, hora de
+ * comienzo) — revisión 27-jul-2026: en la campaña 25/26 hay 25 casos reales
+ * de DOS pasadas del MISMO lote el MISMO día con informes distintos (p. ej.
+ * arranque en falso de 20 s a las 05:43 + pasada real a las 05:47, o pasada
+ * de mañana y de tarde); con el dedup anterior por (fecha, clave) la segunda
+ * se perdía. El mismo archivo repetido (misma hora) sí se dedupe. Contra la
+ * BD la cobertura sigue siendo por (fecha, clave) — lote_clasificacion no
+ * guarda la hora — así que reimportar una tanda ya importada se salta entera;
+ * la contrapartida (documentada) es que añadir MÁS TARDE la segunda pasada de
+ * un día ya cubierto requiere borrar antes las filas de ese (fecha, lote).
  */
 export function planImportInformesLote(
   archivos: ArchivoInformeLote[],
   clasificacionPorFecha: Map<string, Set<string>>,
   lotesDiaPorFecha: Map<string, Set<string>>,
 ): PlanImportInformesLote {
-  // Copias locales: el plan no debe mutar la cache de React Query.
-  const clasif = new Map<string, Set<string>>();
-  for (const [f, s] of clasificacionPorFecha) clasif.set(f, new Set(s));
-  const lotes = new Map<string, Set<string>>();
-  for (const [f, s] of lotesDiaPorFecha) lotes.set(f, new Set(s));
-
   const items: PlanInformeLoteItem[] = [];
   const descartados: Array<{ fileName: string; motivo: string }> = [];
+  // Identidades ya aceptadas en ESTA tanda (dedup de archivos repetidos).
+  const identidadesClasif = new Set<string>();
+  const identidadesLotes = new Set<string>();
 
   for (const { fileName, informe } of archivos) {
     if (!informe.fechaComienzo) {
@@ -857,16 +863,15 @@ export function planImportInformesLote(
     }
     const fecha = informe.fechaComienzo;
     const clave = claveLoteDedup(informe.loteCodigo);
+    const identidad = `${fecha}::${clave}::${informe.horaComienzo ?? "sin-hora"}`;
 
-    const setClasif = clasif.get(fecha) ?? new Set<string>();
-    clasif.set(fecha, setClasif);
-    const insertaClasificacion = !setClasif.has(clave);
-    if (insertaClasificacion) setClasif.add(clave);
+    const cubiertaClasifBD = clasificacionPorFecha.get(fecha)?.has(clave) ?? false;
+    const insertaClasificacion = !cubiertaClasifBD && !identidadesClasif.has(identidad);
+    if (insertaClasificacion) identidadesClasif.add(identidad);
 
-    const setLotes = lotes.get(fecha) ?? new Set<string>();
-    lotes.set(fecha, setLotes);
-    const reparaLotesDia = !setLotes.has(clave);
-    if (reparaLotesDia) setLotes.add(clave);
+    const cubiertoLotesBD = lotesDiaPorFecha.get(fecha)?.has(clave) ?? false;
+    const reparaLotesDia = !cubiertoLotesBD && !identidadesLotes.has(identidad);
+    if (reparaLotesDia) identidadesLotes.add(identidad);
 
     items.push({
       fileName,

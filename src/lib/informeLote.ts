@@ -38,10 +38,12 @@
  *     (misma convención que la edge function analizar-lote-excel y que
  *     lote_clasificacion en BD).
  *
- * Un lote puede tener VARIOS informes (pasadas en días distintos, incluidas
- * micro-pasadas de pocos kg): la identidad de un informe es (lote de 8
- * dígitos, fecha de comienzo), NUNCA solo el lote — el dedup del import
- * (useHistoricoImport.ts, planImportInformesLote) se apoya en eso.
+ * Un lote puede tener VARIOS informes — pasadas en días distintos E INCLUSO
+ * en el MISMO día (25 casos reales en la campaña 25/26: arranque en falso de
+ * segundos + pasada real, o pasada de mañana y de tarde): la identidad de un
+ * informe es (lote de 8 dígitos, fecha, HORA de comienzo), NUNCA solo el
+ * lote ni solo (lote, fecha) — el dedup del import (useHistoricoImport.ts,
+ * planImportInformesLote) se apoya en eso.
  *
  * Limitación conocida: en lotes COMPUESTOS ("A+B") normalizarLoteCodigo
  * acredita todo el informe al PRIMER código de 8 dígitos (convención A del
@@ -91,6 +93,14 @@ export interface InformeLote {
   variedad: string | null;
   /** ISO "YYYY-MM-DD" de "Fecha y Hora de Comienzo" (la fecha del PROCESADO de esta pasada). `null` si no se pudo leer. */
   fechaComienzo: string | null;
+  /**
+   * "HH:MM" de "Fecha y Hora de Comienzo". Parte de la IDENTIDAD del informe
+   * junto a (fecha, lote): en la campaña 25/26 hay 25 casos reales de DOS
+   * pasadas del mismo lote el mismo día (p. ej. arranque en falso de 20 s a
+   * las 05:43 y la pasada real a las 05:47) — sin la hora, el dedup del
+   * import se comería la segunda. `null` si la celda no trae hora legible.
+   */
+  horaComienzo: string | null;
   toneladasHora: number | null;
   pesoFrutaPromedioG: number | null;
   /** "Tiempo Lote" (HH:MM:SS) en minutos. */
@@ -154,6 +164,23 @@ export function numeroEsCelda(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * "HH:MM" de una celda de fecha-hora: Date (cellDates:true), serial de Excel
+ * (la fracción del día) o texto con "… HH:MM". `null` si no trae hora.
+ */
+export function horaDesdeCelda(v: unknown): string | null {
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    return `${String(v.getHours()).padStart(2, "0")}:${String(v.getMinutes()).padStart(2, "0")}`;
+  }
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) {
+    const minutosDia = Math.round((v % 1) * 24 * 60);
+    return `${String(Math.floor(minutosDia / 60) % 24).padStart(2, "0")}:${String(minutosDia % 60).padStart(2, "0")}`;
+  }
+  const m = String(v ?? "").match(/(\d{1,2}):(\d{2})/);
+  if (m) return `${m[1].padStart(2, "0")}:${m[2]}`;
+  return null;
+}
+
 /** "HH:MM:SS" (las horas pueden superar 24: "18:30:10") a minutos. */
 export function hhmmssAMinutos(v: unknown): number | null {
   const m = String(v ?? "").trim().match(/^(\d+):(\d{2}):(\d{2})$/);
@@ -175,6 +202,7 @@ export function parseInformeLoteRows(rows: unknown[][]): ParseInformeLoteResult 
   let productorCodigo: string | null = null;
   let variedad: string | null = null;
   let fechaComienzo: string | null = null;
+  let horaComienzo: string | null = null;
   let toneladasHora: number | null = null;
   let pesoFrutaPromedioG: number | null = null;
   let duracionLoteMin: number | null = null;
@@ -202,7 +230,10 @@ export function parseInformeLoteRows(rows: unknown[][]): ParseInformeLoteResult 
     if (comm !== undefined && comm !== null && variedad == null) variedad = String(comm).trim() || null;
 
     const fecha = valorTrasEtiqueta(r, "Fecha y Hora de Comienzo");
-    if (fecha !== undefined && fecha !== null && fechaComienzo == null) fechaComienzo = parseFechaBascula(fecha);
+    if (fecha !== undefined && fecha !== null && fechaComienzo == null) {
+      fechaComienzo = parseFechaBascula(fecha);
+      horaComienzo = horaDesdeCelda(fecha);
+    }
 
     const tph = valorTrasEtiqueta(r, "Toneladas / Hora");
     if (tph !== undefined && tph !== null && toneladasHora == null) toneladasHora = numeroEsCelda(tph);
@@ -363,6 +394,7 @@ export function parseInformeLoteRows(rows: unknown[][]): ParseInformeLoteResult 
       productorCodigo,
       variedad,
       fechaComienzo,
+      horaComienzo,
       toneladasHora,
       pesoFrutaPromedioG,
       duracionLoteMin,
