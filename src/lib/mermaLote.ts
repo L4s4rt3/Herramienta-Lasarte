@@ -885,6 +885,33 @@ export function mermaLotesEnPeriodo(lotes: MermaLote[], desde: string, hasta: st
   return lotes.filter((l) => l.fecha >= desde && l.fecha <= hasta);
 }
 
+/** fecha ISO + n días, sin depender de la zona horaria (aritmética UTC pura). */
+function sumarDiasIso(fecha: string, dias: number): string {
+  const [y, m, d] = fecha.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d + dias));
+  return t.toISOString().slice(0, 10);
+}
+
+/**
+ * Lotes PROCESADOS cuya ÚLTIMA fecha de procesado cae en [desde, hasta]. Es
+ * el filtro correcto para las vistas "de la semana de línea" (p. ej. la carta
+ * de mermas/podrido de Mercadona · Producción): con las cámaras externas un
+ * lote entra en mayo y pasa por línea en julio, así que filtrar por fecha de
+ * ENTRADA (mermaLotesEnPeriodo, el criterio de Económico) contaría la merma
+ * en la semana equivocada. La última fecha de procesado no está en MermaLote
+ * como campo propio, pero es exacta por construcción: fecha de entrada +
+ * diasEnCamara (así se calculó diasEnCamara, ver computeMermaLotes). Los
+ * lotes sin diasEnCamara (sin fecha de parte conocida) no se pueden situar en
+ * el tiempo y quedan fuera — nunca se adivina.
+ */
+export function mermaLotesProcesadosEnPeriodo(lotes: MermaLote[], desde: string, hasta: string): MermaLote[] {
+  return lotes.filter((l) => {
+    if (l.estado !== "procesado" || l.diasEnCamara == null) return false;
+    const fin = sumarDiasIso(l.fecha, l.diasEnCamara);
+    return fin >= desde && fin <= hasta;
+  });
+}
+
 // ─── Ranking por productor (kg o €, según lo pida el consumidor) ────────────
 // La resolución de la CLAVE de agrupación (id del catálogo vía alias, o texto
 // crudo si no hay vínculo) vive en productoresCanonicos.ts (resolveProductorGroupKey)

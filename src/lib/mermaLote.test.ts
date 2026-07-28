@@ -5,6 +5,7 @@ import {
   computeMermaLotes,
   mapPodridoAggToClasificacionInput,
   mermaLotesEnPeriodo,
+  mermaLotesProcesadosEnPeriodo,
   TASA_MERMA_NATURAL_DIA,
   type ClasificacionLoteInput,
   type EntradaLoteInput,
@@ -1144,5 +1145,31 @@ describe("computeMermaLotes — podridoBateasKg (bateas de tría pesadas a diari
     const [resultado] = computeMermaLotes(entradas, lotesDia, [], partes);
     expect(resultado.cerradoSinRegistro).toBe(true);
     expect(resultado.podridoBateasKg).toBeNull();
+  });
+});
+
+// ─── mermaLotesProcesadosEnPeriodo: filtro por última fecha de procesado ────
+
+describe("mermaLotesProcesadosEnPeriodo — vistas de 'semana de línea' (Mercadona · Producción)", () => {
+  it("un lote que entra en mayo y termina línea en julio cuenta en la semana de julio, no en la de mayo (caso real de cámaras externas)", () => {
+    const entradas = [entrada({ lote: "26050508", kg_entrada: 10000, fecha: "2026-05-05" })];
+    const lotesDia: LoteDiaKgInput[] = [{ lote_codigo: "26050508", kg_peso_total: 9800, part_id: "p1" }];
+    const partes: ParteMermaInput[] = [
+      { part_id: "p1", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0, date: "2026-07-23" },
+    ];
+    const lotes = computeMermaLotes(entradas, lotesDia, [], partes);
+    expect(mermaLotesProcesadosEnPeriodo(lotes, "2026-07-20", "2026-07-25")).toHaveLength(1);
+    expect(mermaLotesProcesadosEnPeriodo(lotes, "2026-05-04", "2026-05-10")).toHaveLength(0);
+    // El criterio de Económico (fecha de ENTRADA) es deliberadamente el contrario:
+    expect(mermaLotesEnPeriodo(lotes, "2026-05-04", "2026-05-10")).toHaveLength(1);
+  });
+
+  it("lotes sin fecha de procesado conocida (diasEnCamara null) quedan fuera: no se les puede situar en el tiempo, no se adivina", () => {
+    const entradas = [entrada({ lote: "26050101", kg_entrada: 1000, fecha: "2026-05-01" })];
+    const lotesDia: LoteDiaKgInput[] = [{ lote_codigo: "26050101", kg_peso_total: 990, part_id: "p1" }];
+    const partes: ParteMermaInput[] = [{ part_id: "p1", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0 }];
+    const lotes = computeMermaLotes(entradas, lotesDia, [], partes);
+    expect(lotes[0].estado).toBe("procesado");
+    expect(mermaLotesProcesadosEnPeriodo(lotes, "2020-01-01", "2030-01-01")).toHaveLength(0);
   });
 });

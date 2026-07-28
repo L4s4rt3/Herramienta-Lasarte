@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KPICard } from "@/components/KPICard";
 import { PeriodoFlechas } from "@/components/SelectorPeriodo";
 import { MercadonaLotes, MercadonaProductoresRanking } from "@/components/mercadona/MercadonaLotes";
+import { MermasPodridoMdnaCard } from "@/components/mercadona/MermasPodridoMdnaCard";
 import { useMercadona } from "@/hooks/useMercadona";
 import { useMercadonaAprovechamiento } from "@/hooks/useMercadonaAprovechamiento";
 import {
@@ -221,6 +222,18 @@ export default function MercadonaProduccion() {
                   icon={PackageSearch}
                 />
               </section>
+
+              {/* Merma + podrido (ya real por lote tras el histórico de Informes
+                  LOTE) y aprovechamiento Mercadona, las tres lecturas de la
+                  misma semana (petición del dueño, 2026-07-28). */}
+              <MermasPodridoMdnaCard
+                desde={rango.desde}
+                hasta={rango.hasta}
+                aprovechamientoRealPct={aprovechamiento.realPct}
+                aprovechamientoEstimadoPct={aprovechamiento.estimadoPct}
+                confeccionMdnaPct={mercadona.pct_kg}
+                cargandoAprovechamiento={aprovechamiento.isLoading || cargandoResumen}
+              />
 
               <Card className="glass-accented overflow-hidden">
                 <CardHeader className="pb-2">
