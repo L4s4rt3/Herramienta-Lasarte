@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CamarasExternasCard } from "@/components/CamarasExternasCard";
+import { StockPrecalibradoCard } from "@/components/StockPrecalibradoCard";
 import { CerrarLoteDialog } from "@/components/CerrarLoteDialog";
 import { CerrarLotesEnBloqueDialog } from "@/components/CerrarLotesEnBloqueDialog";
 import { ConciliacionKgPanel } from "@/components/ConciliacionKgPanel";
@@ -658,7 +659,7 @@ interface ImportPreview {
 
 export default function EntradasBascula() {
   const {
-    entradas, stock, procesados, conciliacionKg, movimientosPrecalibrado, derivadosCampoCit, isLoading, error,
+    entradas, entradasPrecalibrado, stock, procesados, conciliacionKg, movimientosPrecalibrado, derivadosCampoCit, isLoading, error,
     importar, importarStock, eliminar, cerrarLote, reabrirLote, cerrarLotesEnBloque, reabrirLotesEnBloque,
   } = useEntradasBascula();
   const { role } = useAuth();
@@ -1251,19 +1252,25 @@ export default function EntradasBascula() {
           {/* ─── Cámaras externas (Guadex/Zamexfruit): dónde está la fruta ── */}
           <CamarasExternasCard senales={senalesCamaraExterna} />
 
+          {/* ─── Stock de precalibrado: siempre visible (regla del dueño 2026-07-28) ── */}
+          <StockPrecalibradoCard
+            reentradas={entradasPrecalibrado.map((e) => ({
+              lote: e.lote,
+              fecha: e.fecha,
+              finca: e.finca,
+              kg_entrada: Number(e.kg_entrada) || 0,
+            }))}
+            procesadosConciliados={conciliacionKg.procesados}
+          />
+
           {(movimientosPrecalibrado.count > 0 || derivadosCampoCit.count > 0) && (
             <div className="space-y-1 px-1">
               {movimientosPrecalibrado.count > 0 && (
                 <p className="text-[11px] text-muted-foreground">
                   Se excluyen {movimientosPrecalibrado.count} movimientos internos de precalibrado
-                  ({formatKg(movimientosPrecalibrado.kg)}) — fruta apartada que vuelve a entrar, no es entrada nueva.
-                  {conciliacionKg.precalibradoPendienteKg > 500 && (
-                    <>
-                      {" "}De ellos, <span className="font-semibold text-foreground tabular-nums">{formatKg(conciliacionKg.precalibradoPendienteKg)}</span>{" "}
-                      reintroducidos aún SIN reprocesar: fruta física en la nave esperando línea (no suma en el stock por
-                      lote porque ya se contó en su lote de origen).
-                    </>
-                  )}
+                  ({formatKg(movimientosPrecalibrado.kg)}) de las entradas — fruta apartada que vuelve a entrar,
+                  no es entrada nueva ni suma en el stock por lote (ya se contó en su lote de origen).
+                  Su detalle, en la carta "Stock de precalibrado" de arriba.
                 </p>
               )}
               {derivadosCampoCit.count > 0 && (

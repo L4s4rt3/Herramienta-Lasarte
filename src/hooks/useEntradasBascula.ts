@@ -458,6 +458,8 @@ export function useEntradasBascula() {
   return {
     entradas,
     stock,
+    /** Re-entradas de PRECALIBRADO (filas completas): alimentan el "Stock de precalibrado" visible (src/lib/stockPrecalibrado.ts) — regla del dueño 2026-07-28: el precalibrado se ve siempre. */
+    entradasPrecalibrado,
     procesados: procesadosQuery.data?.procesados ?? [],
     /** Reparto de kg entre lotes hecho por conciliarKgProcesados (movimientos, cola de revisión, reciclaje, delta por lote) — para auditar y para los avisos de la ficha. */
     conciliacionKg,

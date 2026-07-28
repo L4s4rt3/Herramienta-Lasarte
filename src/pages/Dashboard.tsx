@@ -36,7 +36,7 @@ import { cn } from "@/lib/utils";
 import {
   Truck, Package, TrendingDown, BarChart3,
   Gauge, Droplet, Plus, ShoppingCart,
-  Recycle, Trash2, Warehouse, AlertTriangle, ArrowRight, Clock, Info,
+  Recycle, RotateCcw, Trash2, Warehouse, AlertTriangle, ArrowRight, Clock, Info,
   ClipboardCheck, FileText, Waypoints, Sprout, Brush, History, LayoutDashboard, Send,
   type LucideIcon,
 } from "lucide-react";
@@ -387,7 +387,9 @@ export default function Dashboard() {
   const avgTph = calcularTphOperativa(currentWeekData.produccion, currentWeekData.fechas);
 
   // ─── Fila "Cámara": stock de fruta sin procesar (báscula → cámara) ──────
-  const { stock, isLoading: stockLoading } = useEntradasBascula();
+  // conciliacionKg trae el precalibrado pendiente en nave: visible SIEMPRE
+  // (regla del dueño 2026-07-28), no solo en la pestaña de stock.
+  const { stock, conciliacionKg, isLoading: stockLoading } = useEntradasBascula();
 
   // ─── Fila "Atención": lotes con más podrido de la semana activa (kg, sin €) ─
   // Mismo criterio que "Atención especial" de EntradasBascula.tsx: solo lotes
@@ -534,7 +536,7 @@ export default function Dashboard() {
           {stockLoading ? (
             <Skeleton className="h-28" />
           ) : (
-            <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
               <KPICard
                 label="Stock firme"
                 value={formatKg(stock.kgEnCamaraFirme)}
@@ -543,6 +545,15 @@ export default function Dashboard() {
                 labelInfo="Lotes en cámara (pendientes o parciales) que NO están marcados como probablemente terminados."
                 /* --vivo: KPI principal de este dashboard (dato vivo, ajuste 2026-07-16) */
                 valueClassName="text-vivo"
+              />
+              <KPICard
+                label="Precalibrado en nave"
+                value={formatKg(Math.round(conciliacionKg.precalibradoPendienteKg))}
+                icon={RotateCcw}
+                to="/entradas"
+                accent={conciliacionKg.precalibradoPendienteKg > 500 ? "warning" : "primary"}
+                hint="Reintroducido aún sin re-pasar por línea"
+                labelInfo="Fruta apartada al almacén de precalibrado que ya volvió a entrar por báscula y espera línea. No suma en el stock por lote (ya se contó en su lote de origen); el detalle por almacén está en Entradas → Stock en cámara."
               />
               <KPICard
                 label="Probablemente terminado"
