@@ -116,20 +116,43 @@ export interface ProductorResumen {
   por_dia: Record<string, number>;
 }
 
+/** Identidad de agrupación resuelta para un lote: clave estable + nombre a mostrar. */
+export interface ResolucionProductor {
+  key: string;
+  label: string;
+}
+
 /**
  * Agrega una lista de lotes por productor. Compartida entre el hook (lotes sin
  * filtrar) y la página (lotes filtrados por búsqueda/productor/producto), para
  * que ambos usen exactamente el mismo criterio de cálculo.
+ *
+ * `resolver` (añadido 2026-07-28, unificación de cifras con /productores):
+ * resolución CANÓNICA de la identidad del productor — misma clave de
+ * catálogo/alias que el ranking de Productores.tsx, para que los alias del
+ * calibrador ("INVERMARMELO", "Invermarmelo-FRUBEZAR"…) colapsen en UNA
+ * tarjeta con el mismo kg que el ranking, en vez de contar como productores
+ * distintos. Devolver `null` excluye el lote de la agregación (p. ej. el
+ * precalibrado, que no es un productor — regla del dueño 2026-07-16). Sin
+ * resolver, agrupa por texto crudo (comportamiento original, para tests y
+ * consumidores sin catálogo).
  */
-export function buildProductoresResumen(lotesAll: LoteResumen[]): ProductorResumen[] {
-  const productoresMap = new Map<string, LoteResumen[]>();
+export function buildProductoresResumen(
+  lotesAll: LoteResumen[],
+  resolver?: (lote: LoteResumen) => ResolucionProductor | null,
+): ProductorResumen[] {
+  const productoresMap = new Map<string, { label: string; ls: LoteResumen[] }>();
   for (const l of lotesAll) {
-    const key = l.productor || "Sin productor";
-    if (!productoresMap.has(key)) productoresMap.set(key, []);
-    productoresMap.get(key)!.push(l);
+    const res = resolver
+      ? resolver(l)
+      : { key: l.productor || "Sin productor", label: l.productor || "Sin productor" };
+    if (!res) continue;
+    const grupo = productoresMap.get(res.key) ?? { label: res.label, ls: [] };
+    grupo.ls.push(l);
+    productoresMap.set(res.key, grupo);
   }
-  return Array.from(productoresMap.entries())
-    .map(([productor, ls]) => {
+  return Array.from(productoresMap.values())
+    .map(({ label: productor, ls }) => {
       const conTph = ls.filter((l) => l.toneladas_hora && l.toneladas_hora > 0);
       const minTph = conTph.reduce((s, l) => s + (l.duracion_min ?? 0), 0);
       const tph_promedio = conTph.length > 0

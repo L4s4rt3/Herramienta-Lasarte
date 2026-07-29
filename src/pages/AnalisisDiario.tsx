@@ -23,7 +23,7 @@ import {
 } from "@/hooks/useAnalisisDiario";
 import type { LoteResumen, ProductorResumen } from "@/hooks/useAnalisisDiario";
 import { useProductoresCatalogo } from "@/hooks/useProductoresCatalogo";
-import { resolveProductorGroupKey } from "@/lib/productoresCanonicos";
+import { esProductorPrecalibrado, resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import { DailyListTable } from "@/components/DailyListTable";
 import { MiniKpi } from "@/components/MiniKpi";
 import { AutoWeekFallbackNotice } from "@/components/AutoWeekFallbackNotice";
@@ -253,9 +253,18 @@ export default function AnalisisDiario() {
   };
 
   // Lotes y Productores siempre se recalculan desde los lotes filtrados.
+  // Resolución CANÓNICA (2026-07-28, unificación de cifras): misma identidad
+  // de productor que el ranking de /productores — clave de catálogo/alias con
+  // el nombre canónico, y el precalibrado fuera (no es un productor) — para
+  // que ambas páginas den EXACTAMENTE los mismos kg por productor y periodo.
   const productoresFiltrados = useMemo(
-    () => buildProductoresResumen(filteredLotes),
-    [filteredLotes]
+    () => buildProductoresResumen(filteredLotes, (l) => {
+      if (esProductorPrecalibrado(l.productor)) return null;
+      const { key, productorId } = resolveProductorGroupKey(l.productor, l.productor_id ?? null, aliasPorNombreNormalizado);
+      const label = (productorId ? nombrePorProductorId.get(productorId) : null) ?? (l.productor || "Sin productor");
+      return { key, label };
+    }),
+    [filteredLotes, aliasPorNombreNormalizado, nombrePorProductorId]
   );
   const kgFiltrado = useMemo(
     () => filteredLotes.reduce((s, l) => s + l.kg_peso_total, 0),

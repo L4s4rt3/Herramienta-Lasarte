@@ -31,7 +31,7 @@ import {
 import { useMermaLotes } from "@/hooks/useMermaLote";
 import { useEntradasBascula } from "@/hooks/useEntradasBascula";
 import { useCalidadReferencias, type CalidadReferenciaRow } from "@/hooks/useCalidadReferencias";
-import { mermaLotesEnPeriodo, type MermaLotesAgregado } from "@/lib/mermaLote";
+import { mermaLotesEnPeriodo, pctPerdidaTotalDeAgregado, type MermaLotesAgregado } from "@/lib/mermaLote";
 import { agregarMermaPorProductor, type ItemMermaAgrupable } from "@/lib/mermaPorProductor";
 import { resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import { buildInformeProductoresFincas, type FincaInforme } from "@/lib/informeProductoresFincas";
@@ -111,7 +111,7 @@ function formatDateShort(iso: string): string {
 
 // ─── Sort helpers (ColHead/SortIcon compartidos: src/components/SortableColumn.tsx) ──
 
-type SortKey = "productor" | "kg" | "lotes" | "tph" | "lentos" | "peso" | "industria_pct" | "export_pct" | "mercadona_pct" | "ultimo_dia";
+type SortKey = "productor" | "kg" | "lotes" | "tph" | "lentos" | "peso" | "industria_pct" | "export_pct" | "mercadona_pct" | "perdida_pct" | "ultimo_dia";
 type SortDir = "asc" | "desc";
 
 // ─── Mini-métrica con delta (para el detalle del productor) ─────────────────
@@ -238,6 +238,19 @@ export default function Productores() {
     });
     return agregarMermaPorProductor(items);
   }, [mermaLotesPeriodo, entradaPorLote, aliasPorNombreNormalizado]);
+
+  // % de pérdida por clave canónica para la columna "% Pérdida" del ranking
+  // (movida aquí desde el ranking "Pérdida por agricultor" de /entradas,
+  // reordenación 2026-07-28: el eje QUIÉN vive en esta página). Fórmula única
+  // pctPerdidaTotalDeAgregado — la misma de la ficha y de PerdidaFrutaCard.
+  const pctPerdidaPorKey = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const [key, agregado] of mermaAgregadoPorProductor) {
+      const pct = pctPerdidaTotalDeAgregado(agregado);
+      if (pct != null) map.set(key, pct);
+    }
+    return map;
+  }, [mermaAgregadoPorProductor]);
 
   // ─── Podrido real de referencia (informe del calibrador) por productor ────
   // Agrupado por variedad (a diferencia del simulador de EconomicoFruta.tsx,
@@ -391,13 +404,14 @@ export default function Productores() {
         case "industria_pct": va = a.pct_industria; vb = b.pct_industria; break;
         case "export_pct":    va = a.aprovechamiento?.pct_exportacion ?? -1; vb = b.aprovechamiento?.pct_exportacion ?? -1; break;
         case "mercadona_pct": va = a.aprovechamientoMercadonaPct; vb = b.aprovechamientoMercadonaPct; break;
+        case "perdida_pct":   va = pctPerdidaPorKey.get(a.productorKey) ?? -1; vb = pctPerdidaPorKey.get(b.productorKey) ?? -1; break;
         case "ultimo_dia":    va = a.ultimo_dia ?? ""; vb = b.ultimo_dia ?? ""; break;
         default:              va = a.kg_total; vb = b.kg_total;
       }
       const cmp = va < vb ? -1 : va > vb ? 1 : 0;
       return sortDir === "asc" ? cmp : -cmp;
     });
-  }, [data.productores, sortKey, sortDir]);
+  }, [data.productores, sortKey, sortDir, pctPerdidaPorKey]);
 
   // Búsqueda sobre el ranking (nombre de productor o producto).
   const searchLower = normalizarTexto(search).trim();
@@ -612,6 +626,7 @@ export default function Productores() {
             <RankingTable
               productores={filtered}
               kgTotalPeriodo={kgTotalPeriodo}
+              pctPerdidaPorKey={pctPerdidaPorKey}
               sortKey={sortKey}
               sortDir={sortDir}
               onToggleSort={toggleSort}
@@ -674,9 +689,17 @@ export default function Productores() {
 
 // ─── Ranking (tabla ordenable densa + tarjetas móvil) ───────────────────────
 
-function RankingTable({ productores, kgTotalPeriodo, sortKey, sortDir, onToggleSort, onSelect }: {
+/** Tono del % de pérdida: mismos umbrales que la tira de ficha del dossier (>8 rojo, >4 ámbar). */
+function perdidaClass(pct: number | null): string {
+  if (pct == null) return "text-muted-foreground";
+  return pct > 8 ? "text-destructive" : pct > 4 ? "text-warning" : "text-success";
+}
+
+function RankingTable({ productores, kgTotalPeriodo, pctPerdidaPorKey, sortKey, sortDir, onToggleSort, onSelect }: {
   productores: ProductorDossier[];
   kgTotalPeriodo: number;
+  /** % de pérdida (merma + podrido) por clave canónica del productor en el periodo — ver pctPerdidaTotalDeAgregado. */
+  pctPerdidaPorKey: Map<string, number>;
   sortKey: SortKey;
   sortDir: SortDir;
   onToggleSort: (k: SortKey) => void;
@@ -728,6 +751,15 @@ function RankingTable({ productores, kgTotalPeriodo, sortKey, sortDir, onToggleS
                   onToggle={onToggleSort}
                   right
                   info={MERCADONA_APROVECHAMIENTO_INFO}
+                />
+                <ColHead
+                  label="% Pérdida"
+                  sk="perdida_pct"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onToggle={onToggleSort}
+                  right
+                  info="Merma natural + podrido (calibrador y manual) sobre los kg de entrada de los lotes de báscula del productor en el periodo. Solo lotes procesados al completo; sin lotes de báscula vinculados no hay dato. Detalle en el dossier → Resumen."
                 />
                 <th className="whitespace-nowrap">Calidad</th>
                 <ColHead label="Últ. día"  sk="ultimo_dia"    sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} right />
@@ -795,6 +827,9 @@ function RankingTable({ productores, kgTotalPeriodo, sortKey, sortDir, onToggleS
                     <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-primary">
                       {formatPct(p.aprovechamientoMercadonaPct)}
                     </td>
+                    <td className={cn("px-3 py-1.5 text-right tabular-nums font-semibold", perdidaClass(pctPerdidaPorKey.get(p.productorKey) ?? null))}>
+                      {pctPerdidaPorKey.has(p.productorKey) ? formatPct(pctPerdidaPorKey.get(p.productorKey)!) : "—"}
+                    </td>
                     <td className="px-3 py-1.5">
                       {dominante ? (
                         <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0", QUALITY_STYLE[dominante])}>{dominante}</Badge>
@@ -837,6 +872,11 @@ function RankingTable({ productores, kgTotalPeriodo, sortKey, sortDir, onToggleS
                   <MobileField label="Industria" value={p.pct_industria > 0 ? `${p.pct_industria.toFixed(1)}%` : "—"} valueClass={pctIndustriaClass(p.pct_industria)} />
                   <MobileField label="% Export" value={p.aprovechamiento ? `${p.aprovechamiento.pct_exportacion.toFixed(1)}%` : "—"} valueClass="text-success" />
                   <MobileField label="Aprov. Mercadona" value={formatPct(p.aprovechamientoMercadonaPct)} valueClass="text-primary" />
+                  <MobileField
+                    label="% Pérdida"
+                    value={pctPerdidaPorKey.has(p.productorKey) ? formatPct(pctPerdidaPorKey.get(p.productorKey)!) : "—"}
+                    valueClass={perdidaClass(pctPerdidaPorKey.get(p.productorKey) ?? null)}
+                  />
                   {dominante && <MobileField label="Calidad" value={dominante} />}
                 </div>
               </div>
@@ -1080,14 +1120,9 @@ function ProductorDetalle({
   const pctDelPeriodo = kgTotalPeriodo > 0 ? (dossier.kg_total / kgTotalPeriodo) * 100 : 0;
 
   // % pérdida total (merma natural + podrido) del productor en el periodo:
-  // MISMA fórmula que PerdidaFrutaCard más abajo, reusada aquí solo para la
-  // tira de ficha compacta (FASE 5, jul 2026) — no es un cálculo nuevo.
-  const pctPerdidaTotal = useMemo(() => {
-    if (!mermaAgregado || mermaAgregado.kgEntradaProcesados <= 0) return null;
-    const podridoTotalKg = mermaAgregado.kgPodridoCalibradorReal + mermaAgregado.kgPodridoCalibradorEstimado + mermaAgregado.kgPodridoManualEstimado;
-    const naturalKg = Math.max(0, mermaAgregado.kgMermaNaturalTotal);
-    return ((naturalKg + podridoTotalKg) / mermaAgregado.kgEntradaProcesados) * 100;
-  }, [mermaAgregado]);
+  // fórmula ÚNICA compartida con PerdidaFrutaCard y la columna del ranking
+  // (pctPerdidaTotalDeAgregado, unificación 2026-07-28).
+  const pctPerdidaTotal = useMemo(() => pctPerdidaTotalDeAgregado(mermaAgregado), [mermaAgregado]);
 
   const deltaTph = dossier.tph_promedio !== null && medias.tph_media !== null
     ? dossier.tph_promedio - medias.tph_media
@@ -1413,7 +1448,7 @@ function PerdidaFrutaCard({ agregado }: { agregado: MermaLotesAgregado | null })
     : 0;
   const naturalKg = agregado ? Math.max(0, agregado.kgMermaNaturalTotal) : 0;
   const kgEntrada = agregado?.kgEntradaProcesados ?? 0;
-  const pctPerdidaTotal = agregado && kgEntrada > 0 ? ((naturalKg + podridoTotalKg) / kgEntrada) * 100 : null;
+  const pctPerdidaTotal = pctPerdidaTotalDeAgregado(agregado); // fórmula única (2026-07-28)
   const pctNatural = agregado && kgEntrada > 0 ? (naturalKg / kgEntrada) * 100 : null;
   const pctPodrido = agregado && kgEntrada > 0 ? (podridoTotalKg / kgEntrada) * 100 : null;
 

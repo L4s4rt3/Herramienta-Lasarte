@@ -871,6 +871,32 @@ export function agregarMermaLotes(lotes: MermaLote[]): MermaLotesAgregado {
   };
 }
 
+/**
+ * Explicación CANÓNICA del "podrido pre-calibrador" para tooltips de la UI
+ * (única fuente, 2026-07-28: antes vivía copiada en EntradasBascula y
+ * TrazabilidadLote y ya habían divergido — una mencionaba las bateas y la
+ * otra no).
+ */
+export const INFO_PODRIDO_PRE_CALIBRADOR =
+  "Podrido retirado en la tría, antes de pasar por el calibrador. Sin medición de bateas es una asunción (merma medida − merma natural); con bateas pesadas (desde el 22-jul-2026) se muestra además el dato medido, prorrateado entre los lotes del día.";
+
+/**
+ * % de pérdida total (merma natural clampada + podrido de calibrador real y
+ * estimado + podrido manual) sobre los kg de entrada de los lotes procesados
+ * de un agregado. Fórmula ÚNICA (2026-07-28) compartida por la tira de ficha
+ * del dossier, PerdidaFrutaCard y la columna "% Pérdida" del ranking de
+ * /productores — antes vivía copiada a mano en cada sitio. `null` si el
+ * agregado no tiene lotes procesados. El podrido manual entra en este %
+ * INFORMATIVO (misma decisión que PerdidaFrutaCard, jul-2026) aunque en € no
+ * se sume aparte (ya vive dentro de la merma medida).
+ */
+export function pctPerdidaTotalDeAgregado(agregado: MermaLotesAgregado | null): number | null {
+  if (!agregado || agregado.kgEntradaProcesados <= 0) return null;
+  const podridoTotalKg = agregado.kgPodridoCalibradorReal + agregado.kgPodridoCalibradorEstimado + agregado.kgPodridoManualEstimado;
+  const naturalKg = Math.max(0, agregado.kgMermaNaturalTotal);
+  return ((naturalKg + podridoTotalKg) / agregado.kgEntradaProcesados) * 100;
+}
+
 // ─── Filtro por periodo (para Económico: € solo tienen sentido acotados a un rango) ─
 
 /**

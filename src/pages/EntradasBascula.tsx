@@ -50,12 +50,7 @@ import {
 } from "@/lib/entradasBascula";
 import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatKgCompact as formatKg, formatNumber, formatPct, normalizarTexto } from "@/lib/format";
-import {
-  agruparPerdidaPorProductor,
-  TASA_MERMA_NATURAL_DIA,
-  type ItemPerdidaProductor,
-  type MermaLote,
-} from "@/lib/mermaLote";
+import { INFO_PODRIDO_PRE_CALIBRADOR, TASA_MERMA_NATURAL_DIA, type MermaLote } from "@/lib/mermaLote";
 import { exportarMermasProductores, type FilaMermaExport } from "@/lib/exportMermasProductores";
 import { casarMermaCamara, parseMermaCamaraRows } from "@/lib/mermaCamaraImport";
 import type { SenalesRecepcion } from "@/lib/camarasExternas";
@@ -180,36 +175,6 @@ function RankingLoteRow({ lote, valorLabel }: { lote: string; valorLabel: string
       <Badge variant="outline" className="border-destructive/40 bg-destructive/10 px-1.5 py-0 text-[11px] font-semibold text-destructive">
         {valorLabel}
       </Badge>
-    </Link>
-  );
-}
-
-/** Fila de un mini-ranking de agricultor: mismo patrón visual que RankingLoteRow (flecha + hover), pero enlaza a su ficha en /productores y añade una línea de detalle (kg entrados y nº de lotes). Si el nombre es el placeholder "Sin agricultor" (lote sin agricultor asignado) no enlaza: no hay ficha real que abrir. */
-function RankingAgricultorRow({ productor, valorLabel, detalle }: { productor: string; valorLabel: string; detalle: string }) {
-  const esReal = productor !== "Sin agricultor";
-  const contenido = (
-    <>
-      <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex min-w-0 items-center gap-1 font-medium">
-          <span className="truncate">{productor}</span>
-          {esReal && <ArrowRight className="h-3 w-3 shrink-0 opacity-40" />}
-        </span>
-        <Badge variant="outline" className="shrink-0 border-destructive/40 bg-destructive/10 px-1.5 py-0 text-[11px] font-semibold text-destructive">
-          {valorLabel}
-        </Badge>
-      </div>
-      <p className="mt-0.5 text-[11px] text-muted-foreground">{detalle}</p>
-    </>
-  );
-  if (!esReal) {
-    return <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-sm">{contenido}</div>;
-  }
-  return (
-    <Link
-      to={`/productores?productor=${encodeURIComponent(productor)}`}
-      className="block rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-sm transition-colors hover:bg-[var(--glass-bg-strong)]"
-    >
-      {contenido}
     </Link>
   );
 }
@@ -372,26 +337,10 @@ function MermasCosteTab() {
     }
   };
 
-  const topAgricultor = useMemo(() => {
-    const items: ItemPerdidaProductor[] = procesados.map((l) => {
-      const fila = entradaPorLote.get(l.lote);
-      const agricultor = fila?.agricultor ?? null;
-      // entradas_bascula.productor_id existe en BD (migración productores_canonicos)
-      // pero aún no está en los tipos generados de Supabase; mismo cast puntual
-      // que useTrazabilidadLote.ts.
-      const productorIdDirecto = (fila as { productor_id?: string | null } | undefined)?.productor_id ?? null;
-      const { key, productorId } = resolveProductorGroupKey(agricultor ?? "", productorIdDirecto, aliasPorNombreNormalizado);
-      const label = (productorId ? nombrePorProductorId.get(productorId) : null) ?? agricultor ?? "Sin agricultor";
-      // merma medida (incluye cámara + podrido manual pre-calibrador) + podrido
-      // del calibrador: cada kg una sola vez (modelo del dueño, 21-jul-2026).
-      const kgPerdido = Math.max(0, l.mermaNaturalKg ?? 0) + (l.podridoCalibradorKg ?? 0);
-      return { productorKey: key, productorLabel: label, kgEntrada: l.kgEntrada, kgPerdido, eurPerdido: null };
-    });
-    return agruparPerdidaPorProductor(items)
-      .filter((r) => r.kgPerdido > 0)
-      .sort((a, b) => b.kgPerdido - a.kgPerdido)
-      .slice(0, 5);
-  }, [procesados, entradaPorLote, aliasPorNombreNormalizado, nombrePorProductorId]);
+  // El ranking "Pérdida por agricultor" que vivía aquí se MUDÓ a /productores
+  // como columna "% Pérdida" del ranking (reordenación 2026-07-28: esta página
+  // es eje fruta/lote; el eje QUIÉN vive en Productores). Queda el enlace en
+  // la sección "Atención especial".
 
   if (isLoading) {
     return (
@@ -527,16 +476,25 @@ function MermasCosteTab() {
           <RankingCard titulo="Más % merma" icon={Percent} vacio={topMermaPct.length === 0}>
             {topMermaPct.map((r) => <RankingLoteRow key={r.lote} lote={r.lote} valorLabel={formatPct(r.pct)} />)}
           </RankingCard>
-          <RankingCard titulo="Pérdida por agricultor" icon={Users} vacio={topAgricultor.length === 0}>
-            {topAgricultor.map((r) => (
-              <RankingAgricultorRow
-                key={r.key}
-                productor={r.label}
-                valorLabel={formatKg(r.kgPerdido)}
-                detalle={`${formatKg(r.kgEntrada)} entrados · ${r.nLotes} lote${r.nLotes === 1 ? "" : "s"}`}
-              />
-            ))}
-          </RankingCard>
+          {/* La pérdida POR PRODUCTOR vive en /productores (columna "% Pérdida"
+              del ranking, mudada allí el 2026-07-28): esta página es eje
+              fruta/lote y solo enlaza. */}
+          <Card className="glass-accented">
+            <CardContent className="flex h-full flex-col justify-between gap-2 p-3.5">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                <Users className="h-3.5 w-3.5" /> Pérdida por productor
+              </div>
+              <p className="text-xs text-muted-foreground">
+                El ranking por productor (merma + podrido del periodo, ordenable) está en su sección.
+              </p>
+              <Link
+                to="/productores"
+                className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+              >
+                Ver en Productores <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
@@ -554,7 +512,7 @@ function MermasCosteTab() {
                   <SortableTableHead label="Días" sk="dias" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
                   <SortableTableHead label="Merma" sk="merma_kg" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
                   <SortableTableHead label="Merma %" sk="merma_pct" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
-                  <SortableTableHead label="Podrido pre-calib." sk="podrido_pre" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} info="Podrido de fruta apartada en los almacenes de precalibrado, antes de pasar por el calibrador de la central: estimado por prorrateo del parte, no un peso medido lote a lote." />
+                  <SortableTableHead label="Podrido pre-calib." sk="podrido_pre" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} info={INFO_PODRIDO_PRE_CALIBRADOR} />
                   <SortableTableHead label="Podrido cal." sk="podrido_cal" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
                   <SortableTableHead label="Podrido man." sk="podrido_man" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
                 </TableRow>

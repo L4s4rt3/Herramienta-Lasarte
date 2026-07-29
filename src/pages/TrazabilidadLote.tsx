@@ -50,7 +50,7 @@ import {
 } from "@/lib/entradasBascula";
 import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatKgCompact as formatKg, formatNumber, formatPct, today } from "@/lib/format";
-import { TASA_MERMA_NATURAL_DIA, type MermaLote } from "@/lib/mermaLote";
+import { INFO_PODRIDO_PRE_CALIBRADOR, TASA_MERMA_NATURAL_DIA, type MermaLote } from "@/lib/mermaLote";
 import { interpretarCodigoLote, type MotivoIncoherenciaExpedicion } from "@/lib/origenConfeccion";
 import type { OrigenConfeccionLote } from "@/hooks/useTrazabilidadLote";
 import { productorNoCoincide } from "@/lib/productoresCanonicos";
@@ -1502,7 +1502,7 @@ function MermasYPerdidasCard({ lote }: { lote: string }) {
                 )}>
                   {podridoPreCalibradorDestacado(merma) && <AlertTriangle className="h-3 w-3 shrink-0" />}
                   Podrido pre-calibrador:{" "}
-                  <InfoTooltip iconClassName="h-3 w-3">Podrido retirado en la tría antes de pasar por el calibrador. Sin medición de bateas es una asunción (merma medida − natural); con bateas pesadas (desde el 22-jul-2026) se muestra además el dato medido, prorrateado por día.</InfoTooltip>
+                  <InfoTooltip iconClassName="h-3 w-3">{INFO_PODRIDO_PRE_CALIBRADOR}</InfoTooltip>
                   <span className="tabular-nums">{formatKg(merma.podridoPreCalibradorKg ?? 0)}</span>
                   <FuenteBadge fuente="asumido" />
                 </p>
