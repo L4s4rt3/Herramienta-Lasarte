@@ -1527,13 +1527,6 @@ function MermasYPerdidasCard({ lote }: { lote: string }) {
                   <span className="tabular-nums">{formatKg(merma.podridoPreCalibradorKg ?? 0)}</span>
                   <FuenteBadge fuente="asumido" />
                 </p>
-                {merma.podridoBateasKg != null && (
-                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    De ellos, medidos en bateas (pesada diaria de la tría):{" "}
-                    <span className="font-semibold text-foreground tabular-nums">{formatKg(merma.podridoBateasKg)}</span>
-                    <FuenteBadge fuente="estimado" title="Pesada diaria real de las bateas, repartida entre los lotes del día por prorrateo de kg." />
-                  </p>
-                )}
               </div>
             ) : null}
           </div>

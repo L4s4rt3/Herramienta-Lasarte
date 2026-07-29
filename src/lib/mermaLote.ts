@@ -284,18 +284,17 @@ export interface ParteMermaInput {
   part_id: string;
   kg_podrido_calibrador_auto: number | null;
   kg_podrido_bolsa_basura: number | null;
-  /**
-   * Kg de podrido pesado en las BATEAS de la tría PRE-calibrador (medición
-   * diaria desde el 22-jul-2026; confirmado por el dueño que se llenan ANTES
-   * del calibrador). NULL = sin medición ese día (todo el histórico anterior),
-   * no un 0. OJO: este podrido ya vive DENTRO de la merma medida
-   * (entrada − calibrador), así que NO es un sumando nuevo de pérdida — solo
-   * convierte en MEDIDO parte del "podrido pre-calibrador (asumido)".
-   */
-  kg_podrido_bateas?: number | null;
   /** Fecha del parte (partes_diarios.date), para diasEnCamara (última fecha de procesado del lote). Opcional: si falta, diasEnCamara queda null para los lotes cuyo procesado pase por este parte. */
   date?: string | null;
 }
+// NOTA sobre partes_diarios.kg_podrido_bateas (corrección del dueño,
+// 2026-07-29): la batea NO es de un solo día — se va llenando VARIOS días y
+// se pesa al vaciarla, así que su kg pertenece a todos los lotes desde el
+// vaciado anterior y NO se puede prorratear por día/lote (la primera versión
+// lo prorrateaba como el podrido manual y se retiró aquí mismo). La única
+// estimación por lote del podrido pre-calibrador sigue siendo la de siempre:
+// entrada − merma natural − procesado (podridoPreCalibradorKg). La pesada de
+// bateas queda como dato del PARTE del día del vaciado: contraste agregado.
 
 // ─── Resultado por lote ──────────────────────────────────────────────────────
 
@@ -352,15 +351,6 @@ export interface MermaLote {
    * mermaNaturalEstimadaKg.
    */
   podridoPreCalibradorKg: number | null;
-  /**
-   * Podrido MEDIDO en las bateas de la tría pre-calibrador, prorrateado a
-   * este lote por su cuota de kg en cada parte con dato (misma cuota que el
-   * podrido manual). Es la parte MEDIDA de `podridoPreCalibradorKg` — ya vive
-   * dentro de la merma medida, así que NO se suma a ninguna pérdida ni rompe
-   * la invariante de conservación. `null` si ningún parte que tocó el lote
-   * traía dato de bateas (todo el histórico anterior al 22-jul-2026).
-   */
-  podridoBateasKg: number | null;
   /** true si el componente "natural" del desglose es la merma REAL de cámara registrada (no la estimación tasa × días): la ficha lo etiqueta "real" en vez de "≈ estimado". */
   mermaCamaraReal: boolean;
   /** costePorKg × podridoPreCalibradorKg. `null` si sinCoste o podridoPreCalibradorKg es null. */
@@ -458,12 +448,10 @@ export function computeMermaLotes(
   //         más abajo) — nunca se trata el null como 0. ---
   const podridoAutoProrrateoPorLote = new Map<string, number>(); // solo partes con dato
   const podridoManualProrrateoPorLote = new Map<string, number>(); // solo partes con dato
-  const podridoBateasProrrateoPorLote = new Map<string, number>(); // solo partes con dato (medición desde 22-jul-2026)
   const loteConAutoDesconocido = new Set<string>();
   const loteConAutoConocido = new Set<string>();
   const loteConManualDesconocido = new Set<string>();
   const loteConManualConocido = new Set<string>();
-  const loteConBateasConocido = new Set<string>();
 
   for (const [partId, mapaParte] of kgLotePorParte) {
     const denom = totalKgPorParte.get(partId) ?? 0;
@@ -471,7 +459,6 @@ export function computeMermaLotes(
     const parte = partePorId.get(partId);
     const autoRaw = parte?.kg_podrido_calibrador_auto;
     const manualRaw = parte?.kg_podrido_bolsa_basura;
-    const bateasRaw = parte?.kg_podrido_bateas;
     for (const [lote, kg] of mapaParte) {
       const cuota = kg / denom;
       if (autoRaw == null) {
@@ -485,14 +472,6 @@ export function computeMermaLotes(
       } else {
         loteConManualConocido.add(lote);
         podridoManualProrrateoPorLote.set(lote, (podridoManualProrrateoPorLote.get(lote) ?? 0) + Number(manualRaw) * cuota);
-      }
-      // Bateas: sin set de "desconocido" — la medición existe solo desde el
-      // 22-jul-2026 y que un parte no la traiga es lo normal, no una pérdida
-      // de información que marcar. El lote expone `null` si NINGÚN parte suyo
-      // trajo dato (ver abajo).
-      if (bateasRaw != null) {
-        loteConBateasConocido.add(lote);
-        podridoBateasProrrateoPorLote.set(lote, (podridoBateasProrrateoPorLote.get(lote) ?? 0) + Number(bateasRaw) * cuota);
       }
     }
   }
@@ -589,12 +568,6 @@ export function computeMermaLotes(
         ? "desconocido"
         : "prorrateo";
     const podridoManualKg: number | null = manualTotalmenteDesconocido ? null : (podridoManualProrrateoPorLote.get(lote) ?? 0);
-    // Bateas medidas (pre-calibrador): null = ningún parte del lote con dato
-    // (histórico anterior a la medición), no un 0. Es la parte MEDIDA de
-    // podridoPreCalibradorKg: informativo, jamás se suma a pérdidas.
-    const podridoBateasKg: number | null = loteConBateasConocido.has(lote)
-      ? (podridoBateasProrrateoPorLote.get(lote) ?? 0)
-      : null;
 
     // Mezcla parcial (algunos partes del lote con dato, otros sin él): la
     // cifra ya solo suma lo conocido, pero hay que dejar constancia de que
@@ -666,7 +639,6 @@ export function computeMermaLotes(
         mermaNaturalEstimadaKg: null,
         mermaNaturalEstimadaEur: null,
         podridoPreCalibradorKg: null,
-        podridoBateasKg: null,
         mermaCamaraReal: false,
         podridoPreCalibradorEur: null,
         podridoCalibradorKg: null,
@@ -699,7 +671,6 @@ export function computeMermaLotes(
       mermaNaturalEstimadaKg,
       mermaNaturalEstimadaEur,
       podridoPreCalibradorKg,
-      podridoBateasKg,
       mermaCamaraReal: mermaCamaraReal != null,
       podridoPreCalibradorEur,
       podridoCalibradorKg,
@@ -878,7 +849,7 @@ export function agregarMermaLotes(lotes: MermaLote[]): MermaLotesAgregado {
  * otra no).
  */
 export const INFO_PODRIDO_PRE_CALIBRADOR =
-  "Podrido retirado en la tría, antes de pasar por el calibrador. Sin medición de bateas es una asunción (merma medida − merma natural); con bateas pesadas (desde el 22-jul-2026) se muestra además el dato medido, prorrateado entre los lotes del día.";
+  "Podrido retirado en la tría, antes de pasar por el calibrador. Por lote es SIEMPRE una estimación a partir de los pesos (entrada − merma natural − procesado): las bateas donde se tira se llenan durante varios días y se pesan al vaciarlas, así que su pesada no se puede repartir por lote — queda como contraste agregado en el parte del día del vaciado.";
 
 /**
  * % de pérdida total (merma natural clampada + podrido de calibrador real y

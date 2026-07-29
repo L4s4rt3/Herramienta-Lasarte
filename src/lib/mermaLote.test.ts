@@ -1096,58 +1096,11 @@ describe("mapPodridoAggToClasificacionInput", () => {
   });
 });
 
-// ─── podridoBateasKg: medición diaria de bateas pre-calibrador (27-jul-2026) ─
-
-describe("computeMermaLotes — podridoBateasKg (bateas de tría pesadas a diario)", () => {
-  it("prorratea las bateas del parte por cuota de kg, igual que el podrido manual", () => {
-    const entradas = [
-      entrada({ lote: "26050101", kg_entrada: 6000, fecha: "2026-07-01" }),
-      entrada({ lote: "26050102", kg_entrada: 4000, fecha: "2026-07-01" }),
-    ];
-    const lotesDia: LoteDiaKgInput[] = [
-      { lote_codigo: "26050101", kg_peso_total: 6000, part_id: "p1" },
-      { lote_codigo: "26050102", kg_peso_total: 4000, part_id: "p1" },
-    ];
-    const partes: ParteMermaInput[] = [
-      { part_id: "p1", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0, kg_podrido_bateas: 1000, date: "2026-07-22" },
-    ];
-    const res = computeMermaLotes(entradas, lotesDia, [], partes);
-    expect(res.find((l) => l.lote === "26050101")!.podridoBateasKg).toBeCloseTo(600);
-    expect(res.find((l) => l.lote === "26050102")!.podridoBateasKg).toBeCloseTo(400);
-  });
-
-  it("sin dato de bateas en ningún parte del lote → null (histórico anterior a la medición), no 0", () => {
-    const entradas = [entrada({ lote: "26050101", kg_entrada: 1000 })];
-    const lotesDia: LoteDiaKgInput[] = [{ lote_codigo: "26050101", kg_peso_total: 990, part_id: "p1" }];
-    const partes: ParteMermaInput[] = [{ part_id: "p1", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0 }];
-    const [resultado] = computeMermaLotes(entradas, lotesDia, [], partes);
-    expect(resultado.podridoBateasKg).toBeNull();
-  });
-
-  it("las bateas NO alteran la conservación del desglose (natural estimada + pre-calibrador = merma medida): son la parte medida, no un sumando nuevo", () => {
-    const entradas = [entrada({ lote: "26050101", kg_entrada: 10000, fecha: "2026-05-01" })];
-    const lotesDia: LoteDiaKgInput[] = [{ lote_codigo: "26050101", kg_peso_total: 9700, part_id: "p1" }];
-    const partes: ParteMermaInput[] = [
-      { part_id: "p1", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0, kg_podrido_bateas: 250, date: "2026-06-20" },
-    ];
-    const [resultado] = computeMermaLotes(entradas, lotesDia, [], partes);
-    expect(resultado.podridoBateasKg).toBeCloseTo(250);
-    const suma = (resultado.mermaNaturalEstimadaKg ?? 0) + (resultado.podridoPreCalibradorKg ?? 0);
-    expect(suma).toBeCloseTo(Math.max(0, resultado.mermaNaturalKg ?? 0));
-  });
-
-  it("cierre 'sin_registro': también las bateas quedan anuladas (null) como el resto de campos de merma", () => {
-    const entradas = [entrada({ lote: "26050101", kg_entrada: 10000, fecha: "2026-05-01", cerrado_at: "2026-07-20T10:00:00Z", cierre_modo: "sin_registro" })];
-    const lotesDia: LoteDiaKgInput[] = [{ lote_codigo: "26050101", kg_peso_total: 5000, part_id: "p1" }];
-    const partes: ParteMermaInput[] = [
-      { part_id: "p1", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0, kg_podrido_bateas: 500, date: "2026-07-22" },
-    ];
-    const [resultado] = computeMermaLotes(entradas, lotesDia, [], partes);
-    expect(resultado.cerradoSinRegistro).toBe(true);
-    expect(resultado.podridoBateasKg).toBeNull();
-  });
-});
-
+// ─── podridoBateasKg: RETIRADO (corrección del dueño, 2026-07-29) ───────────
+// La batea acumula VARIOS días y se pesa al vaciarla: su kg no es repartible
+// por día/lote, así que el prorrateo por lote que vivió aquí (27-28 jul) se
+// eliminó. La estimación por lote del podrido pre-calibrador es la de
+// siempre: entrada − merma natural − procesado (podridoPreCalibradorKg).
 // ─── mermaLotesProcesadosEnPeriodo: filtro por última fecha de procesado ────
 
 describe("mermaLotesProcesadosEnPeriodo — vistas de 'semana de línea' (Mercadona · Producción)", () => {

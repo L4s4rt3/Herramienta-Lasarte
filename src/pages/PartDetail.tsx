@@ -36,6 +36,7 @@ import {
 } from "@/lib/calidad";
 import { cn } from "@/lib/utils";
 import { PART_DETAIL_MANUAL_FIELDS } from "@/lib/partDetailManualFields";
+import { netoRecicladoZona } from "@/lib/recicladoZonas";
 import { toast } from "@/hooks/use-toast";
 import {
   ArrowLeft, Save, Lock, Unlock, Sparkles, Loader2, BarChart3, MoreHorizontal,
@@ -56,8 +57,15 @@ interface Parte {
   date: string;
   estado: string;
   kg_industria_manual: number;
+  /** NETO de fruta (bruto − box × 30): lo que consume todo lo demás. Derivado al guardar desde el bruto+box por zona (regla del dueño 2026-07-29, ver recicladoZonas.ts). */
   kg_reciclado_malla_z1: number;
   kg_reciclado_malla_z2: number;
+  /** BRUTO del papel por zona (migración 20260729100000). En partes anteriores se precarga con el neto (0 box → guardar sin tocar no cambia nada). */
+  kg_reciclado_malla_z1_bruto: number;
+  kg_reciclado_malla_z2_bruto: number;
+  /** Nº de box de reciclaje por zona. null = sin desglose (parte antiguo), no un 0. */
+  box_reciclaje_z1: number | null;
+  box_reciclaje_z2: number | null;
   kg_inventario_sin_alta: number;
   kg_podrido_bolsa_basura: number;
   /** Podrido pesado en las bateas de la tría PRE-calibrador (migración 20260727120000). null = sin medición ese día (histórico anterior al 22-jul-2026), no un 0. */
@@ -188,7 +196,14 @@ async function buildVisionWeightCrops(files: Archivo[]): Promise<VisionCropPaylo
 // box_reciclaje todavía no está en el Database generado (migración
 // 20260721140000 pendiente de regenerar tipos): se añade a mano, mismo
 // patrón que cerrado_at/cierre_modo en useEntradasBascula.ts.
-type ParteUpdatePayload = TablesUpdate<"partes_diarios"> & { box_reciclaje?: number; kg_podrido_bateas?: number | null };
+type ParteUpdatePayload = TablesUpdate<"partes_diarios"> & {
+  box_reciclaje?: number;
+  kg_podrido_bateas?: number | null;
+  kg_reciclado_malla_z1_bruto?: number;
+  kg_reciclado_malla_z2_bruto?: number;
+  box_reciclaje_z1?: number | null;
+  box_reciclaje_z2?: number | null;
+};
 
 function normalizeParte(raw: Partial<CachedParte> & { id: string; date: string; estado: string }): Parte {
   return {
@@ -198,6 +213,25 @@ function normalizeParte(raw: Partial<CachedParte> & { id: string; date: string; 
     kg_industria_manual: Number(raw.kg_industria_manual) || 0,
     kg_reciclado_malla_z1: Number(raw.kg_reciclado_malla_z1) || 0,
     kg_reciclado_malla_z2: Number(raw.kg_reciclado_malla_z2) || 0,
+    // Bruto por zona: en partes anteriores a la migración 20260729100000 se
+    // precarga con el NETO guardado (y box null → 0 tara): guardar sin tocar
+    // el reciclaje deja los netos exactamente igual.
+    kg_reciclado_malla_z1_bruto: (() => {
+      const v = (raw as { kg_reciclado_malla_z1_bruto?: number | null }).kg_reciclado_malla_z1_bruto;
+      return v == null ? Number(raw.kg_reciclado_malla_z1) || 0 : Number(v) || 0;
+    })(),
+    kg_reciclado_malla_z2_bruto: (() => {
+      const v = (raw as { kg_reciclado_malla_z2_bruto?: number | null }).kg_reciclado_malla_z2_bruto;
+      return v == null ? Number(raw.kg_reciclado_malla_z2) || 0 : Number(v) || 0;
+    })(),
+    box_reciclaje_z1: (() => {
+      const v = (raw as { box_reciclaje_z1?: number | null }).box_reciclaje_z1;
+      return v == null ? null : Number(v) || 0;
+    })(),
+    box_reciclaje_z2: (() => {
+      const v = (raw as { box_reciclaje_z2?: number | null }).box_reciclaje_z2;
+      return v == null ? null : Number(v) || 0;
+    })(),
     kg_inventario_sin_alta: Number(raw.kg_inventario_sin_alta) || 0,
     kg_podrido_bolsa_basura: Number(raw.kg_podrido_bolsa_basura) || 0,
     // null se conserva (sin medición, distinto de 0 medido) — ver mermaLote.ts.
@@ -565,10 +599,23 @@ export default function PartDetail() {
       notas_inventario: parte.notas_inventario,
     };
     PART_DETAIL_MANUAL_FIELDS.forEach((f) => (payload[f.key] = Number(parte[f.key] || 0)));
-    // Bateas: null = "sin medición" y debe SEGUIR siendo null al guardar un
+    // Bateas: null = "sin vaciado" y debe SEGUIR siendo null al guardar un
     // parte antiguo sin tocar ese campo (el forEach lo habría coercido a 0,
     // que el modelo trataría como un 0 MEDIDO). Ver mermaLote.ts.
     payload.kg_podrido_bateas = parte.kg_podrido_bateas == null ? null : Number(parte.kg_podrido_bateas) || 0;
+    // Reciclaje por ZONA (regla del dueño 2026-07-29): el formulario captura
+    // el BRUTO del papel y los box de cada zona; aquí se derivan los NETOS
+    // (bruto − box × 30, fórmula única en recicladoZonas.ts) hacia las
+    // columnas de siempre — las que consume cascada/conciliación/costes.
+    payload.box_reciclaje_z1 = parte.box_reciclaje_z1 == null ? null : Number(parte.box_reciclaje_z1) || 0;
+    payload.box_reciclaje_z2 = parte.box_reciclaje_z2 == null ? null : Number(parte.box_reciclaje_z2) || 0;
+    payload.kg_reciclado_malla_z1 = netoRecicladoZona(Number(parte.kg_reciclado_malla_z1_bruto || 0), payload.box_reciclaje_z1);
+    payload.kg_reciclado_malla_z2 = netoRecicladoZona(Number(parte.kg_reciclado_malla_z2_bruto || 0), payload.box_reciclaje_z2);
+    // El total de box solo se deriva cuando hay desglose por zona; sin él se
+    // conserva el total antiguo del parte (no se pisa con un 0 falso).
+    if (payload.box_reciclaje_z1 != null || payload.box_reciclaje_z2 != null) {
+      payload.box_reciclaje = (payload.box_reciclaje_z1 ?? 0) + (payload.box_reciclaje_z2 ?? 0);
+    }
     if (parte.estado !== "Borrador") {
       const abs = Math.abs(cascade.dsj_pct);
       payload.estado = abs > 3 ? "Con descuadre" : abs >= 1 ? "Analizado" : "Validado";
@@ -577,6 +624,15 @@ export default function PartDetail() {
     // Degradado: si la columna box_reciclaje aún no existe en la BD
     // (migración 20260721140000 sin aplicar), reintenta sin ella para no
     // bloquear el guardado del resto del parte.
+    // Degradado: columnas por zona (migración 20260729100000) sin aplicar —
+    // se guardan igualmente los NETOS derivados y el total de box.
+    if (error && /(kg_reciclado_malla_z[12]_bruto|box_reciclaje_z[12])/.test(error.message)) {
+      delete payload.kg_reciclado_malla_z1_bruto;
+      delete payload.kg_reciclado_malla_z2_bruto;
+      delete payload.box_reciclaje_z1;
+      delete payload.box_reciclaje_z2;
+      ({ error } = await supabase.from("partes_diarios").update(payload as TablesUpdate<"partes_diarios">).eq("id", parte.id));
+    }
     if (error && /box_reciclaje/.test(error.message)) {
       delete payload.box_reciclaje;
       ({ error } = await supabase.from("partes_diarios").update(payload as TablesUpdate<"partes_diarios">).eq("id", parte.id));

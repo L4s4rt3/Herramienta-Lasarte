@@ -26,11 +26,17 @@ interface Parte {
   kg_industria_manual: number;
   kg_reciclado_malla_z1: number;
   kg_reciclado_malla_z2: number;
+  /** Bruto del papel por zona (regla del dueño 2026-07-29): la app deriva el neto = bruto − box × 30 al guardar (recicladoZonas.ts). */
+  kg_reciclado_malla_z1_bruto: number;
+  kg_reciclado_malla_z2_bruto: number;
+  /** Nº de box de reciclaje por zona. null = sin desglose (parte antiguo). */
+  box_reciclaje_z1: number | null;
+  box_reciclaje_z2: number | null;
   kg_inventario_sin_alta: number;
   kg_podrido_bolsa_basura: number;
-  /** Podrido pesado en las bateas de la tría PRE-calibrador (migración 20260727120000). null = sin medición (no un 0), ver mermaLote.ts. */
+  /** Podrido pesado al VACIAR las bateas (acumulan varios días). null = sin vaciado ese día (no un 0), ver mermaLote.ts. */
   kg_podrido_bateas: number | null;
-  /** Nº de box de reciclaje del día (~30 kg/box); la conciliación de kg lo descuenta del procesado (migración 20260721140000). */
+  /** Nº de box de reciclaje del día (total; derivado de z1+z2 cuando hay desglose). */
   box_reciclaje: number;
   kg_produccion_calibrador: number;
   kg_mujeres_calibrador: number;
@@ -127,6 +133,12 @@ export default function PartDetailManual({
     if (fields.kg_industria_manual !== null) update("kg_industria_manual", fields.kg_industria_manual);
     if (fields.kg_reciclado_malla_z1 !== null) update("kg_reciclado_malla_z1", fields.kg_reciclado_malla_z1);
     if (fields.kg_reciclado_malla_z2 !== null) update("kg_reciclado_malla_z2", fields.kg_reciclado_malla_z2);
+    // Desglose por zona (2026-07-29): el formulario ahora edita el BRUTO del
+    // papel y los box de cada zona; el neto se re-deriva al guardar.
+    if (fields.kg_reciclado_malla_z1_bruto !== null) update("kg_reciclado_malla_z1_bruto", fields.kg_reciclado_malla_z1_bruto);
+    if (fields.kg_reciclado_malla_z2_bruto !== null) update("kg_reciclado_malla_z2_bruto", fields.kg_reciclado_malla_z2_bruto);
+    if (fields.box_reciclaje_z1 !== null) update("box_reciclaje_z1", fields.box_reciclaje_z1);
+    if (fields.box_reciclaje_z2 !== null) update("box_reciclaje_z2", fields.box_reciclaje_z2);
     if (fields.kg_inventario_sin_alta !== null) update("kg_inventario_sin_alta", fields.kg_inventario_sin_alta);
     if (fields.kg_podrido_bolsa_basura !== null) update("kg_podrido_bolsa_basura", fields.kg_podrido_bolsa_basura);
     if (fields.box_reciclaje !== null) update("box_reciclaje", fields.box_reciclaje);
@@ -139,11 +151,15 @@ export default function PartDetailManual({
 
   const reviewValues = visionResult ? [
     ["Industria (Cítrica)", visionResult.fields.kg_industria_manual, "kg"],
+    ["Malla Z1 bruta", visionResult.fields.kg_reciclado_malla_z1_bruto, "kg"],
+    ["Box Z1", visionResult.fields.box_reciclaje_z1, "box"],
     ["Malla Z1 neta", visionResult.fields.kg_reciclado_malla_z1, "kg"],
+    ["Malla Z2 bruta", visionResult.fields.kg_reciclado_malla_z2_bruto, "kg"],
+    ["Box Z2", visionResult.fields.box_reciclaje_z2, "box"],
     ["Malla Z2 neta", visionResult.fields.kg_reciclado_malla_z2, "kg"],
     ["Palets punta", visionResult.fields.kg_inventario_sin_alta, "kg"],
     ["Podrido manual neto", visionResult.fields.kg_podrido_bolsa_basura, "kg"],
-    ["Box reciclaje", visionResult.fields.box_reciclaje, "box"],
+    ["Box reciclaje (total)", visionResult.fields.box_reciclaje, "box"],
   ] as const : [];
 
   return (

@@ -23,6 +23,11 @@ export interface PartManualVisionFields {
   kg_industria_manual: number | null;
   kg_reciclado_malla_z1: number | null;
   kg_reciclado_malla_z2: number | null;
+  /** Bruto del papel y box POR ZONA (2026-07-29): alimentan los campos por zona del formulario; el neto de arriba es el derivado. */
+  kg_reciclado_malla_z1_bruto: number | null;
+  kg_reciclado_malla_z2_bruto: number | null;
+  box_reciclaje_z1: number | null;
+  box_reciclaje_z2: number | null;
   kg_inventario_sin_alta: number | null;
   kg_podrido_bolsa_basura: number | null;
   box_reciclaje: number | null;
@@ -130,6 +135,12 @@ export function derivePartManualFields(raw: PartManualVisionRaw): PartManualVisi
     // por lo que la tara se redondea hacia arriba de forma independiente.
     kg_reciclado_malla_z1: mallaNeta(raw.malla_z1_kg_brutos, mallaZ1Box),
     kg_reciclado_malla_z2: mallaNeta(raw.malla_z2_kg_brutos, mallaZ2Box),
+    // Desglose por zona tal cual el papel (2026-07-29): antes se descartaba
+    // al guardar; ahora persiste (migración 20260729100000).
+    kg_reciclado_malla_z1_bruto: raw.malla_z1_kg_brutos,
+    kg_reciclado_malla_z2_bruto: raw.malla_z2_kg_brutos,
+    box_reciclaje_z1: mallaZ1Box,
+    box_reciclaje_z2: mallaZ2Box,
     kg_inventario_sin_alta: raw.palets_punta_kg,
     // Cada línea de podrido usa su propio box. Si el papel no anota cantidad,
     // se asume un box para Cítrica podrido y otro para Podrido.
