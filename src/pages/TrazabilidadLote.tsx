@@ -52,6 +52,9 @@ import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatKgCompact as formatKg, formatNumber, formatPct, today } from "@/lib/format";
 import { INFO_PODRIDO_PRE_CALIBRADOR, TASA_MERMA_NATURAL_DIA, type MermaLote } from "@/lib/mermaLote";
 import { interpretarCodigoLote, type MotivoIncoherenciaExpedicion } from "@/lib/origenConfeccion";
+import { diffDias } from "@/lib/entradasBascula";
+import { normalizarLoteCodigo } from "@/lib/loteCodigo";
+import { useCamarasExternas } from "@/hooks/useCamarasExternas";
 import type { OrigenConfeccionLote } from "@/hooks/useTrazabilidadLote";
 import { productorNoCoincide } from "@/lib/productoresCanonicos";
 import { GRUPO_COLORS } from "@/lib/destinoClasificacion";
@@ -596,6 +599,10 @@ function DiaConfeccionPanel({ fecha, onFecha, onSelect }: {
 function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => void; onSelect: (lote: string) => void }) {
   const { data, isLoading, error } = useTrazabilidadLote(lote);
   const { stock, conciliacionKg, calidadLotes, cerrarLote, reabrirLote } = useEntradasBascula();
+  // Cámaras externas (Guadex/Zamexfruit): si este lote pasó por una, el paso
+  // "Cámara" de la ficha muestra dónde y desde cuándo (lista cacheada por
+  // React Query — no es un fetch extra si ya se visitó Entradas).
+  const { camiones: camionesExternos } = useCamarasExternas();
 
   // Navegación ←/→: mismo orden que el selector. Si el lote actual no está en
   // la lista (código antiguo tecleado a mano), se oculta la navegación.
@@ -636,6 +643,18 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
   // exceso enviado a revisión. Para cabecera y "en cámara" se usa el
   // conciliado (mismos números que la lista de stock/Entradas); el paso 2
   // sigue listando las pasadas crudas con una nota si hay diferencia.
+  // ─── Paso "Cámara": todas las fechas de la estancia antes de línea ────────
+  // (petición del dueño 2026-07-29: en trazabilidad debe verse TODO, incluida
+  // la fecha de cada procesado). Fuentes ya existentes: camara_externa_camiones
+  // (dónde), entradas_bascula.fecha_salida_camara/merma_camara_kg (salida
+  // re-pesada) y las fechas de parte de cada pasada.
+  const camionExterno = camionesExternos.find((c) => normalizarLoteCodigo(c.lote) === data.lote) ?? null;
+  const mermaCamaraLoteKg = (entrada as { merma_camara_kg?: number | null } | null)?.merma_camara_kg ?? null;
+  const fechaSalidaCamara = (entrada as { fecha_salida_camara?: string | null } | null)?.fecha_salida_camara ?? null;
+  const fechasProcesado = Array.from(new Set(procesado.map((p) => p.fecha).filter((f): f is string => Boolean(f)))).sort();
+  const primeraPasada = fechasProcesado[0] ?? null;
+  const ultimaPasada = fechasProcesado[fechasProcesado.length - 1] ?? null;
+
   const filaConciliada = conciliacionKg?.procesados.find((p) => p.lote_codigo === data.lote);
   const conciliacionCargada = (conciliacionKg?.procesados.length ?? 0) > 0;
   // Boxes de reciclaje anotados en las pasadas de ESTE lote (descontados a
@@ -928,6 +947,69 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
           )}
         </TimelinePaso>
 
+        {/* 1b · Cámara: dónde estuvo la fruta y cuánto esperó antes de línea
+            (dueño 2026-07-29: "en trazabilidad, toda la información"). */}
+        <TimelinePaso
+          icon={Warehouse}
+          titulo="Cámara"
+          activo={Boolean(entrada)}
+          vacio="Sin entrada de báscula: no se puede reconstruir la estancia en cámara."
+        >
+          {entrada && (
+            <>
+              <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+                {camionExterno && (
+                  <>
+                    <DatoLinea
+                      label="Cámara externa"
+                      valor={`${camionExterno.procedencia}${camionExterno.s_ref ? ` · ${camionExterno.s_ref}` : ""}`}
+                      destacado
+                    />
+                    <DatoLinea label="Almacenado en origen" valor={formatDate(camionExterno.fecha_almacenamiento)} />
+                    <DatoLinea label="Transporte a central" valor={camionExterno.transporte_lst ?? "—"} />
+                  </>
+                )}
+                <DatoLinea
+                  label="Salida de cámara"
+                  valor={fechaSalidaCamara
+                    ? `${formatDate(fechaSalidaCamara)} (re-pesado)`
+                    : camionExterno?.entrada_lst_1
+                      ? `${formatDate(camionExterno.entrada_lst_1)} (según registro de la cámara)`
+                      : "—"}
+                />
+                <DatoLinea
+                  label="Primera pasada de línea"
+                  valor={primeraPasada ? formatDate(primeraPasada) : enCamara > 0 ? "Aún sin pasar" : "—"}
+                />
+                <DatoLinea
+                  label="Última pasada"
+                  valor={ultimaPasada
+                    ? `${formatDate(ultimaPasada)}${fechasProcesado.length > 1 ? ` (${fechasProcesado.length} días de línea)` : ""}`
+                    : "—"}
+                />
+                <DatoLinea
+                  label="Días en cámara"
+                  valor={ultimaPasada
+                    ? `${diffDias(entrada.fecha, ultimaPasada)} días (entrada → última pasada)`
+                    : `${diffDias(entrada.fecha, today())} días y sigue`}
+                  destacado
+                />
+                <DatoLinea
+                  label="Merma de cámara (re-pesado)"
+                  valor={mermaCamaraLoteKg != null
+                    ? `${formatNumber(mermaCamaraLoteKg)} kg${kgEntrada > 0 ? ` (${formatPct((Number(mermaCamaraLoteKg) / kgEntrada) * 100)})` : ""}`
+                    : "— (se estima por tasa diaria, ver Mermas)"}
+                />
+              </div>
+              {camionExterno && camionExterno.venta_directa && (
+                <p className="mt-3 text-xs text-warning">
+                  El registro de la cámara marca este camión como venta directa ({camionExterno.venta_directa}): no llegará a la central.
+                </p>
+              )}
+            </>
+          )}
+        </TimelinePaso>
+
         {/* 2 · Procesado */}
         <TimelinePaso
           icon={Factory}
@@ -967,6 +1049,11 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
                   to={`/partes/${p.part_id}`}
                   className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 text-sm transition-colors hover:bg-[var(--glass-bg-strong)]"
                 >
+                  {/* Día (y hora si el calibrador la trae) de ESTA pasada — dueño 2026-07-29. */}
+                  <span className="whitespace-nowrap text-xs font-medium tabular-nums text-muted-foreground">
+                    {p.fecha ? formatDate(p.fecha) : "sin fecha"}
+                    {p.hora_inicio ? ` · ${String(p.hora_inicio).slice(0, 5)}` : ""}
+                  </span>
                   <span className="tabular-nums font-semibold">{formatKg(p.kg)}</span>
                   {p.esPrecalibrado && (
                     <Badge
@@ -1004,6 +1091,10 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
               <p className="text-xs text-muted-foreground">
                 Total procesado: <span className="font-semibold text-foreground tabular-nums">{formatKg(kgProcesado)}</span>
                 {kgEntrada > 0 && <> · {formatPct((kgProcesado / kgEntrada) * 100)} de la entrada</>}
+                {fechasProcesado.length === 1 && <> · procesado el <span className="font-semibold text-foreground">{formatDate(fechasProcesado[0])}</span></>}
+                {fechasProcesado.length > 1 && (
+                  <> · procesado en <span className="font-semibold text-foreground">{fechasProcesado.length} días</span> ({formatDate(fechasProcesado[0])} → {formatDate(fechasProcesado[fechasProcesado.length - 1])})</>
+                )}
                 {procesado.some((p) => p.esPrecalibrado) && <> · incluye pasadas de precalibrado</>}
                 {" "}· clic en una fila para abrir su parte
               </p>

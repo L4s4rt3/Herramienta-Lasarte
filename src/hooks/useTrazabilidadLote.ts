@@ -62,6 +62,8 @@ export interface ProcesadoLote {
   kg: number;
   toneladas_hora: number | null;
   duracion_min: number | null;
+  /** Hora de inicio de la pasada según el calibrador ("HH:MM:SS" o similar), si la trae. */
+  hora_inicio: string | null;
   producto: string | null;
   productor: string | null;
   /** Destrío a industria de esta pasada (kg_industria del parte; 0 = sin dato o sin destrío). */
@@ -198,7 +200,7 @@ export interface TrazabilidadLote {
   entradaEsCampoCit: boolean;
 }
 
-const LOTES_DIA_COLUMNAS_BASE = "part_id, lote_codigo, kg_peso_total, toneladas_hora, duracion_min, producto, productor, kg_industria, kg_precalibrado_z1, kg_precalibrado_z2, notas";
+const LOTES_DIA_COLUMNAS_BASE = "part_id, lote_codigo, kg_peso_total, toneladas_hora, duracion_min, hora_inicio, producto, productor, kg_industria, kg_precalibrado_z1, kg_precalibrado_z2, notas";
 
 interface LotesDiaProcesadoRawRow {
   part_id: string;
@@ -410,6 +412,7 @@ export function useTrazabilidadLote(loteInput: string | null) {
           kg: Number(l.kg_peso_total) || 0,
           toneladas_hora: l.toneladas_hora == null ? null : Number(l.toneladas_hora),
           duracion_min: l.duracion_min == null ? null : Number(l.duracion_min),
+          hora_inicio: (l as { hora_inicio?: string | null }).hora_inicio ?? null,
           producto: (l.producto as string | null) ?? null,
           productor: (l.productor as string | null) ?? null,
           productor_id: (l.productor_id as string | null | undefined) ?? undefined,
@@ -418,7 +421,7 @@ export function useTrazabilidadLote(loteInput: string | null) {
           notas: (l.notas as string | null) ?? null,
           esPrecalibrado: esProductorPrecalibrado(l.productor as string | null),
         }))
-        .sort((a, b) => (a.fecha ?? "").localeCompare(b.fecha ?? ""));
+        .sort((a, b) => (a.fecha ?? "").localeCompare(b.fecha ?? "") || (a.hora_inicio ?? "").localeCompare(b.hora_inicio ?? ""));
 
       // Clasificación agregada (calibre × clase × grupo) del Informe LOTE.
       // Filtro estricto en cliente: el ilike de la query es solo un pre-filtro
