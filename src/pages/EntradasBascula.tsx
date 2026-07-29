@@ -24,6 +24,7 @@ import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, Table
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CamarasExternasCard } from "@/components/CamarasExternasCard";
 import { StockPrecalibradoCard } from "@/components/StockPrecalibradoCard";
+import { columnasComunesLotes, TablaLotesStock } from "@/components/TablaLotesStock";
 import { CerrarLoteDialog } from "@/components/CerrarLoteDialog";
 import { CerrarLotesEnBloqueDialog } from "@/components/CerrarLotesEnBloqueDialog";
 import { ConciliacionKgPanel } from "@/components/ConciliacionKgPanel";
@@ -1373,180 +1374,199 @@ export default function EntradasBascula() {
               </div>
             </CardHeader>
             <CardContent className="max-h-[65vh] overflow-auto p-0">
+              {/* Tabla compartida con el selector de /trazabilidad
+                  (TablaLotesStock, reordenación 2026-07-28): aquí en variante
+                  "gestion" — Procesado en kg, semáforo de días, Estado con
+                  badges y acciones cerrar/reabrir/borrar. */}
               {filasVisibles.length === 0 ? (
                 <p className="py-10 text-center text-sm text-muted-foreground">
                   {soloActivos ? "No queda fruta sin procesar con estos filtros. 🎉" : "Sin entradas que coincidan con la búsqueda."}
                 </p>
               ) : (
-                <Table>
-                  <TableHeader className="sticky top-0 z-10 bg-[var(--glass-bg-solid)] backdrop-blur-xl">
-                    <TableRow>
-                      <SortableTableHead label="Lote" sk="lote" sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
-                      <SortableTableHead label="Entrada" sk="fecha_entrada" sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
-                      <SortableTableHead label="Finca" sk="finca" sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
-                      <SortableTableHead label="Variedad" sk="articulo" sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
-                      <SortableTableHead label="Kg entrada" sk="kg_entrada" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
-                      <SortableTableHead label="Procesado" sk="kg_procesado" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
-                      <SortableTableHead label="En cámara" sk="kg_en_camara" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
-                      <SortableTableHead label="Días" sk="dias_en_camara" right sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
-                      <SortableTableHead label="Estado" sk="estado" sortKey={sortKey} sortDir={sortDir} onToggle={handleToggleSort} />
-                      <TableHead className="text-right">Acciones</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filasVisibles.map((fila: StockLoteRow, i) => {
-                      const badge = ESTADO_BADGE[fila.estado];
-                      const row = entradaPorLote.get(fila.lote);
-                      const destacada = highlightLote === fila.lote;
-                      return (
-                        <TableRow
-                          key={fila.lote}
-                          id={`stock-row-${fila.lote}`}
-                          onClick={() => navigate(`/trazabilidad?lote=${encodeURIComponent(fila.lote)}`)}
-                          className={cn(
-                            "cursor-pointer transition-shadow duration-700 hover:bg-primary/5",
-                            i % 2 === 1 && "bg-[var(--glass-bg)]/40",
-                            destacada && "ring-1 ring-inset ring-info bg-info/5",
-                          )}
+                <TablaLotesStock<StockSortKey>
+                  filas={filasVisibles}
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onToggleSort={handleToggleSort}
+                  onRowClick={(fila) => navigate(`/trazabilidad?lote=${encodeURIComponent(fila.lote)}`)}
+                  rowId={(fila) => `stock-row-${fila.lote}`}
+                  rowClassName={(fila) => cn(
+                    "transition-shadow duration-700 hover:bg-primary/5",
+                    highlightLote === fila.lote && "ring-1 ring-inset ring-info bg-info/5",
+                  )}
+                  columnas={[
+                    {
+                      id: "lote",
+                      label: "Lote",
+                      sk: "lote",
+                      cellClassName: "whitespace-nowrap font-medium",
+                      render: (fila) => (
+                        <Link
+                          to={`/trazabilidad?lote=${encodeURIComponent(fila.lote)}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 hover:text-primary hover:underline"
+                          title="Ver la trazabilidad completa del lote"
                         >
-                          <TableCell className="whitespace-nowrap font-medium">
-                            <Link
-                              to={`/trazabilidad?lote=${encodeURIComponent(fila.lote)}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 hover:text-primary hover:underline"
-                              title="Ver la trazabilidad completa del lote"
+                          {fila.lote} <ArrowRight className="h-3 w-3 opacity-50" />
+                        </Link>
+                      ),
+                    },
+                    ...columnasComunesLotes<StockSortKey>("gestion"),
+                    {
+                      id: "procesado",
+                      label: "Procesado",
+                      sk: "kg_procesado",
+                      right: true,
+                      cellClassName: "text-right tabular-nums text-muted-foreground",
+                      render: (fila) => (fila.kg_procesado > 0 ? formatKg(fila.kg_procesado) : "—"),
+                    },
+                    {
+                      id: "en_camara",
+                      label: "En cámara",
+                      sk: "kg_en_camara",
+                      right: true,
+                      cellClassName: "text-right tabular-nums font-semibold",
+                      render: (fila) => (fila.estado === "procesado" ? "—" : formatKg(fila.kg_en_camara)),
+                    },
+                    {
+                      id: "dias",
+                      label: "Días",
+                      sk: "dias_en_camara",
+                      right: true,
+                      cellClassName: (fila) => cn("text-right tabular-nums", diasClass(fila.dias_en_camara, fila.estado)),
+                      render: (fila) => (
+                        <span className="inline-flex items-center justify-end gap-1.5">
+                          <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", diasDotClass(fila.dias_en_camara, fila.estado))} />
+                          {fila.dias_en_camara}
+                        </span>
+                      ),
+                    },
+                    {
+                      id: "estado",
+                      label: "Estado",
+                      sk: "estado",
+                      render: (fila) => {
+                        const badge = ESTADO_BADGE[fila.estado];
+                        return (
+                          <div className="flex flex-wrap items-center gap-1">
+                            <Badge variant="outline" className={cn("px-1.5 py-0 text-[11px]", badge.className)}>{badge.label}</Badge>
+                            {fila.probablementeTerminado && (
+                              <Badge
+                                variant="outline"
+                                className="border-warning/40 bg-warning/10 px-1.5 py-0 text-[10px] text-warning"
+                                title={`Lleva el ${formatPct(UMBRAL_PROBABLE_TERMINADO * 100)} o más procesado y ${DIAS_SIN_ACTIVIDAD_TERMINADO} días o más sin ninguna pasada del calibrador — probablemente el hueco es merma/podrido, no fruta pendiente. Se desmarca solo en cuanto llegue una pasada nueva.`}
+                              >
+                                <HelpCircle className="mr-1 h-2.5 w-2.5" /> ¿terminado?
+                              </Badge>
+                            )}
+                            {fila.cerrado_at && (
+                              <Badge
+                                variant="outline"
+                                className="border-[var(--glass-border)] bg-[var(--glass-bg)] px-1.5 py-0 text-[10px] text-muted-foreground"
+                                title={fila.cierre_modo === "sin_registro" ? "Su procesado no consta bajo este código: excluido de mermas/podrido/forfait." : "El hueco cuenta como merma natural + podrido pre-calibrador."}
+                              >
+                                <Lock className="mr-1 h-2.5 w-2.5" /> {fila.cierre_modo === "sin_registro" ? "Cerrado sin análisis" : "Cerrado a mano"}
+                              </Badge>
+                            )}
+                            {fila.cerradoConActividadPosterior && (
+                              <Badge
+                                variant="outline"
+                                className="border-destructive/40 bg-destructive/10 px-1.5 py-0 text-[10px] text-destructive"
+                                title="El calibrador registró una pasada DESPUÉS de cerrar este lote: la fruta volvió a línea, el cierre fue probablemente un error. Revisar y reabrir si procede."
+                              >
+                                <AlertTriangle className="mr-1 h-2.5 w-2.5" /> reanudó tras cerrar
+                              </Badge>
+                            )}
+                          </div>
+                        );
+                      },
+                    },
+                    {
+                      id: "acciones",
+                      label: "Acciones",
+                      right: true,
+                      cellClassName: "text-right",
+                      render: (fila) => {
+                        const row = entradaPorLote.get(fila.lote);
+                        return (
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-primary"
+                              title="Ver trazabilidad completa del lote"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/trazabilidad?lote=${encodeURIComponent(fila.lote)}`);
+                              }}
                             >
-                              {fila.lote} <ArrowRight className="h-3 w-3 opacity-50" />
-                            </Link>
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(fila.fecha_entrada)}</TableCell>
-                          <TableCell className="max-w-[180px] truncate">{fila.finca ?? "—"}</TableCell>
-                          <TableCell className="max-w-[160px] truncate text-muted-foreground">{fila.articulo ?? "—"}</TableCell>
-                          <TableCell className="text-right tabular-nums font-medium">{formatKg(fila.kg_entrada)}</TableCell>
-                          <TableCell className="text-right tabular-nums text-muted-foreground">
-                            {fila.kg_procesado > 0 ? formatKg(fila.kg_procesado) : "—"}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums font-semibold">
-                            {fila.estado === "procesado" ? "—" : formatKg(fila.kg_en_camara)}
-                          </TableCell>
-                          <TableCell className={cn("text-right tabular-nums", diasClass(fila.dias_en_camara, fila.estado))}>
-                            <span className="inline-flex items-center justify-end gap-1.5">
-                              <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", diasDotClass(fila.dias_en_camara, fila.estado))} />
-                              {fila.dias_en_camara}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-wrap items-center gap-1">
-                              <Badge variant="outline" className={cn("px-1.5 py-0 text-[11px]", badge.className)}>{badge.label}</Badge>
-                              {fila.probablementeTerminado && (
-                                <Badge
-                                  variant="outline"
-                                  className="border-warning/40 bg-warning/10 px-1.5 py-0 text-[10px] text-warning"
-                                  title={`Lleva el ${formatPct(UMBRAL_PROBABLE_TERMINADO * 100)} o más procesado y ${DIAS_SIN_ACTIVIDAD_TERMINADO} días o más sin ninguna pasada del calibrador — probablemente el hueco es merma/podrido, no fruta pendiente. Se desmarca solo en cuanto llegue una pasada nueva.`}
-                                >
-                                  <HelpCircle className="mr-1 h-2.5 w-2.5" /> ¿terminado?
-                                </Badge>
-                              )}
-                              {fila.cerrado_at && (
-                                <Badge
-                                  variant="outline"
-                                  className="border-[var(--glass-border)] bg-[var(--glass-bg)] px-1.5 py-0 text-[10px] text-muted-foreground"
-                                  title={fila.cierre_modo === "sin_registro" ? "Su procesado no consta bajo este código: excluido de mermas/podrido/forfait." : "El hueco cuenta como merma natural + podrido pre-calibrador."}
-                                >
-                                  <Lock className="mr-1 h-2.5 w-2.5" /> {fila.cierre_modo === "sin_registro" ? "Cerrado sin análisis" : "Cerrado a mano"}
-                                </Badge>
-                              )}
-                              {fila.cerradoConActividadPosterior && (
-                                <Badge
-                                  variant="outline"
-                                  className="border-destructive/40 bg-destructive/10 px-1.5 py-0 text-[10px] text-destructive"
-                                  title="El calibrador registró una pasada DESPUÉS de cerrar este lote: la fruta volvió a línea, el cierre fue probablemente un error. Revisar y reabrir si procede."
-                                >
-                                  <AlertTriangle className="mr-1 h-2.5 w-2.5" /> reanudó tras cerrar
-                                </Badge>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
+                              <Route className="h-4 w-4" />
+                            </Button>
+                            {row && fila.cerrado_at && (
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8 text-muted-foreground hover:text-primary"
-                                title="Ver trazabilidad completa del lote"
+                                title="Reabrir este lote"
+                                disabled={reabrirLote.isPending}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  navigate(`/trazabilidad?lote=${encodeURIComponent(fila.lote)}`);
+                                  reabrirLote.mutate(row.id, {
+                                    onSuccess: () => toast({ title: "Lote reabierto", description: `El lote ${fila.lote} vuelve a estar activo.` }),
+                                    onError: (err) => toast({ title: "No se pudo reabrir el lote", description: errorMessage(err), variant: "destructive" }),
+                                  });
                                 }}
                               >
-                                <Route className="h-4 w-4" />
+                                <LockOpen className="h-4 w-4" />
                               </Button>
-                              {row && fila.cerrado_at && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-muted-foreground hover:text-primary"
-                                  title="Reabrir este lote"
-                                  disabled={reabrirLote.isPending}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    reabrirLote.mutate(row.id, {
-                                      onSuccess: () => toast({ title: "Lote reabierto", description: `El lote ${fila.lote} vuelve a estar activo.` }),
-                                      onError: (err) => toast({ title: "No se pudo reabrir el lote", description: errorMessage(err), variant: "destructive" }),
-                                    });
-                                  }}
-                                >
-                                  <LockOpen className="h-4 w-4" />
-                                </Button>
-                              )}
-                              {row && !fila.cerrado_at && fila.estado !== "procesado" && (
-                                <CerrarLoteDialog
-                                  lote={fila.lote}
-                                  kgEntrada={fila.kg_entrada}
-                                  kgProcesado={fila.kg_procesado}
-                                  isPending={cerrarLote.isPending}
-                                  onConfirm={(cierreModo) => cerrarLote.mutate({ id: row.id, cierreModo }, {
-                                    onSuccess: () => toast({ title: "Lote cerrado", description: `El lote ${fila.lote} se ha dado por terminado.` }),
-                                    onError: (err) => toast({ title: "No se pudo cerrar el lote", description: errorMessage(err), variant: "destructive" }),
-                                  })}
-                                  trigger={(
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 text-muted-foreground hover:text-primary"
-                                      title="Cerrar este lote"
-                                      onClick={(e) => e.stopPropagation()}
-                                    >
-                                      <Lock className="h-4 w-4" />
-                                    </Button>
-                                  )}
-                                />
-                              )}
-                              {row && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-destructive hover:text-destructive"
-                                  title="Borrar esta entrada"
-                                  disabled={eliminar.isPending}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    eliminar.mutate(row.id, {
-                                      onSuccess: () => toast({ title: "Entrada borrada", description: `Lote ${fila.lote} eliminado del registro.` }),
-                                      onError: (err) => toast({ title: "Error", description: errorMessage(err), variant: "destructive" }),
-                                    });
-                                  }}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                            )}
+                            {row && !fila.cerrado_at && fila.estado !== "procesado" && (
+                              <CerrarLoteDialog
+                                lote={fila.lote}
+                                kgEntrada={fila.kg_entrada}
+                                kgProcesado={fila.kg_procesado}
+                                isPending={cerrarLote.isPending}
+                                onConfirm={(cierreModo) => cerrarLote.mutate({ id: row.id, cierreModo }, {
+                                  onSuccess: () => toast({ title: "Lote cerrado", description: `El lote ${fila.lote} se ha dado por terminado.` }),
+                                  onError: (err) => toast({ title: "No se pudo cerrar el lote", description: errorMessage(err), variant: "destructive" }),
+                                })}
+                                trigger={(
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                    title="Cerrar este lote"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <Lock className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              />
+                            )}
+                            {row && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                title="Borrar esta entrada"
+                                disabled={eliminar.isPending}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  eliminar.mutate(row.id, {
+                                    onSuccess: () => toast({ title: "Entrada borrada", description: `Lote ${fila.lote} eliminado del registro.` }),
+                                    onError: (err) => toast({ title: "Error", description: errorMessage(err), variant: "destructive" }),
+                                  });
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        );
+                      },
+                    },
+                  ]}
+                />
               )}
             </CardContent>
           </Card>

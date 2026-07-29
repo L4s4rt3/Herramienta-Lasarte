@@ -27,14 +27,14 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CerrarLoteDialog } from "@/components/CerrarLoteDialog";
 import { FuenteBadge, fuentePodridoAVariant } from "@/components/FuenteBadge";
 import { InfoTooltip } from "@/components/InfoTooltip";
 import { InspeccionesPodridoCard } from "@/components/InspeccionesPodridoCard";
+import { columnasComunesLotes, TablaLotesStock } from "@/components/TablaLotesStock";
 import { ProgressBarRow } from "@/components/ProgressBarRow";
-import { SortableTableHead, toggleSort, type SortDir } from "@/components/SortableColumn";
+import { toggleSort, type SortDir } from "@/components/SortableColumn";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthProvider";
 import { useDiaTrazabilidad } from "@/hooks/useDiaTrazabilidad";
@@ -281,39 +281,27 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
           ) : (
             <Card className="glass-accented">
               <CardContent className="max-h-[65vh] overflow-auto p-0">
-              <Table>
-                <TableHeader className="sticky top-0 z-10 bg-[var(--glass-bg-solid)] backdrop-blur-xl">
-                  <TableRow className="text-xs">
-                    <SortableTableHead label="Lote" sk="lote" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
-                    <SortableTableHead label="Entrada" sk="fecha_entrada" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
-                    <SortableTableHead label="Finca" sk="finca" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
-                    <SortableTableHead label="Variedad" sk="articulo" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
-                    <SortableTableHead label="Kg entrada" sk="kg_entrada" right sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
-                    <SortableTableHead label="Procesado" sk="pct_procesado" right sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
-                    <SortableTableHead label="En cámara" sk="kg_en_camara" right sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
-                    <SortableTableHead label="% Ind." sk="pct_industria" right sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} info="Destrío a industria del lote (kg_industria de sus pasadas / kg procesados). En ámbar si supera claramente la media de su variedad — señal de fruta problemática. '—' = sin dato en el parte." />
-                    <SortableTableHead label="Días" sk="dias_en_camara" right sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} info="Días desde la entrada hasta hoy (activos) o hasta la última pasada del calibrador (procesados)." />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filas.slice(0, MAX_FILAS_TABLA).map((f, i) => {
-                    const pct = f.kg_entrada > 0 ? (f.kg_procesado / f.kg_entrada) * 100 : 0;
-                    const pctInd = calidadLotes.pctIndustriaPorLote.get(f.lote);
-                    const mediaInd = f.articulo ? calidadLotes.mediaIndustriaPorVariedad.get(f.articulo.trim()) : undefined;
-                    // "Alto" solo con margen real: 1,5× la media de su variedad Y
-                    // al menos 3 puntos por encima (evita falsos ámbar con medias minúsculas).
-                    const indAlta = pctInd != null && mediaInd != null && pctInd > mediaInd * 1.5 && pctInd - mediaInd > 0.03;
-                    const tieneNota = calidadLotes.notasPorLote.has(f.lote);
-                    return (
-                      <TableRow
-                        key={f.lote}
-                        className={cn(
-                          "cursor-pointer text-sm transition-colors hover:bg-[var(--glass-bg-strong)]",
-                          i % 2 === 1 && "bg-[var(--glass-bg)]/40",
-                        )}
-                        onClick={() => onSelect(f.lote)}
-                      >
-                        <TableCell className="py-2">
+              {/* Tabla compartida con /entradas (TablaLotesStock, reordenación
+                  2026-07-28): aquí en variante "selector" — filas compactas,
+                  Procesado en %, columna % Ind. y sin acciones de gestión. */}
+              <TablaLotesStock<LoteSortKey>
+                filas={filas.slice(0, MAX_FILAS_TABLA)}
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onToggleSort={onToggleSort}
+                onRowClick={(f) => onSelect(f.lote)}
+                headerRowClassName="text-xs"
+                rowClassName={() => "text-sm transition-colors hover:bg-[var(--glass-bg-strong)]"}
+                columnas={[
+                  {
+                    id: "lote",
+                    label: "Lote",
+                    sk: "lote",
+                    cellClassName: "py-2",
+                    render: (f) => {
+                      const tieneNota = calidadLotes.notasPorLote.has(f.lote);
+                      return (
+                        <>
                           <span className="font-semibold tabular-nums">{f.lote}</span>
                           {tieneNota && (
                             <StickyNote
@@ -326,41 +314,74 @@ function SelectorLotes({ search, onSearchChange, onSelect }: {
                           {f.probablementeTerminado && (
                             <HelpCircle className="ml-1 inline h-3 w-3 text-warning" aria-label="Probablemente terminado" />
                           )}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap py-2 tabular-nums text-muted-foreground">{formatDate(f.fecha_entrada)}</TableCell>
-                        <TableCell className="max-w-44 truncate py-2">{f.finca ?? "—"}</TableCell>
-                        <TableCell className="max-w-44 truncate py-2 text-xs text-muted-foreground">{f.articulo ?? "—"}</TableCell>
-                        <TableCell className="py-2 text-right tabular-nums">{formatKg(f.kg_entrada)}</TableCell>
-                        <TableCell className="py-2 text-right">
-                          <span className={cn("tabular-nums text-xs font-medium", pct >= 99.5 ? "text-success" : "text-muted-foreground")}>
-                            {formatPct(Math.min(100, pct))}
-                          </span>
-                        </TableCell>
-                        <TableCell className="py-2 text-right">
-                          {f.estado !== "procesado" ? (
-                            <Badge variant="outline" className="border-info/40 bg-info/10 px-1.5 py-0 text-[11px] tabular-nums text-info">
-                              {formatKg(f.kg_en_camara)}
-                            </Badge>
-                          ) : (
-                            <span className="text-[11px] text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="py-2 text-right">
-                          {pctInd != null ? (
-                            <span className={cn("text-xs tabular-nums", indAlta ? "font-semibold text-warning" : "text-muted-foreground")}>
-                              {indAlta && <AlertTriangle className="mr-0.5 inline h-3 w-3" />}
-                              {formatPct(pctInd * 100)}
-                            </span>
-                          ) : (
-                            <span className="text-[11px] text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="py-2 text-right tabular-nums text-muted-foreground">{f.dias_en_camara}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                        </>
+                      );
+                    },
+                  },
+                  ...columnasComunesLotes<LoteSortKey>("selector"),
+                  {
+                    id: "procesado",
+                    label: "Procesado",
+                    sk: "pct_procesado",
+                    right: true,
+                    cellClassName: "py-2 text-right",
+                    render: (f) => {
+                      const pct = f.kg_entrada > 0 ? (f.kg_procesado / f.kg_entrada) * 100 : 0;
+                      return (
+                        <span className={cn("tabular-nums text-xs font-medium", pct >= 99.5 ? "text-success" : "text-muted-foreground")}>
+                          {formatPct(Math.min(100, pct))}
+                        </span>
+                      );
+                    },
+                  },
+                  {
+                    id: "en_camara",
+                    label: "En cámara",
+                    sk: "kg_en_camara",
+                    right: true,
+                    cellClassName: "py-2 text-right",
+                    render: (f) => f.estado !== "procesado" ? (
+                      <Badge variant="outline" className="border-info/40 bg-info/10 px-1.5 py-0 text-[11px] tabular-nums text-info">
+                        {formatKg(f.kg_en_camara)}
+                      </Badge>
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground">—</span>
+                    ),
+                  },
+                  {
+                    id: "pct_ind",
+                    label: "% Ind.",
+                    sk: "pct_industria",
+                    right: true,
+                    info: "Destrío a industria del lote (kg_industria de sus pasadas / kg procesados). En ámbar si supera claramente la media de su variedad — señal de fruta problemática. '—' = sin dato en el parte.",
+                    cellClassName: "py-2 text-right",
+                    render: (f) => {
+                      const pctInd = calidadLotes.pctIndustriaPorLote.get(f.lote);
+                      const mediaInd = f.articulo ? calidadLotes.mediaIndustriaPorVariedad.get(f.articulo.trim()) : undefined;
+                      // "Alto" solo con margen real: 1,5× la media de su variedad Y
+                      // al menos 3 puntos por encima (evita falsos ámbar con medias minúsculas).
+                      const indAlta = pctInd != null && mediaInd != null && pctInd > mediaInd * 1.5 && pctInd - mediaInd > 0.03;
+                      return pctInd != null ? (
+                        <span className={cn("text-xs tabular-nums", indAlta ? "font-semibold text-warning" : "text-muted-foreground")}>
+                          {indAlta && <AlertTriangle className="mr-0.5 inline h-3 w-3" />}
+                          {formatPct(pctInd * 100)}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground">—</span>
+                      );
+                    },
+                  },
+                  {
+                    id: "dias",
+                    label: "Días",
+                    sk: "dias_en_camara",
+                    right: true,
+                    info: "Días desde la entrada hasta hoy (activos) o hasta la última pasada del calibrador (procesados).",
+                    cellClassName: "py-2 text-right tabular-nums text-muted-foreground",
+                    render: (f) => f.dias_en_camara,
+                  },
+                ]}
+              />
               </CardContent>
             </Card>
           )}
