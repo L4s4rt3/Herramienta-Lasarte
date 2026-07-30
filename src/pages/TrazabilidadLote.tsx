@@ -953,7 +953,7 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
           icon={Warehouse}
           titulo="Cámara"
           activo={Boolean(entrada)}
-          vacio="Sin entrada de báscula: no se puede reconstruir la estancia en cámara."
+          vacio={!entrada && "Sin entrada de báscula: no se puede reconstruir la estancia en cámara."}
         >
           {entrada && (
             <>
