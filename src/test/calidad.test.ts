@@ -204,20 +204,20 @@ describe("calidad helpers", () => {
   it("suggests a full narrative comment with reception traceability, quality/Aerobotics and defects (Regular + Rameado)", () => {
     const suggestion = buildCalidadComentarioSugerido(lotes[0], [lotes[1], { ...lotes[0], id: "3", fecha: "2026-05-27", calidad: "Deficiente" }], 2);
 
-    expect(suggestion).toContain("Se ha recibido a las 06:00 h un volcado");
+    expect(suggestion).toContain("a las 06:00 h");
+    expect(suggestion).toContain("un volcado");
     expect(suggestion).toContain("procedente de la finca Los Corrales");
     expect(suggestion).toContain("correspondiente a naranja variedad Navel Powell");
     expect(suggestion).toContain("se valora como regular");
-    expect(suggestion).toContain("soporte del sistema Aerobotics");
-    expect(suggestion).toContain("El único defecto detectado es rameado");
+    expect(suggestion).toContain("Aerobotics");
+    expect(suggestion).toContain("rameado");
     expect(suggestion).toContain("Accion recomendada:");
-    expect(suggestion).toContain("seguimiento en línea del calibre");
   });
 
   it("suggests 'sin defectos' narrative with a direct destino for a Bueno lot", () => {
     const suggestion = buildCalidadComentarioSugerido(makeLote({ calidad: "Bueno", defectos: [] }));
 
-    expect(suggestion).toContain("No se detectan defectos reseñables");
+    expect(suggestion).toMatch(/defectos reseñables|defectos dignos de mención/);
     expect(suggestion).toContain("Accion recomendada:");
     expect(suggestion).toContain("apto para su destino");
   });
@@ -225,12 +225,52 @@ describe("calidad helpers", () => {
   it("suggests a reclassification destino with defect narrative for a Deficiente lot (Mancha + Calibre irregular)", () => {
     const suggestion = buildCalidadComentarioSugerido(makeLote({ calidad: "Deficiente", defectos: ["Mancha", "Calibre irregular"] }));
 
-    expect(suggestion).toContain("Los defectos detectados son mancha y calibre irregular");
+    expect(suggestion).toContain("mancha y calibre irregular");
     // concordancia de número: sujeto plural -> "afectan/obligan", nunca "afecta/obliga"
     expect(suggestion).toContain("que afectan a la aptitud comercial y obligan a reclasificar parte del lote");
     expect(suggestion).not.toContain("que afecta a la aptitud");
     expect(suggestion).toContain("Accion recomendada:");
-    expect(suggestion).toContain("Se recorta la primera categoría");
+    expect(suggestion).toContain("segunda categoría o uso industrial");
+  });
+
+  it("varies wording between different lots but stays deterministic for the same lot", () => {
+    const lotA = makeLote({ id: "a1", numero_lote: "26041710", productor_finca_nombre: "Los Corrales", calidad: "Bueno" });
+    const lotB = makeLote({ id: "b2", numero_lote: "26041711", productor_finca_nombre: "La Torrecilla", calidad: "Bueno" });
+
+    expect(buildCalidadComentarioSugerido(lotA)).toBe(buildCalidadComentarioSugerido(lotA));
+    expect(buildCalidadComentarioSugerido(lotA)).not.toBe(buildCalidadComentarioSugerido(lotB));
+  });
+
+  it("keeps the technician's manual accion recomendada and weaves their note into the narrative", () => {
+    const suggestion = buildCalidadComentarioSugerido(makeLote({
+      calidad: "Bueno",
+      observacion: "Mucho rameado en la cara norte del box.",
+      accion_recomendada: "Avisar al productor antes del siguiente volcado.",
+    }));
+
+    expect(suggestion).toContain("«Mucho rameado en la cara norte del box.»");
+    expect(suggestion).toContain("Accion recomendada: Avisar al productor antes del siguiente volcado.");
+    // la acción manual no se machaca con el destino estándar
+    expect(suggestion).not.toContain("apto para su destino");
+  });
+
+  it("regenerating over an already generated comment keeps the note and the manual action (idempotent)", () => {
+    const base = makeLote({ id: "regen", observacion: "Nota manual del técnico.", accion_recomendada: "Revisar en línea." });
+    const primera = buildCalidadComentarioSugerido(base);
+    const guardado = splitComentarioCalidad(primera);
+    const segunda = buildCalidadComentarioSugerido({ ...base, ...guardado });
+
+    expect(segunda).toBe(primera);
+  });
+
+  it("replaces a previously generated destino (not treated as manual) when regenerating", () => {
+    const base = makeLote({ id: "regen-2", calidad: "Pésimo" });
+    const primera = buildCalidadComentarioSugerido(base);
+    const guardado = splitComentarioCalidad(primera);
+    const segunda = buildCalidadComentarioSugerido({ ...base, ...guardado });
+
+    expect(segunda).toBe(primera);
+    expect(segunda).toContain("responsable de calidad");
   });
 });
 

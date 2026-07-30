@@ -109,12 +109,22 @@ describe("calidad MVP domain", () => {
 
   it("creates a full narrative draft report from structured data", () => {
     const report = createCalidadDraftReport(lote({ calidad: "Regular", defectos: ["Golpe", "Podrido"] }), 3, []);
-    expect(report.informe).toContain("Se ha recibido");
+    expect(report.informe).toContain("un volcado");
     expect(report.informe).toContain("Finca A");
     expect(report.informe).toContain("se valora como regular");
-    expect(report.informe).toContain("Los defectos detectados son golpe y podrido");
+    expect(report.informe).toContain("golpe y podrido");
     expect(report.informe).not.toContain("Entrada regular");
     expect(report.accion_recomendada).toContain("categorías habituales de Mercadona");
+  });
+
+  it("keeps the technician's manual accion recomendada in the draft report", () => {
+    const report = createCalidadDraftReport(
+      lote({ calidad: "Regular", observacion: "Calibre justo en la parte baja.", accion_recomendada: "Consultar con el jefe de línea antes de envasar." }),
+      0,
+      [],
+    );
+    expect(report.accion_recomendada).toBe("Consultar con el jefe de línea antes de envasar.");
+    expect(report.informe).toContain("«Calibre justo en la parte baja.»");
   });
 
   it("keeps quality as a narrative clause (not an agreeing adjective) for Bueno and Pésimo lots", () => {

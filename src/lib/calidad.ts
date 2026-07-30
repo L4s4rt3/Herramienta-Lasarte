@@ -251,10 +251,12 @@ export interface DraftReport {
 
 // El informe se unifica con el comentario (misma narrativa completa) para que
 // ambos textos sean coherentes; ya no necesita trace/evidence/fotos propios.
+// Igual que el comentario sugerido, respeta la nota y la acción recomendada
+// escritas por el técnico y varía la redacción con la semilla del lote.
 export function createCalidadDraftReport(lote: CalidadLote, _photoCount: number, _history: CalidadLote[]): DraftReport {
   return {
     informe: construirObservacionCalidad(lote),
-    accion_recomendada: CALIDAD_DESTINO[lote.calidad],
+    accion_recomendada: accionRecomendadaSugerida(lote, semillaCalidadLote(lote)),
   };
 }
 
@@ -313,14 +315,147 @@ const CALIDAD_APTITUD_PLURAL: Record<CalidadEstado, string> = {
   Pésimo: "que comprometen seriamente la aptitud comercial del lote",
 };
 
-// Destino/acción del lote (párrafo "Accion recomendada:"), por calidad.
-const CALIDAD_DESTINO: Record<CalidadEstado, string> = {
-  Excelente: "Dado que Mercadona no establece restricciones en sus categorías habituales, el lote se considera apto para su destino sin necesidad de aplicar medidas correctoras adicionales.",
-  Bueno: "Dado que Mercadona no establece restricciones en sus categorías habituales, el lote se considera apto para su destino sin necesidad de aplicar medidas correctoras adicionales.",
-  Regular: "El lote se destina a las categorías habituales de Mercadona con seguimiento en línea del calibre y el color, y se anota para revisión de criterio con el jefe de producción.",
-  Deficiente: "Se recorta la primera categoría destinada a Mercadona y la fruta se reclasifica a segunda categoría o uso industrial, notificando a responsable para el ajuste de la planificación.",
-  Pésimo: "El lote se bloquea a la espera de valoración; se documenta con fotografías y se escala a responsable de calidad antes de procesar.",
+// Destino/acción del lote (párrafo "Accion recomendada:"), por calidad. Cada
+// grupo tiene varias redacciones con el MISMO significado operativo: la
+// semilla del lote elige una, de modo que dos lotes distintos no repiten la
+// misma frase. La primera de cada grupo es la redacción histórica y permite
+// reconocer como "generadas" las acciones guardadas antes de las variantes.
+const CALIDAD_DESTINOS: Record<CalidadEstado, readonly string[]> = {
+  Excelente: [
+    "Dado que Mercadona no establece restricciones en sus categorías habituales, el lote se considera apto para su destino sin necesidad de aplicar medidas correctoras adicionales.",
+    "El lote cumple los criterios de las categorías habituales de Mercadona y se considera apto para su destino, sin medidas correctoras adicionales.",
+    "No se precisan medidas correctoras: el lote es apto para su destino dentro de las categorías habituales de Mercadona.",
+  ],
+  Bueno: [
+    "Dado que Mercadona no establece restricciones en sus categorías habituales, el lote se considera apto para su destino sin necesidad de aplicar medidas correctoras adicionales.",
+    "El lote cumple los criterios de las categorías habituales de Mercadona y se considera apto para su destino, sin medidas correctoras adicionales.",
+    "No se precisan medidas correctoras: el lote es apto para su destino dentro de las categorías habituales de Mercadona.",
+  ],
+  Regular: [
+    "El lote se destina a las categorías habituales de Mercadona con seguimiento en línea del calibre y el color, y se anota para revisión de criterio con el jefe de producción.",
+    "El lote sigue su curso hacia las categorías habituales de Mercadona, con vigilancia en línea del calibre y el color y anotación para revisar el criterio con el jefe de producción.",
+    "Se mantiene el destino a las categorías habituales de Mercadona con seguimiento reforzado en línea del calibre y el color, dejando el lote anotado para revisión de criterio con el jefe de producción.",
+  ],
+  Deficiente: [
+    "Se recorta la primera categoría destinada a Mercadona y la fruta se reclasifica a segunda categoría o uso industrial, notificando a responsable para el ajuste de la planificación.",
+    "Se reduce la parte destinada a primera categoría de Mercadona y el resto se reclasifica a segunda categoría o uso industrial, avisando a responsable para ajustar la planificación.",
+    "La fruta afectada se retira de la primera categoría de Mercadona y pasa a segunda categoría o uso industrial, notificándolo a responsable para el ajuste de la planificación.",
+  ],
+  Pésimo: [
+    "El lote se bloquea a la espera de valoración; se documenta con fotografías y se escala a responsable de calidad antes de procesar.",
+    "Se retiene el lote a la espera de valoración, se documenta con fotografías y se traslada a responsable de calidad antes de procesar.",
+    "El lote queda bloqueado hasta nueva valoración; se recogen fotografías y se escala a responsable de calidad antes de continuar con el procesado.",
+  ],
 };
+
+// ── Variantes de redacción del generador ─────────────────────────────────────
+// Todas las alternativas de cada hueco dicen lo mismo con otras palabras; la
+// elección es determinista por lote (semillaCalidadLote), así el mismo lote
+// siempre produce el mismo texto pero dos lotes no suenan clavados.
+
+const APERTURAS_RECEPCION: readonly ((hora: string, cuerpo: string) => string)[] = [
+  (hora, cuerpo) => `Se ha recibido${hora} un volcado ${cuerpo}.`,
+  (hora, cuerpo) => `Ha entrado en planta${hora} un volcado ${cuerpo}.`,
+  (hora, cuerpo) => `Se registra la entrada${hora} de un volcado ${cuerpo}.`,
+  (hora, cuerpo) => `Queda anotada la recepción${hora} de un volcado ${cuerpo}.`,
+];
+
+// Reconoce un texto salido del generador (cualquiera de las aperturas): sirve
+// para no tratar la narrativa ya generada como nota manual del técnico.
+const APERTURA_GENERADA_REGEX = /^(Se ha recibido|Ha entrado en planta|Se registra la entrada|Queda anotada la recepción)\b/;
+
+// Todas conservan "se valora como" para que la valoración sea buscable.
+const VALORACIONES_CALIDAD: readonly string[] = [
+  "La calidad general del lote se valora como",
+  "Tras la inspección en línea, la calidad del lote se valora como",
+  "En el control de recepción la calidad del lote se valora como",
+];
+
+const AEROBOTICS_CLAUSULAS: readonly string[] = [
+  ", contando con soporte del sistema Aerobotics durante la inspección",
+  ", con el apoyo del sistema Aerobotics durante la revisión",
+];
+
+const SIN_DEFECTOS: readonly string[] = [
+  "No se detectan defectos reseñables durante la inspección.",
+  "La inspección no arroja defectos reseñables.",
+  "No se aprecian defectos dignos de mención durante la revisión del lote.",
+];
+
+const DEFECTO_UNICO_INTROS: readonly string[] = [
+  "El único defecto detectado es",
+  "Como único defecto se aprecia",
+  "El defecto observado se limita a",
+];
+
+const DEFECTOS_VARIOS_INTROS: readonly string[] = [
+  "Los defectos detectados son",
+  "Durante la inspección se aprecian",
+  "Se observan como defectos",
+];
+
+// La nota manual del técnico se incrusta entre «» con esta introducción fija:
+// los delimitadores permiten recuperarla al regenerar sobre un texto ya
+// generado (idempotencia del botón Generar).
+const NOTA_TECNICO_INTRO = "En sus observaciones, el técnico de calidad añade:";
+const NOTA_TECNICO_REGEX = /En sus observaciones, el técnico de calidad añade:\s*«([\s\S]*?)»\.?\s*$/;
+
+/**
+ * Semilla determinista del lote (FNV-1a sobre sus campos estables, calidad y
+ * defectos incluidos): mismo lote ⇒ mismo texto; cualquier cambio de datos o
+ * de valoración ⇒ otra combinación de redacciones.
+ */
+function semillaCalidadLote(lote: CalidadLote): number {
+  const clave = [lote.id, lote.numero_lote, lote.fecha, lote.hora ?? "", lote.productor_finca_nombre, lote.calidad, (lote.defectos ?? []).join("+")].join("|");
+  let hash = 2166136261;
+  for (let i = 0; i < clave.length; i += 1) {
+    hash ^= clave.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+// Cada hueco (slot) remezcla la semilla para que las elecciones de los
+// distintos huecos no vayan correlacionadas entre sí.
+function variante<T>(pool: readonly T[], semilla: number, slot: number): T {
+  const mezcla = Math.imul(semilla ^ Math.imul(slot + 1, 0x9e3779b1), 0x85ebca6b) >>> 0;
+  return pool[mezcla % pool.length];
+}
+
+function esObservacionGenerada(texto: string): boolean {
+  return APERTURA_GENERADA_REGEX.test(normalizeComentario(texto));
+}
+
+/**
+ * Nota libre escrita por el técnico en el campo observación. Si el campo
+ * contiene una narrativa ya generada, recupera la nota incrustada entre «»
+ * (si la hay) en lugar de tratar toda la narrativa como nota.
+ */
+function notaManualDeObservacion(observacion: string): string {
+  const texto = normalizeComentario(observacion);
+  if (!texto) return "";
+  if (!esObservacionGenerada(texto)) return texto;
+  const match = texto.match(NOTA_TECNICO_REGEX);
+  return match ? match[1].trim() : "";
+}
+
+function esAccionRecomendadaGenerada(texto: string): boolean {
+  const normalizado = normalizeComentario(texto);
+  if (!normalizado) return false;
+  return CALIDAD_OPTIONS.some((calidad) => CALIDAD_DESTINOS[calidad].some((destino) => normalizeComentario(destino) === normalizado));
+}
+
+/**
+ * Acción recomendada del texto generado: si el técnico escribió una acción
+ * propia se RESPETA tal cual (era la queja: el generador la machacaba con la
+ * frase de destino estándar); solo si el campo está vacío o contiene una
+ * acción generada previamente se usa el destino por calidad.
+ */
+function accionRecomendadaSugerida(lote: CalidadLote, semilla: number): string {
+  const manual = normalizeComentario(lote.accion_recomendada);
+  if (manual && !esAccionRecomendadaGenerada(manual)) return manual;
+  return variante(CALIDAD_DESTINOS[lote.calidad], semilla, 6);
+}
 
 /**
  * Descompone el texto libre de cantidad ("104 box + 2 box reciclaje",
@@ -350,14 +485,18 @@ function describirCantidad(cantidad: string): { total: string; reciclaje: number
 /**
  * Observación narrativa completa (registro de referencia del dueño, jul-2026):
  * incluye la trazabilidad de recepción (hora, finca, lote, producto/variedad,
- * cantidad y boxes de reciclaje), la valoración de calidad/Aerobotics y los
+ * cantidad y boxes de reciclaje), la valoración de calidad/Aerobotics, los
  * defectos detectados con su matiz característico y su efecto en la aptitud
- * comercial — a partir únicamente de los campos estructurados del lote, sin
- * inventar datos que el generador no puede conocer. Compartida por
+ * comercial, y la nota manual del técnico si escribió algo en observaciones —
+ * a partir únicamente de los campos del lote, sin inventar datos que el
+ * generador no puede conocer. La redacción de cada frase varía de forma
+ * determinista con la semilla del lote (queja de calidad, jul-2026: el
+ * generador decía siempre lo mismo). Compartida por
  * buildCalidadComentarioSugerido y createCalidadDraftReport para que ambos
  * textos sean coherentes entre sí.
  */
 function construirObservacionCalidad(lote: CalidadLote): string {
+  const semilla = semillaCalidadLote(lote);
   const hora = formatHoraCorta(lote.hora);
   const finca = normalizeCalidadName(lote.productor_finca_nombre || "");
   const procedencia = finca ? `procedente de la finca ${finca}` : "de origen no especificado";
@@ -369,36 +508,45 @@ function construirObservacionCalidad(lote: CalidadLote): string {
   const cantClause = cantidad
     ? `con un total de ${cantidad.total}${cantidad.reciclaje > 0 ? `, a las cuales ${cantidad.reciclaje} ${cantidad.reciclaje === 1 ? "es" : "son"} de reciclaje ${cantidad.reciclaje === 1 ? "incorporada" : "incorporadas"} sin especificar procedencia` : ""}`
     : "";
-  const recepcion = `Se ha recibido${hora ? ` a las ${hora} h` : ""} un volcado ${[procedencia, loteClause, productoClause, cantClause].filter(Boolean).join(", ")}.`;
+  const cuerpoRecepcion = [procedencia, loteClause, productoClause, cantClause].filter(Boolean).join(", ");
+  const recepcion = variante(APERTURAS_RECEPCION, semilla, 0)(hora ? ` a las ${hora} h` : "", cuerpoRecepcion);
 
-  const calidad = `La calidad general del lote se valora como ${CALIDAD_ADJETIVO[lote.calidad]}${lote.aerobotics_realizado ? ", contando con soporte del sistema Aerobotics durante la inspección" : ""}.`;
+  const aerobotics = lote.aerobotics_realizado ? variante(AEROBOTICS_CLAUSULAS, semilla, 2) : "";
+  const calidad = `${variante(VALORACIONES_CALIDAD, semilla, 1)} ${CALIDAD_ADJETIVO[lote.calidad]}${aerobotics}.`;
 
   const defectosMarcados = (lote.defectos ?? []).filter((defecto) => defecto !== "Otro" || (lote.defecto_otro ?? "").trim());
   const nombres = defectosMarcados.map((defecto) => (defecto === "Otro" ? (lote.defecto_otro ?? "").trim() : defecto.toLocaleLowerCase("es")));
 
   let defectos: string;
   if (nombres.length === 0) {
-    defectos = "No se detectan defectos reseñables durante la inspección.";
+    defectos = variante(SIN_DEFECTOS, semilla, 5);
   } else if (nombres.length === 1) {
     const matiz = defectosMarcados[0] === "Otro" ? "" : (CALIDAD_DEFECTO_MATIZ[defectosMarcados[0]] ?? "");
-    defectos = `El único defecto detectado es ${nombres[0]}${matiz ? `, ${matiz}` : ""}, ${CALIDAD_APTITUD_SINGULAR[lote.calidad]}.`;
+    defectos = `${variante(DEFECTO_UNICO_INTROS, semilla, 3)} ${nombres[0]}${matiz ? `, ${matiz}` : ""}, ${CALIDAD_APTITUD_SINGULAR[lote.calidad]}.`;
   } else {
     const lista = `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
-    defectos = `Los defectos detectados son ${lista}, ${CALIDAD_APTITUD_PLURAL[lote.calidad]}.`;
+    defectos = `${variante(DEFECTOS_VARIOS_INTROS, semilla, 4)} ${lista}, ${CALIDAD_APTITUD_PLURAL[lote.calidad]}.`;
   }
 
-  return [recepcion, calidad, defectos].join(" ");
+  // La nota manual del técnico se conserva textual dentro de la narrativa
+  // (era la otra pata de la queja: el generador ignoraba lo escrito a mano).
+  const nota = notaManualDeObservacion(lote.observacion);
+  const notaClause = nota ? ` ${NOTA_TECNICO_INTRO} «${nota}».` : "";
+
+  return `${[recepcion, calidad, defectos].join(" ")}${notaClause}`;
 }
 
 /**
  * Genera el comentario sugerido como informe narrativo completo (registro de
- * referencia del dueño): observación con trazabilidad + acción/destino.
+ * referencia del dueño): observación con trazabilidad + acción/destino,
+ * respetando la nota y la acción recomendada que el técnico haya escrito.
  * Determinista, sin IA. `_history` y `_photoCount` ya no se usan en el texto
  * (se mantienen por compatibilidad de firma con el llamador en
  * CalidadJornada.tsx).
  */
 export function buildCalidadComentarioSugerido(current: CalidadLote, _history: CalidadLote[] = [], _photoCount = 0) {
-  return normalizeComentario(`${construirObservacionCalidad(current)}\n\nAccion recomendada: ${CALIDAD_DESTINO[current.calidad]}`);
+  const semilla = semillaCalidadLote(current);
+  return normalizeComentario(`${construirObservacionCalidad(current)}\n\nAccion recomendada: ${accionRecomendadaSugerida(current, semilla)}`);
 }
 
 export function calidadSummary(lotes: CalidadLote[], attachmentCounts: Record<string, number> = {}): CalidadSummary {
