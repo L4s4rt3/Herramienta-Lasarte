@@ -84,6 +84,7 @@ const PAGES = [
   { to: "/rrhh/comunicaciones", label: "Comunicaciones", icon: Mail, keywords: "rrhh comunicaciones correos emails avisos horas vacaciones" },
   { to: "/rrhh/mercadona", label: "Mercadona (facturas)", icon: ShoppingCart, keywords: "rrhh mercadona facturas precios kg" },
   { to: "/economico", label: "Panel económico", icon: Banknote, keywords: "economico euros facturacion costes margen admin direccion" },
+  { to: "/economico/rentabilidad", label: "Rentabilidad del día", icon: Banknote, keywords: "economico rentabilidad dia beneficio margen lote fruta direccion" },
   { to: "/economico/cmv", label: "CMV", icon: Banknote, keywords: "economico cmv coste medio venta kg vendido escandallo margen direccion" },
   { to: "/economico/facturacion", label: "Facturación", icon: Banknote, keywords: "economico facturacion base iva mercadona euros direccion" },
   { to: "/economico/costes", label: "Costes", icon: Banknote, keywords: "economico costes consumos coste por kg euros direccion" },
@@ -96,6 +97,7 @@ const PAGES = [
 const ECONOMICO_ADMIN_ONLY = new Set([
   "/direccion",
   "/economico",
+  "/economico/rentabilidad",
   "/economico/cmv",
   "/economico/facturacion",
   "/economico/costes",

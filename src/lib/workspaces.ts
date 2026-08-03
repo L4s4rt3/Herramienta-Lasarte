@@ -209,6 +209,7 @@ export const NAV_GROUPS: Array<{ label: string; workspace: WorkspaceId; items: N
     workspace: "direccion",
     items: [
       { to: "/economico", label: "Panel económico", icon: Euro, match: (path) => path === "/economico" },
+      { to: "/economico/rentabilidad", label: "Rentabilidad del día", icon: BarChart3 },
       { to: "/economico/cmv", label: "CMV", icon: Calculator },
       { to: "/economico/facturacion", label: "Facturación", icon: Receipt },
       { to: "/economico/costes", label: "Costes", icon: Droplet },

@@ -201,6 +201,12 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/direccion",
     parentLabel: "Dirección",
   },
+  "/economico/rentabilidad": {
+    label: "Rentabilidad del día",
+    subtitle: "Beneficio de cada día: venta real menos personal, envases, suministros y fruta (solo administración)",
+    parent: "/direccion",
+    parentLabel: "Dirección",
+  },
   "/economico/cmv": {
     label: "CMV",
     subtitle: "Coste medio por kg vendido y margen del mes (solo administración)",

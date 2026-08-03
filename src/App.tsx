@@ -42,6 +42,7 @@ const DireccionDashboard = lazy(pageLoaders.direccionDashboard);
 const MercadonaProduccion = lazy(pageLoaders.mercadonaProduccion);
 const VentasMensualImport = lazy(pageLoaders.ventasMensualImport);
 const EconomicoPanel = lazy(pageLoaders.economicoPanel);
+const EconomicoRentabilidad = lazy(pageLoaders.economicoRentabilidad);
 const EconomicoCmv = lazy(pageLoaders.economicoCmv);
 const EconomicoFacturacion = lazy(pageLoaders.economicoFacturacion);
 const EconomicoCostes = lazy(pageLoaders.economicoCostes);
@@ -125,6 +126,7 @@ const App = () => (
                       <Route path="/rrhh/nominas" element={<RrhhNominas />} />
                       <Route path="/rrhh/comunicaciones" element={<RrhhComunicaciones />} />
                       <Route path="/economico" element={<EconomicoPanel />} />
+                      <Route path="/economico/rentabilidad" element={<EconomicoRentabilidad />} />
                       <Route path="/economico/cmv" element={<EconomicoCmv />} />
                       <Route path="/economico/facturacion" element={<EconomicoFacturacion />} />
                       <Route path="/economico/costes" element={<EconomicoCostes />} />
