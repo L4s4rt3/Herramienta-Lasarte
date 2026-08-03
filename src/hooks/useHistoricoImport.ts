@@ -88,7 +88,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
-import { fetchAllRows } from "@/lib/fetchAllRows";
+import { esErrorTransitorioSupabase, fetchAllRows } from "@/lib/fetchAllRows";
 import { esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
 import { normalizarLoteCodigo, prefijoNumericoLote } from "@/lib/loteCodigo";
 import { PARTES_QUERY_KEY } from "@/hooks/usePartes";
@@ -106,12 +106,6 @@ const CHUNK = 200;
 const REINTENTOS_ESCRITURA = 3;
 const ESPERA_REINTENTO_MS = 2000;
 
-function esErrorTransitorio(error: { code?: string; message?: string } | null): boolean {
-  if (!error) return false;
-  if (error.code === "57014") return true; // canceling statement due to statement timeout
-  return /statement timeout|failed to fetch|network|fetch failed/i.test(error.message ?? "");
-}
-
 /**
  * Ejecuta una escritura supabase reintentándola ante errores transitorios.
  * Devuelve el ÚLTIMO resultado (con su error si agotó reintentos): el caller
@@ -123,7 +117,7 @@ async function escribirConReintentos<R extends { error: { code?: string; message
   hacer: () => PromiseLike<R>,
 ): Promise<R> {
   let resultado = await hacer();
-  for (let intento = 1; resultado.error && esErrorTransitorio(resultado.error) && intento < REINTENTOS_ESCRITURA; intento++) {
+  for (let intento = 1; resultado.error && esErrorTransitorioSupabase(resultado.error) && intento < REINTENTOS_ESCRITURA; intento++) {
     await new Promise((r) => setTimeout(r, ESPERA_REINTENTO_MS * intento));
     resultado = await hacer();
   }

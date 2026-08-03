@@ -45,6 +45,24 @@ export interface FetchAllRowsPage<T> {
 }
 
 /**
+ * Error TRANSITORIO de Supabase/PostgREST: merece reintento, no aborto.
+ * Caso real (2026-08-03): con lote_clasificacion en 224k filas, una página de
+ * fetchAllRows (o un insert del import histórico) pilló a Postgres en pleno
+ * checkpoint y murió por "canceling statement due to statement timeout"
+ * (código 57014) — el import entero abortó. Un error de datos (constraint,
+ * RLS, columna inexistente...) NO es transitorio y debe seguir abortando.
+ */
+export function esErrorTransitorioSupabase(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as { code?: unknown; message?: unknown };
+  if (e.code === "57014") return true; // statement timeout
+  return typeof e.message === "string" && /statement timeout|failed to fetch|fetch failed|network/i.test(e.message);
+}
+
+const REINTENTOS_PAGINA = 3;
+const ESPERA_REINTENTO_MS = 1500;
+
+/**
  * @param buildQuery Construye la consulta para la página [from, to] (ambos
  *   inclusive, como espera `.range()` de supabase-js). Debe incluir un
  *   `.order()` estable — ver cabecera.
@@ -67,7 +85,14 @@ export async function fetchAllRows<T>(
 
   for (;;) {
     const to = from + pageSize - 1;
-    const { data, error } = await buildQuery(from, to);
+    let { data, error } = await buildQuery(from, to);
+    // Reintento solo de errores transitorios (timeout 57014 / red): una página
+    // que muere con la BD ocupada no debe tirar la lectura entera. Cualquier
+    // otro error se lanza a la primera, como siempre.
+    for (let intento = 1; error && esErrorTransitorioSupabase(error) && intento < REINTENTOS_PAGINA; intento++) {
+      await new Promise((r) => setTimeout(r, ESPERA_REINTENTO_MS * intento));
+      ({ data, error } = await buildQuery(from, to));
+    }
     if (error) throw error;
 
     const page = data ?? [];
