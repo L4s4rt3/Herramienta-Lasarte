@@ -1177,6 +1177,14 @@ export function useInformesLoteImport() {
     isLoadingClasificacionCubierta: clasificacionCubiertaQuery.isLoading,
     lotesCubiertos: lotesCubiertosQuery.data ?? null,
     isLoadingLotesCubiertos: lotesCubiertosQuery.isLoading,
+    // La preview necesita distinguir "índice cargando" de "índice roto" para no
+    // enseñar un plan calculado con un índice vacío (parecía que el dedup no
+    // funcionaba). El error se reintenta desde la UI con refetchIndices.
+    isErrorIndices: clasificacionCubiertaQuery.isError || lotesCubiertosQuery.isError,
+    refetchIndices: () => {
+      if (clasificacionCubiertaQuery.isError) void clasificacionCubiertaQuery.refetch();
+      if (lotesCubiertosQuery.isError) void lotesCubiertosQuery.refetch();
+    },
     importar,
   };
 }

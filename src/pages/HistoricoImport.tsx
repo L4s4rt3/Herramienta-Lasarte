@@ -18,7 +18,7 @@
  * permite admin+operario, pero este import de campaña completa es una
  * operación delicada (crea partes/palets históricos) — solo administración.
  */
-import { useRef, useState, type DragEvent } from "react";
+import { useMemo, useRef, useState, type DragEvent } from "react";
 import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { AlertTriangle, CheckCircle2, FileSpreadsheet, FileStack, History, Loader2, PackageSearch, ShieldAlert, Upload } from "lucide-react";
@@ -96,8 +96,11 @@ interface PreviewInformesLote {
   descartadosParse: Array<{ fileName: string; motivo: string }>;
   /** Avisos de estructura no reconocida en archivos que SÍ se parsearon (nunca se ocultan). */
   avisos: string[];
-  /** Decisión por informe contra el estado actual de BD (misma función pura que usará la mutación). */
-  plan: PlanImportInformesLote;
+  // El plan (decisión por informe contra BD) NO se guarda aquí: se deriva con
+  // useMemo del índice de claves cubiertas, que con cientos de miles de filas
+  // tarda en cargar. Congelarlo al leer los archivos hacía que la preview
+  // mostrara "todo nuevo / 0 ya tenían" con el índice aún vacío (caso real del
+  // 03-08-2026: el usuario creyó tres veces que el dedup no funcionaba).
 }
 
 export default function HistoricoImport() {
@@ -163,8 +166,25 @@ function HistoricoImportAdmin() {
     isLoadingClasificacionCubierta,
     lotesCubiertos,
     isLoadingLotesCubiertos,
+    isErrorIndices,
+    refetchIndices,
     importar: importarInformes,
   } = useInformesLoteImport();
+
+  // Plan derivado: null mientras el índice de BD no esté disponible (cargando o
+  // en error). La mutación relee fresco igualmente, así que esto es solo para
+  // que la preview no mienta con un índice vacío.
+  const planInformes: PlanImportInformesLote | null = useMemo(
+    () =>
+      previewInformes && clasificacionCubierta && lotesCubiertos
+        ? planImportInformesLote(
+            previewInformes.archivos,
+            clasificacionCubierta.clasificacionPorFecha,
+            lotesCubiertos.clavesPorFecha,
+          )
+        : null,
+    [previewInformes, clasificacionCubierta, lotesCubiertos],
+  );
 
   const handleFile = async (file: File | null) => {
     if (!file) return;
@@ -376,14 +396,10 @@ function HistoricoImportAdmin() {
         }
       }
 
-      // MISMA función pura que ejecutará la mutación (con datos frescos):
-      // preview y import ven exactamente las mismas decisiones por informe.
-      const plan = planImportInformesLote(
-        archivos,
-        clasificacionCubierta?.clasificacionPorFecha ?? new Map(),
-        lotesCubiertos?.clavesPorFecha ?? new Map(),
-      );
-      setPreviewInformes({ archivos, descartadosParse, avisos, plan });
+      // El plan (misma función pura que ejecutará la mutación) se deriva en
+      // planInformes cuando el índice de BD esté cargado — aquí solo se guarda
+      // lo parseado.
+      setPreviewInformes({ archivos, descartadosParse, avisos });
     } finally {
       setParseandoInformes(null);
       if (fileInputRefInformes.current) fileInputRefInformes.current.value = "";
@@ -797,38 +813,58 @@ function HistoricoImportAdmin() {
                   {formatNumber(previewInformes.archivos.length + previewInformes.descartadosParse.length)} archivo(s) leído(s)
                 </div>
 
+                {!planInformes ? (
+                  // Índice de claves cubiertas aún no disponible: sin él, el plan
+                  // saldría "todo nuevo / 0 ya tenían" y parece que el dedup no
+                  // funciona. Se muestra el estado real en su lugar.
+                  isErrorIndices ? (
+                    <div className="flex items-center gap-2 text-sm text-warning">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      <span>No se pudo comprobar qué informes ya están importados.</span>
+                      <Button size="sm" variant="outline" onClick={refetchIndices}>
+                        Reintentar
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                      Comprobando qué informes ya están importados… (con cientos de miles de filas puede tardar un par de minutos)
+                    </p>
+                  )
+                ) : (
+                  <>
                 <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-                  <MiniKpi variant="card" label="Informes válidos" value={formatNumber(previewInformes.plan.items.length)} />
+                  <MiniKpi variant="card" label="Informes válidos" value={formatNumber(planInformes.items.length)} />
                   <MiniKpi
                     variant="card"
                     label="Descartados"
-                    value={formatNumber(previewInformes.descartadosParse.length + previewInformes.plan.descartados.length)}
-                    tone={previewInformes.descartadosParse.length + previewInformes.plan.descartados.length > 0 ? "warning" : "neutral"}
+                    value={formatNumber(previewInformes.descartadosParse.length + planInformes.descartados.length)}
+                    tone={previewInformes.descartadosParse.length + planInformes.descartados.length > 0 ? "warning" : "neutral"}
                   />
                   <MiniKpi
                     variant="card"
                     label="Clasificación nueva (fecha+lote)"
-                    value={formatNumber(previewInformes.plan.nClasificacionesNuevas)}
+                    value={formatNumber(planInformes.nClasificacionesNuevas)}
                     labelInfo="Informes cuya combinación fecha+lote todavía no tiene filas en lote_clasificacion: se insertan."
                   />
                   <MiniKpi
                     variant="card"
                     label="Ya tenían informe (se saltan)"
-                    value={formatNumber(previewInformes.plan.nYaTenianInforme)}
+                    value={formatNumber(planInformes.nYaTenianInforme)}
                     labelInfo="La misma fecha+lote ya tiene clasificación (de la edge function o de una tanda anterior): reimportar no duplica nada."
                   />
                   <MiniKpi
                     variant="card"
                     label="Reparan procesado faltante"
-                    value={formatNumber(previewInformes.plan.nReparaciones)}
-                    sub={formatKg(previewInformes.plan.kgReparados)}
-                    tone={previewInformes.plan.nReparaciones > 0 ? "success" : "neutral"}
+                    value={formatNumber(planInformes.nReparaciones)}
+                    sub={formatKg(planInformes.kgReparados)}
+                    tone={planInformes.nReparaciones > 0 ? "success" : "neutral"}
                     labelInfo="Lotes SIN ninguna fila de procesado para esa fecha: se crea una fila de lotes_dia con el kg del informe — esos kg salen del stock fantasma."
                   />
                   <MiniKpi
                     variant="card"
                     label="Podrido real de los informes nuevos"
-                    value={formatKg(previewInformes.plan.kgPodridoRealNuevo)}
+                    value={formatKg(planInformes.kgPodridoRealNuevo)}
                     labelInfo="Suma de las clases 'Podrido' de los informes con clasificación nueva: entra como dato real (no prorrateo) en el análisis de mermas."
                   />
                 </div>
@@ -838,10 +874,12 @@ function HistoricoImportAdmin() {
                   <FuenteBadge fuente="real" size="sm" />
                   en mermas y costes (sustituye al prorrateo para esos lotes).
                 </p>
+                  </>
+                )}
 
-                {(previewInformes.descartadosParse.length > 0 || previewInformes.plan.descartados.length > 0) && (
+                {(previewInformes.descartadosParse.length > 0 || (planInformes?.descartados.length ?? 0) > 0) && (
                   <div className="space-y-0.5 text-xs text-warning">
-                    {[...previewInformes.descartadosParse, ...previewInformes.plan.descartados].map((d, i) => (
+                    {[...previewInformes.descartadosParse, ...(planInformes?.descartados ?? [])].map((d, i) => (
                       <p key={i} className="flex items-start gap-1.5">
                         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                         <span><span className="font-medium">{d.fileName}</span>: {d.motivo}</span>
@@ -867,7 +905,9 @@ function HistoricoImportAdmin() {
                   <div className="space-y-1">
                     <Progress value={progresoInformes.total > 0 ? (progresoInformes.hechos / progresoInformes.total) * 100 : 0} />
                     <p className="text-xs text-muted-foreground">
-                      Importando informe {progresoInformes.hechos} de {progresoInformes.total}…
+                      {progresoInformes.total > 0
+                        ? `Importando informe ${progresoInformes.hechos} de ${progresoInformes.total}…`
+                        : "Preparando el import (releyendo lo ya importado en la base)…"}
                     </p>
                   </div>
                 )}
@@ -876,7 +916,13 @@ function HistoricoImportAdmin() {
                   <Button
                     size="sm"
                     onClick={confirmarImportInformes}
-                    disabled={importarInformes.isPending || (previewInformes.plan.nClasificacionesNuevas === 0 && previewInformes.plan.nReparaciones === 0)}
+                    disabled={
+                      importarInformes.isPending ||
+                      // Sin índice no hay plan fiable que enseñar; la mutación relee
+                      // fresco, pero importar "a ciegas" confunde — se espera al índice.
+                      !planInformes ||
+                      (planInformes.nClasificacionesNuevas === 0 && planInformes.nReparaciones === 0)
+                    }
                   >
                     {importarInformes.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                     Confirmar import
@@ -894,7 +940,7 @@ function HistoricoImportAdmin() {
                     Elegir otros archivos
                   </Button>
                 </div>
-                {previewInformes.plan.nClasificacionesNuevas === 0 && previewInformes.plan.nReparaciones === 0 && (
+                {planInformes && planInformes.nClasificacionesNuevas === 0 && planInformes.nReparaciones === 0 && (
                   <p className="text-xs text-muted-foreground">
                     Todos los informes de esta tanda (por fecha+lote) ya están importados: no hay nada nuevo que hacer.
                   </p>
