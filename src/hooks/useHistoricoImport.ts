@@ -97,6 +97,39 @@ import { normalizarPaletIdParaCasar, type FilaInformePalets } from "@/lib/histor
 import type { InformeLote } from "@/lib/informeLote";
 
 const CHUNK = 200;
+
+// Reintentos de escritura: un import de 1.000+ archivos puede pillar a la BD
+// en pleno checkpoint y un insert normal (chunk de 200, sin triggers) muere
+// por "statement timeout" (57014) — caso real del 2026-08-03: 3 informes
+// insertados y la mutación entera abortada. Solo se reintenta lo transitorio
+// (timeout / red); un error de datos aborta igual que siempre.
+const REINTENTOS_ESCRITURA = 3;
+const ESPERA_REINTENTO_MS = 2000;
+
+function esErrorTransitorio(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  if (error.code === "57014") return true; // canceling statement due to statement timeout
+  return /statement timeout|failed to fetch|network|fetch failed/i.test(error.message ?? "");
+}
+
+/**
+ * Ejecuta una escritura supabase reintentándola ante errores transitorios.
+ * Devuelve el ÚLTIMO resultado (con su error si agotó reintentos): el caller
+ * conserva su manejo de error de siempre. PostgREST no es transaccional entre
+ * chunks, pero cada insert individual sí es atómico, así que reintentar un
+ * chunk fallido no duplica filas.
+ */
+async function escribirConReintentos<R extends { error: { code?: string; message?: string } | null }>(
+  hacer: () => PromiseLike<R>,
+): Promise<R> {
+  let resultado = await hacer();
+  for (let intento = 1; resultado.error && esErrorTransitorio(resultado.error) && intento < REINTENTOS_ESCRITURA; intento++) {
+    await new Promise((r) => setTimeout(r, ESPERA_REINTENTO_MS * intento));
+    resultado = await hacer();
+  }
+  return resultado;
+}
+
 const NOTA_PARTE_HISTORICO = "Histórico de campaña importado (Informe PRODUCCION del calibrador).";
 const NOTA_LOTE_HISTORICO = "Import histórico de campaña";
 const NOTA_PARTE_HISTORICO_PALETS = "Histórico de campaña importado (export de palets; sin Informe PRODUCCION asociado para este día).";
@@ -145,7 +178,7 @@ function indexarPartesPorFecha(partes: ParteDiario[]): { fechaPorParte: Map<stri
 
 /** Crea un parte sintético para una fecha sin parte (mismo patrón para producción y palets). */
 async function crearParteSintetico(fecha: string, userId: string, notas: string): Promise<string> {
-  const { data, error } = await supabase
+  const { data, error } = await escribirConReintentos(() => supabase
     .from("partes_diarios")
     .insert({
       date: fecha,
@@ -156,7 +189,7 @@ async function crearParteSintetico(fecha: string, userId: string, notas: string)
       notas_generales: notas,
     })
     .select("id")
-    .single();
+    .single());
   if (error) throw toError(error);
   return (data as { id: string }).id;
 }
@@ -1057,7 +1090,7 @@ export function useInformesLoteImport() {
         //    enlazar lote_dia_id con la fila recién creada.
         let loteDiaId = loteDiaIdPorFechaClave.get(`${item.fecha}::${item.clave}`) ?? null;
         if (item.reparaLotesDia) {
-          const { data: nuevoLote, error: loteErr } = await supabase
+          const { data: nuevoLote, error: loteErr } = await escribirConReintentos(() => supabase
             .from("lotes_dia")
             .insert({
               part_id: partId,
@@ -1073,7 +1106,7 @@ export function useInformesLoteImport() {
               notas: NOTA_LOTE_REPARADO_INFORME,
             })
             .select("id")
-            .single();
+            .single());
           if (loteErr) throw toError(loteErr);
           loteDiaId = (nuevoLote as { id: string }).id;
           loteDiaIdPorFechaClave.set(`${item.fecha}::${item.clave}`, loteDiaId);
@@ -1112,7 +1145,7 @@ export function useInformesLoteImport() {
           }));
           for (let j = 0; j < rows.length; j += CHUNK) {
             const chunk = rows.slice(j, j + CHUNK);
-            const { error: clasifErr } = await supabase.from("lote_clasificacion").insert(chunk);
+            const { error: clasifErr } = await escribirConReintentos(() => supabase.from("lote_clasificacion").insert(chunk));
             if (clasifErr) throw toError(clasifErr);
           }
           clasificacionesInsertadas += 1;
