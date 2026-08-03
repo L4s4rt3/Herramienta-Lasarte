@@ -40,6 +40,7 @@ export const pageLoaders = {
   trazabilidad: () => import("@/pages/TrazabilidadLote"),
   limpiezaBox: () => import("@/pages/LimpiezaBox"),
   historicoImport: () => import("@/pages/HistoricoImport"),
+  importarBandeja: () => import("@/pages/ImportarBandeja"),
 };
 
 const preloadByPath: Record<string, () => Promise<unknown>> = {
@@ -52,6 +53,7 @@ const preloadByPath: Record<string, () => Promise<unknown>> = {
   "/costes/consumos": pageLoaders.consumoCostes,
   "/limpieza": pageLoaders.limpiezaBox,
   "/historico": pageLoaders.historicoImport,
+  "/importar": pageLoaders.importarBandeja,
   "/costes/asistencia": pageLoaders.asistencia,
   "/costes/asistencia/comparativa": pageLoaders.asistenciaComparativa,
   "/productores": pageLoaders.productores,

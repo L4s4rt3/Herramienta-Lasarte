@@ -24,7 +24,9 @@ export const VENTAS_ALLOWED_PATHS = [
 // Rutas de Producción reservadas al admin (decisión del dueño, 2026-07-17):
 // consumos, limpieza de box e importar histórico dejan de ser del rol básico.
 // Espejo de los items adminOnly de NAV_GROUPS (src/lib/workspaces.ts).
-export const ADMIN_ONLY_PATHS = ["/costes/consumos", "/limpieza", "/historico"] as const;
+// "/importar" (Bandeja de importación) se añade aquí en vez de bajo el
+// prefijo "/direccion" porque su ruta no cuelga de ese prefijo.
+export const ADMIN_ONLY_PATHS = ["/costes/consumos", "/limpieza", "/historico", "/importar"] as const;
 
 /** Home de cada rol: su dashboard. "/" redirige aquí (ver RoleHome). */
 export function homeForRole(role: Role): string {

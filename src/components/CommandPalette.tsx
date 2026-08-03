@@ -63,6 +63,7 @@ const PAGES = [
   { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3, keywords: "analisis diario lotes calibres" },
   { to: "/productores", label: "Productores", icon: Sprout, keywords: "productores proveedores origen eficiencia" },
   { to: "/direccion", label: "Panel de dirección", icon: LayoutDashboard, keywords: "direccion jefe global resumen produccion comercial rrhh economico" },
+  { to: "/importar", label: "Bandeja de importación", icon: Upload, keywords: "importar bandeja excel lote produccion palets bascula mercadona ventas merma camara productor direccion" },
   { to: "/comercial", label: "Panel comercial", icon: ShoppingCart, keywords: "comercial panel dashboard ventas resumen" },
   { to: "/mercadona", label: "Mercadona (planta)", icon: ShoppingCart, keywords: "mercadona produccion planta aprovechamiento cliente principal" },
   { to: "/comercial/mercadona", label: "Mercadona (ventas)", icon: ShoppingCart, keywords: "mercadona ventas comercial facturacion cliente principal" },
@@ -94,6 +95,8 @@ const PAGES = [
 
 // Páginas económicas (jul 2026: fundidas en el espacio Dirección, sin
 // workspace/conmutador propio) — el acceso sigue siendo exclusivo de admins.
+// La Bandeja de importación (/importar) es otro ítem admin-only del mismo
+// espacio Dirección, aunque su ruta no cuelgue del prefijo "/economico".
 const ECONOMICO_ADMIN_ONLY = new Set([
   "/direccion",
   "/economico",
@@ -103,6 +106,7 @@ const ECONOMICO_ADMIN_ONLY = new Set([
   "/economico/costes",
   "/economico/fruta",
   "/economico/precios",
+  "/importar",
 ]);
 
 // Rutas de Producción reservadas al admin (decisión del dueño, 2026-07-17):

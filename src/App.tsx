@@ -53,6 +53,7 @@ const EntradasBascula = lazy(pageLoaders.entradas);
 const TrazabilidadLote = lazy(pageLoaders.trazabilidad);
 const LimpiezaBox = lazy(pageLoaders.limpiezaBox);
 const HistoricoImport = lazy(pageLoaders.historicoImport);
+const ImportarBandeja = lazy(pageLoaders.importarBandeja);
 const ComunicacionesCampo = lazy(pageLoaders.comunicacionesCampo);
 const ExcelViewerPage = lazy(() => import("@/pages/ExcelViewerPage"));
 
@@ -99,6 +100,7 @@ const App = () => (
                       <Route path="/costes/consumos" element={<ConsumoCostes />} />
                       <Route path="/limpieza" element={<LimpiezaBox />} />
                       <Route path="/historico" element={<HistoricoImport />} />
+                      <Route path="/importar" element={<ImportarBandeja />} />
                       <Route path="/costes/asistencia" element={<Asistencia />} />
                       <Route path="/costes/asistencia/comparativa" element={<AsistenciaComparativa />} />
                       <Route path="/productores" element={<Productores />} />

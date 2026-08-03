@@ -123,6 +123,7 @@ export const NAV_GROUPS: Array<{ label: string; workspace: WorkspaceId; items: N
     workspace: "direccion",
     items: [
       { to: "/direccion", label: "Panel de dirección", icon: LayoutDashboard, match: (path) => path === "/direccion" },
+      { to: "/importar", label: "Bandeja de importación", icon: Upload },
     ],
   },
   {

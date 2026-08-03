@@ -118,6 +118,12 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     label: "Panel de dirección",
     subtitle: "Resumen global de Producción, Comercial, RRHH y Económico",
   },
+  "/importar": {
+    label: "Bandeja de importación",
+    subtitle: "Clasifica e importa de golpe los archivos mezclados de la campaña (solo administración)",
+    parent: "/direccion",
+    parentLabel: "Dirección",
+  },
   "/comercial": {
     label: "Panel comercial",
     subtitle: "Resumen de ventas: Mercadona, categorías y clientes",
