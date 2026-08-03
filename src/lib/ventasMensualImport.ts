@@ -146,6 +146,23 @@ export function detectVentasMensualFileKind(filename: string): VentasMensualFile
   return { kind: "ignorado" };
 }
 
+/**
+ * Identifica el tipo por CONTENIDO (cabeceras de columnas), para la Bandeja de
+ * importación: los ficheros reales del ERP no siempre se llaman
+ * "...lineas detallado..." (caso real del 03-08-2026: "VENTAS 24245.xlsx" ES
+ * el fichero de líneas, y por nombre caía en "ignorado"). El archivo de
+ * MÉTODO no se detecta aquí a propósito: su código solo puede venir del
+ * nombre del fichero (LN211.xlsx), así que sigue siendo cosa del nombre.
+ */
+export function detectVentasMensualContentKind(rows: unknown[][]): "lineas" | "metodos-catalogo" | null {
+  // El orden importa: el fichero de líneas también suele tener columnas
+  // Referencia/Artículo/Kilos (las del archivo de método) — fecha+cliente lo
+  // distinguen sin ambigüedad, por eso se prueba primero.
+  if (parseLineasDetalladoRows(rows).length > 0) return "lineas";
+  if (parseMetodosCatalogoRows(rows).length > 0) return "metodos-catalogo";
+  return null;
+}
+
 /** Convierte el texto editable de codigos de segunda en un set normalizado (mayusculas, sin espacios). */
 export function parseSegundaCodigos(text: string): Set<string> {
   return new Set(

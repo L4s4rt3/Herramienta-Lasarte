@@ -211,6 +211,39 @@ describe("clasificarArchivoBandeja — un caso positivo por tipo", () => {
     expect(r.tipo).toBe("ventas-metodo");
     expect(r.codigoMetodo).toBe("LN211");
   });
+
+  // ── Casos reales del 03-08-2026 (la 1ª prueba del usuario con archivos de
+  // verdad): los ficheros del ERP no llevan el nombre esperado — el contenido
+  // debe bastar. ──────────────────────────────────────────────────────────────
+  it("ventas-lineas por CONTENIDO con nombre arbitrario ('VENTAS 24245.xlsx')", () => {
+    const grid = [
+      ["Fecha", "Documento", "Cliente", "Denominación social", "Referencia", "Artículo", "Kilos", "PVP", "Base IVA"],
+      ["01/07/2026", "C 12245", "430000299", "ALCAFRUIT PRODUCTORES", "100000398", "NARANJA MALLA 2KG", 1000, 0.5, 500],
+    ];
+    const r = clasificarArchivoBandeja(entrada("VENTAS 24245.xlsx", { "Sheet 1": grid }));
+    expect(r.tipo).toBe("ventas-lineas");
+    expect(r.motivo).toMatch(/contenido/i);
+  });
+
+  it("ventas-metodos-catalogo por CONTENIDO con nombre arbitrario", () => {
+    const grid = [
+      ["Método", "Descripción", "Kilos"],
+      ["LN211", "MALLA 2KG SEGUNDA", 1000],
+    ];
+    const r = clasificarArchivoBandeja(entrada("resumen julio.xlsx", { Hoja1: grid }));
+    expect(r.tipo).toBe("ventas-metodos-catalogo");
+    expect(r.motivo).toMatch(/contenido/i);
+  });
+
+  it("camaras-externas agrega TODAS las hojas del libro ('Control entradas 25-26.xlsx': Zamexfruit + Guadex)", () => {
+    const r = clasificarArchivoBandeja(entrada("Control entradas 25-26.xlsx", {
+      Hoja1: [HEADER_CAMARAS, FILA_CAMARA],
+      "Transportes Guadex-LST": [HEADER_CAMARAS, FILA_CAMARA, FILA_CAMARA],
+    }));
+    expect(r.tipo).toBe("camaras-externas");
+    expect(r.n).toBe(3); // 1 camión de la Hoja1 + 2 de la hoja de Guadex
+    expect(r.motivo).toMatch(/2 hoja/);
+  });
 });
 
 describe("clasificarArchivoBandeja — solapamientos", () => {

@@ -27,6 +27,8 @@ import { CardMercadonaSemanal } from "@/components/importar/CardMercadonaSemanal
 import { CardBasculaEntradas } from "@/components/importar/CardBasculaEntradas";
 import { CardStockLotes } from "@/components/importar/CardStockLotes";
 import { CardMermaCamara } from "@/components/importar/CardMermaCamara";
+import { CardAsistenciaHoras } from "@/components/importar/CardAsistenciaHoras";
+import { clasificarAsistenciaHoras, type AsistenciaHorasClasificado } from "@/lib/importBandejaAsistencia";
 
 const TIPOS_ZONA_A: TipoArchivoBandeja[] = [
   "informe-lote", "informe-produccion", "palets-campana", "camaras-externas", "informe-productor",
@@ -69,6 +71,11 @@ function ImportarBandejaAdmin() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [leyendo, setLeyendo] = useState<{ leidos: number; total: number } | null>(null);
   const [clasificados, setClasificados] = useState<ArchivoClasificado[] | null>(null);
+  // Fichajes de horas de personal detectados por CONTENIDO (src/lib/importBandejaAsistencia.ts,
+  // módulo nuevo y separado de importBandeja.ts): se calculan aparte porque ese
+  // tipo no vive en TipoArchivoBandeja (no se toca ese union), solo se prueba
+  // sobre los archivos que clasificarArchivoBandeja dejó en "desconocido".
+  const [asistenciaHorasArchivos, setAsistenciaHorasArchivos] = useState<AsistenciaHorasClasificado[]>([]);
   const [batchId, setBatchId] = useState(0);
   const [dragOver, setDragOver] = useState(false);
   // true mientras la zona automática de la ÚLTIMA tanda sigue importando:
@@ -89,11 +96,28 @@ function ImportarBandejaAdmin() {
     const files = Array.from(fileList ?? []);
     if (files.length === 0) return;
     setClasificados(null);
+    setAsistenciaHorasArchivos([]);
     setLeyendo({ leidos: 0, total: files.length });
     try {
       const anio = new Date().getFullYear();
       const entradas = await leerArchivosBandeja(files, anio, (leidos, total) => setLeyendo({ leidos, total }));
-      setClasificados(entradas.map(clasificarArchivoBandeja));
+      const clasificadosNuevos = entradas.map(clasificarArchivoBandeja);
+
+      // Solo se prueba el fichaje de horas sobre lo que quedó "desconocido":
+      // el contenido de un Informe LOTE/báscula/etc ya se reclamó a sí mismo
+      // por delante en la cadena de clasificarArchivoBandeja.
+      const asistenciaHoras: AsistenciaHorasClasificado[] = [];
+      clasificadosNuevos.forEach((c, i) => {
+        if (c.tipo !== "desconocido") return;
+        const sheets = entradas[i]?.sheets;
+        const primeraClave = sheets ? Object.keys(sheets)[0] : undefined;
+        const primeraHoja = primeraClave && sheets ? sheets[primeraClave] : undefined;
+        const res = clasificarAsistenciaHoras(c.fileName, primeraHoja, anio);
+        if (res) asistenciaHoras.push(res);
+      });
+
+      setClasificados(clasificadosNuevos);
+      setAsistenciaHorasArchivos(asistenciaHoras);
       setBatchId((n) => n + 1);
     } catch (e) {
       toast({ title: "No se pudieron leer los archivos", description: errorMessage(e), variant: "destructive" });
@@ -113,13 +137,22 @@ function ImportarBandejaAdmin() {
     return map;
   }, [clasificados]);
 
+  // Los "desconocido" que en realidad son un fichaje de horas ya tienen su
+  // propia tarjeta (CardAsistenciaHoras): no se repiten en "Sin clasificar".
+  const asistenciaHorasFileNames = useMemo(
+    () => new Set(asistenciaHorasArchivos.map((a) => a.fileName)),
+    [asistenciaHorasArchivos],
+  );
+
   const sinClasificar = useMemo(
-    () => (clasificados ?? []).filter((c) => c.tipo === "no-soportado" || c.tipo === "desconocido"),
-    [clasificados],
+    () => (clasificados ?? []).filter(
+      (c) => (c.tipo === "no-soportado" || c.tipo === "desconocido") && !asistenciaHorasFileNames.has(c.fileName),
+    ),
+    [clasificados, asistenciaHorasFileNames],
   );
 
   const hayZonaA = TIPOS_ZONA_A.some((t) => (porTipo.get(t)?.length ?? 0) > 0);
-  const hayZonaB = TIPOS_ZONA_B.some((t) => (porTipo.get(t)?.length ?? 0) > 0);
+  const hayZonaB = TIPOS_ZONA_B.some((t) => (porTipo.get(t)?.length ?? 0) > 0) || asistenciaHorasArchivos.length > 0;
 
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -203,6 +236,7 @@ function ImportarBandejaAdmin() {
                 <CardBasculaEntradas key={`bascula-${batchId}`} archivos={porTipo.get("bascula-entradas") ?? []} entradasBascula={entradasBascula} />
                 <CardStockLotes key={`stock-${batchId}`} archivos={porTipo.get("stock-lotes") ?? []} entradasBascula={entradasBascula} />
                 <CardMermaCamara key={`merma-${batchId}`} archivos={porTipo.get("merma-camara") ?? []} entradasBascula={entradasBascula} />
+                <CardAsistenciaHoras key={`asistencia-horas-${batchId}`} archivos={asistenciaHorasArchivos} />
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">Ningún archivo de este tipo en esta tanda.</p>

@@ -58,7 +58,7 @@ import { parseEntradasBasculaRows, parseStockLotesRows } from "@/lib/entradasBas
 import { parseRegistroCamaraExternaRows } from "@/lib/camarasExternas";
 import { parseMermaCamaraRows } from "@/lib/mermaCamaraImport";
 import { parseMercadonaWorkbook, type SheetRows } from "@/lib/mercadonaVentas";
-import { detectVentasMensualFileKind } from "@/lib/ventasMensualImport";
+import { detectVentasMensualContentKind, detectVentasMensualFileKind } from "@/lib/ventasMensualImport";
 
 export type TipoArchivoBandeja =
   | "informe-lote"
@@ -258,15 +258,24 @@ export function clasificarArchivoBandeja(entrada: EntradaBandeja): ArchivoClasif
     };
   }
 
-  // 1g. Registro de CÁMARA EXTERNA (Guadex/Zamexfruit/...).
-  const resCamaras = intentar(() => parseRegistroCamaraExternaRows(primeraHoja));
-  if (resCamaras && resCamaras.registros.length > 0) {
+  // 1g. Registro de CÁMARA EXTERNA (Guadex/Zamexfruit/...). Se prueban TODAS
+  // las hojas del libro, no solo la primera: el archivo real del usuario
+  // ("Control entradas 25-26.xlsx", 03-08-2026) trae Zamexfruit en la Hoja1 y
+  // Guadex en una segunda hoja — leer solo la primera perdía camiones en
+  // silencio. Los registros de todas las hojas válidas se agregan.
+  const hojasCamaras = Object.values(sheets)
+    .map((rows) => intentar(() => parseRegistroCamaraExternaRows(rows)))
+    .filter((r): r is NonNullable<typeof r> => !!r && r.registros.length > 0);
+  if (hojasCamaras.length > 0) {
+    const registros = hojasCamaras.flatMap((r) => r.registros);
+    const procedencias = [...new Set(hojasCamaras.map((r) => r.procedencia).filter(Boolean))];
     return {
       fileName,
       tipo: "camaras-externas",
-      n: resCamaras.registros.length,
-      motivo: `Registro de cámara externa${resCamaras.procedencia ? ` (${resCamaras.procedencia})` : ""}: ${resCamaras.registros.length} camiones.`,
-      payload: resCamaras,
+      n: registros.length,
+      motivo: `Registro de cámara externa${procedencias.length ? ` (${procedencias.join(" + ")})` : ""}: ${registros.length} camiones en ${hojasCamaras.length} hoja(s).`,
+      // Misma forma que ParseRegistroCamaraResult (el consumidor usa .registros).
+      payload: { ...hojasCamaras[0], registros },
     };
   }
 
@@ -299,7 +308,33 @@ export function clasificarArchivoBandeja(entrada: EntradaBandeja): ArchivoClasif
     };
   }
 
-  // ─── 3. Ventas mensuales (Comercial), detección por NOMBRE de archivo ──────
+  // ─── 3a. Ventas mensuales por CONTENIDO ─────────────────────────────────────
+  // Los ficheros reales del ERP no siempre llevan el nombre esperado (caso real
+  // 03-08-2026: "VENTAS 24245.xlsx" ES el fichero de líneas y por nombre caía
+  // en "desconocido"). Va DESPUÉS de Mercadona a propósito: la hoja semanal de
+  // Mercadona también tiene método+descripción+kilos (la distingue su columna
+  // LÍNEA) y estas cabeceras son las más genéricas del repertorio.
+  const kindContenido = intentar(() => detectVentasMensualContentKind(primeraHoja));
+  if (kindContenido === "lineas") {
+    return {
+      fileName,
+      tipo: "ventas-lineas",
+      n: contarFilasNoVacias(primeraHoja),
+      motivo: "Ventas mensuales: fichero de líneas detalladas (fecha + cliente + artículo + kilos), identificado por su contenido.",
+      payload: primeraHoja,
+    };
+  }
+  if (kindContenido === "metodos-catalogo") {
+    return {
+      fileName,
+      tipo: "ventas-metodos-catalogo",
+      n: contarFilasNoVacias(primeraHoja),
+      motivo: "Ventas mensuales: catálogo de métodos de confección (método + descripción + kilos), identificado por su contenido.",
+      payload: primeraHoja,
+    };
+  }
+
+  // ─── 3b. Ventas mensuales (Comercial), detección por NOMBRE de archivo ─────
   // A propósito la última: su patrón "archivo de método" (nombre alfanumérico
   // puro) también matchea el nombre de un Informe LOTE ("26051504.xlsx"), pero
   // esos ya habrán ganado por CONTENIDO en el paso 1 antes de llegar aquí.
