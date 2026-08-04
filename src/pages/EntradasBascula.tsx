@@ -12,7 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import * as XLSX from "xlsx";
 import {
-  AlertTriangle, ArrowRight, CalendarDays, ChevronDown, Download, FileSpreadsheet, GitCompare, HelpCircle, Loader2, Lock, LockOpen, Package, Percent, Route, Search, Trash2, Truck, Upload, Users, Warehouse, X,
+  AlertTriangle, ArrowRight, CalendarDays, ChevronDown, ClipboardCheck, Download, FileSpreadsheet, GitCompare, HelpCircle, Loader2, Lock, LockOpen, Package, Percent, Route, Search, Trash2, Truck, Upload, Users, Warehouse, X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ import { CerrarLoteDialog } from "@/components/CerrarLoteDialog";
 import { CerrarLotesEnBloqueDialog } from "@/components/CerrarLotesEnBloqueDialog";
 import { ConciliacionKgPanel } from "@/components/ConciliacionKgPanel";
 import { ConciliarInformeCamaraDialog } from "@/components/ConciliarInformeCamaraDialog";
+import { ConfirmarLotesEnCamaraDialog } from "@/components/ConfirmarLotesEnCamaraDialog";
 import { FuenteBadge, fuentePodridoAVariant } from "@/components/FuenteBadge";
 import { KPICard } from "@/components/KPICard";
 import { ProgressBarRow } from "@/components/ProgressBarRow";
@@ -623,8 +624,8 @@ interface ImportPreview {
 export default function EntradasBascula() {
   const {
     entradas, entradasPrecalibrado, stock, procesados, conciliacionKg, movimientosPrecalibrado, derivadosCampoCit, isLoading, error,
-    candidatosCierreAutomatico, candidatosCierreCompuesto, lotesEnPasadaCompuesta,
-    importar, importarStock, eliminar, cerrarLote, reabrirLote, cerrarLotesEnBloque, reabrirLotesEnBloque,
+    candidatosCierreAutomatico, candidatosCierreCompuesto, lotesEnPasadaCompuesta, camaraConfirmadaPorLote,
+    importar, importarStock, eliminar, cerrarLote, reabrirLote, cerrarLotesEnBloque, reabrirLotesEnBloque, actualizarCamaraConfirmada,
   } = useEntradasBascula();
   const { role } = useAuth();
   const isAdmin = role === "admin";
@@ -649,6 +650,7 @@ export default function EntradasBascula() {
   const [highlightLote, setHighlightLote] = useState<string | null>(null);
   const [bloqueDialogOpen, setBloqueDialogOpen] = useState(false);
   const [bloqueTerminadosDialogOpen, setBloqueTerminadosDialogOpen] = useState(false);
+  const [confirmarCamaraDialogOpen, setConfirmarCamaraDialogOpen] = useState(false);
 
   // ─── Señales para las cámaras externas (Guadex/Zamexfruit) ─────────────────
   // El estado de cada camión externo se DERIVA de datos que ya fluyen a diario
@@ -1055,6 +1057,17 @@ export default function EntradasBascula() {
         />
       )}
 
+      {/* ─── Confirmación FÍSICA de lotes en cámara (solo admin, refuerzo 04-08-2026) ── */}
+      {isAdmin && (
+        <ConfirmarLotesEnCamaraDialog
+          open={confirmarCamaraDialogOpen}
+          onOpenChange={setConfirmarCamaraDialogOpen}
+          entradas={entradas}
+          camaraConfirmadaPorLote={camaraConfirmadaPorLote}
+          actualizarCamaraConfirmada={actualizarCamaraConfirmada}
+        />
+      )}
+
       {/* ─── Previsualización del import ───────────────────────────────── */}
       {preview && previewStats && (
         <Card className="glass-accented border-info/30">
@@ -1425,6 +1438,15 @@ export default function EntradasBascula() {
                       >
                         <GitCompare className="h-3.5 w-3.5" /> Conciliar con informe de cámara…
                       </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="glass glass-hover h-9 text-xs"
+                        onClick={() => setConfirmarCamaraDialogOpen(true)}
+                        title="Anota la confirmación física de dirección tras inventariar una cámara a pie: esos lotes dejan de recibir derrames y de ser candidatos a cierre automático"
+                      >
+                        <ClipboardCheck className="h-3.5 w-3.5" /> Confirmar lotes en cámara…
+                      </Button>
                     </>
                   )}
                   <div className="relative">
@@ -1550,6 +1572,19 @@ export default function EntradasBascula() {
                                 title={`Este lote aparece nombrado junto a ${compuestoCon.primeros.join(", ")} en una pasada COMPUESTA del calibrador: tiene algo de kg propio (por eso no se cierra solo) pero es posible que el resto de su fruta ya se procesara bajo ese código y el reparto no haya podido atribuírsela con fiabilidad (nunca se reparte kg por LIKE/subcadena). Evidencia para cerrarlo a mano si procede.`}
                               >
                                 compuesto con {compuestoCon.primeros[0]}{compuestoCon.primeros.length > 1 ? ` +${compuestoCon.primeros.length - 1}` : ""}
+                              </Badge>
+                            )}
+                            {fila.confirmacionCamara && (
+                              // Confirmación FÍSICA vigente (refuerzo 04-08-2026, camaraConfirmada.ts):
+                              // dirección vio este lote intacto al inventariar la cámara. NO es
+                              // candidato a ningún cierre automático mientras esté vigente (mismo
+                              // veto que la cámara externa) — se avisa explícitamente en el título.
+                              <Badge
+                                variant="outline"
+                                className="border-info/40 bg-info/10 px-1.5 py-0 text-[9px] font-normal text-info"
+                                title={`Confirmación física de dirección: sigue en ${fila.confirmacionCamara.nombre} desde el inventario del ${formatDate(fila.confirmacionCamara.fecha)}. No recibe derrames ni es candidato a ningún cierre automático mientras la señal esté vigente (caduca sola con una pasada propia posterior a esta fecha).`}
+                              >
+                                En cámara · {fila.confirmacionCamara.nombre} (confirmado {formatDate(fila.confirmacionCamara.fecha)})
                               </Badge>
                             )}
                           </div>

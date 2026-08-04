@@ -9,6 +9,7 @@ import {
   type EntradaConciliacion,
   type PasadaConciliacion,
 } from "./conciliacionKg";
+import { camaraConfirmadaVigentePorLote, unirLotesConfirmadosEnCamara, type EntradaConCamaraConfirmada } from "./camaraConfirmada";
 
 const entrada = (over: Partial<EntradaConciliacion> & { lote: string; kg_entrada: number }): EntradaConciliacion => ({
   fecha: "2026-05-01",
@@ -557,6 +558,60 @@ describe("conciliarKgProcesados — lotesEnCamaraExterna (ground truth del dueñ
     const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
     for (const lote of codigosGuadex) expect(kg.has(lote)).toBe(false);
     expect(res.excesosSinColocar.length).toBeGreaterThan(0); // el exceso se queda en cola, nunca en Guadex
+  });
+});
+
+describe("conciliarKgProcesados — generalización a CONFIRMACIÓN FÍSICA en cámara (refuerzo 04-08-2026, cámara 5)", () => {
+  // Caso real: el dueño inventarió la cámara 5 y confirmó 26 lotes intactos
+  // (columnas entradas_bascula.camara_confirmada_nombre/fecha). El Set que
+  // useEntradasBascula.ts inyecta ya no es solo codigosEnCamaraExterna: es la
+  // UNIÓN con camaraConfirmadaVigentePorLote (camaraConfirmada.ts) — estos
+  // tests construyen esa unión de verdad, sin atajos.
+  const entradaConfirmada = (over: Partial<EntradaConCamaraConfirmada> & { lote: string }): EntradaConCamaraConfirmada => ({
+    camara_confirmada_nombre: "Cámara 5",
+    camara_confirmada_fecha: "2026-08-04",
+    ...over,
+  });
+
+  it("(a) un lote con CONFIRMACIÓN FÍSICA vigente nunca recibe derrame por exceso: el exceso se queda en excesosSinColocar", () => {
+    const vigentes = camaraConfirmadaVigentePorLote([entradaConfirmada({ lote: "26051408" })], []);
+    const union = unirLotesConfirmadosEnCamara(new Set(), vigentes);
+
+    const res = conciliarKgProcesados(
+      [
+        entrada({ lote: "26050501", kg_entrada: 20000, fecha: "2026-05-05", finca: "LA HOYA" }), // donante con exceso
+        entrada({ lote: "26051408", kg_entrada: 18500, fecha: "2026-05-14", finca: "LA HOYA" }), // confirmado en cámara 5
+      ],
+      [{ lote_codigo: "26050501", kg_peso_total: 25000, date: "2026-05-05" }],
+      [],
+      union,
+    );
+    const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
+    expect(kg.has("26051408")).toBe(false); // NUNCA recibe nada
+    expect(res.excesosSinColocar.length).toBeGreaterThan(0); // el exceso se queda en cola, no se inventa un receptor prohibido
+  });
+
+  it("(c) en cuanto la señal CADUCA (pasada propia posterior a la confirmación), la unión ya no lo protege y el derrame vuelve a la normalidad", () => {
+    // Misma entrada que arriba, pero ahora con una pasada PROPIA posterior a
+    // la fecha de confirmación (04-08): la fruta empezó a salir de verdad.
+    const vigentesCaducadas = camaraConfirmadaVigentePorLote(
+      [entradaConfirmada({ lote: "26051408" })],
+      [{ lote_codigo: "26051408", kg_peso_total: 1000, date: "2026-08-06" }],
+    );
+    expect(vigentesCaducadas.size).toBe(0); // ya no está vigente
+    const union = unirLotesConfirmadosEnCamara(new Set(), vigentesCaducadas);
+
+    const res = conciliarKgProcesados(
+      [
+        entrada({ lote: "26050501", kg_entrada: 20000, fecha: "2026-05-05", finca: "LA HOYA" }),
+        entrada({ lote: "26051408", kg_entrada: 18500, fecha: "2026-05-14", finca: "LA HOYA" }),
+      ],
+      [{ lote_codigo: "26050501", kg_peso_total: 25000, date: "2026-05-05" }],
+      [],
+      union, // Set vacío: la señal caducó, no protege nada
+    );
+    const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
+    expect(kg.get("26051408")).toBeCloseTo(5600); // recibe el derrame con normalidad, como cualquier lote sin señal
   });
 });
 

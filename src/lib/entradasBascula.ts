@@ -847,17 +847,35 @@ export interface StockLoteRow {
    */
   procesadoEnCompuesto: { primeros: string[]; ultimaFecha: string | null } | null;
   /**
-   * true si una señal de cámara EXTERNA (Guadex/Zamexfruit,
-   * codigosEnCamaraExterna en camarasExternas.ts) confirma que este lote
-   * SIGUE físicamente allí ahora mismo. Ground truth del dueño 04-08-2026
-   * (nº2, prioridad máxima): es físicamente imposible que haya pasado por el
-   * calibrador, así que NUNCA es candidato a cierre automático (ni completo
-   * ni compuesto) aunque algo más (un derrame, un ajuste de stock…) le haya
-   * dado kg — protección simétrica a la de conciliarKgProcesados, que ya
-   * excluye estos lotes del derrame por exceso. `false` por defecto (sin la
-   * señal inyectada, no cambia nada del comportamiento existente).
+   * true si alguna señal VIGENTE confirma que este lote SIGUE físicamente en
+   * cámara ahora mismo: cámara EXTERNA (Guadex/Zamexfruit,
+   * codigosEnCamaraExterna en camarasExternas.ts) o confirmación FÍSICA por
+   * inventario a pie (camaraConfirmadaVigentePorLote en camaraConfirmada.ts,
+   * refuerzo 04-08-2026: 26 lotes de la cámara 5 confirmados por el dueño,
+   * ver el docstring de ese módulo). Antes de ese refuerzo este campo se
+   * llamaba `enCamaraExterna` y solo cubría la primera señal; se renombra
+   * para no mentir sobre lo que representa ahora que el caller
+   * (useEntradasBascula.ts) inyecta la UNIÓN de ambas en `lotesConfirmadosEnCamara`.
+   * Ground truth del dueño 04-08-2026 (nº2, prioridad máxima): es
+   * físicamente imposible que haya pasado por el calibrador, así que NUNCA
+   * es candidato a cierre automático (ni completo ni compuesto) aunque algo
+   * más (un derrame, un ajuste de stock…) le haya dado kg — protección
+   * simétrica a la de conciliarKgProcesados, que ya excluye estos lotes del
+   * derrame por exceso. `false` por defecto (sin la señal inyectada, no
+   * cambia nada del comportamiento existente).
    */
-  enCamaraExterna: boolean;
+  enCamaraConfirmada: boolean;
+  /**
+   * Detalle de la confirmación FÍSICA vigente (nombre de cámara + fecha del
+   * inventario, ver camaraConfirmadaVigentePorLote en camaraConfirmada.ts):
+   * solo para pintar el badge "En cámara · {nombre} (confirmado {fecha})" en
+   * la pestaña Stock. `null` si no hay confirmación física vigente para este
+   * lote (aunque sí pueda estar en cámara EXTERNA — esa señal no trae
+   * nombre/fecha de confirmación, solo procedencia, ya visible en
+   * CamarasExternasCard). No decide nada por sí solo: el veto de cierre usa
+   * `enCamaraConfirmada` (la unión), no este campo.
+   */
+  confirmacionCamara: { nombre: string; fecha: string } | null;
 }
 
 export interface StockResumen {
@@ -916,13 +934,25 @@ export function buildStockEntradas(
    */
   fraccionEsperadaPorEdad?: (dias: number) => number,
   /**
-   * Códigos confirmados en cámara EXTERNA ahora mismo (ver
-   * codigosEnCamaraExterna en camarasExternas.ts). Ground truth del dueño
-   * 04-08-2026 (nº2): fuerza `enCamaraExterna=true` en la fila — protección
-   * de cinturón y tirantes para que ningún candidato de cierre (completo o
-   * compuesto) los recoja, aunque algo les haya dado kg por error. Opcional.
+   * Códigos con alguna señal VIGENTE de "sigue en cámara" ahora mismo: la
+   * UNIÓN de cámara EXTERNA (codigosEnCamaraExterna, camarasExternas.ts) y
+   * confirmación FÍSICA por inventario a pie (camaraConfirmadaVigentePorLote,
+   * camaraConfirmada.ts — refuerzo 04-08-2026, 26 lotes de la cámara 5).
+   * Ground truth del dueño 04-08-2026 (nº2): fuerza `enCamaraConfirmada=true`
+   * en la fila — protección de cinturón y tirantes para que ningún candidato
+   * de cierre (completo o compuesto) los recoja, aunque algo les haya dado
+   * kg por error. Se llamó `lotesEnCamaraExterna` cuando solo cubría la
+   * primera señal (ver conciliarKgProcesados en conciliacionKg.ts, mismo
+   * renombrado). Opcional.
    */
-  lotesEnCamaraExterna?: Set<string>,
+  lotesConfirmadosEnCamara?: Set<string>,
+  /**
+   * Detalle (nombre de cámara + fecha) de la confirmación FÍSICA vigente por
+   * lote (ver camaraConfirmadaVigentePorLote en camaraConfirmada.ts): solo
+   * alimenta `StockLoteRow.confirmacionCamara` para el badge de la UI, no
+   * cambia ningún cálculo. Opcional; sin ella el campo sale `null` siempre.
+   */
+  confirmacionCamaraPorLote?: Map<string, { nombre: string; fecha: string }>,
 ): StockResumen {
   const procesadoPorLote = new Map<string, { kg: number; ultimaFecha: string | null }>();
   for (const p of procesados) {
@@ -1011,7 +1041,8 @@ export function buildStockEntradas(
       probablementeTerminado,
       cerradoConActividadPosterior: pasadasPosterioresAlCierre(entrada.cerrado_at ?? null, ultimaFechaProcesado),
       procesadoEnCompuesto,
-      enCamaraExterna: Boolean(lotesEnCamaraExterna?.has(clave)),
+      enCamaraConfirmada: Boolean(lotesConfirmadosEnCamara?.has(clave)),
+      confirmacionCamara: confirmacionCamaraPorLote?.get(clave) ?? null,
     };
   });
 
@@ -1060,15 +1091,16 @@ export function buildStockEntradas(
  * merma/podrido real, ver criterioCierreModo).
  */
 export function esCandidatoCierreAutomatico(
-  fila: Pick<StockLoteRow, "estado" | "cerrado_at" | "ultima_fecha_procesado" | "enCamaraExterna">,
+  fila: Pick<StockLoteRow, "estado" | "cerrado_at" | "ultima_fecha_procesado" | "enCamaraConfirmada">,
   hoy: string,
 ): boolean {
-  // Ground truth del dueño 04-08-2026 (nº2, prioridad máxima): un lote
-  // confirmado en cámara EXTERNA nunca es candidato, aunque algo más
-  // (derrame, ajuste de stock...) le haya dado kg y su estado ya sea
-  // "procesado" — es físicamente imposible que haya pasado por el
-  // calibrador mientras sigue en Guadex/Zamexfruit.
-  if (fila.enCamaraExterna) return false;
+  // Ground truth del dueño 04-08-2026 (nº2, prioridad máxima): un lote con
+  // señal VIGENTE de "sigue en cámara" (externa o confirmación física) nunca
+  // es candidato, aunque algo más (derrame, ajuste de stock...) le haya dado
+  // kg y su estado ya sea "procesado" — es físicamente imposible que haya
+  // pasado por el calibrador mientras sigue en Guadex/Zamexfruit o en la
+  // cámara 5.
+  if (fila.enCamaraConfirmada) return false;
   if (fila.estado !== "procesado") return false;
   if (fila.cerrado_at) return false;
   if (!fila.ultima_fecha_procesado) return false;
@@ -1096,12 +1128,13 @@ export function esCandidatoCierreAutomatico(
  * revisión manual en vez de cerrar a ciegas.
  */
 export function esCandidatoCierreCompuesto(
-  fila: Pick<StockLoteRow, "cerrado_at" | "procesadoEnCompuesto" | "enCamaraExterna">,
+  fila: Pick<StockLoteRow, "cerrado_at" | "procesadoEnCompuesto" | "enCamaraConfirmada">,
   hoy: string,
 ): boolean {
   // Misma protección que esCandidatoCierreAutomatico (ground truth nº2,
-  // 04-08-2026): un lote en cámara externa confirmada nunca cierra solo.
-  if (fila.enCamaraExterna) return false;
+  // 04-08-2026): un lote con señal vigente de cámara (externa o confirmación
+  // física) nunca cierra solo.
+  if (fila.enCamaraConfirmada) return false;
   if (fila.cerrado_at) return false;
   const evidencia = fila.procesadoEnCompuesto;
   if (!evidencia || !evidencia.ultimaFecha) return false;

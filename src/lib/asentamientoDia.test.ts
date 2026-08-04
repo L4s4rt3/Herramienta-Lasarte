@@ -154,7 +154,7 @@ describe("construirAsentamientoCampana — cámara EXTERNA: nunca recibe derrame
         real({ lote: "26030198", kg_entrada: 8000, fecha: "2026-03-02", finca: "DEHESILLA" }), // candidato normal
       ],
       pasadas: [pasada({ lote_codigo: "26030101", kg_peso_total: 15000, date: "2026-03-01" })],
-      lotesEnCamaraExterna: new Set(["26030199"]),
+      lotesConfirmadosEnCamara: new Set(["26030199"]),
     });
     const porCodigo = new Map(res.porLote.map((l) => [l.codigo, l]));
 

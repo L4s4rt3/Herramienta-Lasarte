@@ -22,6 +22,7 @@ import {
   UMBRAL_PROCESADO,
   umbralCompletoPorEdad,
 } from "./entradasBascula";
+import { camaraConfirmadaVigentePorLote, type EntradaConCamaraConfirmada } from "./camaraConfirmada";
 
 // Cabecera real del export del programa de báscula ("entrada 2604.xlsx").
 const HEADER = [
@@ -680,7 +681,7 @@ describe("esCandidatoCierreAutomatico — selección del cierre automático pers
   });
 });
 
-describe("enCamaraExterna — protección simétrica en los candidatos (ground truth del dueño 04-08-2026 nº2, PRIORIDAD MÁXIMA)", () => {
+describe("enCamaraConfirmada — protección simétrica en los candidatos (ground truth del dueño 04-08-2026 nº2, PRIORIDAD MÁXIMA)", () => {
   // Casos de control reales: 26050809/26051106/26052207/26052506 (todos
   // Invermarmelo/Guadex), revertidos en BD por el dueño tras confirmar que
   // siguen físicamente en cámara. Antes de esta protección, un derrame o un
@@ -694,7 +695,7 @@ describe("enCamaraExterna — protección simétrica en los candidatos (ground t
     const stock = buildStockEntradas([entradaGuadex], procesados, "2026-08-04", undefined, undefined, new Set([lote]));
     const fila = stock.filas[0];
     expect(fila.estado).toBe("procesado"); // el cálculo de pct no cambia...
-    expect(fila.enCamaraExterna).toBe(true);
+    expect(fila.enCamaraConfirmada).toBe(true);
     expect(esCandidatoCierreAutomatico(fila, "2026-08-04")).toBe(false); // ...pero NUNCA cierra solo
   });
 
@@ -703,7 +704,7 @@ describe("enCamaraExterna — protección simétrica en los candidatos (ground t
     const huerfanos = new Map([[lote, { primeros: ["26050501"], ultimaFecha: "2026-05-10" }]]);
     const stock = buildStockEntradas([entradaGuadex], [], "2026-08-04", huerfanos, undefined, new Set([lote]));
     const fila = stock.filas[0];
-    expect(fila.enCamaraExterna).toBe(true);
+    expect(fila.enCamaraConfirmada).toBe(true);
     expect(esCandidatoCierreCompuesto(fila, "2026-08-04")).toBe(false);
   });
 
@@ -711,19 +712,60 @@ describe("enCamaraExterna — protección simétrica en los candidatos (ground t
     const entradaNormal = { lote: "26080101", fecha: "2026-08-01", kg_entrada: 10000, finca: "DEHESILLA", articulo: "NAVEL", agricultor: "X" };
     const procesados = [{ lote_codigo: "26080101", kg_peso_total: 9800, date: "2026-08-01" }];
     const stock = buildStockEntradas([entradaNormal], procesados, "2026-08-04");
-    expect(stock.filas[0].enCamaraExterna).toBe(false);
+    expect(stock.filas[0].enCamaraConfirmada).toBe(false);
     expect(esCandidatoCierreAutomatico(stock.filas[0], "2026-08-04")).toBe(true);
   });
 
-  it("esCandidatoCierreAutomatico/esCandidatoCierreCompuesto: enCamaraExterna manda incluso si el resto de condiciones serían candidatas", () => {
+  it("esCandidatoCierreAutomatico/esCandidatoCierreCompuesto: enCamaraConfirmada manda incluso si el resto de condiciones serían candidatas", () => {
     expect(esCandidatoCierreAutomatico(
-      { estado: "procesado", cerrado_at: null, ultima_fecha_procesado: "2026-08-01", enCamaraExterna: true },
+      { estado: "procesado", cerrado_at: null, ultima_fecha_procesado: "2026-08-01", enCamaraConfirmada: true },
       "2026-08-04",
     )).toBe(false);
     expect(esCandidatoCierreCompuesto(
-      { cerrado_at: null, procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: "2026-08-01" }, enCamaraExterna: true },
+      { cerrado_at: null, procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: "2026-08-01" }, enCamaraConfirmada: true },
       "2026-08-04",
     )).toBe(false);
+  });
+
+  it("la UNIÓN también protege por la señal de CONFIRMACIÓN FÍSICA (camara_confirmada_nombre/fecha), no solo por cámara externa: mismo Set, misma protección", () => {
+    // Caso real: uno de los 26 lotes de la cámara 5 confirmados por el dueño
+    // el 04-08-2026 (fixture del encargo). No viene de camarasExternas.ts, es
+    // la unión que useEntradasBascula.ts construye con camaraConfirmada.ts.
+    const entradaCamara5 = { lote: "26051408", fecha: "2026-05-14", kg_entrada: 18500, finca: "LA HOYA", articulo: "NAVEL", agricultor: null };
+    const procesados = [{ lote_codigo: "26051408", kg_peso_total: 18500, date: "2026-05-16" }]; // 100%, 2+ días
+    const stock = buildStockEntradas([entradaCamara5], procesados, "2026-08-04", undefined, undefined, new Set(["26051408"]));
+    const fila = stock.filas[0];
+    expect(fila.estado).toBe("procesado");
+    expect(fila.enCamaraConfirmada).toBe(true);
+    expect(esCandidatoCierreAutomatico(fila, "2026-08-04")).toBe(false);
+  });
+
+  it("(b) confirmacionCamaraPorLote alimenta StockLoteRow.confirmacionCamara (nombre + fecha) para el badge, construido end-to-end con camaraConfirmadaVigentePorLote", () => {
+    const entradaConfirmada: EntradaConCamaraConfirmada = { lote: "26051906", camara_confirmada_nombre: "Cámara 5", camara_confirmada_fecha: "2026-08-04" };
+    const vigentes = camaraConfirmadaVigentePorLote([entradaConfirmada], []); // sin pasadas: nada que caducar
+    const entradaLote = { lote: "26051906", fecha: "2026-05-19", kg_entrada: 15000, finca: "LA HOYA", articulo: "NAVEL", agricultor: null };
+    const stock = buildStockEntradas([entradaLote], [], "2026-08-04", undefined, undefined, new Set(vigentes.keys()), vigentes);
+    const fila = stock.filas[0];
+    expect(fila.enCamaraConfirmada).toBe(true);
+    expect(fila.confirmacionCamara).toEqual({ nombre: "Cámara 5", fecha: "2026-08-04" });
+    expect(esCandidatoCierreAutomatico(fila, "2026-08-04")).toBe(false);
+  });
+
+  it("(c) señal CADUCADA (pasada propia posterior a la confirmación): el lote vuelve al ciclo normal — candidato a cierre como cualquier otro", () => {
+    const entradaConfirmada: EntradaConCamaraConfirmada = { lote: "26052602", camara_confirmada_nombre: "Cámara 5", camara_confirmada_fecha: "2026-08-04" };
+    // Pasada propia el 06-08 (posterior a la confirmación 04-08): la fruta
+    // empezó a salir de verdad, la señal caduca sola.
+    const pasadaPosterior = [{ lote_codigo: "26052602", kg_peso_total: 12000, date: "2026-08-06" }];
+    const vigentes = camaraConfirmadaVigentePorLote([entradaConfirmada], pasadaPosterior);
+    expect(vigentes.size).toBe(0); // caducada: no sale en el mapa
+
+    const entradaLote = { lote: "26052602", fecha: "2026-05-26", kg_entrada: 12000, finca: "LA HOYA", articulo: "NAVEL", agricultor: null };
+    const stock = buildStockEntradas([entradaLote], pasadaPosterior, "2026-08-08", undefined, undefined, new Set(vigentes.keys()), vigentes);
+    const fila = stock.filas[0];
+    expect(fila.enCamaraConfirmada).toBe(false); // ya no protegido
+    expect(fila.confirmacionCamara).toBeNull();
+    expect(fila.estado).toBe("procesado"); // 100% procesado por su propia pasada
+    expect(esCandidatoCierreAutomatico(fila, "2026-08-08")).toBe(true); // candidato normal, sin excepción
   });
 });
 
@@ -798,19 +840,19 @@ describe("procesadoEnCompuesto / esCandidatoCierreCompuesto — huérfanos de pa
   });
 
   it("esCandidatoCierreCompuesto: true con ≥2 días desde la ÚLTIMA pasada compuesta que lo menciona", () => {
-    const filaListo = { cerrado_at: null, procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: "2026-08-01" }, enCamaraExterna: false };
+    const filaListo = { cerrado_at: null, procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: "2026-08-01" }, enCamaraConfirmada: false };
     expect(esCandidatoCierreCompuesto(filaListo, "2026-08-03")).toBe(true); // exactamente 2 días
     expect(esCandidatoCierreCompuesto(filaListo, "2026-08-02")).toBe(false); // 1 día: se espera a que se asiente
   });
 
   it("esCandidatoCierreCompuesto: false sin evidencia, ya cerrado, o evidencia sin fecha (nunca se demuestra el margen a ciegas)", () => {
-    expect(esCandidatoCierreCompuesto({ cerrado_at: null, procesadoEnCompuesto: null, enCamaraExterna: false }, "2026-08-10")).toBe(false);
+    expect(esCandidatoCierreCompuesto({ cerrado_at: null, procesadoEnCompuesto: null, enCamaraConfirmada: false }, "2026-08-10")).toBe(false);
     expect(esCandidatoCierreCompuesto(
-      { cerrado_at: "2026-08-01T00:00:00Z", procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: "2026-07-01" }, enCamaraExterna: false },
+      { cerrado_at: "2026-08-01T00:00:00Z", procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: "2026-07-01" }, enCamaraConfirmada: false },
       "2026-08-10",
     )).toBe(false);
     expect(esCandidatoCierreCompuesto(
-      { cerrado_at: null, procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: null }, enCamaraExterna: false },
+      { cerrado_at: null, procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: null }, enCamaraConfirmada: false },
       "2026-08-10",
     )).toBe(false);
   });

@@ -92,8 +92,8 @@ export interface AsentamientoInput {
   /** Pasadas crudas del calibrador (lotes_dia + fecha del parte), TODA la campaña. */
   pasadas: PasadaConciliacion[];
   reciclajePorDia?: ReciclajeDiaInput[];
-  /** Códigos confirmados en cámara EXTERNA ahora mismo (ver camarasExternas.ts): se pasa tal cual a conciliarKgProcesados/buildStockEntradas — nunca reciben derrame ni cierran solos. */
-  lotesEnCamaraExterna?: Set<string>;
+  /** Códigos con señal VIGENTE de "sigue en cámara" ahora mismo — la UNIÓN de cámara EXTERNA (camarasExternas.ts) y confirmación FÍSICA (camaraConfirmada.ts, refuerzo 04-08-2026): se pasa tal cual a conciliarKgProcesados/buildStockEntradas — nunca reciben derrame ni cierran solos. Se llamó `lotesEnCamaraExterna` cuando solo cubría la primera señal. */
+  lotesConfirmadosEnCamara?: Set<string>;
   /** Fecha de referencia ("hoy", ISO) para antigüedad/estado final. */
   hoy: string;
 }
@@ -181,7 +181,7 @@ export function replayConciliacionPorFecha(
   entradas: EntradaConciliacion[],
   pasadas: PasadaConciliacion[],
   reciclajePorDia: ReciclajeDiaInput[] = [],
-  lotesEnCamaraExterna?: Set<string>,
+  lotesConfirmadosEnCamara?: Set<string>,
 ): SnapshotFecha[] {
   const fechas = Array.from(
     new Set(pasadas.filter((p) => p.date && (Number(p.kg_peso_total) || 0) > 0).map((p) => p.date as string)),
@@ -190,7 +190,7 @@ export function replayConciliacionPorFecha(
   const snapshots: SnapshotFecha[] = [];
   for (const fecha of fechas) {
     const pasadasHasta = pasadas.filter((p) => p.date && p.date <= fecha);
-    const parcial = conciliarKgProcesados(entradas, pasadasHasta, reciclajePorDia, lotesEnCamaraExterna);
+    const parcial = conciliarKgProcesados(entradas, pasadasHasta, reciclajePorDia, lotesConfirmadosEnCamara);
     snapshots.push({ fecha, porLote: new Map(parcial.procesados.map((p) => [p.lote_codigo, p.kg_peso_total])) });
   }
   return snapshots;
@@ -263,7 +263,7 @@ function clasificarLotesReales(
   fechasNombrado: { primera: Map<string, string>; ultima: Map<string, string> },
   snapshots: SnapshotFecha[],
   hoy: string,
-  lotesEnCamaraExterna: Set<string> | undefined,
+  lotesConfirmadosEnCamara: Set<string> | undefined,
 ): LoteAsentado[] {
   const kgConciliadoPorLote = new Map(final.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
   // kg recibido por DERRAME de exceso (misma finca/variedad): la ÚNICA fuente
@@ -293,7 +293,7 @@ function clasificarLotesReales(
     hoy,
     evidenciaCompuesta,
     capacidadFraccionEstimada,
-    lotesEnCamaraExterna,
+    lotesConfirmadosEnCamara,
   );
 
   const entradaPorLote = new Map(entradas.map((e) => [e.lote, e]));
@@ -413,19 +413,19 @@ function clasificarLotesPrecalibrado(
  * es quien carga los datos con fetchAllRows y se los pasa ya listos.
  */
 export function construirAsentamientoCampana(input: AsentamientoInput): CoberturaCampana {
-  const { entradas, entradasPrecalibrado, pasadas, reciclajePorDia = [], lotesEnCamaraExterna, hoy } = input;
+  const { entradas, entradasPrecalibrado, pasadas, reciclajePorDia = [], lotesConfirmadosEnCamara, hoy } = input;
 
   const entradasConciliacion = [
     ...entradas.map((e) => aEntradaConciliacion(e, false)),
     ...entradasPrecalibrado.map(aEntradaConciliacionPrec),
   ];
 
-  const final = conciliarKgProcesados(entradasConciliacion, pasadas, reciclajePorDia, lotesEnCamaraExterna);
+  const final = conciliarKgProcesados(entradasConciliacion, pasadas, reciclajePorDia, lotesConfirmadosEnCamara);
   const evidenciaCompuesta = detectarLotesEnPasadaCompuesta(pasadas);
   const fechasNombrado = fechasNombradoPorLote(pasadas);
-  const snapshots = replayConciliacionPorFecha(entradasConciliacion, pasadas, reciclajePorDia, lotesEnCamaraExterna);
+  const snapshots = replayConciliacionPorFecha(entradasConciliacion, pasadas, reciclajePorDia, lotesConfirmadosEnCamara);
 
-  const porLoteReal = clasificarLotesReales(entradas, final, evidenciaCompuesta, fechasNombrado, snapshots, hoy, lotesEnCamaraExterna);
+  const porLoteReal = clasificarLotesReales(entradas, final, evidenciaCompuesta, fechasNombrado, snapshots, hoy, lotesConfirmadosEnCamara);
   const porLotePrec = clasificarLotesPrecalibrado(entradasPrecalibrado, final, evidenciaCompuesta, fechasNombrado, hoy);
   const porLote = [...porLoteReal, ...porLotePrec];
 

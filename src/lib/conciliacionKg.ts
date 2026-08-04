@@ -334,20 +334,26 @@ export function conciliarKgProcesados(
    */
   reciclajePorDia: ReciclajeDiaInput[] = [],
   /**
-   * Códigos de lote CONFIRMADOS físicamente en una cámara EXTERNA ahora
-   * mismo (ver codigosEnCamaraExterna en camarasExternas.ts). Regla del
+   * Códigos de lote con alguna señal VIGENTE de "sigue en cámara" ahora
+   * mismo: la UNIÓN de cámara EXTERNA (ver codigosEnCamaraExterna en
+   * camarasExternas.ts) y confirmación FÍSICA por inventario a pie (ver
+   * camaraConfirmadaVigentePorLote en camaraConfirmada.ts, refuerzo
+   * 04-08-2026: 26 lotes de la cámara 5 confirmados por el dueño). Regla del
    * dueño 04-08-2026 (ground truth nº2, prioridad máxima): "es físicamente
-   * imposible que fruta que está en Guadex haya pasado por el calibrador" —
+   * imposible que fruta que está en cámara haya pasado por el calibrador" —
    * estos lotes quedan EXCLUIDOS de los candidatos al derrame por exceso
    * (fase 2, misma finca/variedad). Caso real que lo destapó: 4 lotes de
    * Guadex (26050809/26051106/26052207/26052506, Invermarmelo) recibían kg
    * del derrame de otros lotes reales de Invermarmelo y el auto-cierre por
    * edad los cerraba "con_analisis" — físicamente imposible, esa fruta
-   * seguía en Guadex. Opcional para no romper llamadas existentes (tests, o
-   * mientras el caller no tenga esta señal a mano): sin ella, el
-   * comportamiento es el de siempre (documentado, no una regresión).
+   * seguía en cámara. Se llamó `lotesEnCamaraExterna` cuando solo cubría la
+   * primera señal; el caller (useEntradasBascula.ts) ya construye aquí la
+   * UNIÓN de ambas antes de inyectarla, así que el nombre se generaliza para
+   * no mentir sobre lo que representa. Opcional para no romper llamadas
+   * existentes (tests, o mientras el caller no tenga esta señal a mano): sin
+   * ella, el comportamiento es el de siempre (documentado, no una regresión).
    */
-  lotesEnCamaraExterna?: Set<string>,
+  lotesConfirmadosEnCamara?: Set<string>,
 ): ConciliacionKg {
   const reg = new Map<string, RegistroLote>();
   for (const e of entradas) {
@@ -600,10 +606,11 @@ export function conciliarKgProcesados(
       .filter((r) =>
         r.entrada.lote !== donante
         && !r.entrada.esPrecalibrado
-        // Ground truth 04-08-2026 (nº2): un lote confirmado en cámara
-        // EXTERNA no puede recibir derrame — es físicamente imposible que
-        // haya pasado por el calibrador mientras sigue en Guadex/Zamexfruit.
-        && !lotesEnCamaraExterna?.has(r.entrada.lote)
+        // Ground truth 04-08-2026 (nº2): un lote con señal VIGENTE de "sigue
+        // en cámara" (externa o confirmación física) no puede recibir
+        // derrame — es físicamente imposible que haya pasado por el
+        // calibrador mientras sigue en Guadex/Zamexfruit o en la cámara 5.
+        && !lotesConfirmadosEnCamara?.has(r.entrada.lote)
         && pendiente(r, exceso.ultimaFecha) > 0
         && mismaFamiliaVariedad(r.familia, rDonante.familia),
       )

@@ -14,6 +14,7 @@ import { escribirConReintentos, fetchAllRows } from "@/lib/fetchAllRows";
 import { buildStockEntradas, esCandidatoCierreAutomatico, esCandidatoCierreCompuesto, type CierreModo, type EntradaBasculaParsed, type LoteProcesadoInput } from "@/lib/entradasBascula";
 import { capacidadFraccionEstimada, conciliarKgProcesados, detectarLotesEnPasadaCompuesta, type EntradaConciliacion, type ReciclajeDiaInput } from "@/lib/conciliacionKg";
 import { codigosEnCamaraExterna, type SenalesRecepcion } from "@/lib/camarasExternas";
+import { camaraConfirmadaVigentePorLote, unirLotesConfirmadosEnCamara, type EntradaConCamaraConfirmada } from "@/lib/camaraConfirmada";
 import { useCamarasExternas } from "@/hooks/useCamarasExternas";
 import { normalizarLoteCodigo } from "@/lib/loteCodigo";
 import { esEntradaCampoCit, esEntradaPrecalibrado, esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
@@ -45,13 +46,26 @@ import type { Tables } from "@/integrations/supabase/types";
 // no se aplicó. Mismo patrón que useTrazabilidadLote.ts / useProductoresCatalogo.ts.
 const SUPA = supabase as unknown as SupabaseClient<any>;
 
-/** entradas_bascula.* tipado + cerrado_at/cierre_modo (columnas nuevas, aún no generadas). */
-export type EntradaBasculaRow = Tables<"entradas_bascula"> & { cerrado_at?: string | null; cierre_modo?: CierreModo | null };
+/**
+ * entradas_bascula.* tipado + columnas nuevas aún no generadas: cerrado_at/
+ * cierre_modo (cierre manual) y camara_confirmada_nombre/camara_confirmada_fecha
+ * (confirmación FÍSICA por inventario, migración 20260804120000_camara_confirmada.sql
+ * — ver src/lib/camaraConfirmada.ts). Se tipan aquí (en vez de casts puntuales
+ * como merma_camara_kg) porque se leen en varios consumidores (este hook, el
+ * diálogo de admin y el badge de la pestaña Stock).
+ */
+export type EntradaBasculaRow = Tables<"entradas_bascula"> & {
+  cerrado_at?: string | null;
+  cierre_modo?: CierreModo | null;
+  camara_confirmada_nombre?: string | null;
+  camara_confirmada_fecha?: string | null;
+};
 
 const CHUNK = 200;
 
 const MENSAJE_MIGRACION_CIERRE = "La columna cerrado_at todavía no existe: aplica primero la migración 20260715090000_entradas_bascula_cierre_manual.sql.";
 const MENSAJE_MIGRACION_CIERRE_MODO = "La columna cierre_modo todavía no existe: aplica primero la migración 20260716120000_entradas_bascula_cierre_modo.sql.";
+const MENSAJE_MIGRACION_CAMARA_CONFIRMADA = "La columna camara_confirmada_nombre todavía no existe: aplica primero la migración 20260804120000_camara_confirmada.sql.";
 
 export function useEntradasBascula() {
   const { user } = useAuth();
@@ -318,6 +332,63 @@ export function useEntradasBascula() {
     },
   });
 
+  // ─── Confirmación FÍSICA de lote en cámara (solo admin, refuerzo 04-08-2026) ─
+  // Dirección inventaría una cámara a pie y confirma que un lote sigue
+  // intacto: escribe camara_confirmada_nombre/camara_confirmada_fecha
+  // (migración 20260804120000_camara_confirmada.sql). Es una SEÑAL, no un
+  // movimiento — ver src/lib/camaraConfirmada.ts para la vigencia (caduca
+  // sola con una pasada propia posterior a la fecha, no hace falta limpiarla
+  // a mano salvo que se quiera corregir un dato mal introducido). El mismo
+  // update sirve para LIMPIAR la señal: nombre/fecha `null` en el item.
+  // Mismo patrón que cerrarLotesEnBloque (agrupar + chunk + reintentos, ya
+  // que puede aplicar a los 26 lotes de golpe).
+  const actualizarCamaraConfirmada = useMutation({
+    mutationFn: async ({ items, onProgress }: {
+      items: Array<{ id: string; nombre: string | null; fecha: string | null }>;
+      onProgress?: (hecho: number, total: number) => void;
+    }): Promise<{ actualizados: number }> => {
+      if (!user) throw new Error("No auth");
+      if (items.length === 0) return { actualizados: 0 };
+
+      const total = items.length;
+      let hecho = 0;
+      onProgress?.(hecho, total);
+
+      // Agrupa por (nombre, fecha) para poder hacer un .update().in(ids) por
+      // combinación en vez de uno por lote — en la práctica el diálogo aplica
+      // el mismo nombre/fecha a toda la tanda (o null/null para limpiar), así
+      // que normalmente es un único grupo.
+      const grupos = new Map<string, { nombre: string | null; fecha: string | null; ids: string[] }>();
+      for (const item of items) {
+        const clave = `${item.nombre ?? ""}|${item.fecha ?? ""}`;
+        const grupo = grupos.get(clave) ?? { nombre: item.nombre, fecha: item.fecha, ids: [] };
+        grupo.ids.push(item.id);
+        grupos.set(clave, grupo);
+      }
+
+      for (const { nombre, fecha, ids } of grupos.values()) {
+        for (let i = 0; i < ids.length; i += CHUNK) {
+          const chunk = ids.slice(i, i + CHUNK);
+          const { error } = await escribirConReintentos(() => SUPA
+            .from("entradas_bascula")
+            .update({ camara_confirmada_nombre: nombre, camara_confirmada_fecha: fecha })
+            .in("id", chunk));
+          if (error) {
+            if (esErrorTablaOColumnaInexistente(error)) throw new Error(MENSAJE_MIGRACION_CAMARA_CONFIRMADA);
+            throw toError(error);
+          }
+          hecho += chunk.length;
+          onProgress?.(hecho, total);
+        }
+      }
+
+      return { actualizados: hecho };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: entradasKey });
+    },
+  });
+
   // ─── Movimientos internos de precalibrado (cierre definitivo, jul-2026) ────
   // La báscula registra el movimiento al almacén de precalibrado como si
   // fuera una entrada normal (278 filas, 764.846 kg verificados en BD): es
@@ -389,7 +460,7 @@ export function useEntradasBascula() {
   // camarasExternas.ts. Reutiliza useCamarasExternas() (misma queryKey que la
   // página, sin fetch duplicado por el dedupe de React Query).
   const { camiones: camionesCamaraExterna } = useCamarasExternas();
-  const lotesEnCamaraExterna = useMemo(() => {
+  const codigosCamaraExterna = useMemo(() => {
     const salidaPorLote = new Map<string, string | null>();
     for (const e of entradas) {
       const salida = (e as { fecha_salida_camara?: string | null }).fecha_salida_camara ?? null;
@@ -406,6 +477,36 @@ export function useEntradasBascula() {
     const senales: SenalesRecepcion = { salidaPorLote, lotesProcesados };
     return codigosEnCamaraExterna(camionesCamaraExterna, senales, today());
   }, [entradas, procesadosQuery.data, camionesCamaraExterna]);
+
+  // ─── Señal de CONFIRMACIÓN FÍSICA en cámara (refuerzo 04-08-2026) ──────────
+  // Generalización de la protección anterior: el dueño puede confirmar a pie
+  // de cámara (inventario físico) que un lote sigue intacto, sin depender de
+  // ningún registro de cámara externa — columnas entradas_bascula.
+  // camara_confirmada_nombre/camara_confirmada_fecha (migración
+  // 20260804120000_camara_confirmada.sql). Origen: el dueño inventarió la
+  // cámara 5 y encontró 26 lotes intactos a los que el derrame había
+  // atribuido 310 t fantasma (9 ya cerrados solos). Ver camaraConfirmada.ts
+  // para la vigencia: caduca sola en cuanto aparece una pasada PROPIA
+  // posterior a la fecha de confirmación (misma detección "nombrado en
+  // cualquier posición" que el resto del motor, nunca por LIKE/substring).
+  const camaraConfirmadaPorLote = useMemo(() => {
+    const entradasConSenal: EntradaConCamaraConfirmada[] = entradas.map((e) => ({
+      lote: e.lote,
+      camara_confirmada_nombre: e.camara_confirmada_nombre ?? null,
+      camara_confirmada_fecha: e.camara_confirmada_fecha ?? null,
+    }));
+    return camaraConfirmadaVigentePorLote(entradasConSenal, procesadosQuery.data?.procesados ?? []);
+  }, [entradas, procesadosQuery.data]);
+
+  // Unión de ambas señales VIGENTES: el Set que conciliarKgProcesados y
+  // buildStockEntradas reciben como `lotesConfirmadosEnCamara` (antes de este
+  // refuerzo, ese parámetro solo cubría la señal de cámara externa — ver
+  // los docstrings de conciliacionKg.ts/entradasBascula.ts para el porqué del
+  // renombrado).
+  const lotesConfirmadosEnCamara = useMemo(
+    () => unirLotesConfirmadosEnCamara(codigosCamaraExterna, camaraConfirmadaPorLote),
+    [codigosCamaraExterna, camaraConfirmadaPorLote],
+  );
 
   const conciliacionKg = useMemo(() => {
     const aConciliacion = (e: EntradaBasculaRow, esPrec: boolean): EntradaConciliacion => ({
@@ -425,9 +526,9 @@ export function useEntradasBascula() {
       [...entradas.map((e) => aConciliacion(e, false)), ...entradasPrecalibrado.map((e) => aConciliacion(e, true))],
       procesadosQuery.data?.procesados ?? [],
       procesadosQuery.data?.reciclajePorDia ?? [],
-      lotesEnCamaraExterna,
+      lotesConfirmadosEnCamara,
     );
-  }, [entradas, entradasPrecalibrado, procesadosQuery.data, lotesEnCamaraExterna]);
+  }, [entradas, entradasPrecalibrado, procesadosQuery.data, lotesConfirmadosEnCamara]);
 
   // ─── Señales de calidad por lote: % industria y notas del operario ─────────
   // (para la ficha, la tabla del selector y la búsqueda por síntoma —
@@ -516,13 +617,18 @@ export function useEntradasBascula() {
       // reparto, inyectada aquí en vez de importada en entradasBascula.ts
       // para no crear un ciclo de imports.
       capacidadFraccionEstimada,
-      // Ground truth 04-08-2026 (nº2): protección simétrica en el propio
-      // StockLoteRow (enCamaraExterna) para que ningún candidato de cierre
-      // recoja un lote confirmado en Guadex/Zamexfruit, aunque algo más
-      // (derrame, ajuste de stock…) le haya dado kg — ver esCandidatoCierreAutomatico/esCandidatoCierreCompuesto.
-      lotesEnCamaraExterna,
+      // Ground truth 04-08-2026 (nº2), generalizado el mismo día a la
+      // confirmación física: protección simétrica en el propio StockLoteRow
+      // (enCamaraConfirmada) para que ningún candidato de cierre recoja un
+      // lote con señal vigente (cámara externa o confirmación física),
+      // aunque algo más (derrame, ajuste de stock…) le haya dado kg — ver
+      // esCandidatoCierreAutomatico/esCandidatoCierreCompuesto.
+      lotesConfirmadosEnCamara,
+      // Detalle (nombre + fecha) de la confirmación física vigente, solo
+      // para pintar el badge en la pestaña Stock (StockLoteRow.confirmacionCamara).
+      camaraConfirmadaPorLote,
     ),
-    [entradas, conciliacionKg, hoy, lotesEnPasadaCompuesta, lotesEnCamaraExterna],
+    [entradas, conciliacionKg, hoy, lotesEnPasadaCompuesta, lotesConfirmadosEnCamara, camaraConfirmadaPorLote],
   );
 
   // ─── Candidatos al cierre automático PERSISTIDO (refuerzo 2026-08-03) ──────
@@ -579,6 +685,8 @@ export function useEntradasBascula() {
     candidatosCierreCompuesto,
     /** lote -> evidencia (primeros códigos + última fecha) con la que apareció en una pasada compuesta (ver detectarLotesEnPasadaCompuesta). Alimenta tanto el Stock de lotes reales como el Stock de precalibrado (mismo mecanismo, dos superficies). */
     lotesEnPasadaCompuesta,
+    /** lote (8 dígitos) -> confirmación FÍSICA vigente (nombre + fecha), ver camaraConfirmadaVigentePorLote en camaraConfirmada.ts. Ya está inyectada en `stock` (StockLoteRow.confirmacionCamara); se expone aparte para el diálogo de admin (ver ConfirmarLotesEnCamaraDialog.tsx), que necesita saber qué lotes están YA confirmados sin recorrer stock.filas. */
+    camaraConfirmadaPorLote,
     isLoading: entradasQuery.isLoading || procesadosQuery.isLoading,
     error: entradasQuery.error ?? procesadosQuery.error,
     importar,
@@ -588,5 +696,6 @@ export function useEntradasBascula() {
     reabrirLote,
     cerrarLotesEnBloque,
     reabrirLotesEnBloque,
+    actualizarCamaraConfirmada,
   };
 }

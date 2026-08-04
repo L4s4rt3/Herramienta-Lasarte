@@ -58,11 +58,13 @@ export function useAsentamientoDia(): { cobertura: CoberturaCampana; isLoading: 
       date: p.date,
     }));
 
-    // Códigos en cámara EXTERNA confirmada: se reconstruye del propio `stock`
-    // (StockLoteRow.enCamaraExterna) en vez de recalcular camarasExternas.ts
-    // por su cuenta — useEntradasBascula ya inyectó esa señal al construirlo.
-    const lotesEnCamaraExterna = new Set(
-      stock.filas.filter((f) => f.enCamaraExterna).map((f) => normalizarLoteCodigo(f.lote) ?? f.lote),
+    // Códigos con señal VIGENTE de "sigue en cámara" (externa o confirmación
+    // física): se reconstruye del propio `stock` (StockLoteRow.enCamaraConfirmada)
+    // en vez de recalcular camarasExternas.ts/camaraConfirmada.ts por su
+    // cuenta — useEntradasBascula ya inyectó la UNIÓN de ambas señales al
+    // construirlo.
+    const lotesConfirmadosEnCamara = new Set(
+      stock.filas.filter((f) => f.enCamaraConfirmada).map((f) => normalizarLoteCodigo(f.lote) ?? f.lote),
     );
 
     return construirAsentamientoCampana({
@@ -70,7 +72,7 @@ export function useAsentamientoDia(): { cobertura: CoberturaCampana; isLoading: 
       entradasPrecalibrado: entradasPrec,
       pasadas,
       reciclajePorDia,
-      lotesEnCamaraExterna,
+      lotesConfirmadosEnCamara,
       hoy: today(),
     });
   }, [entradas, entradasPrecalibrado, procesados, reciclajePorDia, stock.filas]);
