@@ -11,8 +11,8 @@ import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
 import { escribirConReintentos, fetchAllRows } from "@/lib/fetchAllRows";
-import { buildStockEntradas, esCandidatoCierreAutomatico, type CierreModo, type EntradaBasculaParsed, type LoteProcesadoInput } from "@/lib/entradasBascula";
-import { conciliarKgProcesados, detectarLotesEnPasadaCompuesta, type EntradaConciliacion, type ReciclajeDiaInput } from "@/lib/conciliacionKg";
+import { buildStockEntradas, esCandidatoCierreAutomatico, esCandidatoCierreCompuesto, type CierreModo, type EntradaBasculaParsed, type LoteProcesadoInput } from "@/lib/entradasBascula";
+import { capacidadFraccionEstimada, conciliarKgProcesados, detectarLotesEnPasadaCompuesta, type EntradaConciliacion, type ReciclajeDiaInput } from "@/lib/conciliacionKg";
 import { normalizarLoteCodigo } from "@/lib/loteCodigo";
 import { esEntradaCampoCit, esEntradaPrecalibrado, esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
 import { esNotaOperarioLote } from "@/lib/trazabilidadSelector";
@@ -443,6 +443,21 @@ export function useEntradasBascula() {
 
   const hoy = today();
 
+  // ─── Lotes vistos como código NO-primero de una pasada compuesta ───────────
+  // (refuerzo 2026-08-03/04-08: ver detectarLotesEnPasadaCompuesta en
+  // conciliacionKg.ts): evidencia textual, no reparto de kg. Se calcula sobre
+  // los datos CRUDOS de lotes_dia (procesadosQuery.data.procesados, con su
+  // lote_codigo tal cual, ANTES de la conciliación) porque el patrón
+  // "loteA+loteB" solo existe en el texto original. Se declara ANTES de
+  // `stock` porque buildStockEntradas ya la consume (refuerzo 04-08-2026:
+  // "procesado en compuesto" — ver la cabecera de entradasBascula.ts).
+  const lotesEnPasadaCompuesta = useMemo(
+    () => detectarLotesEnPasadaCompuesta(
+      (procesadosQuery.data?.procesados ?? []).map((p) => ({ lote_codigo: p.lote_codigo, kg_peso_total: p.kg_peso_total, date: p.date })),
+    ),
+    [procesadosQuery.data],
+  );
+
   const stock = useMemo(
     () => buildStockEntradas(
       entradas.map((e) => ({
@@ -458,8 +473,16 @@ export function useEntradasBascula() {
       })),
       conciliacionKg.procesados,
       hoy,
+      lotesEnPasadaCompuesta,
+      // Umbral de "COMPLETO" ajustado por edad (ground truth del dueño
+      // 04-08-2026: 3 lotes de Guadex ~90 días con 87-95% procesado,
+      // confirmados FÍSICAMENTE vacíos — el 97% plano es demasiado exigente
+      // para lotes viejos). Misma fórmula que capacidad() usa para topar el
+      // reparto, inyectada aquí en vez de importada en entradasBascula.ts
+      // para no crear un ciclo de imports.
+      capacidadFraccionEstimada,
     ),
-    [entradas, conciliacionKg, hoy],
+    [entradas, conciliacionKg, hoy, lotesEnPasadaCompuesta],
   );
 
   // ─── Candidatos al cierre automático PERSISTIDO (refuerzo 2026-08-03) ──────
@@ -480,18 +503,21 @@ export function useEntradasBascula() {
     return items;
   }, [stock.filas, entradas, hoy]);
 
-  // ─── Lotes vistos como código NO-primero de una pasada compuesta ───────────
-  // (refuerzo 2026-08-03, ver detectarLotesEnPasadaCompuesta en
-  // conciliacionKg.ts): evidencia textual, no reparto de kg. Se calcula sobre
-  // los datos CRUDOS de lotes_dia (procesadosQuery.data.procesados, con su
-  // lote_codigo tal cual, ANTES de la conciliación) porque el patrón
-  // "loteA+loteB" solo existe en el texto original.
-  const lotesEnPasadaCompuesta = useMemo(
-    () => detectarLotesEnPasadaCompuesta(
-      (procesadosQuery.data?.procesados ?? []).map((p) => ({ lote_codigo: p.lote_codigo, kg_peso_total: p.kg_peso_total, date: p.date })),
-    ),
-    [procesadosQuery.data],
-  );
+  // ─── Candidatos al cierre automático por evidencia de COMPUESTA (refuerzo
+  // 04-08-2026, ver esCandidatoCierreCompuesto/StockLoteRow.procesadoEnCompuesto
+  // en entradasBascula.ts): mismo patrón que candidatosCierreAutomatico, pero
+  // el cierre_modo SIEMPRE es "sin_registro" — su kg no consta bajo su
+  // código, no es una pérdida real medible.
+  const candidatosCierreCompuesto = useMemo(() => {
+    const entradaPorLote = new Map(entradas.map((e) => [e.lote, e]));
+    const items: Array<{ id: string; lote: string }> = [];
+    for (const fila of stock.filas) {
+      if (!esCandidatoCierreCompuesto(fila, hoy)) continue;
+      const entrada = entradaPorLote.get(fila.lote);
+      if (entrada) items.push({ id: entrada.id, lote: fila.lote });
+    }
+    return items;
+  }, [stock.filas, entradas, hoy]);
 
   return {
     entradas,
@@ -507,7 +533,9 @@ export function useEntradasBascula() {
     derivadosCampoCit,
     /** Candidatos (id + lote) al cierre automático persistido: COMPLETO (≥97% o calibrador>entrada) y ≥2 días sin pasada nueva. Ver esCandidatoCierreAutomatico. */
     candidatosCierreAutomatico,
-    /** lote -> primeros códigos con los que apareció en una pasada compuesta (evidencia de "procesado bajo otro código", ver detectarLotesEnPasadaCompuesta). */
+    /** Candidatos (id + lote) al cierre automático por evidencia de COMPUESTA (refuerzo 04-08-2026): 0 kg propios pero nombrados como no-primero en una pasada compuesta, ≥2 días desde la última mención. Cierre SIEMPRE "sin_registro". Ver esCandidatoCierreCompuesto. */
+    candidatosCierreCompuesto,
+    /** lote -> evidencia (primeros códigos + última fecha) con la que apareció en una pasada compuesta (ver detectarLotesEnPasadaCompuesta). Alimenta tanto el Stock de lotes reales como el Stock de precalibrado (mismo mecanismo, dos superficies). */
     lotesEnPasadaCompuesta,
     isLoading: entradasQuery.isLoading || procesadosQuery.isLoading,
     error: entradasQuery.error ?? procesadosQuery.error,

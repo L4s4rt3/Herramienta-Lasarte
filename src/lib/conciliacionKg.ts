@@ -157,9 +157,40 @@ export const TARA_BOX_RECICLAJE = 30;
  * "sin procesar" sin ninguna pista. Se ofrece aparte de `movimientos` (que si
  * sigue siendo la fuente de verdad de que kg se atribuyo a donde) porque
  * cubre justo el caso que `movimientos` no puede ver: cero kg transferido.
+ *
+ * REFUERZO 04-ago-2026 (encargo del dueño, verificado contra la BD real
+ * antes de tocar código — ver el inventario del informe): esta evidencia
+ * textual deja de ser solo informativa. Un lote ACTIVO (báscula) nombrado
+ * aquí como código no-primero, con 0 kg conciliados bajo su propio código,
+ * pasa a estado derivado "procesado en compuesto" (ver
+ * `buildStockEntradas`/`esCandidatoCierreCompuesto` en entradasBascula.ts) y
+ * es candidato a cierre automático `sin_registro`. La MISMA evidencia
+ * resuelve también el precalibrado interno (`stockPrecalibrado.ts`): de las
+ * 304 entradas internas activas (846,7 t), 89 aparecen referenciadas por su
+ * código exacto en `lotes_dia` (52 alguna vez como PRIMER código — ya
+ * reciben su kg correctamente, sin bug) y 37 SOLO como no-primero (94,8 t) —
+ * exactamente el patrón que esta función detecta. Las 215 restantes
+ * (539,9 t, 159 de ellas >60 días) NO tienen ninguna mención textual en
+ * ninguna pasada: para esas NO se inventa nada (ni FIFO ni derrame por
+ * antigüedad) — quedan visibles con aviso "sin indicación en informes" y
+ * cierre manual 1-clic, tal como pidió el dueño ("no asumas, usa lo que se
+ * indique").
+ *
+ * `ultimaFecha`: la fecha MÁS RECIENTE (de `PasadaConciliacion.date`) entre
+ * todas las pasadas compuestas que nombraron a ese código como no-primero.
+ * Es la fecha de referencia para el margen de ≥2 días del cierre automático
+ * (mismo `DIAS_SIN_ACTIVIDAD_AUTOCIERRE` que el cierre de completos): deja
+ * "asentarse" la última mención por si llega un parte con retraso.
  */
-export function detectarLotesEnPasadaCompuesta(pasadas: PasadaConciliacion[]): Map<string, string[]> {
-  const vistoCon = new Map<string, Set<string>>();
+export interface EvidenciaLotePasadaCompuesta {
+  /** Primeros códigos de las pasadas compuestas que lo nombraron (orden alfabético, sin duplicar). */
+  primeros: string[];
+  /** Fecha más reciente entre esas pasadas; null si ninguna traía fecha. */
+  ultimaFecha: string | null;
+}
+
+export function detectarLotesEnPasadaCompuesta(pasadas: PasadaConciliacion[]): Map<string, EvidenciaLotePasadaCompuesta> {
+  const vistoCon = new Map<string, { primeros: Set<string>; ultimaFecha: string | null }>();
   for (const p of pasadas) {
     const kg = Number(p.kg_peso_total) || 0;
     if (kg <= 0) continue;
@@ -168,13 +199,16 @@ export function detectarLotesEnPasadaCompuesta(pasadas: PasadaConciliacion[]): M
     const primero = codes[0]!;
     for (const code of codes.slice(1)) {
       if (code === primero) continue; // mismo codigo repetido en el texto: no hay un segundo lote real
-      const set = vistoCon.get(code) ?? new Set<string>();
-      set.add(primero);
-      vistoCon.set(code, set);
+      const acc = vistoCon.get(code) ?? { primeros: new Set<string>(), ultimaFecha: null };
+      acc.primeros.add(primero);
+      if (p.date && (!acc.ultimaFecha || p.date > acc.ultimaFecha)) acc.ultimaFecha = p.date;
+      vistoCon.set(code, acc);
     }
   }
-  const salida = new Map<string, string[]>();
-  for (const [lote, primeros] of vistoCon) salida.set(lote, Array.from(primeros).sort());
+  const salida = new Map<string, EvidenciaLotePasadaCompuesta>();
+  for (const [lote, acc] of vistoCon) {
+    salida.set(lote, { primeros: Array.from(acc.primeros).sort(), ultimaFecha: acc.ultimaFecha });
+  }
   return salida;
 }
 
@@ -263,6 +297,30 @@ export interface ReciclajeDiaInput {
   nBox: number;
 }
 
+/**
+ * Fracción (0-1) de la entrada que se espera CONCILIAR como máximo tras
+ * `dias` en cámara, SIN merma de cámara real registrada: 1 − merma natural
+ * estimada (TASA_MERMA_NATURAL_DIA × días, acotada al 15 %) − podrido
+ * pre-calibrador habitual (PCT_PODRIDO_NO_PESADO_DEFECTO). Es EXACTAMENTE la
+ * misma fórmula que usa `capacidad()` dentro de `conciliarKgProcesados` (la
+ * función de más abajo la reutiliza, no la duplica) para topar cuánto puede
+ * absorber un lote sin merma real conocida.
+ *
+ * Refuerzo 04-ago-2026 (ground truth del dueño: 3 lotes de Guadex —
+ * 26050508/26050608/26050609, ~90 días, 87-95 % procesado— confirmados
+ * FÍSICAMENTE vacíos en cámara): el umbral plano del 97 % de
+ * `UMBRAL_PROCESADO` es demasiado exigente para lotes VIEJOS, que nunca
+ * llegan a esa cifra aunque estén completos de facto. Se exporta para que
+ * `entradasBascula.ts` (umbralCompletoPorEdad/estadoLotePorProcesado) la
+ * use como umbral DINÁMICO sin necesitar importarla directamente (evitaría
+ * un ciclo entradasBascula.ts ⇄ conciliacionKg.ts/mermaLote.ts): se le
+ * inyecta como callback desde useEntradasBascula.ts.
+ */
+export function capacidadFraccionEstimada(dias: number): number {
+  const diasNoNegativos = Math.max(0, dias);
+  return (1 - Math.min(0.15, TASA_MERMA_NATURAL_DIA * diasNoNegativos)) * (1 - PCT_PODRIDO_NO_PESADO_DEFECTO);
+}
+
 export function conciliarKgProcesados(
   entradas: EntradaConciliacion[],
   pasadas: PasadaConciliacion[],
@@ -325,16 +383,14 @@ export function conciliarKgProcesados(
     // de podrido pre-calibrador (ya se separó en su entrada original).
     if (r.entrada.esPrecalibrado) return r.entrada.kg_entrada;
     const mermaReal = r.entrada.kg_merma_camara;
-    let trasMermaCamara: number;
     if (mermaReal != null) {
-      trasMermaCamara = Math.max(0, r.entrada.kg_entrada - Math.max(0, mermaReal));
-    } else {
-      const dias = fechaRef && r.entrada.fecha && fechaRef > r.entrada.fecha
-        ? diffDias(r.entrada.fecha, fechaRef)
-        : 0;
-      trasMermaCamara = r.entrada.kg_entrada * (1 - Math.min(0.15, TASA_MERMA_NATURAL_DIA * dias));
+      const trasMermaCamara = Math.max(0, r.entrada.kg_entrada - Math.max(0, mermaReal));
+      return trasMermaCamara * (1 - PCT_PODRIDO_NO_PESADO_DEFECTO);
     }
-    return trasMermaCamara * (1 - PCT_PODRIDO_NO_PESADO_DEFECTO);
+    const dias = fechaRef && r.entrada.fecha && fechaRef > r.entrada.fecha
+      ? diffDias(r.entrada.fecha, fechaRef)
+      : 0;
+    return r.entrada.kg_entrada * capacidadFraccionEstimada(dias);
   };
   const pendiente = (r: RegistroLote, fechaRef: string | null | undefined) =>
     Math.max(0, capacidad(r, fechaRef) - r.asignado);

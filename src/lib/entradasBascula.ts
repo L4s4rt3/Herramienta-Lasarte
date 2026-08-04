@@ -629,10 +629,58 @@ export type StockEstado = "pendiente" | "parcial" | "procesado";
  * cámara en CUALQUIER modo, la distinción de modo solo afecta a si el hueco
  * cuenta como pérdida real o se excluye del análisis (mermaLote.ts).
  */
-export function estadoLotePorProcesado(kgEntrada: number, kgProcesadoTotal: number, cerradoManualmente = false): StockEstado {
+export function estadoLotePorProcesado(
+  kgEntrada: number,
+  kgProcesadoTotal: number,
+  cerradoManualmente = false,
+  /**
+   * Días desde la entrada (para el umbral dinámico por edad, ver
+   * umbralCompletoPorEdad más abajo). Opcional y sin `fraccionEsperadaPorEdad`
+   * no cambia nada: se sigue usando el umbral plano UMBRAL_PROCESADO de
+   * siempre (compatibilidad con todas las llamadas existentes).
+   */
+  diasEnCamara?: number,
+  /**
+   * Callback que da la fracción de entrada esperable a esa antigüedad —
+   * normalmente `capacidadFraccionEstimada` de conciliacionKg.ts, inyectada
+   * por el caller (useEntradasBascula.ts) para que este módulo no tenga que
+   * importar conciliacionKg.ts/mermaLote.ts (evita un ciclo de imports).
+   */
+  fraccionEsperadaPorEdad?: (dias: number) => number,
+): StockEstado {
   if (cerradoManualmente) return "procesado";
   const pct = kgEntrada > 0 ? kgProcesadoTotal / kgEntrada : 0;
-  return pct >= UMBRAL_PROCESADO ? "procesado" : pct > 0 ? "parcial" : "pendiente";
+  const umbral = diasEnCamara != null ? umbralCompletoPorEdad(diasEnCamara, fraccionEsperadaPorEdad) : UMBRAL_PROCESADO;
+  return pct >= umbral ? "procesado" : pct > 0 ? "parcial" : "pendiente";
+}
+
+/**
+ * Umbral mínimo de seguridad para considerar un lote COMPLETO por edad
+ * (ground truth del dueño, 04-08-2026): nunca por debajo del 85 % procesado
+ * real, por muy viejo que sea el lote — un hueco mayor ya no es
+ * razonablemente "solo merma y podrido habitual".
+ */
+export const UMBRAL_COMPLETO_MINIMO = 0.85;
+
+/**
+ * Umbral EFECTIVO de "COMPLETO" para un lote con `dias` en cámara: el plano
+ * UMBRAL_PROCESADO (97 %) de siempre para lotes jóvenes, relajado hacia el
+ * rendimiento esperado por edad (`fraccionEsperadaPorEdad`, normalmente
+ * `capacidadFraccionEstimada` de conciliacionKg.ts) para lotes viejos, pero
+ * nunca por debajo de UMBRAL_COMPLETO_MINIMO (85 %).
+ *
+ * Refuerzo 04-08-2026 (ground truth del dueño, verificado físicamente): 3
+ * lotes de Guadex de ~90 días con 87-95 % procesado tenían la cámara VACÍA
+ * de verdad — el umbral plano del 97 % es demasiado exigente para lotes
+ * viejos (merma natural + podrido pre-calibrador habitual ya explican varios
+ * puntos del hueco a esa antigüedad). Sin `fraccionEsperadaPorEdad` (o sin
+ * `dias`) se comporta EXACTAMENTE como antes (siempre UMBRAL_PROCESADO): no
+ * rompe ninguna llamada existente.
+ */
+export function umbralCompletoPorEdad(dias: number, fraccionEsperadaPorEdad?: (dias: number) => number): number {
+  if (!fraccionEsperadaPorEdad) return UMBRAL_PROCESADO;
+  const esperado = fraccionEsperadaPorEdad(dias);
+  return Math.min(UMBRAL_PROCESADO, Math.max(UMBRAL_COMPLETO_MINIMO, esperado));
 }
 
 // ─── Modo del cierre manual (entradas_bascula.cierre_modo, migración ────────
@@ -770,6 +818,23 @@ export interface StockLoteRow {
    * que cerrarlo fue (probablemente) un error y hay que revisarlo/reabrirlo.
    */
   cerradoConActividadPosterior: boolean;
+  /**
+   * Evidencia de "procesado en compuesto" (refuerzo 04-ago-2026, encargo del
+   * dueño verificado contra la BD real: de 304 entradas PREC internas
+   * activas, 37 — 94,8 t — solo aparecen como código NO-primero de una
+   * pasada compuesta, el mismo patrón que 3 lotes reales activos —
+   * 70,6 t — con la misma evidencia). No null cuando el lote sigue ACTIVO
+   * (no cerrado a mano), tiene 0 kg conciliados bajo su PROPIO código, y
+   * `detectarLotesEnPasadaCompuesta` (conciliacionKg.ts) lo vio nombrado como
+   * código no-primero en alguna pasada compuesta: `primeros` son esos
+   * códigos y `ultimaFecha` la más reciente pasada que lo menciona. Cuando no
+   * es null, `estado` se fuerza a "procesado" (igual que un cierre manual) y
+   * `kg_en_camara` es 0 — la fruta muy probablemente ya se procesó bajo el
+   * código listado, así que no debe seguir contando como stock. Si el lote
+   * SÍ tiene algo de kg propio (aunque no llegue al umbral), este campo es
+   * null y el lote se queda "parcial" sin tocar, como hasta ahora.
+   */
+  procesadoEnCompuesto: { primeros: string[]; ultimaFecha: string | null } | null;
 }
 
 export interface StockResumen {
@@ -810,6 +875,23 @@ export function buildStockEntradas(
   >,
   procesados: LoteProcesadoInput[],
   hoy: string,
+  /**
+   * lote → evidencia de pasada COMPUESTA que lo nombra como código
+   * no-primero (detectarLotesEnPasadaCompuesta, conciliacionKg.ts). Refuerzo
+   * 04-ago-2026: un lote activo con 0 kg conciliados bajo su propio código
+   * que aparece aquí pasa a "procesado en compuesto" (ver
+   * StockLoteRow.procesadoEnCompuesto) en vez de seguir contando como stock.
+   * Opcional para no romper llamadas existentes (tests, sitios sin esta
+   * evidencia a mano).
+   */
+  huerfanosCompuesta?: Map<string, { primeros: string[]; ultimaFecha: string | null }>,
+  /**
+   * Umbral dinámico de "COMPLETO" por edad (ver umbralCompletoPorEdad más
+   * arriba): normalmente `capacidadFraccionEstimada` de conciliacionKg.ts,
+   * inyectada por el caller para no crear un ciclo de imports. Sin ella, el
+   * umbral sigue siendo el plano UMBRAL_PROCESADO de siempre.
+   */
+  fraccionEsperadaPorEdad?: (dias: number) => number,
 ): StockResumen {
   const procesadoPorLote = new Map<string, { kg: number; ultimaFecha: string | null }>();
   for (const p of procesados) {
@@ -830,8 +912,28 @@ export function buildStockEntradas(
     const kgProcesado = (procesado?.kg ?? 0) + (Number(entrada.kg_ajuste_stock) || 0);
     const kgEnCamara = Math.max(0, entrada.kg_entrada - kgProcesado);
     const cerradoManualmente = Boolean(entrada.cerrado_at);
-    const estado: StockEstado = estadoLotePorProcesado(entrada.kg_entrada, kgProcesado, cerradoManualmente);
-    const finDeCuenta = estado === "procesado" && procesado?.ultimaFecha ? procesado.ultimaFecha : hoy;
+    // Solo aplica con 0 kg propios (ni un kg): si hay ALGO de kg conciliado
+    // bajo su código, el lote se queda "parcial" de toda la vida, sin tocar
+    // (encargo explícito del dueño).
+    const procesadoEnCompuesto = !cerradoManualmente && kgProcesado <= 0
+      ? huerfanosCompuesta?.get(clave) ?? null
+      : null;
+    // Antigüedad DESDE LA ENTRADA hasta hoy: referencia del umbral dinámico
+    // por edad (ground truth 04-08-2026, ver umbralCompletoPorEdad). Se usa
+    // "hoy" (no la última pasada) porque el umbral decide si el lote sigue
+    // ACTIVO, y su antigüedad como stock se cuenta hasta hoy mientras siga
+    // abierto.
+    const diasDesdeEntrada = diffDias(entrada.fecha, hoy);
+    const estado: StockEstado = estadoLotePorProcesado(
+      entrada.kg_entrada,
+      kgProcesado,
+      cerradoManualmente || procesadoEnCompuesto != null,
+      diasDesdeEntrada,
+      fraccionEsperadaPorEdad,
+    );
+    const finDeCuenta = estado === "procesado"
+      ? (procesado?.ultimaFecha ?? procesadoEnCompuesto?.ultimaFecha ?? hoy)
+      : hoy;
     const ultimaFechaProcesado = procesado?.ultimaFecha ?? null;
 
     const pctProcesado = entrada.kg_entrada > 0 ? kgProcesado / entrada.kg_entrada : 0;
@@ -857,6 +959,7 @@ export function buildStockEntradas(
       cierre_modo: entrada.cierre_modo ?? null,
       probablementeTerminado,
       cerradoConActividadPosterior: pasadasPosterioresAlCierre(entrada.cerrado_at ?? null, ultimaFechaProcesado),
+      procesadoEnCompuesto,
     };
   });
 
@@ -912,6 +1015,36 @@ export function esCandidatoCierreAutomatico(
   if (fila.cerrado_at) return false;
   if (!fila.ultima_fecha_procesado) return false;
   return diffDias(fila.ultima_fecha_procesado, hoy) >= DIAS_SIN_ACTIVIDAD_AUTOCIERRE;
+}
+
+/**
+ * Candidatos al cierre automático PERSISTIDO por evidencia de pasada
+ * COMPUESTA (refuerzo 04-ago-2026, encargo del dueño verificado contra la BD
+ * real antes de escribir esta función — ver StockLoteRow.procesadoEnCompuesto
+ * / detectarLotesEnPasadaCompuesta en conciliacionKg.ts): un lote con esa
+ * evidencia, aún sin cerrar, con ≥ DIAS_SIN_ACTIVIDAD_AUTOCIERRE días desde
+ * la ÚLTIMA pasada compuesta que lo menciona (deja asentarse un parte con
+ * retraso, mismo margen que esCandidatoCierreAutomatico).
+ *
+ * A diferencia de esCandidatoCierreAutomatico, el cierre SIEMPRE debe ser
+ * cierre_modo "sin_registro" (nunca "con_analisis"): su kg no consta bajo su
+ * propio código — no es una pérdida real medible, es un artefacto de
+ * trazabilidad — así que forzar "con_analisis" inventaría una merma que no
+ * existe. El caller (useEntradasBascula) es quien fija ese modo al construir
+ * el ítem para cerrarLotesEnBloque.
+ *
+ * Sin `ultimaFecha` (evidencia sin fecha en ninguna pasada) NUNCA es
+ * candidato: no se puede demostrar el margen de 2 días, así que se deja para
+ * revisión manual en vez de cerrar a ciegas.
+ */
+export function esCandidatoCierreCompuesto(
+  fila: Pick<StockLoteRow, "cerrado_at" | "procesadoEnCompuesto">,
+  hoy: string,
+): boolean {
+  if (fila.cerrado_at) return false;
+  const evidencia = fila.procesadoEnCompuesto;
+  if (!evidencia || !evidencia.ultimaFecha) return false;
+  return diffDias(evidencia.ultimaFecha, hoy) >= DIAS_SIN_ACTIVIDAD_AUTOCIERRE;
 }
 
 function pad2(value: number): string {

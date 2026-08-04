@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  capacidadFraccionEstimada,
   conciliarKgProcesados,
   contarBoxesReciclaje,
   detectarLotesEnPasadaCompuesta,
@@ -459,13 +460,42 @@ describe("conciliarKgProcesados — podrido pre-calibrador habitual en la capaci
   });
 });
 
+describe("capacidadFraccionEstimada — fracción exportada para el umbral dinámico de entradasBascula.ts (refuerzo 04-08-2026)", () => {
+  it("0 días: 1 × (1 − 0,03) = 0,97 (sin merma, solo podrido pre-calibrador habitual)", () => {
+    expect(capacidadFraccionEstimada(0)).toBeCloseTo(0.97);
+  });
+
+  it("90 días: (1 − 0,000513×90) × 0,97 ≈ 0,9252 — coincide con el caso real Guadex", () => {
+    expect(capacidadFraccionEstimada(90)).toBeCloseTo((1 - 0.000513 * 90) * 0.97, 4);
+  });
+
+  it("la merma por días se acota al 15 % (lote muy viejo no cae por debajo de 0,85×0,97)", () => {
+    const dias400 = capacidadFraccionEstimada(400); // 0,000513×400=20,5%, por encima del tope del 15%
+    expect(dias400).toBeCloseTo(0.85 * 0.97);
+  });
+
+  it("días negativos se tratan como 0 (nunca se infla la capacidad)", () => {
+    expect(capacidadFraccionEstimada(-5)).toBe(capacidadFraccionEstimada(0));
+  });
+
+  it("conciliarKgProcesados usa EXACTAMENTE esta función para la capacidad sin merma real (no hay dos fórmulas)", () => {
+    // Mismo caso que el test de la 2ª parte del podrido (arriba): 20000 kg,
+    // 0 días -> capacidad = 20000 × capacidadFraccionEstimada(0).
+    const res = conciliarKgProcesados(
+      [entrada({ lote: "26080601", kg_entrada: 20000, fecha: "2026-08-06" })],
+      [{ lote_codigo: "26080601", kg_peso_total: 20000, date: "2026-08-06" }],
+    );
+    expect(res.procesados[0].kg_peso_total).toBeCloseTo(20000 * capacidadFraccionEstimada(0));
+  });
+});
+
 describe("detectarLotesEnPasadaCompuesta — evidencia de huérfanos en pasadas compuestas (refuerzo 2026-08-03)", () => {
   it("un código NO-primero de una pasada compuesta queda asociado al primero, aunque no reciba kg en el reparto", () => {
     const pasadas: PasadaConciliacion[] = [
       { lote_codigo: "25111002+25111001", kg_peso_total: 29929, date: "2025-11-10" },
     ];
     const mapa = detectarLotesEnPasadaCompuesta(pasadas);
-    expect(mapa.get("25111001")).toEqual(["25111002"]);
+    expect(mapa.get("25111001")).toEqual({ primeros: ["25111002"], ultimaFecha: "2025-11-10" });
     // El primer código de la pasada NO se marca a sí mismo como huérfano.
     expect(mapa.has("25111002")).toBe(false);
   });
@@ -477,7 +507,25 @@ describe("detectarLotesEnPasadaCompuesta — evidencia de huérfanos en pasadas 
       { lote_codigo: "26010101+26010102", kg_peso_total: 1000, date: "2026-01-03" }, // repetido: no duplica
     ];
     const mapa = detectarLotesEnPasadaCompuesta(pasadas);
-    expect(mapa.get("26010102")).toEqual(["26010101", "26010103"]);
+    expect(mapa.get("26010102")?.primeros).toEqual(["26010101", "26010103"]);
+  });
+
+  it("ultimaFecha es la MÁS RECIENTE entre todas las pasadas que nombran al lote (margen del cierre automático)", () => {
+    const pasadas: PasadaConciliacion[] = [
+      { lote_codigo: "26010101+26010102", kg_peso_total: 5000, date: "2026-01-05" },
+      { lote_codigo: "26010103+26010102", kg_peso_total: 3000, date: "2026-01-02" }, // anterior: no gana
+      { lote_codigo: "26010104+26010102", kg_peso_total: 1000, date: "2026-01-09" }, // posterior: gana
+    ];
+    const mapa = detectarLotesEnPasadaCompuesta(pasadas);
+    expect(mapa.get("26010102")).toEqual({ primeros: ["26010101", "26010103", "26010104"], ultimaFecha: "2026-01-09" });
+  });
+
+  it("sin fecha en ninguna pasada, ultimaFecha queda null (nunca se inventa)", () => {
+    const pasadas: PasadaConciliacion[] = [
+      { lote_codigo: "26010101+26010102", kg_peso_total: 5000, date: null },
+    ];
+    const mapa = detectarLotesEnPasadaCompuesta(pasadas);
+    expect(mapa.get("26010102")?.ultimaFecha).toBeNull();
   });
 
   it("una pasada normal de un solo código no genera ninguna asociación", () => {
@@ -490,8 +538,8 @@ describe("detectarLotesEnPasadaCompuesta — evidencia de huérfanos en pasadas 
       { lote_codigo: "26020101+26020102+26020103", kg_peso_total: 12000, date: "2026-02-01" },
     ];
     const mapa = detectarLotesEnPasadaCompuesta(pasadas);
-    expect(mapa.get("26020102")).toEqual(["26020101"]);
-    expect(mapa.get("26020103")).toEqual(["26020101"]);
+    expect(mapa.get("26020102")?.primeros).toEqual(["26020101"]);
+    expect(mapa.get("26020103")?.primeros).toEqual(["26020101"]);
     expect(mapa.has("26020101")).toBe(false);
   });
 

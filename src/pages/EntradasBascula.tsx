@@ -51,7 +51,8 @@ import {
   type StockLoteRow,
 } from "@/lib/entradasBascula";
 import { errorMessage } from "@/lib/errorMessage";
-import { formatDate, formatKgCompact as formatKg, formatNumber, formatPct, normalizarTexto } from "@/lib/format";
+import { formatDate, formatKgCompact as formatKg, formatNumber, formatPct, normalizarTexto, today } from "@/lib/format";
+import { buildStockPrecalibrado } from "@/lib/stockPrecalibrado";
 import { INFO_PODRIDO_PRE_CALIBRADOR, TASA_MERMA_NATURAL_DIA, type MermaLote } from "@/lib/mermaLote";
 import { exportarMermasProductores, type FilaMermaExport } from "@/lib/exportMermasProductores";
 import { casarMermaCamara, parseMermaCamaraRows } from "@/lib/mermaCamaraImport";
@@ -622,7 +623,7 @@ interface ImportPreview {
 export default function EntradasBascula() {
   const {
     entradas, entradasPrecalibrado, stock, procesados, conciliacionKg, movimientosPrecalibrado, derivadosCampoCit, isLoading, error,
-    candidatosCierreAutomatico, lotesEnPasadaCompuesta,
+    candidatosCierreAutomatico, candidatosCierreCompuesto, lotesEnPasadaCompuesta,
     importar, importarStock, eliminar, cerrarLote, reabrirLote, cerrarLotesEnBloque, reabrirLotesEnBloque,
   } = useEntradasBascula();
   const { role } = useAuth();
@@ -691,6 +692,31 @@ export default function EntradasBascula() {
     return map;
   }, [conciliacionKg.movimientos]);
 
+  // ─── Stock de precalibrado (refuerzo 04-08-2026) ───────────────────────────
+  // Se calcula UNA vez aquí (antes solo vivía dentro de la card) para que el
+  // efecto de cierre automático de más abajo pueda leer `candidatosCierre`
+  // sin duplicar la llamada a buildStockPrecalibrado. `lotesEnPasadaCompuesta`
+  // es la MISMA evidencia textual que resuelve los huérfanos reales de más
+  // abajo — el dueño confirmó contra la BD que 37 de las 304 entradas PREC
+  // activas están en ese mismo caso (nombradas en una pasada compuesta, 0 kg
+  // bajo su propio código).
+  const stockPrecalibrado = useMemo(
+    () => buildStockPrecalibrado(
+      entradasPrecalibrado.map((e) => ({
+        lote: e.lote,
+        fecha: e.fecha,
+        finca: e.finca,
+        kg_entrada: Number(e.kg_entrada) || 0,
+        id: e.id,
+        cerrado_at: e.cerrado_at ?? null,
+      })),
+      conciliacionKg.procesados,
+      today(),
+      lotesEnPasadaCompuesta,
+    ),
+    [entradasPrecalibrado, conciliacionKg.procesados, lotesEnPasadaCompuesta],
+  );
+
   // ─── Cierre automático PERSISTIDO de lotes COMPLETOS (refuerzo 2026-08-03) ──
   // Encargo del dueño: "cuando pasa todo, se debe cerrar el lote... refuerza
   // esa parte". El cálculo derivado (buildStockEntradas) YA trata un lote
@@ -705,26 +731,42 @@ export default function EntradasBascula() {
   // criterio que el resto de acciones de cierre en bloque de esta página) y
   // como mucho una vez por carga de página — el ref evita reintentar en cada
   // re-render mientras la mutación está en vuelo o si ya se disparó.
+  // Refuerzo 04-08-2026: además de los COMPLETOS de siempre (con_analisis),
+  // en la MISMA pasada se cierran solos los huérfanos de pasada COMPUESTA
+  // (lotes reales Y entradas internas PREC, ver candidatosCierreCompuesto /
+  // stockPrecalibrado.candidatosCierre) — siempre con cierre_modo
+  // "sin_registro", nunca "con_analisis": su kg no consta bajo su propio
+  // código, así que el hueco NO es una pérdida real (no se le inventa merma).
+  // Los tres orígenes comparten la misma mutación en bloque (ya agrupa por
+  // modo internamente) para no disparar 3 escrituras separadas al cargar.
   const autoCierreDisparado = useRef(false);
   useEffect(() => {
     if (!isAdmin || isLoading || autoCierreDisparado.current) return;
-    if (candidatosCierreAutomatico.length === 0) return;
+    const itemsCompletos = candidatosCierreAutomatico.map((c) => ({ id: c.id, cierreModo: "con_analisis" as const }));
+    const itemsCompuestoReal = candidatosCierreCompuesto.map((c) => ({ id: c.id, cierreModo: "sin_registro" as const }));
+    const itemsCompuestoPrec = stockPrecalibrado.candidatosCierre.map((c) => ({ id: c.id, cierreModo: "sin_registro" as const }));
+    const items = [...itemsCompletos, ...itemsCompuestoReal, ...itemsCompuestoPrec];
+    if (items.length === 0) return;
     autoCierreDisparado.current = true;
     cerrarLotesEnBloque.mutate(
-      { items: candidatosCierreAutomatico.map((c) => ({ id: c.id, cierreModo: "con_analisis" as const })) },
+      { items },
       {
         onSuccess: (r) => {
           if (r.cerrados > 0) {
+            const partes: string[] = [];
+            if (itemsCompletos.length > 0) partes.push(`${itemsCompletos.length} completo${itemsCompletos.length === 1 ? "" : "s"} (≥97%)`);
+            const compuestos = itemsCompuestoReal.length + itemsCompuestoPrec.length;
+            if (compuestos > 0) partes.push(`${compuestos} por pasada compuesta (incluido precalibrado)`);
             toast({
-              title: "La herramienta ha cerrado lotes completos",
-              description: `${r.cerrados} lote${r.cerrados === 1 ? "" : "s"} llegaron al 97% procesado (o el calibrador superó la entrada) sin actividad en ${DIAS_SIN_ACTIVIDAD_AUTOCIERRE} días o más: se han cerrado solos y dejan de contar como pendientes.`,
+              title: "La herramienta ha cerrado lotes solos",
+              description: `${r.cerrados} lote${r.cerrados === 1 ? "" : "s"} sin actividad en ${DIAS_SIN_ACTIVIDAD_AUTOCIERRE} días o más: ${partes.join(" · ")}. Dejan de contar como pendientes.`,
             });
           }
         },
         onError: (e) => toast({ title: "No se pudo cerrar automáticamente", description: errorMessage(e), variant: "destructive" }),
       },
     );
-  }, [isAdmin, isLoading, candidatosCierreAutomatico, cerrarLotesEnBloque]);
+  }, [isAdmin, isLoading, candidatosCierreAutomatico, candidatosCierreCompuesto, stockPrecalibrado.candidatosCierre, cerrarLotesEnBloque]);
 
   // ─── Conectividad: llegada desde Trazabilidad con ?lote= ────────────────
   // Prefiltra el buscador, se asegura de que la fila sea visible (aunque esté
@@ -1273,16 +1315,12 @@ export default function EntradasBascula() {
               entradas_bascula ni la mutación de cierre en bloque. ── */}
           <CamarasExternasCard senales={senalesCamaraExterna} entradas={entradas} cerrarLotesEnBloque={cerrarLotesEnBloque} />
 
-          {/* ─── Stock de precalibrado: siempre visible (regla del dueño 2026-07-28) ── */}
-          <StockPrecalibradoCard
-            reentradas={entradasPrecalibrado.map((e) => ({
-              lote: e.lote,
-              fecha: e.fecha,
-              finca: e.finca,
-              kg_entrada: Number(e.kg_entrada) || 0,
-            }))}
-            procesadosConciliados={conciliacionKg.procesados}
-          />
+          {/* ─── Stock de precalibrado: siempre visible (regla del dueño 2026-07-28) ──
+              Refuerzo 04-08-2026: `stock` ya viene calculado arriba (useMemo
+              compartido con el efecto de cierre automático); `cerrarLote` es
+              el cierre manual 1-clic para las re-entradas SIN indicación en
+              ningún informe (el dueño fue explícito: eso no se cierra solo). */}
+          <StockPrecalibradoCard stock={stockPrecalibrado} cerrarLote={cerrarLote} />
 
           {(movimientosPrecalibrado.count > 0 || derivadosCampoCit.count > 0) && (
             <div className="space-y-1 px-1">
@@ -1492,13 +1530,26 @@ export default function EntradasBascula() {
                                 cedió {formatKg(kg)}
                               </Badge>
                             ))}
-                            {compuestoCon && fila.estado !== "procesado" && (
+                            {fila.procesadoEnCompuesto ? (
+                              // Refuerzo 04-08-2026: 0 kg propios + nombrado en una pasada
+                              // compuesta -> ya cuenta como "Procesado" (ver buildStockEntradas)
+                              // y se cierra solo a los 2 días de la última mención. Badge en
+                              // verde para distinguirlo del "Procesado" normal (calibrador SÍ
+                              // pesó bajo su propio código).
+                              <Badge
+                                variant="outline"
+                                className="border-success/40 bg-success/10 px-1.5 py-0 text-[9px] font-normal text-success"
+                                title={`0 kg conciliados bajo su propio código, pero el calibrador lo nombró junto a ${fila.procesadoEnCompuesto.primeros.join(", ")} en una pasada COMPUESTA: se da por procesado ahí (sin inventar una merma) y se cierra solo con cierre_modo "sin_registro" a los ${DIAS_SIN_ACTIVIDAD_AUTOCIERRE} días de esa mención.`}
+                              >
+                                procesado en compuesto (con {fila.procesadoEnCompuesto.primeros[0]}{fila.procesadoEnCompuesto.primeros.length > 1 ? ` +${fila.procesadoEnCompuesto.primeros.length - 1}` : ""})
+                              </Badge>
+                            ) : compuestoCon && fila.estado !== "procesado" && (
                               <Badge
                                 variant="outline"
                                 className="border-info/40 bg-info/10 px-1.5 py-0 text-[9px] font-normal text-info"
-                                title={`Este lote aparece nombrado junto a ${compuestoCon.join(", ")} en una pasada COMPUESTA del calibrador: es posible que su fruta ya se procesara bajo ese código y el reparto no haya podido atribuírsela con fiabilidad (nunca se reparte kg por LIKE/subcadena). Evidencia para cerrarlo a mano si procede.`}
+                                title={`Este lote aparece nombrado junto a ${compuestoCon.primeros.join(", ")} en una pasada COMPUESTA del calibrador: tiene algo de kg propio (por eso no se cierra solo) pero es posible que el resto de su fruta ya se procesara bajo ese código y el reparto no haya podido atribuírsela con fiabilidad (nunca se reparte kg por LIKE/subcadena). Evidencia para cerrarlo a mano si procede.`}
                               >
-                                compuesto con {compuestoCon[0]}{compuestoCon.length > 1 ? ` +${compuestoCon.length - 1}` : ""}
+                                compuesto con {compuestoCon.primeros[0]}{compuestoCon.primeros.length > 1 ? ` +${compuestoCon.primeros.length - 1}` : ""}
                               </Badge>
                             )}
                           </div>

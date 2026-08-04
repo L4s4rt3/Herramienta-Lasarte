@@ -38,6 +38,22 @@ describe("buildStockPrecalibrado", () => {
     expect(stock.pendientes[0]).toMatchObject({ lote: "26050102", almacen: "PREC 2", kgPendiente: 5000, dias: 27 });
   });
 
+  it("expone el id de la re-entrada en `pendientes` (para el botón de cierre manual 1-clic); null si no se pasó", () => {
+    const conId = buildStockPrecalibrado(
+      [reentrada({ lote: "26050101", kg_entrada: 5000, id: "abc-123" })],
+      [],
+      "2026-07-28",
+    );
+    expect(conId.pendientes[0].id).toBe("abc-123");
+
+    const sinId = buildStockPrecalibrado(
+      [reentrada({ lote: "26050101", kg_entrada: 5000 })],
+      [],
+      "2026-07-28",
+    );
+    expect(sinId.pendientes[0].id).toBeNull();
+  });
+
   it("lo conciliado por encima de la re-entrada NO produce pendiente negativo (min defensivo)", () => {
     const stock = buildStockPrecalibrado(
       [reentrada({ lote: "26050101", kg_entrada: 5000 })],
@@ -78,5 +94,119 @@ describe("buildStockPrecalibrado", () => {
       "2026-07-28",
     );
     expect(stock.kgPendiente).toBe(0);
+  });
+});
+
+describe("buildStockPrecalibrado — evidencia de pasada compuesta (refuerzo 04-08-2026, caso real 25111002+25111001+PREC 25111901 verificado en BD)", () => {
+  it("re-entrada nombrada como no-primero en una pasada compuesta se da por consumida ENTERA, sin inventar un kg intermedio", () => {
+    const huerfanos = new Map([["25111901", { primeros: ["25111002"], ultimaFecha: "2025-11-19" }]]);
+    const stock = buildStockPrecalibrado(
+      [reentrada({ lote: "25111901", kg_entrada: 5437, fecha: "2025-11-19" })],
+      [], // 0 kg bajo su propio código: el reparto por capacidad se lo llevó todo el código principal
+      "2026-08-04",
+      huerfanos,
+    );
+    expect(stock.pendientes).toHaveLength(0); // NO se queda en la cola de "sin indicación"
+    expect(stock.resueltasPorCompuesta).toEqual([
+      { lote: "25111901", fecha: "2025-11-19", almacen: "PREC 1", kg: 5437, primeros: ["25111002"], ultimaFecha: "2025-11-19", dias: 258 },
+    ]);
+    // Conservación: se consume ENTERA (kg conocido, ninguno inventado ni perdido).
+    expect(stock.kgReprocesado).toBe(5437);
+    expect(stock.kgPendiente).toBe(0);
+    expect(stock.kgReprocesado + stock.kgPendiente).toBe(stock.kgReintroducido);
+  });
+
+  it("con ALGO de kg directo bajo su propio código, la evidencia de compuesta NO se consulta ni hace falta: manda el directo", () => {
+    const huerfanos = new Map([["26050101", { primeros: ["26050001"], ultimaFecha: "2026-05-01" }]]);
+    const stock = buildStockPrecalibrado(
+      [reentrada({ lote: "26050101", kg_entrada: 5000 })],
+      [{ lote_codigo: "26050101", kg_peso_total: 5000 }], // ya cubierta del todo por su propio código
+      "2026-07-28",
+      huerfanos,
+    );
+    expect(stock.resueltasPorCompuesta).toHaveLength(0);
+    expect(stock.kgPendiente).toBe(0);
+  });
+
+  it("sin NINGUNA mención (ni directa ni compuesta) se queda en 'pendientes': no se inventa nada (encargo explícito del dueño)", () => {
+    const stock = buildStockPrecalibrado(
+      [reentrada({ lote: "26050101", kg_entrada: 5000 })],
+      [],
+      "2026-07-28",
+      new Map(), // ninguna evidencia
+    );
+    expect(stock.resueltasPorCompuesta).toHaveLength(0);
+    expect(stock.pendientes).toHaveLength(1);
+    expect(stock.pendientes[0].kgPendiente).toBe(5000);
+  });
+
+  it("una re-entrada YA cerrada a mano no se toca aunque tenga evidencia de compuesta pendiente de aplicar", () => {
+    const huerfanos = new Map([["25111901", { primeros: ["25111002"], ultimaFecha: "2025-11-19" }]]);
+    const stock = buildStockPrecalibrado(
+      [reentrada({ lote: "25111901", kg_entrada: 5437, fecha: "2025-11-19", cerrado_at: "2026-01-01T00:00:00Z" })],
+      [],
+      "2026-08-04",
+      huerfanos,
+    );
+    expect(stock.resueltasPorCompuesta).toHaveLength(0);
+    expect(stock.candidatosCierre).toHaveLength(0);
+  });
+});
+
+describe("buildStockPrecalibrado — candidatosCierre (cierre automático persistido, mismo margen DIAS_SIN_ACTIVIDAD_AUTOCIERRE=2 que el resto)", () => {
+  it("motivo 'compuesto': candidata con ≥2 días desde la ÚLTIMA pasada compuesta que la menciona", () => {
+    const huerfanos = new Map([["25111901", { primeros: ["25111002"], ultimaFecha: "2026-08-01" }]]);
+    const listo = buildStockPrecalibrado(
+      [reentrada({ lote: "25111901", kg_entrada: 5437, id: "id-1" })],
+      [],
+      "2026-08-03", // exactamente 2 días desde la última mención
+      huerfanos,
+    );
+    expect(listo.candidatosCierre).toEqual([{ id: "id-1", lote: "25111901", motivo: "compuesto" }]);
+
+    const aun = buildStockPrecalibrado(
+      [reentrada({ lote: "25111901", kg_entrada: 5437, id: "id-1" })],
+      [],
+      "2026-08-02", // 1 día: se espera a que se asiente
+      huerfanos,
+    );
+    expect(aun.candidatosCierre).toHaveLength(0);
+  });
+
+  it("motivo 'consumido': candidata cuando la re-pasada bajo su propio código cubre el kg y ha pasado el margen desde esa pasada", () => {
+    const listo = buildStockPrecalibrado(
+      [reentrada({ lote: "26050101", kg_entrada: 5000, id: "id-2" })],
+      [{ lote_codigo: "26050101", kg_peso_total: 5000, date: "2026-08-01" }],
+      "2026-08-03",
+    );
+    expect(listo.candidatosCierre).toEqual([{ id: "id-2", lote: "26050101", motivo: "consumido" }]);
+
+    const aun = buildStockPrecalibrado(
+      [reentrada({ lote: "26050101", kg_entrada: 5000, id: "id-2" })],
+      [{ lote_codigo: "26050101", kg_peso_total: 5000, date: "2026-08-02" }],
+      "2026-08-03", // 1 día: aún no
+    );
+    expect(aun.candidatosCierre).toHaveLength(0);
+  });
+
+  it("sin id -> nunca candidata (no se puede cerrar lo que no se puede identificar)", () => {
+    const huerfanos = new Map([["25111901", { primeros: ["25111002"], ultimaFecha: "2026-08-01" }]]);
+    const stock = buildStockPrecalibrado(
+      [reentrada({ lote: "25111901", kg_entrada: 5437 })], // sin id
+      [],
+      "2026-08-10",
+      huerfanos,
+    );
+    expect(stock.candidatosCierre).toHaveLength(0);
+  });
+
+  it("pendiente sin resolver (ni directo ni compuesta) -> nunca candidata, por muchos días que lleve", () => {
+    const stock = buildStockPrecalibrado(
+      [reentrada({ lote: "26050101", kg_entrada: 5000, id: "id-3", fecha: "2025-01-01" })],
+      [],
+      "2026-08-10",
+    );
+    expect(stock.candidatosCierre).toHaveLength(0);
+    expect(stock.pendientes).toHaveLength(1);
   });
 });

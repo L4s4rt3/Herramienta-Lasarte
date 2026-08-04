@@ -7,6 +7,7 @@ import {
   DIAS_SIN_ACTIVIDAD_AUTOCIERRE,
   DIAS_SIN_ACTIVIDAD_TERMINADO,
   esCandidatoCierreAutomatico,
+  esCandidatoCierreCompuesto,
   estadoLotePorProcesado,
   normalizarLoteCodigo,
   parseEntradasBasculaRows,
@@ -15,9 +16,11 @@ import {
   parseStockLotesRows,
   pasadasPosterioresAlCierre,
   UMBRAL_CIERRE_CON_ANALISIS,
+  UMBRAL_COMPLETO_MINIMO,
   UMBRAL_LOTE_COMPLETO,
   UMBRAL_PROBABLE_TERMINADO,
   UMBRAL_PROCESADO,
+  umbralCompletoPorEdad,
 } from "./entradasBascula";
 
 // Cabecera real del export del programa de báscula ("entrada 2604.xlsx").
@@ -540,6 +543,71 @@ describe("UMBRAL_LOTE_COMPLETO — alias de UMBRAL_PROCESADO para el estado COMP
   });
 });
 
+describe("umbralCompletoPorEdad / estadoLotePorProcesado con umbral dinámico (ground truth del dueño 04-08-2026: 3 lotes de Guadex ~90 días, 87-95% procesado, confirmados FÍSICAMENTE vacíos en cámara)", () => {
+  it("sin fraccionEsperadaPorEdad (o sin dias): se comporta EXACTAMENTE como antes, siempre UMBRAL_PROCESADO", () => {
+    expect(umbralCompletoPorEdad(90)).toBe(UMBRAL_PROCESADO);
+    expect(umbralCompletoPorEdad(200)).toBe(UMBRAL_PROCESADO);
+    // estadoLotePorProcesado sin los 2 parámetros nuevos: comportamiento histórico intacto.
+    expect(estadoLotePorProcesado(10000, 9600)).toBe("parcial"); // 96% < 97%
+  });
+
+  it("lote de 90 días al 93% -> COMPLETO (el umbral se relaja por edad)", () => {
+    const umbral90dias = umbralCompletoPorEdad(90, (dias) => (1 - Math.min(0.15, 0.000513 * dias)) * (1 - 0.03));
+    expect(umbral90dias).toBeLessThan(UMBRAL_PROCESADO);
+    expect(estadoLotePorProcesado(10000, 9300, false, 90, (dias) => (1 - Math.min(0.15, 0.000513 * dias)) * (1 - 0.03))).toBe("procesado");
+  });
+
+  it("lote de 10 días al 93% -> NO completo (a esa edad el umbral sigue cerca del 97% plano)", () => {
+    const fraccion = (dias: number) => (1 - Math.min(0.15, 0.000513 * dias)) * (1 - 0.03);
+    expect(estadoLotePorProcesado(10000, 9300, false, 10, fraccion)).toBe("parcial");
+  });
+
+  it("UMBRAL_COMPLETO_MINIMO (85%): nunca se considera completo por debajo, por muy viejo que sea el lote", () => {
+    // Un lote MUY viejo (400 días) con la fracción esperada muy baja no debe
+    // arrastrar el umbral por debajo del suelo de seguridad del 85%.
+    const fraccionMuyBaja = () => 0.5; // simula un lote extremo
+    expect(umbralCompletoPorEdad(400, fraccionMuyBaja)).toBe(UMBRAL_COMPLETO_MINIMO);
+    expect(estadoLotePorProcesado(10000, 8400, false, 400, fraccionMuyBaja)).toBe("parcial"); // 84% < 85%
+    expect(estadoLotePorProcesado(10000, 8500, false, 400, fraccionMuyBaja)).toBe("procesado"); // 85% justo
+  });
+
+  it("caso real Guadex: lote de 90 días al 92,76% procesado (26050609) -> COMPLETO con capacidadFraccionEstimada real de conciliacionKg.ts", () => {
+    // Réplica exacta de capacidadFraccionEstimada (conciliacionKg.ts) para no
+    // importarla aquí (evitaría el ciclo de imports) — mismos números. A 90
+    // días el umbral dinámico es ≈92,52%: este lote real (92,76%) lo supera
+    // por poco, justo el caso que el umbral plano del 97% dejaba "parcial"
+    // para siempre pese a estar confirmado vacío en cámara.
+    const capacidadFraccionEstimada = (dias: number) => (1 - Math.min(0.15, 0.000513 * dias)) * (1 - 0.03);
+    const entrada = { lote: "26050609", fecha: "2026-05-06", kg_entrada: 22100, finca: "La Torrecilla", articulo: "NAR VAL DELTA SEEDLESS", agricultor: null };
+    const procesados = [{ lote_codigo: "26050609", kg_peso_total: 20500, date: "2026-06-01" }]; // 92,76%
+    const stock = buildStockEntradas([entrada], procesados, "2026-08-04", undefined, capacidadFraccionEstimada); // 90 días
+    expect(stock.filas[0].estado).toBe("procesado");
+    expect(stock.filas[0].kg_en_camara).toBe(0);
+  });
+
+  it("buildStockEntradas: sin fraccionEsperadaPorEdad, el mismo lote de 90 días al 92,76% se queda 'parcial' (comportamiento histórico)", () => {
+    const entrada = { lote: "26050609", fecha: "2026-05-06", kg_entrada: 22100, finca: "La Torrecilla", articulo: "NAR VAL DELTA SEEDLESS", agricultor: null };
+    const procesados = [{ lote_codigo: "26050609", kg_peso_total: 20500, date: "2026-06-01" }];
+    const stock = buildStockEntradas([entrada], procesados, "2026-08-04");
+    expect(stock.filas[0].estado).toBe("parcial");
+  });
+
+  it("caso real Guadex 26050508 (91 días, 89,96%): el umbral por edad AYUDA pero no llega a cubrirlo — sigue 'parcial' y visible en la cola manual", () => {
+    // Documenta honestamente el límite del modelo (ground truth del dueño:
+    // cámara confirmada vacía) — no se fuerza el número para que "cuadre":
+    // 89,96% queda por debajo incluso del umbral relajado (~92,47% a 91
+    // días). Sigue "parcial", así que sigue en la lista para cierre MANUAL
+    // (probablementeTerminado ya lo señala con "¿terminado?"), en vez de
+    // cerrarse solo con un umbral inventado a medida de un caso.
+    const capacidadFraccionEstimada = (dias: number) => (1 - Math.min(0.15, 0.000513 * dias)) * (1 - 0.03);
+    const entrada = { lote: "26050508", fecha: "2026-05-05", kg_entrada: 22900, finca: "La Torrecilla", articulo: "NAR VAL DELTA SEEDLESS", agricultor: null };
+    const procesados = [{ lote_codigo: "26050508", kg_peso_total: 20600, date: "2026-06-01" }]; // 89,96%
+    const stock = buildStockEntradas([entrada], procesados, "2026-08-04", undefined, capacidadFraccionEstimada);
+    expect(stock.filas[0].estado).toBe("parcial");
+    expect(stock.filas[0].probablementeTerminado).toBe(true);
+  });
+});
+
 describe("esCandidatoCierreAutomatico — selección del cierre automático persistido (refuerzo 2026-08-03)", () => {
   it("DIAS_SIN_ACTIVIDAD_AUTOCIERRE es 2 (mucho más corto que el de la cola manual, ver cabecera del archivo)", () => {
     expect(DIAS_SIN_ACTIVIDAD_AUTOCIERRE).toBe(2);
@@ -609,6 +677,62 @@ describe("esCandidatoCierreAutomatico — selección del cierre automático pers
   it("no candidato si NO está en estado 'procesado' (pendiente o parcial)", () => {
     const pendiente = buildStockEntradas([entradaBase], [], "2026-07-20").filas[0];
     expect(esCandidatoCierreAutomatico(pendiente, "2026-07-20")).toBe(false);
+  });
+});
+
+describe("procesadoEnCompuesto / esCandidatoCierreCompuesto — huérfanos de pasada compuesta (refuerzo 04-08-2026, evidencia verificada en BD antes de codificar)", () => {
+  const activo = { lote: "26080101", fecha: "2026-08-01", kg_entrada: 10000, finca: "DEHESILLA", articulo: "NAVEL", agricultor: "X" };
+
+  it("0 kg conciliados propios + evidencia de compuesta -> estado forzado a 'procesado', kg_en_camara 0 y el campo relleno", () => {
+    const huerfanos = new Map([["26080101", { primeros: ["26080001"], ultimaFecha: "2026-08-05" }]]);
+    const stock = buildStockEntradas([activo], [], "2026-08-06", huerfanos);
+    const fila = stock.filas[0];
+    expect(fila.estado).toBe("procesado");
+    expect(fila.kg_en_camara).toBe(0);
+    expect(fila.procesadoEnCompuesto).toEqual({ primeros: ["26080001"], ultimaFecha: "2026-08-05" });
+    // Y sale del "en cámara" agregado, como pide el dueño.
+    expect(stock.kgEnCamara).toBe(0);
+  });
+
+  it("ALGO de kg conciliado propio (aunque no llegue al umbral) -> se queda 'parcial', NO se cierra ni se marca (encargo explícito del dueño)", () => {
+    const huerfanos = new Map([["26080101", { primeros: ["26080001"], ultimaFecha: "2026-08-05" }]]);
+    const procesados = [{ lote_codigo: "26080101", kg_peso_total: 500, date: "2026-08-03" }]; // 5%: sigue con algo
+    const stock = buildStockEntradas([activo], procesados, "2026-08-06", huerfanos);
+    const fila = stock.filas[0];
+    expect(fila.estado).toBe("parcial");
+    expect(fila.procesadoEnCompuesto).toBeNull();
+    expect(fila.kg_en_camara).toBe(9500);
+  });
+
+  it("sin evidencia de compuesta (no está en el mapa) -> se queda 'pendiente' de siempre, sin tocar", () => {
+    const stock = buildStockEntradas([activo], [], "2026-08-06", new Map());
+    expect(stock.filas[0].estado).toBe("pendiente");
+    expect(stock.filas[0].procesadoEnCompuesto).toBeNull();
+  });
+
+  it("lote YA cerrado a mano -> el mapa de huérfanos se ignora (cerrado_at manda, no se pisa)", () => {
+    const cerrado = { ...activo, cerrado_at: "2026-08-02T00:00:00Z" };
+    const huerfanos = new Map([["26080101", { primeros: ["26080001"], ultimaFecha: "2026-08-05" }]]);
+    const stock = buildStockEntradas([cerrado], [], "2026-08-06", huerfanos);
+    expect(stock.filas[0].procesadoEnCompuesto).toBeNull();
+  });
+
+  it("esCandidatoCierreCompuesto: true con ≥2 días desde la ÚLTIMA pasada compuesta que lo menciona", () => {
+    const filaListo = { cerrado_at: null, procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: "2026-08-01" } };
+    expect(esCandidatoCierreCompuesto(filaListo, "2026-08-03")).toBe(true); // exactamente 2 días
+    expect(esCandidatoCierreCompuesto(filaListo, "2026-08-02")).toBe(false); // 1 día: se espera a que se asiente
+  });
+
+  it("esCandidatoCierreCompuesto: false sin evidencia, ya cerrado, o evidencia sin fecha (nunca se demuestra el margen a ciegas)", () => {
+    expect(esCandidatoCierreCompuesto({ cerrado_at: null, procesadoEnCompuesto: null }, "2026-08-10")).toBe(false);
+    expect(esCandidatoCierreCompuesto(
+      { cerrado_at: "2026-08-01T00:00:00Z", procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: "2026-07-01" } },
+      "2026-08-10",
+    )).toBe(false);
+    expect(esCandidatoCierreCompuesto(
+      { cerrado_at: null, procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: null } },
+      "2026-08-10",
+    )).toBe(false);
   });
 });
 
