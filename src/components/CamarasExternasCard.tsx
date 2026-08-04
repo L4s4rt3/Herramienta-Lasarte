@@ -12,27 +12,49 @@
 import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
-import { Loader2, Snowflake, Upload } from "lucide-react";
+import { ChevronDown, Loader2, Lock, Snowflake, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthProvider";
 import { useCamarasExternas } from "@/hooks/useCamarasExternas";
+import type { EntradaBasculaRow } from "@/hooks/useEntradasBascula";
 import { agregarCamaraExterna, kgEnCamaraDeEstado, parseRegistroCamaraExternaRows, type SenalesRecepcion } from "@/lib/camarasExternas";
+import { conciliadosCamaraVacia, resumenConciliacionCamaraVacia } from "@/lib/conciliarCamaraVacia";
+import type { CierreModo } from "@/lib/entradasBascula";
 import { errorMessage } from "@/lib/errorMessage";
 import { formatDate, formatKgCompact as formatKg, today } from "@/lib/format";
+import { ConciliarCamaraVaciaDialog } from "@/components/ConciliarCamaraVaciaDialog";
+
+interface CerrarLotesEnBloqueMutation {
+  mutateAsync: (variables: {
+    items: Array<{ id: string; cierreModo: CierreModo }>;
+    onProgress?: (hecho: number, total: number) => void;
+  }) => Promise<{ cerrados: number }>;
+  isPending: boolean;
+}
 
 interface Props {
   senales: SenalesRecepcion;
+  /** Entradas de báscula (stock activo) y su mutación de cierre en bloque — solo para la conciliación "cámara vacía" (solo admin). */
+  entradas: EntradaBasculaRow[];
+  cerrarLotesEnBloque: CerrarLotesEnBloqueMutation;
 }
 
-export function CamarasExternasCard({ senales }: Props) {
-  const { camiones, isLoading, importar } = useCamarasExternas();
+export function CamarasExternasCard({ senales, entradas, cerrarLotesEnBloque }: Props) {
+  const { role } = useAuth();
+  const isAdmin = role === "admin";
+  const { camiones, isLoading, importar, marcarConciliados } = useCamarasExternas();
   const inputRef = useRef<HTMLInputElement>(null);
   const [importando, setImportando] = useState(false);
+  const [conciliarProcedencia, setConciliarProcedencia] = useState<string | null>(null);
 
   const agregado = useMemo(() => agregarCamaraExterna(camiones, senales, today()), [camiones, senales]);
+  const conciliados = useMemo(() => conciliadosCamaraVacia(camiones), [camiones]);
+  const resumenConciliados = useMemo(() => resumenConciliacionCamaraVacia(camiones), [camiones]);
 
   const handleImportar = async (file: File | null) => {
     if (!file) return;
@@ -103,8 +125,19 @@ export function CamarasExternasCard({ senales }: Props) {
                 {formatKg(agregado.kgEnCamara)} en cámara externa · {agregado.enCamara.length} camión(es)
               </span>
               {agregado.porProcedencia.map((p) => (
-                <span key={p.procedencia} className="tabular-nums text-muted-foreground">
+                <span key={p.procedencia} className="inline-flex items-center gap-1.5 tabular-nums text-muted-foreground">
                   {p.procedencia}: {formatKg(p.kg)} ({p.camiones})
+                  {isAdmin && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-5 gap-1 px-1.5 text-[10px] text-info hover:bg-info/10 hover:text-info"
+                      onClick={() => setConciliarProcedencia(p.procedencia)}
+                      title={`Declarar la cámara de ${p.procedencia} vacía: concilia los camiones que la app sigue mostrando "en cámara" aunque físicamente ya no haya nada`}
+                    >
+                      <Lock className="h-3 w-3" /> {p.procedencia} — declarar vacía
+                    </Button>
+                  )}
                 </span>
               ))}
               {agregado.kgEnCamara > 0 && (
@@ -194,9 +227,71 @@ export function CamarasExternasCard({ senales }: Props) {
                 </Table>
               </div>
             )}
+
+            {conciliados.length > 0 && (
+              <Collapsible>
+                <CollapsibleTrigger className="group flex w-full items-center justify-between gap-2 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 text-left text-xs transition-colors hover:bg-[var(--glass-bg-strong)]">
+                  <span className="flex items-center gap-2 font-medium text-foreground">
+                    Conciliados sin registro
+                    <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-semibold tabular-nums">{conciliados.length}</Badge>
+                    <span className="font-normal text-muted-foreground">
+                      ({resumenConciliados.map((r) => `${r.procedencia}: ${formatKg(r.kg)}`).join(" · ")})
+                    </span>
+                  </span>
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-1.5 overflow-hidden rounded-lg border border-[var(--glass-border)]">
+                  <p className="border-b border-[var(--glass-border)] bg-[var(--glass-bg)] p-2.5 text-[11px] text-muted-foreground">
+                    Camiones declarados fuera de cámara sin rastro de procesado con su código: su hueco no cuenta como
+                    stock ni como merma (cierre "sin análisis de pérdida").
+                  </p>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Cámara</TableHead>
+                        <TableHead>S/Ref</TableHead>
+                        <TableHead>Lote</TableHead>
+                        <TableHead>Proveedor</TableHead>
+                        <TableHead className="text-right">Kg</TableHead>
+                        <TableHead>Nota</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {conciliados.map((c) => (
+                        <TableRow key={`${c.procedencia}::${c.s_ref}`}>
+                          <TableCell>
+                            <Badge variant="outline" className="border-info/40 bg-info/10 text-[10px] text-info">{c.procedencia}</Badge>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-muted-foreground">{c.s_ref}</TableCell>
+                          <TableCell className="font-medium tabular-nums">{c.lote ?? "—"}</TableCell>
+                          <TableCell className="max-w-[140px] truncate">{c.proveedor ?? "—"}</TableCell>
+                          <TableCell className="text-right tabular-nums font-medium">{formatKg(c.kg)}</TableCell>
+                          <TableCell className="max-w-[280px] truncate text-muted-foreground" title={c.nota_entrada ?? undefined}>
+                            {c.nota_entrada ?? "—"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
           </>
         )}
       </CardContent>
+
+      {isAdmin && conciliarProcedencia && (
+        <ConciliarCamaraVaciaDialog
+          open={conciliarProcedencia != null}
+          onOpenChange={(next) => { if (!next) setConciliarProcedencia(null); }}
+          procedencia={conciliarProcedencia}
+          camiones={camiones}
+          senales={senales}
+          entradas={entradas}
+          cerrarLotesEnBloque={cerrarLotesEnBloque}
+          marcarConciliados={marcarConciliados}
+        />
+      )}
     </Card>
   );
 }

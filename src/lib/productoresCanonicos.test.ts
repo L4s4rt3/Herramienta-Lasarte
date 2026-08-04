@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  debeCrearProductorAutomaticamente,
+  esAgricultorMovimientoInterno,
   esEntradaCampoCit,
   esEntradaPrecalibrado,
   esErrorTablaOColumnaInexistente,
@@ -8,6 +10,7 @@ import {
   normalizeProductorName,
   productorNoCoincide,
   resolveProductorGroupKey,
+  simularAutoAltaProductores,
 } from "./productoresCanonicos";
 
 describe("normalizeProductorName", () => {
@@ -226,6 +229,135 @@ describe("esEntradaCampoCit", () => {
     expect(esEntradaCampoCit({ articulo: null })).toBe(false);
     expect(esEntradaCampoCit({ articulo: undefined })).toBe(false);
     expect(esEntradaCampoCit({ articulo: "" })).toBe(false);
+  });
+});
+
+// ─── Movimientos internos de confección/sobrante (2026-08-03) ──────────────
+
+describe("esAgricultorMovimientoInterno", () => {
+  it("casa los 8 textos reales verificados en BD (julio 2026)", () => {
+    expect(esAgricultorMovimientoInterno("Confección.. 7")).toBe(true);
+    expect(esAgricultorMovimientoInterno("Confección.. 3")).toBe(true);
+    expect(esAgricultorMovimientoInterno("Confección.. 4")).toBe(true);
+    expect(esAgricultorMovimientoInterno("Confección.. 1")).toBe(true);
+    expect(esAgricultorMovimientoInterno("Confección.. 2")).toBe(true);
+    expect(esAgricultorMovimientoInterno("Confección.. 6")).toBe(true);
+    expect(esAgricultorMovimientoInterno("Sobrante.... 12")).toBe(true);
+    expect(esAgricultorMovimientoInterno("Sobrante.... 5")).toBe(true);
+  });
+
+  it("tolerante a variaciones de mayúsculas, puntos e índice", () => {
+    expect(esAgricultorMovimientoInterno("confeccion..7")).toBe(true);
+    expect(esAgricultorMovimientoInterno("CONFECCIÓN. 99")).toBe(true);
+    expect(esAgricultorMovimientoInterno("  Sobrante... 1  ")).toBe(true);
+    expect(esAgricultorMovimientoInterno("sobrante.123")).toBe(true);
+  });
+
+  it("NO casa productores reales", () => {
+    expect(esAgricultorMovimientoInterno("LASARTE EXPORT S.L. Invermarmelo-FRUBEZAR")).toBe(false);
+    expect(esAgricultorMovimientoInterno("Berrynest SAT")).toBe(false);
+    expect(esAgricultorMovimientoInterno("PRECALIBRADO")).toBe(false);
+    expect(esAgricultorMovimientoInterno("LASARTE ALMACEN PRECALIBRADO")).toBe(false);
+  });
+
+  it("NO casa textos que solo mencionan la palabra de pasada (sin anclar, sería falso positivo)", () => {
+    expect(esAgricultorMovimientoInterno("Cooperativa Confección Rural 7")).toBe(false);
+    expect(esAgricultorMovimientoInterno("Sobrante S.L.")).toBe(false);
+    expect(esAgricultorMovimientoInterno("Confección..")).toBe(false);
+    expect(esAgricultorMovimientoInterno("7")).toBe(false);
+  });
+
+  it("null/undefined/vacío -> false", () => {
+    expect(esAgricultorMovimientoInterno(null)).toBe(false);
+    expect(esAgricultorMovimientoInterno(undefined)).toBe(false);
+    expect(esAgricultorMovimientoInterno("")).toBe(false);
+    expect(esAgricultorMovimientoInterno("   ")).toBe(false);
+  });
+});
+
+// ─── Enlace garantizado: auto-creación de productor canónico (2026-08-03) ──
+
+describe("debeCrearProductorAutomaticamente", () => {
+  it("true para un agricultor real nuevo sin id directo ni alias", () => {
+    expect(debeCrearProductorAutomaticamente({
+      agricultor: "Berrynest SAT",
+      aliasPorNombreNormalizado: new Map(),
+    })).toBe(true);
+  });
+
+  it("false si la fila ya trae productor_id directo", () => {
+    expect(debeCrearProductorAutomaticamente({
+      agricultor: "Berrynest SAT",
+      productorIdDirecto: "id-existente",
+      aliasPorNombreNormalizado: new Map(),
+    })).toBe(false);
+  });
+
+  it("false si ya hay un alias para ese nombre normalizado (no duplica)", () => {
+    const alias = new Map([[normalizeProductorName("Berrynest SAT"), "id-1"]]);
+    expect(debeCrearProductorAutomaticamente({ agricultor: "Berrynest SAT", aliasPorNombreNormalizado: alias })).toBe(false);
+    expect(debeCrearProductorAutomaticamente({ agricultor: "  BERRYNEST   sat  ", aliasPorNombreNormalizado: alias })).toBe(false);
+  });
+
+  it("false para el circuito de precalibrado y para movimientos internos", () => {
+    const sinAlias = new Map<string, string>();
+    expect(debeCrearProductorAutomaticamente({ agricultor: "LASARTE ALMACEN PRECALIBRADO", aliasPorNombreNormalizado: sinAlias })).toBe(false);
+    expect(debeCrearProductorAutomaticamente({ agricultor: "Confección.. 7", aliasPorNombreNormalizado: sinAlias })).toBe(false);
+    expect(debeCrearProductorAutomaticamente({ agricultor: "Sobrante.... 12", aliasPorNombreNormalizado: sinAlias })).toBe(false);
+  });
+
+  it("false con agricultor vacío/null/undefined", () => {
+    const sinAlias = new Map<string, string>();
+    expect(debeCrearProductorAutomaticamente({ agricultor: null, aliasPorNombreNormalizado: sinAlias })).toBe(false);
+    expect(debeCrearProductorAutomaticamente({ agricultor: undefined, aliasPorNombreNormalizado: sinAlias })).toBe(false);
+    expect(debeCrearProductorAutomaticamente({ agricultor: "   ", aliasPorNombreNormalizado: sinAlias })).toBe(false);
+  });
+});
+
+describe("simularAutoAltaProductores", () => {
+  it("crea el productor UNA sola vez para un nombre nuevo repetido en variantes", () => {
+    const resultado = simularAutoAltaProductores([
+      { agricultor: "Berrynest SAT" },
+      { agricultor: "  berrynest   sat  " },
+      { agricultor: "BERRYNEST SAT" },
+    ]);
+    expect(resultado[0].creado).toBe(true);
+    expect(resultado[1].creado).toBe(false);
+    expect(resultado[2].creado).toBe(false);
+    // Las 3 filas resuelven al MISMO productor (idempotente: no duplica).
+    expect(resultado[0].productorId).not.toBe("");
+    expect(resultado[1].productorId).toBe(resultado[0].productorId);
+    expect(resultado[2].productorId).toBe(resultado[0].productorId);
+  });
+
+  it("productores distintos obtienen ids distintos", () => {
+    const resultado = simularAutoAltaProductores([
+      { agricultor: "Berrynest SAT" },
+      { agricultor: "LASARTE EXPORT S.L. Invermarmelo-FRUBEZAR" },
+    ]);
+    expect(resultado[0].productorId).not.toBe(resultado[1].productorId);
+    expect(resultado[0].creado).toBe(true);
+    expect(resultado[1].creado).toBe(true);
+  });
+
+  it("los movimientos internos y el precalibrado nunca se auto-crean", () => {
+    const resultado = simularAutoAltaProductores([
+      { agricultor: "Confección.. 7" },
+      { agricultor: "Sobrante.... 12" },
+      { agricultor: "LASARTE ALMACEN PRECALIBRADO" },
+    ]);
+    for (const r of resultado) {
+      expect(r.creado).toBe(false);
+      expect(r.productorId).toBe("");
+    }
+  });
+
+  it("nombres vacíos/null no crean nada", () => {
+    const resultado = simularAutoAltaProductores([{ agricultor: null }, { agricultor: "" }, { agricultor: "   " }]);
+    for (const r of resultado) {
+      expect(r.creado).toBe(false);
+      expect(r.productorId).toBe("");
+    }
   });
 });
 

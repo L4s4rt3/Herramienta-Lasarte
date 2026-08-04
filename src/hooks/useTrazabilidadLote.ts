@@ -36,6 +36,7 @@ import {
   type VolcadoDelDiaInput,
 } from "@/lib/origenConfeccion";
 import {
+  esAgricultorMovimientoInterno,
   esEntradaCampoCit,
   esEntradaPrecalibrado,
   esErrorTablaOColumnaInexistente,
@@ -198,6 +199,15 @@ export interface TrazabilidadLote {
    * (aunque su coste de compra sí cuenta en Económico → Fruta, ver useCosteFruta).
    */
   entradaEsCampoCit: boolean;
+  /**
+   * true si `entrada` es un movimiento interno de confección/sobrante
+   * (esAgricultorMovimientoInterno, ver la nota de evidencia en
+   * src/lib/productoresCanonicos.ts): fruta ya contada que se re-registra en
+   * báscula, no una entrada de campo. Mismo tratamiento que
+   * entradaEsPrecalibrado: la ficha lo marca con un badge junto a la
+   * cabecera para que no se confunda con un lote de un productor real.
+   */
+  entradaEsMovimientoInterno: boolean;
 }
 
 const LOTES_DIA_COLUMNAS_BASE = "part_id, lote_codigo, kg_peso_total, toneladas_hora, duracion_min, hora_inicio, producto, productor, kg_industria, kg_precalibrado_z1, kg_precalibrado_z2, notas";
@@ -487,6 +497,7 @@ export function useTrazabilidadLote(loteInput: string | null) {
         entrada,
         entradaEsPrecalibrado: entrada ? esEntradaPrecalibrado(entrada) : false,
         entradaEsCampoCit: entrada ? esEntradaCampoCit(entrada) : false,
+        entradaEsMovimientoInterno: entrada ? esAgricultorMovimientoInterno(entrada.agricultor) : false,
         procesado,
         // El precalibrado SÍ cuenta (regla revisada 2026-07-16): las pasadas
         // de precalibrado se VEN en la lista (con etiqueta informativa) y

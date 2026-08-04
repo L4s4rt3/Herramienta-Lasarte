@@ -27,14 +27,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
-import { esErrorTablaOColumnaInexistente, normalizeProductorName } from "@/lib/productoresCanonicos";
+import { esAgricultorMovimientoInterno, esErrorTablaOColumnaInexistente, normalizeProductorName } from "@/lib/productoresCanonicos";
 import type { Tables } from "@/integrations/supabase/types";
 
 // Cast local: productores_alias y las columnas productor_id aun no estan en
 // el Database generado. Ver comentario de cabecera para el plan de retirada.
 const SUPA = supabase as unknown as SupabaseClient<any>;
 
-export type ProductorCatalogoRow = Tables<"calidad_productores">;
+// creado_automaticamente aún no está en los tipos generados de Supabase
+// (migración 20260803100000_productores_autocreacion.sql, pendiente de
+// aplicar): mismo patrón de cast puntual que productor_id en el resto del
+// módulo. true si el trigger de entradas_bascula creó esta ficha solo (sin
+// alias que resolviera) al no encontrar coincidencia — la cola de revisión la
+// destaca para poder fusionarla si resulta ser variante de otro productor.
+export type ProductorCatalogoRow = Tables<"calidad_productores"> & { creado_automaticamente?: boolean | null };
 
 export interface ProductorAliasRow {
   id: string;
@@ -131,7 +137,11 @@ export function useProductoresCatalogo() {
           const filas = await fetchFilasSinVincular(tabla, columna, idColumna);
           const nombres = filas
             .map((f) => f[columna])
-            .filter((v): v is string => typeof v === "string" && v.trim() !== "");
+            .filter((v): v is string => typeof v === "string" && v.trim() !== "")
+            // Movimientos internos de confección/sobrante (2026-08-03): no son
+            // productores reales, no deben aparecer en la cola de revisión
+            // (ver esAgricultorMovimientoInterno en productoresCanonicos.ts).
+            .filter((v) => !esAgricultorMovimientoInterno(v));
           return { fuente, nombres };
         }),
       );
@@ -157,6 +167,19 @@ export function useProductoresCatalogo() {
     for (const p of catalogoQuery.data ?? []) map.set(p.id, p.nombre);
     return map;
   }, [catalogoQuery.data]);
+
+  /**
+   * Productores auto-creados por el trigger de entradas_bascula (enlace
+   * garantizado, 2026-08-03: ver migración 20260803100000_productores_autocreacion.sql)
+   * sin intervención manual — pendientes de que un admin los revise y, si
+   * resultan ser variante de un productor ya existente, los fusione con
+   * "Fusionar duplicados". Antes de aplicar esa migración, `creado_automaticamente`
+   * no existe en ninguna fila: la lista queda vacía sin más (no rompe nada).
+   */
+  const productoresAutoCreados = useMemo(
+    () => (catalogoQuery.data ?? []).filter((p) => p.creado_automaticamente === true),
+    [catalogoQuery.data],
+  );
 
   const aliasPorNombreNormalizado = useMemo(() => {
     const map = new Map<string, string>();
@@ -237,6 +260,8 @@ export function useProductoresCatalogo() {
     productores: catalogoQuery.data ?? [],
     nombrePorProductorId,
     aliasPorNombreNormalizado,
+    /** Fichas creadas solas por el trigger de báscula, pendientes de revisión/fusión (ver comentario arriba). */
+    productoresAutoCreados,
     nombresPendientes: pendientesQuery.data ?? [],
     /** true si productores_alias todavía no existe (migración pendiente de aplicar). */
     migracionPendiente: aliasQuery.data ? !aliasQuery.data.disponible : false,

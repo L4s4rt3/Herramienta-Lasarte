@@ -6,7 +6,12 @@ import type { CalidadEstado, CalidadInformeEstado } from "@/lib/calidad";
 import { detectarTipoClasificacion } from "@/lib/destinoClasificacion";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { normalizarTexto } from "@/lib/format";
-import { esErrorTablaOColumnaInexistente, esProductorPrecalibrado, resolveProductorGroupKey } from "@/lib/productoresCanonicos";
+import {
+  esAgricultorMovimientoInterno,
+  esErrorTablaOColumnaInexistente,
+  esProductorPrecalibrado,
+  resolveProductorGroupKey,
+} from "@/lib/productoresCanonicos";
 import { esProductoMdna } from "@/hooks/useMercadona";
 
 // Cast local: productores_alias y lotes_dia.productor_id aun no estan en el
@@ -491,7 +496,12 @@ export function useProductores(desde: string, hasta: string) {
       // productores reales. Fuera de rankings, dossiers y medias de planta.
       // OJO: solo se excluye de la agregación por predicado; si el backfill
       // del catálogo creó "PRECALIBRADO" en calidad_productores, en BD se queda.
-      const lotesRawTyped = ((lotesRaw ?? []) as LoteDiaRow[]).filter((r) => !esProductorPrecalibrado(r.productor));
+      // Mismo tratamiento (2026-08-03) para los movimientos internos de
+      // confección/sobrante (esAgricultorMovimientoInterno en
+      // productoresCanonicos.ts): tampoco son un productor real.
+      const lotesRawTyped = ((lotesRaw ?? []) as LoteDiaRow[]).filter(
+        (r) => !esProductorPrecalibrado(r.productor) && !esAgricultorMovimientoInterno(r.productor),
+      );
       const lotes: LoteDossier[] = lotesRawTyped.map((r) => ({
         fecha: r.partes_diarios?.date ?? "—",
         lote_codigo: r.lote_codigo ?? "—",

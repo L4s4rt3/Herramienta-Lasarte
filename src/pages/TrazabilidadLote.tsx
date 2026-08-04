@@ -634,7 +634,10 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
     );
   }
 
-  const { entrada, procesado, kgProcesado, clasificacion, calidad, expedicion, origenConfeccion, entradaEsPrecalibrado, entradaEsCampoCit } = data;
+  const {
+    entrada, procesado, kgProcesado, clasificacion, calidad, expedicion, origenConfeccion,
+    entradaEsPrecalibrado, entradaEsCampoCit, entradaEsMovimientoInterno,
+  } = data;
   const kgEntrada = entrada ? Number(entrada.kg_entrada) || 0 : 0;
   const kgAjuste = entrada ? Number(entrada.kg_ajuste_stock) || 0 : 0;
   // Conciliación de kg (ver src/lib/conciliacionKg.ts): el procesado
@@ -759,6 +762,15 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
               title="Fruta comprada cuyo artículo lleva CAMPO/CIT: se deriva a Cítrica sin pasar por el calibrador de la central. No cuenta como stock ni como merma/forfait (no es una pérdida), pero su coste de compra sí cuenta en Económico → Fruta."
             >
               Derivado a Cítrica · no procesa en central
+            </Badge>
+          )}
+          {entradaEsMovimientoInterno && (
+            <Badge
+              variant="outline"
+              className="border-warning/40 bg-warning/10 px-1.5 py-0 text-[11px] text-warning"
+              title="Movimiento interno de confección/sobrante: fruta ya contada que se re-registra en báscula, no una entrada de campo ni un productor real. Fuera de rankings, dossiers y coste de fruta por productor."
+            >
+              Movimiento interno
             </Badge>
           )}
           {entrada?.articulo && <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{entrada.articulo}</Badge>}

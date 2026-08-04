@@ -40,6 +40,7 @@ import { useMermaLotes } from "@/hooks/useMermaLote";
 import { useProductoresCatalogo } from "@/hooks/useProductoresCatalogo";
 import {
   buildEntradasDesdeStock,
+  DIAS_SIN_ACTIVIDAD_AUTOCIERRE,
   DIAS_SIN_ACTIVIDAD_TERMINADO,
   normalizarLoteCodigo,
   parseEntradasBasculaRows,
@@ -56,6 +57,8 @@ import { exportarMermasProductores, type FilaMermaExport } from "@/lib/exportMer
 import { casarMermaCamara, parseMermaCamaraRows } from "@/lib/mermaCamaraImport";
 import type { SenalesRecepcion } from "@/lib/camarasExternas";
 import { esEntradaPrecalibrado, resolveProductorGroupKey } from "@/lib/productoresCanonicos";
+import { MOTIVO_BADGE, MOTIVO_LABEL } from "@/components/ConciliacionKgPanel";
+import type { MovimientoKg } from "@/lib/conciliacionKg";
 import { cn } from "@/lib/utils";
 
 const ESTADO_BADGE: Record<StockEstado, { label: string; className: string }> = {
@@ -619,6 +622,7 @@ interface ImportPreview {
 export default function EntradasBascula() {
   const {
     entradas, entradasPrecalibrado, stock, procesados, conciliacionKg, movimientosPrecalibrado, derivadosCampoCit, isLoading, error,
+    candidatosCierreAutomatico, lotesEnPasadaCompuesta,
     importar, importarStock, eliminar, cerrarLote, reabrirLote, cerrarLotesEnBloque, reabrirLotesEnBloque,
   } = useEntradasBascula();
   const { role } = useAuth();
@@ -667,6 +671,60 @@ export default function EntradasBascula() {
     return { salidaPorLote, lotesProcesados };
   }, [entradas, procesados]);
   const [conciliarDialogOpen, setConciliarDialogOpen] = useState(false);
+
+  // ─── Cesiones de kg por lote (refuerzo 2026-08-03): "restante nunca
+  // negativo, con el exceso expuesto" ─────────────────────────────────────
+  // Un lote cuyas pasadas crudas superan lo que le cabe cede el exceso a
+  // otro lote (conciliarKgProcesados, fase de derrame) — su propio
+  // kg_en_camara ya sale en 0 (Math.max(0, …) de buildStockEntradas), pero
+  // sin esto la fila no explica POR QUÉ: parece simplemente "procesado del
+  // todo" cuando en realidad prestó kg a un vecino. Se agrupa por motivo
+  // (misma taxonomía que la pestaña "Conciliación kg", MOTIVO_LABEL) para
+  // mostrar un badge compacto en la fila de Stock sin duplicar esa pantalla.
+  const cesionesPorLote = useMemo(() => {
+    const map = new Map<string, Map<MovimientoKg["motivo"], number>>();
+    for (const m of conciliacionKg.movimientos) {
+      const porMotivo = map.get(m.de) ?? new Map<MovimientoKg["motivo"], number>();
+      porMotivo.set(m.motivo, (porMotivo.get(m.motivo) ?? 0) + m.kg);
+      map.set(m.de, porMotivo);
+    }
+    return map;
+  }, [conciliacionKg.movimientos]);
+
+  // ─── Cierre automático PERSISTIDO de lotes COMPLETOS (refuerzo 2026-08-03) ──
+  // Encargo del dueño: "cuando pasa todo, se debe cerrar el lote... refuerza
+  // esa parte". El cálculo derivado (buildStockEntradas) YA trata un lote
+  // ≥97% procesado como "procesado" en stock/mermas/KPIs, pero la fila de
+  // entradas_bascula se queda con cerrado_at=null para siempre si nadie pulsa
+  // "cerrar" a mano (backlog real de 819 lotes/17.364 t detectado el
+  // 03-08-2026). En vez de esperar al clic, la pestaña de Stock cierra sola
+  // los candidatos (ver esCandidatoCierreAutomatico/candidatosCierreAutomatico)
+  // al cargar, reutilizando la MISMA mutación de cierre en bloque que el
+  // botón manual (modo "con_analisis" fijo: a ese % el hueco siempre es
+  // plausible como merma real, ver criterioCierreModo). Solo admin (mismo
+  // criterio que el resto de acciones de cierre en bloque de esta página) y
+  // como mucho una vez por carga de página — el ref evita reintentar en cada
+  // re-render mientras la mutación está en vuelo o si ya se disparó.
+  const autoCierreDisparado = useRef(false);
+  useEffect(() => {
+    if (!isAdmin || isLoading || autoCierreDisparado.current) return;
+    if (candidatosCierreAutomatico.length === 0) return;
+    autoCierreDisparado.current = true;
+    cerrarLotesEnBloque.mutate(
+      { items: candidatosCierreAutomatico.map((c) => ({ id: c.id, cierreModo: "con_analisis" as const })) },
+      {
+        onSuccess: (r) => {
+          if (r.cerrados > 0) {
+            toast({
+              title: "La herramienta ha cerrado lotes completos",
+              description: `${r.cerrados} lote${r.cerrados === 1 ? "" : "s"} llegaron al 97% procesado (o el calibrador superó la entrada) sin actividad en ${DIAS_SIN_ACTIVIDAD_AUTOCIERRE} días o más: se han cerrado solos y dejan de contar como pendientes.`,
+            });
+          }
+        },
+        onError: (e) => toast({ title: "No se pudo cerrar automáticamente", description: errorMessage(e), variant: "destructive" }),
+      },
+    );
+  }, [isAdmin, isLoading, candidatosCierreAutomatico, cerrarLotesEnBloque]);
 
   // ─── Conectividad: llegada desde Trazabilidad con ?lote= ────────────────
   // Prefiltra el buscador, se asegura de que la fila sea visible (aunque esté
@@ -1208,8 +1266,12 @@ export default function EntradasBascula() {
             </Card>
           )}
 
-          {/* ─── Cámaras externas (Guadex/Zamexfruit): dónde está la fruta ── */}
-          <CamarasExternasCard senales={senalesCamaraExterna} />
+          {/* ─── Cámaras externas (Guadex/Zamexfruit): dónde está la fruta ──
+              entradas + cerrarLotesEnBloque: mínimo prop-drilling para que la
+              propia card pueda ofrecer "Conciliar cámara vacía" (solo admin,
+              ver ConciliarCamaraVaciaDialog.tsx) sin duplicar el fetch de
+              entradas_bascula ni la mutación de cierre en bloque. ── */}
+          <CamarasExternasCard senales={senalesCamaraExterna} entradas={entradas} cerrarLotesEnBloque={cerrarLotesEnBloque} />
 
           {/* ─── Stock de precalibrado: siempre visible (regla del dueño 2026-07-28) ── */}
           <StockPrecalibradoCard
@@ -1399,17 +1461,42 @@ export default function EntradasBascula() {
                       id: "lote",
                       label: "Lote",
                       sk: "lote",
-                      cellClassName: "whitespace-nowrap font-medium",
-                      render: (fila) => (
-                        <Link
-                          to={`/trazabilidad?lote=${encodeURIComponent(fila.lote)}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center gap-1 hover:text-primary hover:underline"
-                          title="Ver la trazabilidad completa del lote"
-                        >
-                          {fila.lote} <ArrowRight className="h-3 w-3 opacity-50" />
-                        </Link>
-                      ),
+                      cellClassName: "font-medium",
+                      render: (fila) => {
+                        const cesiones = cesionesPorLote.get(fila.lote);
+                        const compuestoCon = lotesEnPasadaCompuesta.get(fila.lote);
+                        return (
+                          <div className="flex flex-col items-start gap-1">
+                            <Link
+                              to={`/trazabilidad?lote=${encodeURIComponent(fila.lote)}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 whitespace-nowrap hover:text-primary hover:underline"
+                              title="Ver la trazabilidad completa del lote"
+                            >
+                              {fila.lote} <ArrowRight className="h-3 w-3 opacity-50" />
+                            </Link>
+                            {cesiones && Array.from(cesiones.entries()).map(([motivo, kg]) => (
+                              <Badge
+                                key={motivo}
+                                variant="outline"
+                                className={cn("px-1.5 py-0 text-[9px] font-normal", MOTIVO_BADGE[motivo])}
+                                title={`Este lote cedió ${formatKg(kg)} a otro lote (${MOTIVO_LABEL[motivo]}): sus pasadas crudas superaban lo que le cabía y el exceso se derramó — ver la pestaña "Conciliación kg".`}
+                              >
+                                cedió {formatKg(kg)}
+                              </Badge>
+                            ))}
+                            {compuestoCon && fila.estado !== "procesado" && (
+                              <Badge
+                                variant="outline"
+                                className="border-info/40 bg-info/10 px-1.5 py-0 text-[9px] font-normal text-info"
+                                title={`Este lote aparece nombrado junto a ${compuestoCon.join(", ")} en una pasada COMPUESTA del calibrador: es posible que su fruta ya se procesara bajo ese código y el reparto no haya podido atribuírsela con fiabilidad (nunca se reparte kg por LIKE/subcadena). Evidencia para cerrarlo a mano si procede.`}
+                              >
+                                compuesto con {compuestoCon[0]}{compuestoCon.length > 1 ? ` +${compuestoCon.length - 1}` : ""}
+                              </Badge>
+                            )}
+                          </div>
+                        );
+                      },
                     },
                     ...columnasComunesLotes<StockSortKey>("gestion"),
                     {

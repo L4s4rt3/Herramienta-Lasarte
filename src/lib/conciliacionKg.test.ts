@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   conciliarKgProcesados,
   contarBoxesReciclaje,
+  detectarLotesEnPasadaCompuesta,
   familiaVariedad,
   mismaFamiliaVariedad,
   type EntradaConciliacion,
+  type PasadaConciliacion,
 } from "./conciliacionKg";
 
 const entrada = (over: Partial<EntradaConciliacion> & { lote: string; kg_entrada: number }): EntradaConciliacion => ({
@@ -251,6 +253,52 @@ describe("conciliarKgProcesados — capacidad de cámara (tope de merma)", () =>
     const esperado = 20000 * (1 - 0.000513 * 70);
     expect(res.procesados[0].kg_peso_total).toBeCloseTo(esperado, 0);
     expect(res.excesosSinColocar[0].kg).toBeCloseTo(20000 - esperado, 0);
+  });
+});
+
+describe("detectarLotesEnPasadaCompuesta — evidencia de huérfanos en pasadas compuestas (refuerzo 2026-08-03)", () => {
+  it("un código NO-primero de una pasada compuesta queda asociado al primero, aunque no reciba kg en el reparto", () => {
+    const pasadas: PasadaConciliacion[] = [
+      { lote_codigo: "25111002+25111001", kg_peso_total: 29929, date: "2025-11-10" },
+    ];
+    const mapa = detectarLotesEnPasadaCompuesta(pasadas);
+    expect(mapa.get("25111001")).toEqual(["25111002"]);
+    // El primer código de la pasada NO se marca a sí mismo como huérfano.
+    expect(mapa.has("25111002")).toBe(false);
+  });
+
+  it("un código visto con varios primeros distintos acumula todos, sin duplicar y ordenados", () => {
+    const pasadas: PasadaConciliacion[] = [
+      { lote_codigo: "26010101+26010102", kg_peso_total: 5000, date: "2026-01-01" },
+      { lote_codigo: "26010103+26010102", kg_peso_total: 3000, date: "2026-01-02" },
+      { lote_codigo: "26010101+26010102", kg_peso_total: 1000, date: "2026-01-03" }, // repetido: no duplica
+    ];
+    const mapa = detectarLotesEnPasadaCompuesta(pasadas);
+    expect(mapa.get("26010102")).toEqual(["26010101", "26010103"]);
+  });
+
+  it("una pasada normal de un solo código no genera ninguna asociación", () => {
+    const pasadas: PasadaConciliacion[] = [{ lote_codigo: "26050101", kg_peso_total: 19000, date: "2026-05-03" }];
+    expect(detectarLotesEnPasadaCompuesta(pasadas).size).toBe(0);
+  });
+
+  it("una pasada con 3 códigos asocia el 2º y el 3º solo con el primero, no entre ellos", () => {
+    const pasadas: PasadaConciliacion[] = [
+      { lote_codigo: "26020101+26020102+26020103", kg_peso_total: 12000, date: "2026-02-01" },
+    ];
+    const mapa = detectarLotesEnPasadaCompuesta(pasadas);
+    expect(mapa.get("26020102")).toEqual(["26020101"]);
+    expect(mapa.get("26020103")).toEqual(["26020101"]);
+    expect(mapa.has("26020101")).toBe(false);
+  });
+
+  it("kg <= 0 o el mismo código repetido en el texto no generan asociación", () => {
+    const pasadas: PasadaConciliacion[] = [
+      { lote_codigo: "26030101+26030102", kg_peso_total: 0, date: "2026-03-01" }, // sin kg: se ignora
+      { lote_codigo: "26030103+26030103", kg_peso_total: 5000, date: "2026-03-02" }, // mismo código dos veces
+    ];
+    const mapa = detectarLotesEnPasadaCompuesta(pasadas);
+    expect(mapa.size).toBe(0);
   });
 });
 

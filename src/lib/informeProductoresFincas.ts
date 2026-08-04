@@ -14,7 +14,7 @@
  * Módulo sin Supabase ni React: testeable en frío (ver
  * informeProductoresFincas.test.ts).
  */
-import { resolveProductorGroupKey } from "@/lib/productoresCanonicos";
+import { esAgricultorMovimientoInterno, resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 
 export interface EntradaInformeInput {
   /** Fecha ISO (aaaa-mm-dd) de la entrada. */
@@ -86,6 +86,10 @@ export function buildInformeProductoresFincas(
     if (!e.fecha || e.fecha < desde || e.fecha > hasta) continue;
 
     const agricultor = (e.agricultor ?? "").trim();
+    // Movimientos internos de confección/sobrante (2026-08-03): no son
+    // productores reales, fuera de este informe (ver
+    // esAgricultorMovimientoInterno en productoresCanonicos.ts).
+    if (esAgricultorMovimientoInterno(agricultor)) continue;
     const { key, productorId } = resolveProductorGroupKey(agricultor, e.productor_id ?? null, aliasPorNombreNormalizado);
     const nombre = (productorId ? nombrePorProductorId.get(productorId) : null) ?? (agricultor || SIN_AGRICULTOR_LABEL);
 

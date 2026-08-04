@@ -44,7 +44,7 @@ import { useEntradasBascula, type EntradaBasculaRow } from "@/hooks/useEntradasB
 import { useMermaLotes } from "@/hooks/useMermaLote";
 import { useProductoresCatalogo } from "@/hooks/useProductoresCatalogo";
 import { useCalidadReferencias } from "@/hooks/useCalidadReferencias";
-import { resolveProductorGroupKey } from "@/lib/productoresCanonicos";
+import { esAgricultorMovimientoInterno, resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import { importeEntradaFruta } from "@/lib/economico";
 import { mermaLotesEnPeriodo, TASA_MERMA_NATURAL_DIA, type MermaLote } from "@/lib/mermaLote";
 import {
@@ -119,6 +119,10 @@ function buildRankingAgricultor(
 ): AgricultorRankingRow[] {
   const map = new Map<string, { label: string; kg: number; eur: number; nLotes: number }>();
   for (const entrada of entradas) {
+    // Movimientos internos de confección/sobrante (2026-08-03): no son
+    // productores reales, fuera de este ranking (ver
+    // esAgricultorMovimientoInterno en productoresCanonicos.ts).
+    if (esAgricultorMovimientoInterno(entrada.agricultor)) continue;
     const { key, productorId } = resolveProductorGroupKey(
       entrada.agricultor ?? "",
       productorIdDirectoDe(entrada),
@@ -186,7 +190,10 @@ function buildDetalleLotes(
   aliasPorNombreNormalizado: Map<string, string>,
   nombrePorProductorId: Map<string, string>,
 ): LoteDetalleRow[] {
-  return entradas.map((entrada) => {
+  // Movimientos internos de confección/sobrante (2026-08-03): no son
+  // productores reales, fuera de este detalle por agricultor (ver
+  // esAgricultorMovimientoInterno en productoresCanonicos.ts).
+  return entradas.filter((entrada) => !esAgricultorMovimientoInterno(entrada.agricultor)).map((entrada) => {
     const { productorId } = resolveProductorGroupKey(
       entrada.agricultor ?? "",
       productorIdDirectoDe(entrada),

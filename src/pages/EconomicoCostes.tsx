@@ -41,7 +41,7 @@ import {
   mermaLotesEnPeriodo,
   type ItemPerdidaProductor,
 } from "@/lib/mermaLote";
-import { resolveProductorGroupKey } from "@/lib/productoresCanonicos";
+import { esAgricultorMovimientoInterno, resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import {
   buildPeriodoRange,
   type ConsumoPeriodoTipo,
@@ -424,18 +424,23 @@ export default function EconomicoCostes() {
   );
 
   const topAgricultorEur = useMemo(() => {
-    const items: ItemPerdidaProductor[] = mermaLotesPeriodo.map((l) => {
-      const fila = entradaPorLoteFruta.get(l.lote);
-      const agricultor = fila?.agricultor ?? null;
-      // entradas_bascula.productor_id existe en BD (migración productores_canonicos)
-      // pero aún no está en los tipos generados de Supabase; mismo cast puntual
-      // que useTrazabilidadLote.ts / EntradasBascula.tsx.
-      const productorIdDirecto = (fila as { productor_id?: string | null } | undefined)?.productor_id ?? null;
-      const { key, productorId } = resolveProductorGroupKey(agricultor ?? "", productorIdDirecto, aliasPorNombreNormalizado);
-      const label = (productorId ? nombrePorProductorId.get(productorId) : null) ?? agricultor ?? "Sin agricultor";
-      const kgPerdido = Math.max(0, l.mermaNaturalKg ?? 0) + (l.podridoCalibradorKg ?? 0) + (l.podridoManualKg ?? 0);
-      return { productorKey: key, productorLabel: label, kgEntrada: l.kgEntrada, kgPerdido, eurPerdido: l.perdidaTotalEur };
-    });
+    const items: ItemPerdidaProductor[] = mermaLotesPeriodo
+      // Movimientos internos de confección/sobrante (2026-08-03): no son
+      // productores reales, fuera de este ranking (ver
+      // esAgricultorMovimientoInterno en productoresCanonicos.ts).
+      .filter((l) => !esAgricultorMovimientoInterno(entradaPorLoteFruta.get(l.lote)?.agricultor ?? null))
+      .map((l) => {
+        const fila = entradaPorLoteFruta.get(l.lote);
+        const agricultor = fila?.agricultor ?? null;
+        // entradas_bascula.productor_id existe en BD (migración productores_canonicos)
+        // pero aún no está en los tipos generados de Supabase; mismo cast puntual
+        // que useTrazabilidadLote.ts / EntradasBascula.tsx.
+        const productorIdDirecto = (fila as { productor_id?: string | null } | undefined)?.productor_id ?? null;
+        const { key, productorId } = resolveProductorGroupKey(agricultor ?? "", productorIdDirecto, aliasPorNombreNormalizado);
+        const label = (productorId ? nombrePorProductorId.get(productorId) : null) ?? agricultor ?? "Sin agricultor";
+        const kgPerdido = Math.max(0, l.mermaNaturalKg ?? 0) + (l.podridoCalibradorKg ?? 0) + (l.podridoManualKg ?? 0);
+        return { productorKey: key, productorLabel: label, kgEntrada: l.kgEntrada, kgPerdido, eurPerdido: l.perdidaTotalEur };
+      });
     return agruparPerdidaPorProductor(items)
       .filter((r) => (r.eurPerdido ?? 0) > 0)
       .sort((a, b) => (b.eurPerdido ?? 0) - (a.eurPerdido ?? 0))

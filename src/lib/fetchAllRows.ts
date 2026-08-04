@@ -107,3 +107,37 @@ export async function fetchAllRows<T>(
 
   return allRows;
 }
+
+// ─── Escritura con reintentos (insert/update/upsert) ────────────────────────
+// Mismo motivo que la paginación de arriba: un statement timeout de la BD en
+// pleno checkpoint no debe abortar una escritura entera. Vivía solo en
+// useHistoricoImport.ts (caso real 2026-08-03: 3 informes de lote insertados
+// y la mutación entera abortada por "canceling statement due to statement
+// timeout"); se mueve aquí (junto a esErrorTransitorioSupabase, que ya vivía
+// en este archivo) para que otros consumidores con el mismo riesgo —el cierre
+// automático de lotes completos en useEntradasBascula.ts, refuerzo
+// 2026-08-03: hasta 819 UPDATE de golpe en tandas— no dupliquen la lógica.
+// useHistoricoImport.ts reexporta/importa desde aquí sin cambiar su
+// comportamiento.
+
+const REINTENTOS_ESCRITURA = 3;
+const ESPERA_REINTENTO_ESCRITURA_MS = 2000;
+
+/**
+ * Ejecuta una escritura supabase (insert/update/upsert) reintentándola ante
+ * errores TRANSITORIOS (ver esErrorTransitorioSupabase más arriba). Devuelve
+ * el ÚLTIMO resultado (con su error si agotó reintentos): el caller conserva
+ * su manejo de error de siempre. PostgREST no es transaccional entre chunks,
+ * pero cada escritura individual sí es atómica, así que reintentar un chunk
+ * fallido no duplica filas.
+ */
+export async function escribirConReintentos<R extends { error: { code?: string; message?: string } | null }>(
+  hacer: () => PromiseLike<R>,
+): Promise<R> {
+  let resultado = await hacer();
+  for (let intento = 1; resultado.error && esErrorTransitorioSupabase(resultado.error) && intento < REINTENTOS_ESCRITURA; intento++) {
+    await new Promise((r) => setTimeout(r, ESPERA_REINTENTO_ESCRITURA_MS * intento));
+    resultado = await hacer();
+  }
+  return resultado;
+}

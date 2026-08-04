@@ -88,7 +88,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
-import { esErrorTransitorioSupabase, fetchAllRows } from "@/lib/fetchAllRows";
+import { escribirConReintentos, fetchAllRows } from "@/lib/fetchAllRows";
 import { esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
 import { normalizarLoteCodigo, prefijoNumericoLote } from "@/lib/loteCodigo";
 import { PARTES_QUERY_KEY } from "@/hooks/usePartes";
@@ -98,31 +98,12 @@ import type { InformeLote } from "@/lib/informeLote";
 
 const CHUNK = 200;
 
-// Reintentos de escritura: un import de 1.000+ archivos puede pillar a la BD
-// en pleno checkpoint y un insert normal (chunk de 200, sin triggers) muere
-// por "statement timeout" (57014) — caso real del 2026-08-03: 3 informes
-// insertados y la mutación entera abortada. Solo se reintenta lo transitorio
-// (timeout / red); un error de datos aborta igual que siempre.
-const REINTENTOS_ESCRITURA = 3;
-const ESPERA_REINTENTO_MS = 2000;
-
-/**
- * Ejecuta una escritura supabase reintentándola ante errores transitorios.
- * Devuelve el ÚLTIMO resultado (con su error si agotó reintentos): el caller
- * conserva su manejo de error de siempre. PostgREST no es transaccional entre
- * chunks, pero cada insert individual sí es atómico, así que reintentar un
- * chunk fallido no duplica filas.
- */
-async function escribirConReintentos<R extends { error: { code?: string; message?: string } | null }>(
-  hacer: () => PromiseLike<R>,
-): Promise<R> {
-  let resultado = await hacer();
-  for (let intento = 1; resultado.error && esErrorTransitorioSupabase(resultado.error) && intento < REINTENTOS_ESCRITURA; intento++) {
-    await new Promise((r) => setTimeout(r, ESPERA_REINTENTO_MS * intento));
-    resultado = await hacer();
-  }
-  return resultado;
-}
+// Reintentos de escritura (un import de 1.000+ archivos puede pillar a la BD
+// en pleno checkpoint y un insert normal —chunk de 200, sin triggers— muere
+// por "statement timeout", 57014): escribirConReintentos vive ahora en
+// src/lib/fetchAllRows.ts, compartida con el cierre automático de lotes de
+// useEntradasBascula.ts (mismo riesgo con tandas grandes de UPDATE). Mismo
+// comportamiento de siempre, solo cambia de sitio.
 
 const NOTA_PARTE_HISTORICO = "Histórico de campaña importado (Informe PRODUCCION del calibrador).";
 const NOTA_LOTE_HISTORICO = "Import histórico de campaña";

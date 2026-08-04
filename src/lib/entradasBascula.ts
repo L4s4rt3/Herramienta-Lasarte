@@ -48,6 +48,21 @@ export interface ParseEntradasBasculaResult {
 export const UMBRAL_PROCESADO = 0.97;
 
 /**
+ * Alias de UMBRAL_PROCESADO (mismo valor, nunca diverge) para el refuerzo de
+ * cierre/estado "COMPLETO" pedido por el dueño (03-08-2026): "cuando pasa
+ * todo, se debe cerrar el lote y contarlo como procesado". Un lote está
+ * COMPLETO cuando el calibrador ha pasado ≥97% de sus kg de entrada — el
+ * hueco típico del 3% restante lo explican la merma natural de cámara
+ * (deshidratación, ver TASA_MERMA_NATURAL_DIA en mermaLote.ts) y el podrido
+ * pre-calibrador (contenedor que no se pesa a diario), no fruta pendiente de
+ * procesar. Se expone con este segundo nombre porque esCandidatoCierreAutomatico
+ * y el resto del refuerzo hablan en términos de "COMPLETO" (concepto de
+ * negocio nuevo), mientras que UMBRAL_PROCESADO sigue siendo el nombre
+ * histórico que ya usan estadoLotePorProcesado/buildStockEntradas.
+ */
+export const UMBRAL_LOTE_COMPLETO = UMBRAL_PROCESADO;
+
+/**
  * Un resto en cámara es "relevante" (el lote sigue activo, no se pinta como
  * procesado) cuando supera el margen de tolerancia del calibrador
  * (deshidratación / destrío): el mismo criterio 1 - UMBRAL_PROCESADO que usa
@@ -685,6 +700,26 @@ export function criterioCierreModo(kgEntrada: number, kgProcesadoTotal: number):
 export const UMBRAL_PROBABLE_TERMINADO = 0.80;
 export const DIAS_SIN_ACTIVIDAD_TERMINADO = 7;
 
+// ─── Cierre automático PERSISTIDO de lotes COMPLETOS (refuerzo 2026-08-03) ──
+// Encargo textual del dueño: "Cuando se detecte un lote que pasa por el
+// calibrador, se debe restar lo que haya pasado y cuando pasa todo, se debe
+// cerrar el lote y contarlo como procesado [...] hace que el control de stock
+// y mermas confunda más." El cálculo derivado (estadoLotePorProcesado /
+// buildStockEntradas) YA trata un lote ≥UMBRAL_LOTE_COMPLETO como "procesado"
+// en stock/mermas/KPIs sin esperar a ningún cierre manual — pero la fila de
+// entradas_bascula se queda con cerrado_at=null para siempre si nadie pulsa
+// "cerrar" a mano, y eso es justo el backlog real detectado el 03-08-2026:
+// 819 lotes activos (cerrado_at null) con ≥97% ya procesado, 17.364 t.
+//
+// A diferencia de "probablemente terminado" (UMBRAL_PROBABLE_TERMINADO/
+// DIAS_SIN_ACTIVIDAD_TERMINADO, más arriba), aquí NO hay incertidumbre sobre
+// el % — el lote YA está COMPLETO por definición — así que el margen de
+// seguridad solo tiene que cubrir que la última pasada "se asiente" (un parte
+// con retraso del mismo lote al día siguiente) antes de persistir el cierre,
+// no el riesgo de clasificar mal un % todavía dudoso. Por eso el margen es
+// mucho más corto (2 días, no 7).
+export const DIAS_SIN_ACTIVIDAD_AUTOCIERRE = 2;
+
 /**
  * Guardia inversa: un lote cerrado a mano (`cerrado_at`) cuyo calibrador
  * registró una pasada DESPUÉS de la fecha de cierre. Es la señal de que el
@@ -840,6 +875,43 @@ export function buildStockEntradas(
     antiguedadMaxDias: activos.reduce((max, f) => Math.max(max, f.dias_en_camara), 0),
     lotesCerradosConActividadPosterior: filas.filter((f) => f.cerradoConActividadPosterior),
   };
+}
+
+/**
+ * Candidatos al cierre automático PERSISTIDO (refuerzo 2026-08-03, encargo
+ * del dueño: "cuando pasa todo, se debe cerrar el lote y contarlo como
+ * procesado"). Un lote es candidato cuando:
+ *   - su estado derivado ya es "procesado"/COMPLETO (≥ UMBRAL_LOTE_COMPLETO,
+ *     o calibradorSuperaEntrada — el pct ya lo cubre estadoLotePorProcesado:
+ *     kgProcesado > kgEntrada da pct > 1 ≥ umbral, así que un lote inflado
+ *     por un error de reparto también cierra, nunca se queda "colgado" solo
+ *     por eso);
+ *   - todavía NO está cerrado en BD (cerrado_at null) — si ya lo está, no hay
+ *     nada que hacer;
+ *   - tiene una última fecha de procesado CONOCIDA y lleva
+ *     ≥ DIAS_SIN_ACTIVIDAD_AUTOCIERRE días sin ninguna pasada nueva.
+ *
+ * Los lotes SIN ultima_fecha_procesado (llegaron al umbral solo por
+ * kg_ajuste_stock de conciliación con el informe de cámara, sin ninguna fila
+ * de lotes_dia) se EXCLUYEN a propósito: sin una fecha de pasada no se puede
+ * demostrar "sin actividad reciente", así que se dejan fuera del cierre
+ * automático (quedan como procesados en el cálculo derivado igualmente, solo
+ * que sin persistir cerrado_at) en vez de cerrarlos a ciegas.
+ *
+ * Función PURA: no escribe nada, solo decide. El caller (useEntradasBascula)
+ * junta el resultado con el `id` real de entradas_bascula (StockLoteRow no lo
+ * trae) y dispara la mutación de cierre existente (cerrarLotesEnBloque, modo
+ * "con_analisis" fijo: a ≥97% procesado el hueco siempre es plausible como
+ * merma/podrido real, ver criterioCierreModo).
+ */
+export function esCandidatoCierreAutomatico(
+  fila: Pick<StockLoteRow, "estado" | "cerrado_at" | "ultima_fecha_procesado">,
+  hoy: string,
+): boolean {
+  if (fila.estado !== "procesado") return false;
+  if (fila.cerrado_at) return false;
+  if (!fila.ultima_fecha_procesado) return false;
+  return diffDias(fila.ultima_fecha_procesado, hoy) >= DIAS_SIN_ACTIVIDAD_AUTOCIERRE;
 }
 
 function pad2(value: number): string {

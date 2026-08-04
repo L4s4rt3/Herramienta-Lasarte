@@ -33,7 +33,7 @@ import { useEntradasBascula } from "@/hooks/useEntradasBascula";
 import { useCalidadReferencias, type CalidadReferenciaRow } from "@/hooks/useCalidadReferencias";
 import { mermaLotesEnPeriodo, pctPerdidaTotalDeAgregado, type MermaLotesAgregado } from "@/lib/mermaLote";
 import { agregarMermaPorProductor, type ItemMermaAgrupable } from "@/lib/mermaPorProductor";
-import { resolveProductorGroupKey } from "@/lib/productoresCanonicos";
+import { esAgricultorMovimientoInterno, resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import { buildInformeProductoresFincas, type FincaInforme } from "@/lib/informeProductoresFincas";
 import { exportInformeProductoresFincasExcel, type DetalleEntradaExport } from "@/lib/exportInformeProductoresFincas";
 import type { CalidadEstado } from "@/lib/calidad";
@@ -226,16 +226,21 @@ export default function Productores() {
   const entradaPorLote = useMemo(() => new Map(entradas.map((e) => [e.lote, e])), [entradas]);
 
   const mermaAgregadoPorProductor = useMemo(() => {
-    const items: ItemMermaAgrupable[] = mermaLotesPeriodo.map((l) => {
-      const fila = entradaPorLote.get(l.lote);
-      const agricultor = fila?.agricultor ?? null;
-      // entradas_bascula.productor_id existe en BD (migración productores_canonicos)
-      // pero aún no está en los tipos generados de Supabase (mismo cast puntual
-      // que EntradasBascula.tsx/EconomicoFruta.tsx).
-      const productorIdDirecto = (fila as { productor_id?: string | null } | undefined)?.productor_id ?? null;
-      const { key } = resolveProductorGroupKey(agricultor ?? "", productorIdDirecto, aliasPorNombreNormalizado);
-      return { lote: l, productorKey: key };
-    });
+    const items: ItemMermaAgrupable[] = mermaLotesPeriodo
+      // Movimientos internos de confección/sobrante (2026-08-03): no son
+      // productores reales, fuera de este agregado (ver
+      // esAgricultorMovimientoInterno en productoresCanonicos.ts).
+      .filter((l) => !esAgricultorMovimientoInterno(entradaPorLote.get(l.lote)?.agricultor ?? null))
+      .map((l) => {
+        const fila = entradaPorLote.get(l.lote);
+        const agricultor = fila?.agricultor ?? null;
+        // entradas_bascula.productor_id existe en BD (migración productores_canonicos)
+        // pero aún no está en los tipos generados de Supabase (mismo cast puntual
+        // que EntradasBascula.tsx/EconomicoFruta.tsx).
+        const productorIdDirecto = (fila as { productor_id?: string | null } | undefined)?.productor_id ?? null;
+        const { key } = resolveProductorGroupKey(agricultor ?? "", productorIdDirecto, aliasPorNombreNormalizado);
+        return { lote: l, productorKey: key };
+      });
     return agregarMermaPorProductor(items);
   }, [mermaLotesPeriodo, entradaPorLote, aliasPorNombreNormalizado]);
 
@@ -515,6 +520,9 @@ export default function Productores() {
 
       {isAdmin && <ConciliarProductoresDialog open={conciliarOpen} onOpenChange={setConciliarOpen} />}
       {isAdmin && <FusionarProductoresDialog open={fusionarOpen} onOpenChange={setFusionarOpen} />}
+
+      {/* ─── Productores creados automáticamente, pendientes de revisión ── */}
+      {isAdmin && !selectedDossier && <ProductoresAutoCreadosSection onFusionar={() => setFusionarOpen(true)} />}
 
       {/* ─── Cola de "nombres sin vincular" (solo admin) ───────────── */}
       {isAdmin && !selectedDossier && <NombresSinVincularSection />}
@@ -894,6 +902,59 @@ function MobileField({ label, value, valueClass, muted }: { label: string; value
       <span className="text-[11px] text-muted-foreground">{label}</span>
       <span className={cn("text-xs font-medium tabular-nums", muted && "text-muted-foreground", valueClass)}>{value}</span>
     </div>
+  );
+}
+
+// ─── Productores creados automáticamente (enlace garantizado, 2026-08-03) ──
+// Ver supabase/migrations/20260803100000_productores_autocreacion.sql: el
+// trigger de entradas_bascula ya no deja agricultores reales nuevos sin
+// vincular — les crea la ficha (calidad_productores.creado_automaticamente)
+// y su alias de origen sin intervención manual. Esta sección solo AVISA para
+// que un admin los revise y, si resultan ser variante de un productor ya
+// existente (nombre abreviado, con/sin razón social...), los fusione con el
+// botón "Fusionar duplicados" (ya detecta variantes por nombre, ver
+// FusionarProductoresDialog.tsx) — no bloquea nada, es informativa.
+function ProductoresAutoCreadosSection({ onFusionar }: { onFusionar: () => void }) {
+  const { productoresAutoCreados, isLoading } = useProductoresCatalogo();
+  const [expandido, setExpandido] = useState(false);
+
+  if (isLoading || productoresAutoCreados.length === 0) return null;
+
+  return (
+    <Card className="glass-accented border-info/30">
+      <CardContent className="space-y-3 p-3">
+        <button type="button" onClick={() => setExpandido((v) => !v)} className="flex w-full items-center gap-2 text-left">
+          <UserPlus className="h-4 w-4 shrink-0 text-info" />
+          <p className="text-sm font-semibold">
+            {productoresAutoCreados.length} productor{productoresAutoCreados.length === 1 ? "" : "es"} creado{productoresAutoCreados.length === 1 ? "" : "s"} automáticamente
+          </p>
+          <span className="text-[11px] text-muted-foreground">— revisa si alguno es variante de otro ya existente</span>
+          <Button variant="outline" size="sm" className="ml-auto h-7 gap-1 text-xs" onClick={(e) => { e.stopPropagation(); onFusionar(); }}>
+            <Merge className="h-3 w-3" /> Fusionar duplicados
+          </Button>
+          {expandido ? <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />}
+        </button>
+        {expandido && (
+          <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
+            {productoresAutoCreados.map((p) => (
+              <div
+                key={p.id}
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-xs"
+              >
+                <span className="min-w-0 flex-1 truncate font-medium" title={p.nombre}>{p.nombre}</span>
+                <Badge
+                  variant="outline"
+                  className="border-info/40 bg-info/10 px-1.5 py-0 text-[10px] text-info"
+                  title="Creado solo por el trigger de báscula al no encontrar alias: revisa si es un productor genuinamente nuevo o variante de otro ya existente."
+                >
+                  creado automáticamente, revisar
+                </Badge>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

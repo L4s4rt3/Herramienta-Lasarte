@@ -18,13 +18,16 @@ import type { StockLoteRow } from "@/lib/entradasBascula";
 import { formatKgCompact as formatKg, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const MOTIVO_LABEL: Record<MovimientoKg["motivo"], string> = {
+// Exportadas (además de este panel) para el badge compacto de "cedió Xkg" en
+// la fila de Stock de EntradasBascula.tsx (refuerzo 2026-08-03): misma
+// taxonomía de motivo en los dos sitios, una sola fuente de etiquetas.
+export const MOTIVO_LABEL: Record<MovimientoKg["motivo"], string> = {
   multi_codigo: "pasada multi-lote",
   exceso_misma_finca: "exceso → misma finca",
   exceso_misma_variedad: "exceso → misma variedad",
 };
 
-const MOTIVO_BADGE: Record<MovimientoKg["motivo"], string> = {
+export const MOTIVO_BADGE: Record<MovimientoKg["motivo"], string> = {
   multi_codigo: "border-info/40 bg-info/10 text-info",
   exceso_misma_finca: "border-success/40 bg-success/10 text-success",
   exceso_misma_variedad: "border-warning/40 bg-warning/10 text-warning",

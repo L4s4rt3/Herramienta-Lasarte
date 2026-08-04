@@ -191,6 +191,145 @@ export function esEntradaCampoCit(entrada: EntradaCampoCitInput): boolean {
   return ARTICULO_CAMPO_CIT.test(articulo);
 }
 
+// ─── Movimientos internos de almacén registrados como "agricultor" ──────────
+// (2026-08-03, encargo del dueño: "la sección de productores no está enlazada
+// correctamente, cada vez hay más productores que no se enlazan y perdemos
+// información valiosa; haz que se enlacen siempre correctamente").
+//
+// Además del precalibrado (arriba), la báscula registra OTRO circuito cerrado
+// interno: fruta ya entrada que se aparta en CONFECCIÓN (fábrica) o queda
+// como SOBRANTE de un volcado y se re-registra en báscula para poder volver a
+// procesarla, con el campo "agricultor" puesto al índice interno del
+// movimiento en vez de a un productor real. Evidencia verificada en BD
+// (jul-2026): 13 entradas de julio sin productor_id con estos textos reales —
+// "Confección.. 7", "Confección.. 3", "Confección.. 4", "Confección.. 1",
+// "Confección.. 2", "Confección.. 6", "Sobrante.... 12", "Sobrante.... 5".
+// Es el MISMO patrón que el precalibrado: los meses anteriores no salían en
+// el diagnóstico como "sin vincular" porque el backfill de
+// 20260714090000_productores_canonicos.sql sembró el catálogo con CUALQUIER
+// nombre distinto de las 3 fuentes, sin distinguir movimiento interno de
+// productor real — así que ya tenían un "productor" fantasma con ese mismo
+// texto, colado en rankings/dossiers/coste de fruta.
+//
+// Mismo tratamiento que esProductorPrecalibrado: no es un productor real,
+// fuera de rankings/dossiers/coste de fruta por productor, no debe generar
+// una fila en la cola de "nombres sin vincular" (useProductoresCatalogo.ts) y
+// tampoco debe disparar la auto-creación de un productor canónico nuevo (ver
+// el espejo SQL es_movimiento_interno_productor en la migración
+// 20260803100000_productores_autocreacion.sql). Su pasada de calibrador con
+// código de lote real (si la tiene) SIGUE contando como procesado igual que
+// el precalibrado: el cruce de kg procesado no filtra por nombre de
+// productor (ver la nota de "El precalibrado" arriba), así que no hace falta
+// tocar nada ahí.
+//
+// Criterio (tolerante a variaciones de puntuación e índice, estricto en la
+// palabra): tras normalizar, el texto ENTERO (ancla ^…$, no una sub-cadena)
+// debe ser "confeccion" o "sobrante" + uno o más puntos + el índice numérico
+// del movimiento — así un productor real que casualmente mencionara esas
+// palabras de pasada no casaría (no se ha visto ningún caso así, pero el
+// ancla lo evita por diseño, mismo espíritu que el resto de predicados de
+// este módulo).
+const AGRICULTOR_MOVIMIENTO_INTERNO = /^(?:confeccion|sobrante)\.+\s*\d+$/;
+
+/**
+ * true si `nombre` es el pseudo-productor de un movimiento interno de
+ * almacén (confección/sobrante que se re-registra en báscula), no un
+ * productor real. Ver la nota de evidencia justo arriba.
+ */
+export function esAgricultorMovimientoInterno(nombre: string | null | undefined): boolean {
+  const texto = normalizarTexto(nombre, { trim: true });
+  return AGRICULTOR_MOVIMIENTO_INTERNO.test(texto);
+}
+
+// ─── Enlace garantizado: auto-creación de productor canónico nuevo ─────────
+// (2026-08-03, mismo encargo del dueño de arriba). El backfill de
+// 20260714090000_productores_canonicos.sql solo liga nombres EXACTOS ya
+// vistos en ese momento; desde entonces, un agricultor REAL que no tuviera
+// alias se quedaba con productor_id NULL para siempre — hasta que un admin
+// lo asignaba a mano desde la cola de "nombres sin vincular". Con cosecha
+// nueva entran productores nuevos cada semana: la cola crecía sin parar.
+//
+// La solución vive en el trigger SQL de entradas_bascula (ver migración
+// 20260803100000_productores_autocreacion.sql: extiende
+// asignar_productor_id_entradas_bascula para que, si el alias no resuelve,
+// CREE el productor canónico + su alias de origen automáticamente, marcado
+// `creado_automaticamente` para que la cola de revisión lo destaque). Se
+// eligió entradas_bascula (no lotes_dia/calidad_lotes) porque es el ORIGEN
+// principal de identidad del productor (ver 20260721120000_productores_codigo_erp.sql);
+// lotes_dia sigue SIN crear alias por nombre propio (decisión de
+// 20260730100000_vinculacion_por_lote.sql): su "productor" suele ser la
+// FINCA, que puede pertenecer a varios productores reales (caso "LA
+// TORRECILLA"), así que crear un canónico a partir de ese texto seguiría
+// siendo arriesgado — su respaldo por evidencia del lote ya hereda el
+// productor_id resuelto aquí.
+//
+// `debeCrearProductorAutomaticamente` es el ESPEJO en JS de la condición que
+// evalúa ese trigger (mismo criterio, mantener sincronizados si cambia
+// cualquiera de los dos): sirve para poder testear la lógica en frío sin
+// tocar Supabase, y por si algún flujo cliente necesita anticipar la
+// decisión (p. ej. para no ofrecer "crear alias" en la UI si ya se va a
+// auto-crear solo).
+export interface AutoAltaProductorInput {
+  agricultor: string | null | undefined;
+  /** productor_id ya resuelto en la fila (columna productor_id directa), si lo hay. */
+  productorIdDirecto?: string | null;
+  /** Alias ya aprendidos (productores_alias), normalizado -> productor_id. */
+  aliasPorNombreNormalizado: Map<string, string>;
+}
+
+/**
+ * true si esta fila de entradas_bascula.agricultor debería disparar la
+ * auto-creación de un productor canónico nuevo: no hay id ya resuelto (ni
+ * directo en la fila ni por alias existente), el nombre normalizado no está
+ * vacío, y no es ni el circuito de precalibrado (esEntradaPrecalibrado, solo
+ * el lado del agricultor: no se conoce la finca en este punto) ni un
+ * movimiento interno de confección/sobrante (esAgricultorMovimientoInterno).
+ */
+export function debeCrearProductorAutomaticamente(input: AutoAltaProductorInput): boolean {
+  if (input.productorIdDirecto) return false;
+  const normalizado = normalizeProductorName(input.agricultor);
+  if (!normalizado) return false;
+  if (input.aliasPorNombreNormalizado.has(normalizado)) return false;
+  if (esEntradaPrecalibrado({ agricultor: input.agricultor, finca: null })) return false;
+  if (esAgricultorMovimientoInterno(input.agricultor)) return false;
+  return true;
+}
+
+export interface FilaAutoAltaSimulada {
+  agricultor: string | null | undefined;
+}
+
+export interface ResultadoAutoAltaSimulada {
+  /** id asignado a la fila: el recién creado, el ya existente por alias, o "" si no se resolvió (interno/vacío). */
+  productorId: string;
+  /** true SOLO en la fila que disparó la creación del productor (la primera vez que se ve ese nombre normalizado). */
+  creado: boolean;
+}
+
+/**
+ * Simula en memoria, fila a fila y en orden, el comportamiento idempotente
+ * del trigger de auto-creación (ver la nota de arriba): la primera fila con
+ * un nombre normalizado nuevo crea el productor + su alias; cualquier fila
+ * posterior con el mismo normalizado (aunque cambien mayúsculas/espacios)
+ * resuelve por ese alias sin crear un duplicado. Solo para tests — el
+ * comportamiento real vive en el trigger de BD.
+ */
+export function simularAutoAltaProductores(filas: FilaAutoAltaSimulada[]): ResultadoAutoAltaSimulada[] {
+  const aliasPorNombreNormalizado = new Map<string, string>();
+  let siguienteId = 1;
+  return filas.map(({ agricultor }) => {
+    const normalizado = normalizeProductorName(agricultor);
+    const existente = normalizado ? aliasPorNombreNormalizado.get(normalizado) : undefined;
+    if (existente) return { productorId: existente, creado: false };
+    if (!debeCrearProductorAutomaticamente({ agricultor, aliasPorNombreNormalizado })) {
+      return { productorId: "", creado: false };
+    }
+    const id = `auto-${siguienteId++}`;
+    if (normalizado) aliasPorNombreNormalizado.set(normalizado, id);
+    return { productorId: id, creado: true };
+  });
+}
+
 export interface ResolucionProductor {
   /**
    * Clave de agrupación estable: "id:<uuid>" si se resolvió un productor_id

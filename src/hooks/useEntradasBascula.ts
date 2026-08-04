@@ -10,9 +10,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
-import { fetchAllRows } from "@/lib/fetchAllRows";
-import { buildStockEntradas, type CierreModo, type EntradaBasculaParsed, type LoteProcesadoInput } from "@/lib/entradasBascula";
-import { conciliarKgProcesados, type EntradaConciliacion, type ReciclajeDiaInput } from "@/lib/conciliacionKg";
+import { escribirConReintentos, fetchAllRows } from "@/lib/fetchAllRows";
+import { buildStockEntradas, esCandidatoCierreAutomatico, type CierreModo, type EntradaBasculaParsed, type LoteProcesadoInput } from "@/lib/entradasBascula";
+import { conciliarKgProcesados, detectarLotesEnPasadaCompuesta, type EntradaConciliacion, type ReciclajeDiaInput } from "@/lib/conciliacionKg";
 import { normalizarLoteCodigo } from "@/lib/loteCodigo";
 import { esEntradaCampoCit, esEntradaPrecalibrado, esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
 import { esNotaOperarioLote } from "@/lib/trazabilidadSelector";
@@ -252,10 +252,15 @@ export function useEntradasBascula() {
       for (const [cierreModo, ids] of idsPorModo) {
         for (let i = 0; i < ids.length; i += CHUNK) {
           const chunk = ids.slice(i, i + CHUNK);
-          const { error } = await SUPA
+          // Reintentos (escribirConReintentos, src/lib/fetchAllRows.ts): esta
+          // mutación también sirve al cierre AUTOMÁTICO (refuerzo 2026-08-03,
+          // ver esCandidatoCierreAutomatico), que en su primera pasada puede
+          // tener que cerrar hasta ~819 lotes atrasados de golpe — el mismo
+          // riesgo de "statement timeout" que el import histórico.
+          const { error } = await escribirConReintentos(() => SUPA
             .from("entradas_bascula")
             .update({ cerrado_at: ahora, cierre_modo: cierreModo })
-            .in("id", chunk);
+            .in("id", chunk));
           if (error) {
             if (esErrorTablaOColumnaInexistente(error)) throw new Error(MENSAJE_MIGRACION_CIERRE_MODO);
             throw toError(error);
@@ -436,6 +441,8 @@ export function useEntradasBascula() {
     return { industriaKgPorLote, pctIndustriaPorLote, mediaIndustriaPorVariedad, notasPorLote };
   }, [procesadosQuery.data, entradas]);
 
+  const hoy = today();
+
   const stock = useMemo(
     () => buildStockEntradas(
       entradas.map((e) => ({
@@ -450,9 +457,40 @@ export function useEntradasBascula() {
         cierre_modo: e.cierre_modo ?? null,
       })),
       conciliacionKg.procesados,
-      today(),
+      hoy,
     ),
-    [entradas, conciliacionKg],
+    [entradas, conciliacionKg, hoy],
+  );
+
+  // ─── Candidatos al cierre automático PERSISTIDO (refuerzo 2026-08-03) ──────
+  // esCandidatoCierreAutomatico (src/lib/entradasBascula.ts) decide sobre
+  // StockLoteRow; aquí solo se junta con el `id` real de entradas_bascula
+  // (StockLoteRow no lo trae) para poder disparar cerrarLotesEnBloque. La
+  // página (EntradasBascula.tsx) es quien dispara la mutación al cargar la
+  // pestaña Stock — este hook solo calcula QUIÉN es candidato, no escribe
+  // nada por su cuenta (mismo principio que el resto de estados derivados).
+  const candidatosCierreAutomatico = useMemo(() => {
+    const entradaPorLote = new Map(entradas.map((e) => [e.lote, e]));
+    const items: Array<{ id: string; lote: string }> = [];
+    for (const fila of stock.filas) {
+      if (!esCandidatoCierreAutomatico(fila, hoy)) continue;
+      const entrada = entradaPorLote.get(fila.lote);
+      if (entrada) items.push({ id: entrada.id, lote: fila.lote });
+    }
+    return items;
+  }, [stock.filas, entradas, hoy]);
+
+  // ─── Lotes vistos como código NO-primero de una pasada compuesta ───────────
+  // (refuerzo 2026-08-03, ver detectarLotesEnPasadaCompuesta en
+  // conciliacionKg.ts): evidencia textual, no reparto de kg. Se calcula sobre
+  // los datos CRUDOS de lotes_dia (procesadosQuery.data.procesados, con su
+  // lote_codigo tal cual, ANTES de la conciliación) porque el patrón
+  // "loteA+loteB" solo existe en el texto original.
+  const lotesEnPasadaCompuesta = useMemo(
+    () => detectarLotesEnPasadaCompuesta(
+      (procesadosQuery.data?.procesados ?? []).map((p) => ({ lote_codigo: p.lote_codigo, kg_peso_total: p.kg_peso_total, date: p.date })),
+    ),
+    [procesadosQuery.data],
   );
 
   return {
@@ -467,6 +505,10 @@ export function useEntradasBascula() {
     calidadLotes,
     movimientosPrecalibrado,
     derivadosCampoCit,
+    /** Candidatos (id + lote) al cierre automático persistido: COMPLETO (≥97% o calibrador>entrada) y ≥2 días sin pasada nueva. Ver esCandidatoCierreAutomatico. */
+    candidatosCierreAutomatico,
+    /** lote -> primeros códigos con los que apareció en una pasada compuesta (evidencia de "procesado bajo otro código", ver detectarLotesEnPasadaCompuesta). */
+    lotesEnPasadaCompuesta,
     isLoading: entradasQuery.isLoading || procesadosQuery.isLoading,
     error: entradasQuery.error ?? procesadosQuery.error,
     importar,

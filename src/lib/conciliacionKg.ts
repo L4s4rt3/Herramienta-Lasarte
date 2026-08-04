@@ -86,6 +86,53 @@ export interface ProcesadoConciliado {
  */
 export const TARA_BOX_RECICLAJE = 30;
 
+/**
+ * Codigos de lote que aparecen como codigo NO-primero en alguna pasada
+ * COMPUESTA ("loteA+loteB..."): evidencia de que ese lote muy probablemente
+ * SI se proceso, solo que el calibrador acredito el kg a otro codigo.
+ *
+ * Refuerzo del dueno (03-08-2026): la asignacion directa de arriba (fase 1)
+ * reparte una pasada compuesta entre los codigos que nombra, PERO en el
+ * orden del texto y con tope en el pendiente de cada uno -- si el PRIMER
+ * codigo todavia tiene mucho pendiente, se lleva TODO el kg de la pasada y
+ * los codigos siguientes no reciben nada de ESA pasada (no hay "restante"
+ * que ofrecerles). Como `movimientos` solo registra un movimiento
+ * "multi_codigo" cuando el codigo SI recibe algo (`absorbe > 0`), un codigo
+ * que se queda sin nada en TODAS sus apariciones no deja ningun rastro: para
+ * la herramienta es indistinguible de un lote que de verdad nunca se
+ * proceso ("stock fantasma"), aunque su fruta este fisicamente contada bajo
+ * otro codigo.
+ *
+ * Esta funcion NO reparte kg (imposible con fiabilidad sin inventar un
+ * cuadre, y jamas por LIKE/subcadena): solo DETECTA la asociacion textual --
+ * que codigos "vieron" a este lote nombrado junto al suyo en el export del
+ * calibrador -- como EVIDENCIA para que un humano cierre el lote a mano (p.
+ * ej. cierre_modo "sin_registro", ya existente) sabiendo que su fruta muy
+ * probablemente se proceso bajo otro codigo, en vez de dejarlo pasar por
+ * "sin procesar" sin ninguna pista. Se ofrece aparte de `movimientos` (que si
+ * sigue siendo la fuente de verdad de que kg se atribuyo a donde) porque
+ * cubre justo el caso que `movimientos` no puede ver: cero kg transferido.
+ */
+export function detectarLotesEnPasadaCompuesta(pasadas: PasadaConciliacion[]): Map<string, string[]> {
+  const vistoCon = new Map<string, Set<string>>();
+  for (const p of pasadas) {
+    const kg = Number(p.kg_peso_total) || 0;
+    if (kg <= 0) continue;
+    const codes = String(p.lote_codigo ?? "").match(/\d{8}/g) ?? [];
+    if (codes.length < 2) continue;
+    const primero = codes[0]!;
+    for (const code of codes.slice(1)) {
+      if (code === primero) continue; // mismo codigo repetido en el texto: no hay un segundo lote real
+      const set = vistoCon.get(code) ?? new Set<string>();
+      set.add(primero);
+      vistoCon.set(code, set);
+    }
+  }
+  const salida = new Map<string, string[]>();
+  for (const [lote, primeros] of vistoCon) salida.set(lote, Array.from(primeros).sort());
+  return salida;
+}
+
 export interface ReciclajePasada {
   /** Primer código de lote de la pasada a la que se le descontó, o "(parte del YYYY-MM-DD)" para el reparto proporcional del día. */
   lote: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fetchAllRows } from "./fetchAllRows";
+import { escribirConReintentos, fetchAllRows } from "./fetchAllRows";
 
 interface Row {
   id: number;
@@ -91,5 +91,53 @@ describe("fetchAllRows", () => {
     const buildQuery = vi.fn().mockResolvedValueOnce({ data: null, error: null });
     const result = await fetchAllRows<Row>(buildQuery, 1000);
     expect(result).toEqual([]);
+  });
+});
+
+describe("escribirConReintentos — compartida entre el import histórico y el cierre automático de lotes", () => {
+  it("reintenta un error transitorio (statement timeout) y devuelve el resultado si el reintento tiene éxito", async () => {
+    vi.useFakeTimers();
+    try {
+      const hacer = vi.fn()
+        .mockResolvedValueOnce({ data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } })
+        .mockResolvedValueOnce({ data: { ok: true }, error: null });
+      const promesa = escribirConReintentos(hacer);
+      await vi.runAllTimersAsync();
+      const resultado = await promesa;
+      expect(resultado).toEqual({ data: { ok: true }, error: null });
+      expect(hacer).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("no reintenta un error de datos (no transitorio): aborta a la primera", async () => {
+    const error = { code: "23505", message: "duplicate key value violates unique constraint" };
+    const hacer = vi.fn().mockResolvedValue({ data: null, error });
+    const resultado = await escribirConReintentos(hacer);
+    expect(resultado.error).toBe(error);
+    expect(hacer).toHaveBeenCalledTimes(1);
+  });
+
+  it("agota los reintentos (3 intentos en total) y devuelve el último error si todos fallan", async () => {
+    vi.useFakeTimers();
+    try {
+      const error = { code: "57014", message: "statement timeout" };
+      const hacer = vi.fn().mockResolvedValue({ data: null, error });
+      const promesa = escribirConReintentos(hacer);
+      await vi.runAllTimersAsync();
+      const resultado = await promesa;
+      expect(resultado.error).toBe(error);
+      expect(hacer).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sin error, no reintenta (una sola llamada)", async () => {
+    const hacer = vi.fn().mockResolvedValue({ data: { ok: true }, error: null });
+    const resultado = await escribirConReintentos(hacer);
+    expect(resultado).toEqual({ data: { ok: true }, error: null });
+    expect(hacer).toHaveBeenCalledTimes(1);
   });
 });

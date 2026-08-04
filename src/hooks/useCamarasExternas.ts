@@ -73,10 +73,41 @@ export function useCamarasExternas() {
     },
   });
 
+  // ─── Conciliar cámara vacía (solo admin, encargo del dueño 03-08-2026) ─────
+  // Marca en el propio camión la nota rastreable (siempre) y, si no hay
+  // entradas_bascula localizable por su lote (rareza: ver
+  // src/lib/conciliarCamaraVacia.ts), también entrada_lst_1 con la fecha
+  // declarada — el mismo campo que estadoCamionExterno ya interpreta como
+  // "recibido según el registro", así que ese camión deja de contar como "en
+  // cámara" sin inventar una entrada de báscula que no existe. La señal de
+  // báscula (fecha_salida_camara + cierre 'sin_registro') se aplica aparte,
+  // en el diálogo, reutilizando cerrarLotesEnBloque de useEntradasBascula.ts.
+  const marcarConciliados = useMutation({
+    mutationFn: async (items: Array<{ id: string; notaEntrada: string; entradaLst1?: string }>) => {
+      if (!user) throw new Error("No auth");
+      for (const item of items) {
+        const { error } = await SUPA
+          .from("camara_externa_camiones")
+          .update({
+            nota_entrada: item.notaEntrada,
+            ...(item.entradaLst1 ? { entrada_lst_1: item.entradaLst1 } : {}),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", item.id);
+        if (error) throw toError(error);
+      }
+      return { marcados: items.length };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: key });
+    },
+  });
+
   return {
     camiones: query.data ?? [],
     isLoading: query.isLoading,
     error: query.error,
     importar,
+    marcarConciliados,
   };
 }

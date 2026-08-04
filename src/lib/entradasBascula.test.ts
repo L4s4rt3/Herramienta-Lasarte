@@ -4,7 +4,9 @@ import {
   buildStockEntradas,
   conciliarStockConInforme,
   criterioCierreModo,
+  DIAS_SIN_ACTIVIDAD_AUTOCIERRE,
   DIAS_SIN_ACTIVIDAD_TERMINADO,
+  esCandidatoCierreAutomatico,
   estadoLotePorProcesado,
   normalizarLoteCodigo,
   parseEntradasBasculaRows,
@@ -13,7 +15,9 @@ import {
   parseStockLotesRows,
   pasadasPosterioresAlCierre,
   UMBRAL_CIERRE_CON_ANALISIS,
+  UMBRAL_LOTE_COMPLETO,
   UMBRAL_PROBABLE_TERMINADO,
+  UMBRAL_PROCESADO,
 } from "./entradasBascula";
 
 // Cabecera real del export del programa de báscula ("entrada 2604.xlsx").
@@ -526,6 +530,85 @@ describe("pasadasPosterioresAlCierre — guardia inversa (cerrado con actividad 
     expect(porLote.get("26060602")?.cerradoConActividadPosterior).toBe(false);
     expect(stock.lotesCerradosConActividadPosterior).toHaveLength(1);
     expect(stock.lotesCerradosConActividadPosterior[0].lote).toBe("26060601");
+  });
+});
+
+describe("UMBRAL_LOTE_COMPLETO — alias de UMBRAL_PROCESADO para el estado COMPLETO", () => {
+  it("es exactamente UMBRAL_PROCESADO (0.97), nunca diverge", () => {
+    expect(UMBRAL_LOTE_COMPLETO).toBe(UMBRAL_PROCESADO);
+    expect(UMBRAL_LOTE_COMPLETO).toBe(0.97);
+  });
+});
+
+describe("esCandidatoCierreAutomatico — selección del cierre automático persistido (refuerzo 2026-08-03)", () => {
+  it("DIAS_SIN_ACTIVIDAD_AUTOCIERRE es 2 (mucho más corto que el de la cola manual, ver cabecera del archivo)", () => {
+    expect(DIAS_SIN_ACTIVIDAD_AUTOCIERRE).toBe(2);
+    expect(DIAS_SIN_ACTIVIDAD_AUTOCIERRE).toBeLessThan(DIAS_SIN_ACTIVIDAD_TERMINADO);
+  });
+
+  const entradaBase = { lote: "26070101", fecha: "2026-07-01", kg_entrada: 10000, finca: null, articulo: "NAVEL", agricultor: null };
+
+  it("COMPLETO (≥97%) y ≥2 días sin pasadas nuevas -> true", () => {
+    const procesados = [{ lote_codigo: "26070101", kg_peso_total: 9800, date: "2026-07-10" }]; // 98%, hace 2 días
+    const stock = buildStockEntradas([entradaBase], procesados, "2026-07-12");
+    const fila = stock.filas[0];
+    expect(fila.estado).toBe("procesado");
+    expect(esCandidatoCierreAutomatico(fila, "2026-07-12")).toBe(true);
+  });
+
+  it("COMPLETO pero con una pasada de ayer (1 día) -> false: se espera a que se asiente", () => {
+    const procesados = [{ lote_codigo: "26070101", kg_peso_total: 9800, date: "2026-07-11" }]; // 98%, hace 1 día
+    const stock = buildStockEntradas([entradaBase], procesados, "2026-07-12");
+    const fila = stock.filas[0];
+    expect(fila.estado).toBe("procesado");
+    expect(esCandidatoCierreAutomatico(fila, "2026-07-12")).toBe(false);
+  });
+
+  it("96% (parcial, no COMPLETO) -> false aunque lleve muchos días sin actividad", () => {
+    const procesados = [{ lote_codigo: "26070101", kg_peso_total: 9600, date: "2026-07-01" }]; // 96%
+    const stock = buildStockEntradas([entradaBase], procesados, "2026-07-20");
+    const fila = stock.filas[0];
+    expect(fila.estado).toBe("parcial");
+    expect(esCandidatoCierreAutomatico(fila, "2026-07-20")).toBe(false);
+  });
+
+  it("ya cerrado (cerrado_at relleno) -> false: no hay nada que cerrar de nuevo", () => {
+    const cerrado = { ...entradaBase, cerrado_at: "2026-07-05T00:00:00Z" };
+    const procesados = [{ lote_codigo: "26070101", kg_peso_total: 9800, date: "2026-07-01" }];
+    const stock = buildStockEntradas([cerrado], procesados, "2026-07-20");
+    const fila = stock.filas[0];
+    expect(fila.estado).toBe("procesado");
+    expect(esCandidatoCierreAutomatico(fila, "2026-07-20")).toBe(false);
+  });
+
+  it("sin ultima_fecha_procesado conocida (llegó al umbral solo por kg_ajuste_stock) -> false: no se puede demostrar inactividad reciente", () => {
+    const conAjuste = { ...entradaBase, kg_ajuste_stock: 10000 }; // 100% solo por ajuste, sin ninguna pasada de lotes_dia
+    const stock = buildStockEntradas([conAjuste], [], "2026-07-20");
+    const fila = stock.filas[0];
+    expect(fila.estado).toBe("procesado");
+    expect(fila.ultima_fecha_procesado).toBeNull();
+    expect(esCandidatoCierreAutomatico(fila, "2026-07-20")).toBe(false);
+  });
+
+  it("calibradorSuperaEntrada (>100% procesado) y ≥2 días -> true: un lote inflado por un reparto también cierra", () => {
+    const procesados = [{ lote_codigo: "26070101", kg_peso_total: 12000, date: "2026-07-10" }]; // 120%
+    const stock = buildStockEntradas([entradaBase], procesados, "2026-07-12");
+    const fila = stock.filas[0];
+    expect(fila.estado).toBe("procesado");
+    expect(esCandidatoCierreAutomatico(fila, "2026-07-12")).toBe(true);
+  });
+
+  it("usa exactamente DIAS_SIN_ACTIVIDAD_AUTOCIERRE como frontera (>=, no >)", () => {
+    const procesados = [{ lote_codigo: "26070101", kg_peso_total: 9800, date: "2026-07-10" }];
+    const enElUmbral = buildStockEntradas([entradaBase], procesados, "2026-07-12").filas[0]; // exactamente 2 días
+    const debajoDelUmbral = buildStockEntradas([entradaBase], procesados, "2026-07-11").filas[0]; // 1 día
+    expect(esCandidatoCierreAutomatico(enElUmbral, "2026-07-12")).toBe(true);
+    expect(esCandidatoCierreAutomatico(debajoDelUmbral, "2026-07-11")).toBe(false);
+  });
+
+  it("no candidato si NO está en estado 'procesado' (pendiente o parcial)", () => {
+    const pendiente = buildStockEntradas([entradaBase], [], "2026-07-20").filas[0];
+    expect(esCandidatoCierreAutomatico(pendiente, "2026-07-20")).toBe(false);
   });
 });
 
