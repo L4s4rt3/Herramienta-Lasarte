@@ -1480,7 +1480,14 @@ export default function EntradasBascula() {
                                 key={motivo}
                                 variant="outline"
                                 className={cn("px-1.5 py-0 text-[9px] font-normal", MOTIVO_BADGE[motivo])}
-                                title={`Este lote cedió ${formatKg(kg)} a otro lote (${MOTIVO_LABEL[motivo]}): sus pasadas crudas superaban lo que le cabía y el exceso se derramó — ver la pestaña "Conciliación kg".`}
+                                title={
+                                  motivo === "reentrada_nombrados"
+                                    // Regla del dueño 04-08-2026: esto NO es un derrame real (no infla
+                                    // el stock de nadie) — es solo la atribución del sobrante de una
+                                    // pasada multi-lote a los demás códigos que nombraba.
+                                    ? `Este lote nombró a otros ${formatKg(kg)} de más en una pasada multi-lote (${MOTIVO_LABEL[motivo]}): no infla el stock de nadie, es solo la atribución de a qué lotes del informe pertenece con más probabilidad — ver la pestaña "Conciliación kg".`
+                                    : `Este lote cedió ${formatKg(kg)} a otro lote (${MOTIVO_LABEL[motivo]}): sus pasadas crudas superaban lo que le cabía y el exceso se derramó — ver la pestaña "Conciliación kg".`
+                                }
                               >
                                 cedió {formatKg(kg)}
                               </Badge>

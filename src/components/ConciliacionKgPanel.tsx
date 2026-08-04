@@ -25,12 +25,14 @@ export const MOTIVO_LABEL: Record<MovimientoKg["motivo"], string> = {
   multi_codigo: "pasada multi-lote",
   exceso_misma_finca: "exceso → misma finca",
   exceso_misma_variedad: "exceso → misma variedad",
+  reentrada_nombrados: "reentrada de los lotes del informe (probablemente precalibrado)",
 };
 
 export const MOTIVO_BADGE: Record<MovimientoKg["motivo"], string> = {
   multi_codigo: "border-info/40 bg-info/10 text-info",
   exceso_misma_finca: "border-success/40 bg-success/10 text-success",
   exceso_misma_variedad: "border-warning/40 bg-warning/10 text-warning",
+  reentrada_nombrados: "border-primary/40 bg-primary/10 text-primary",
 };
 
 function LoteLink({ lote }: { lote: string }) {
@@ -70,7 +72,12 @@ export function ConciliacionKgPanel({ conciliacion, filasStock }: {
   }, [movimientos]);
 
   const kgPorMotivo = useMemo(() => {
-    const acc: Record<MovimientoKg["motivo"], number> = { multi_codigo: 0, exceso_misma_finca: 0, exceso_misma_variedad: 0 };
+    const acc: Record<MovimientoKg["motivo"], number> = {
+      multi_codigo: 0,
+      exceso_misma_finca: 0,
+      exceso_misma_variedad: 0,
+      reentrada_nombrados: 0,
+    };
     for (const m of movimientos) acc[m.motivo] += m.kg;
     return acc;
   }, [movimientos]);
@@ -124,6 +131,7 @@ export function ConciliacionKgPanel({ conciliacion, filasStock }: {
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 {formatKg(kgPorMotivo.multi_codigo)} multi-lote · {formatKg(kgPorMotivo.exceso_misma_finca)} misma finca
                 · {formatKg(kgPorMotivo.exceso_misma_variedad)} misma variedad
+                · {formatKg(kgPorMotivo.reentrada_nombrados)} reentrada nombrados
               </p>
             </div>
             <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">

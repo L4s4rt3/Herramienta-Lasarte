@@ -127,6 +127,90 @@ describe("conciliarKgProcesados — derrame de excesos", () => {
   });
 });
 
+describe("conciliarKgProcesados — reentrada_nombrados (regla del dueño 04-08-2026)", () => {
+  it("sobrante de una pasada multi-código va como reentrada a los DEMÁS nombrados, NUNCA a un lote de la misma finca ajeno al informe", () => {
+    const res = conciliarKgProcesados(
+      [
+        entrada({ lote: "26030101", kg_entrada: 10000, fecha: "2026-03-01" }), // principal
+        entrada({ lote: "26030102", kg_entrada: 4000, fecha: "2026-03-01" }), // 2º nombrado
+        // Lote de la MISMA finca y variedad, pendiente libre, pero NO nombrado
+        // en la pasada: con la regla vieja recibía el derrame; ahora no debe
+        // recibir nada.
+        entrada({ lote: "26030199", kg_entrada: 50000, fecha: "2026-03-01" }),
+      ],
+      // 10000 (principal) + 4000 (2º) = 14000 de pendiente total; la pasada
+      // trae 20000: sobran 6000 tras llenar a los dos nombrados.
+      [{ lote_codigo: "26030101+26030102", kg_peso_total: 20000, date: "2026-03-01" }],
+    );
+    const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
+    expect(kg.get("26030101")).toBe(10000);
+    expect(kg.get("26030102")).toBe(4000); // sin inflar: el tope de capacidad se mantiene
+    expect(kg.has("26030199")).toBe(false); // el lote ajeno NO recibe nada
+
+    // El sobrante queda documentado como reentrada hacia el 2º nombrado (el
+    // único "demás" código de esta pasada) y sigue en la cola de revisión
+    // (no hay procesado real que lo absorba). También aparece el movimiento
+    // "multi_codigo" normal de la fase 1 (los 4000 que sí cupieron en su
+    // pendiente directo).
+    expect(res.movimientos).toEqual([
+      { de: "26030101", a: "26030102", kg: 4000, motivo: "multi_codigo" },
+      { de: "26030101", a: "26030102", kg: 6000, motivo: "reentrada_nombrados" },
+    ]);
+    expect(res.excesosSinColocar).toEqual([{ lote: "26030101", kg: 6000 }]);
+    // Conservación: nada se inventa ni se pierde.
+    expect(kg.get("26030101")! + kg.get("26030102")! + res.excesosSinColocar[0].kg).toBe(20000);
+  });
+
+  it("con 3 códigos nombrados, el sobrante se reparte entre los 2 demás proporcional a lo que cada uno absorbió de esa pasada", () => {
+    const res = conciliarKgProcesados(
+      [
+        entrada({ lote: "26030201", kg_entrada: 10000, fecha: "2026-03-02" }), // principal
+        entrada({ lote: "26030202", kg_entrada: 3000, fecha: "2026-03-02" }),
+        entrada({ lote: "26030203", kg_entrada: 1000, fecha: "2026-03-02" }),
+      ],
+      // Pendiente total nombrados = 14000; pasada trae 18000: sobran 4000,
+      // repartidos 3000/1000 = 3:1 entre el 2º y el 3º.
+      [{ lote_codigo: "26030201+26030202+26030203", kg_peso_total: 18000, date: "2026-03-02" }],
+    );
+    const reentradas = res.movimientos.filter((m) => m.motivo === "reentrada_nombrados");
+    expect(reentradas).toEqual([
+      { de: "26030201", a: "26030202", kg: 3000, motivo: "reentrada_nombrados" },
+      { de: "26030201", a: "26030203", kg: 1000, motivo: "reentrada_nombrados" },
+    ]);
+    expect(res.excesosSinColocar).toEqual([{ lote: "26030201", kg: 4000 }]);
+  });
+
+  it("pasada de código SIMPLE con exceso sigue el derrame de siempre (finca/variedad), sin cambios", () => {
+    const res = conciliarKgProcesados(
+      [
+        entrada({ lote: "26030301", kg_entrada: 10000, fecha: "2026-03-03" }),
+        entrada({ lote: "26030302", kg_entrada: 8000, fecha: "2026-03-03" }), // misma finca/variedad, fantasma
+      ],
+      [{ lote_codigo: "26030301", kg_peso_total: 15000, date: "2026-03-03" }],
+    );
+    const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
+    expect(kg.get("26030301")).toBe(10000);
+    expect(kg.get("26030302")).toBe(5000);
+    expect(res.movimientos).toEqual([
+      { de: "26030301", a: "26030302", kg: 5000, motivo: "exceso_misma_finca" },
+    ]);
+    expect(res.excesosSinColocar).toHaveLength(0);
+  });
+
+  it("mismo código repetido en el nombre ('A+A') no cuenta como multi-código: el exceso sigue el derrame de finca/variedad, no reentrada_nombrados", () => {
+    const res = conciliarKgProcesados(
+      [
+        entrada({ lote: "26030401", kg_entrada: 10000, fecha: "2026-03-04" }),
+        entrada({ lote: "26030402", kg_entrada: 8000, fecha: "2026-03-04" }),
+      ],
+      [{ lote_codigo: "26030401+26030401", kg_peso_total: 15000, date: "2026-03-04" }],
+    );
+    expect(res.movimientos).toEqual([
+      { de: "26030401", a: "26030402", kg: 5000, motivo: "exceso_misma_finca" },
+    ]);
+  });
+});
+
 describe("conciliarKgProcesados — precalibrado", () => {
   it("la entrada PREC absorbe su re-pasada, pero su exceso NO se derrama a lotes reales (sería doble cuenta)", () => {
     const res = conciliarKgProcesados(

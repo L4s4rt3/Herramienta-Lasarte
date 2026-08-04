@@ -28,6 +28,30 @@
  *      revisión) — nunca se inventa un cuadre.
  * Los totales globales no cambian: solo se reatribuye entre lotes, y cada
  * movimiento queda registrado en `movimientos` para poder auditarlo.
+ *
+ * REGLA DEL DUEÑO, 04-ago-2026 (textual): "cuando hay más kg, debe repartir
+ * los kg entre los lotes que aparecen en el informe, sabiendo que el lote
+ * principal es el primero y es el que seguramente se haga entero o casi
+ * entero, y del resto seguramente con precalibrados". Diagnóstico confirmado:
+ * antes de esta regla, el sobrante de una pasada MULTI-CÓDIGO que ya había
+ * llenado el pendiente de TODOS los lotes nombrados caía en el MISMO derrame
+ * genérico del punto 2 (misma finca/variedad) — podía acabar en un lote
+ * ajeno al informe que ni siquiera se mencionó en esa pasada. Ahora ese
+ * sobrante NUNCA entra en el derrame del punto 2: se marca como
+ * "reentrada_nombrados" hacia los DEMÁS códigos nombrados en la pasada (el
+ * principal ya se llenó en el paso 1; con toda probabilidad es su
+ * precalibrado reincorporado bajo el nombre compuesto), repartido
+ * proporcionalmente a lo que cada uno absorbió de ESA misma pasada (o a
+ * partes iguales si ninguno absorbió nada de ella — los dos son
+ * igual de simples, se elige el que mejor refleja qué código nombrado
+ * "tocó" realmente la pasada). Es solo un movimiento de ATRIBUCIÓN/auditoría
+ * (visible en `movimientos` y en el badge de Stock): NO llama a `tocar()`,
+ * así que NO aumenta `asignado` de ningún lote (el tope de capacidad se
+ * mantiene) y el kg sigue registrado en `excesosSinColocar` igual que antes
+ * de existir esta regla (sigue sin "procesado" real que lo absorba; lo único
+ * que cambia es que ya no se inventa un receptor ajeno al informe). El
+ * derrame por finca/variedad del punto 2 queda EXCLUSIVAMENTE para el exceso
+ * de pasadas de código SIMPLE (un único lote nombrado).
  */
 import { diffDias } from "@/lib/entradasBascula";
 import { TASA_MERMA_NATURAL_DIA } from "@/lib/mermaLote";
@@ -71,7 +95,7 @@ export interface MovimientoKg {
   de: string;
   a: string;
   kg: number;
-  motivo: "multi_codigo" | "exceso_misma_finca" | "exceso_misma_variedad";
+  motivo: "multi_codigo" | "exceso_misma_finca" | "exceso_misma_variedad" | "reentrada_nombrados";
 }
 
 export interface ProcesadoConciliado {
@@ -379,6 +403,14 @@ export function conciliarKgProcesados(
       continue;
     }
     const firstCode = codes[0]!;
+    // Códigos DISTINTOS nombrados en el texto (una pasada puede repetir el
+    // mismo código, p.ej. "26030103+26030103": eso no es multi-código de
+    // verdad, es un único lote con el nombre duplicado).
+    const codigosDistintos = Array.from(new Set(codes));
+    const esMultiCodigo = codigosDistintos.length > 1;
+    // kg absorbido por CADA código en ESTA pasada (agregado si el código se
+    // repite en el texto): pondera el reparto de la reentrada más abajo.
+    const absorbidoPorCode = new Map<string, number>();
 
     let restante = kg;
     for (const code of codes) {
@@ -389,18 +421,44 @@ export function conciliarKgProcesados(
       if (absorbe <= 0) continue;
       tocar(r, absorbe, p.date, false);
       restante -= absorbe;
+      absorbidoPorCode.set(code, (absorbidoPorCode.get(code) ?? 0) + absorbe);
       if (code !== firstCode) {
         movimientos.push({ de: firstCode, a: code, kg: absorbe, motivo: "multi_codigo" });
       }
     }
 
     if (restante > 0.5) {
-      const donante = firstCode;
-      const acc = excesoPorLote.get(donante) ?? { kg: 0, ultimaFecha: null };
-      acc.kg += restante;
-      const fecha = p.date ?? null;
-      if (fecha && (!acc.ultimaFecha || fecha > acc.ultimaFecha)) acc.ultimaFecha = fecha;
-      excesoPorLote.set(donante, acc);
+      if (esMultiCodigo) {
+        // Regla del dueño 04-ago-2026 (ver docstring del módulo): el sobrante
+        // de una pasada MULTI-CÓDIGO, tras llenar el pendiente de TODOS los
+        // nombrados, se atribuye a los DEMÁS códigos nombrados (el principal
+        // ya se llenó arriba) como "reentrada_nombrados" — proporcional a lo
+        // que cada uno absorbió de ESTA pasada, o a partes iguales si ninguno
+        // absorbió nada (ya estaban a tope antes de esta pasada). Es solo
+        // ATRIBUCIÓN: no se llama a tocar(), así que no infla `asignado` de
+        // nadie, y el kg sigue yendo a excesosSinColocar como cualquier
+        // exceso sin procesado real que lo absorba — lo que cambia es que
+        // JAMÁS se ofrece a un lote de la misma finca/variedad ajeno al
+        // informe (eso queda solo para pasadas de código simple, más abajo).
+        const demas = codigosDistintos.filter((c) => c !== firstCode && reg.has(c));
+        if (demas.length > 0) {
+          const pesos = demas.map((c) => absorbidoPorCode.get(c) ?? 0);
+          const sumaPesos = pesos.reduce((s, v) => s + v, 0);
+          demas.forEach((code, idx) => {
+            const share = sumaPesos > 0 ? restante * (pesos[idx]! / sumaPesos) : restante / demas.length;
+            if (share <= 0.0001) return;
+            movimientos.push({ de: firstCode, a: code, kg: share, motivo: "reentrada_nombrados" });
+          });
+        }
+        excesosSinColocar.push({ lote: firstCode, kg: restante });
+      } else {
+        const donante = firstCode;
+        const acc = excesoPorLote.get(donante) ?? { kg: 0, ultimaFecha: null };
+        acc.kg += restante;
+        const fecha = p.date ?? null;
+        if (fecha && (!acc.ultimaFecha || fecha > acc.ultimaFecha)) acc.ultimaFecha = fecha;
+        excesoPorLote.set(donante, acc);
+      }
     }
   }
 
