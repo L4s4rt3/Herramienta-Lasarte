@@ -29,6 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CerrarLoteDialog } from "@/components/CerrarLoteDialog";
+import { CicloVidaEvidenciaSection } from "@/components/CicloVidaEvidenciaSection";
 import { FuenteBadge, fuentePodridoAVariant } from "@/components/FuenteBadge";
 import { InfoTooltip } from "@/components/InfoTooltip";
 import { InspeccionesPodridoCard } from "@/components/InspeccionesPodridoCard";
@@ -1309,6 +1310,13 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
 
       {/* Muestreos manuales de podrido (contar podridas por box): señal de calidad para contrastar con el podrido pesado */}
       {entrada && <InspeccionesPodridoCard lote={data.lote} />}
+
+      {/* Ciclo de vida (evidencia) — FASE 3a de la refundación de trazabilidad
+          (docs/TRAZABILIDAD_REFUNDACION.md): primer consumidor del motor
+          nuevo (eventosLote.ts + cicloVidaLote.ts). Sección ADITIVA de solo
+          lectura — no sustituye ningún número de arriba, el motor viejo sigue
+          mandando en stock/cierres. */}
+      {entrada && <CicloVidaEvidenciaSection lote={data.lote} />}
 
       {/* Origen agrícola como pie: cierre del círculo */}
       {entrada?.finca && (
