@@ -680,28 +680,108 @@ describe("esCandidatoCierreAutomatico — selección del cierre automático pers
   });
 });
 
-describe("procesadoEnCompuesto / esCandidatoCierreCompuesto — huérfanos de pasada compuesta (refuerzo 04-08-2026, evidencia verificada en BD antes de codificar)", () => {
-  const activo = { lote: "26080101", fecha: "2026-08-01", kg_entrada: 10000, finca: "DEHESILLA", articulo: "NAVEL", agricultor: "X" };
+describe("enCamaraExterna — protección simétrica en los candidatos (ground truth del dueño 04-08-2026 nº2, PRIORIDAD MÁXIMA)", () => {
+  // Casos de control reales: 26050809/26051106/26052207/26052506 (todos
+  // Invermarmelo/Guadex), revertidos en BD por el dueño tras confirmar que
+  // siguen físicamente en cámara. Antes de esta protección, un derrame o un
+  // kg_ajuste_stock erróneo los habría dejado "procesado" y el auto-cierre
+  // los habría cerrado "con_analisis" — físicamente imposible.
+  const codigosGuadex = ["26050809", "26051106", "26052207", "26052506"];
 
-  it("0 kg conciliados propios + evidencia de compuesta -> estado forzado a 'procesado', kg_en_camara 0 y el campo relleno", () => {
+  it.each(codigosGuadex)("%s: aunque algo le dé el 100%% de kg (derrame, ajuste de stock…), nunca es candidato a cierre COMPLETO", (lote) => {
+    const entradaGuadex = { lote, fecha: "2026-05-08", kg_entrada: 20000, finca: "INVERMARMELO - GG", articulo: "NAR VAL DELTA SEEDLESS", agricultor: null };
+    const procesados = [{ lote_codigo: lote, kg_peso_total: 20000, date: "2026-05-10" }]; // 100%, 2+ días
+    const stock = buildStockEntradas([entradaGuadex], procesados, "2026-08-04", undefined, undefined, new Set([lote]));
+    const fila = stock.filas[0];
+    expect(fila.estado).toBe("procesado"); // el cálculo de pct no cambia...
+    expect(fila.enCamaraExterna).toBe(true);
+    expect(esCandidatoCierreAutomatico(fila, "2026-08-04")).toBe(false); // ...pero NUNCA cierra solo
+  });
+
+  it.each(codigosGuadex)("%s: tampoco es candidato a cierre COMPUESTO aunque tenga evidencia de pasada compuesta", (lote) => {
+    const entradaGuadex = { lote, fecha: "2026-05-08", kg_entrada: 20000, finca: "INVERMARMELO - GG", articulo: "NAR VAL DELTA SEEDLESS", agricultor: null };
+    const huerfanos = new Map([[lote, { primeros: ["26050501"], ultimaFecha: "2026-05-10" }]]);
+    const stock = buildStockEntradas([entradaGuadex], [], "2026-08-04", huerfanos, undefined, new Set([lote]));
+    const fila = stock.filas[0];
+    expect(fila.enCamaraExterna).toBe(true);
+    expect(esCandidatoCierreCompuesto(fila, "2026-08-04")).toBe(false);
+  });
+
+  it("sin la señal (Set ausente o sin el lote), el comportamiento es el de siempre — no rompe nada existente", () => {
+    const entradaNormal = { lote: "26080101", fecha: "2026-08-01", kg_entrada: 10000, finca: "DEHESILLA", articulo: "NAVEL", agricultor: "X" };
+    const procesados = [{ lote_codigo: "26080101", kg_peso_total: 9800, date: "2026-08-01" }];
+    const stock = buildStockEntradas([entradaNormal], procesados, "2026-08-04");
+    expect(stock.filas[0].enCamaraExterna).toBe(false);
+    expect(esCandidatoCierreAutomatico(stock.filas[0], "2026-08-04")).toBe(true);
+  });
+
+  it("esCandidatoCierreAutomatico/esCandidatoCierreCompuesto: enCamaraExterna manda incluso si el resto de condiciones serían candidatas", () => {
+    expect(esCandidatoCierreAutomatico(
+      { estado: "procesado", cerrado_at: null, ultima_fecha_procesado: "2026-08-01", enCamaraExterna: true },
+      "2026-08-04",
+    )).toBe(false);
+    expect(esCandidatoCierreCompuesto(
+      { cerrado_at: null, procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: "2026-08-01" }, enCamaraExterna: true },
+      "2026-08-04",
+    )).toBe(false);
+  });
+});
+
+describe("procesadoEnCompuesto / esCandidatoCierreCompuesto — huérfanos de pasada compuesta (refuerzo 04-08-2026, AJUSTADO tras validación en real del commit ae30f5a)", () => {
+  const activo = { lote: "26080101", fecha: "2026-08-01", kg_entrada: 10000, finca: "DEHESILLA", articulo: "NAVEL", agricultor: "X" };
+  // Réplica exacta de capacidadFraccionEstimada (conciliacionKg.ts) para no
+  // importarla aquí (evitaría el ciclo de imports) — mismos números.
+  const fraccionEsperadaPorEdad = (dias: number) => (1 - Math.min(0.15, 0.000513 * dias)) * (1 - 0.03);
+
+  it("CAUSA RAÍZ confirmada contra la BD real: 0 kg EXACTOS bajo su propio código casi nunca ocurre — sin la relajación por edad, un pendiente grande NO se marca (documenta el bug que reportó el dueño)", () => {
     const huerfanos = new Map([["26080101", { primeros: ["26080001"], ultimaFecha: "2026-08-05" }]]);
+    // Sin fraccionEsperadaPorEdad: el hueco explicable es 0, así que un
+    // pendiente de 10000 (0 kg conciliados) no cabe -> no se marca. Esto es
+    // justo lo que pasaba en producción: candidatosCierreCompuesto salía
+    // vacío porque la fase 1 (o kg_ajuste_stock) casi nunca deja el
+    // pendiente en 0 exacto.
     const stock = buildStockEntradas([activo], [], "2026-08-06", huerfanos);
+    expect(stock.filas[0].procesadoEnCompuesto).toBeNull();
+    expect(stock.filas[0].estado).toBe("pendiente");
+  });
+
+  it("pendiente DENTRO del hueco esperado por edad (con fraccionEsperadaPorEdad inyectada) -> procesado en compuesto", () => {
+    const huerfanos = new Map([["26080101", { primeros: ["26080001"], ultimaFecha: "2026-08-05" }]]);
+    // A 90 días el hueco explicable es kg_entrada×(1−0,9252)≈748 kg. Con un
+    // pendiente de 700 kg (kgProcesado 9300, 93%) el hueco SÍ lo cubre.
+    const viejo = { ...activo, fecha: "2026-05-08" }; // ~90 días hasta 2026-08-06
+    const procesados = [{ lote_codigo: "26080101", kg_peso_total: 9300, date: "2026-06-01" }];
+    const stock = buildStockEntradas([viejo], procesados, "2026-08-06", huerfanos, fraccionEsperadaPorEdad);
     const fila = stock.filas[0];
     expect(fila.estado).toBe("procesado");
     expect(fila.kg_en_camara).toBe(0);
     expect(fila.procesadoEnCompuesto).toEqual({ primeros: ["26080001"], ultimaFecha: "2026-08-05" });
-    // Y sale del "en cámara" agregado, como pide el dueño.
     expect(stock.kgEnCamara).toBe(0);
   });
 
-  it("ALGO de kg conciliado propio (aunque no llegue al umbral) -> se queda 'parcial', NO se cierra ni se marca (encargo explícito del dueño)", () => {
+  it("pendiente POR ENCIMA del hueco esperado por edad -> se queda 'parcial', NO se cierra ni se marca (el reparto por fase 1 dejó demasiado sin explicar)", () => {
     const huerfanos = new Map([["26080101", { primeros: ["26080001"], ultimaFecha: "2026-08-05" }]]);
-    const procesados = [{ lote_codigo: "26080101", kg_peso_total: 500, date: "2026-08-03" }]; // 5%: sigue con algo
-    const stock = buildStockEntradas([activo], procesados, "2026-08-06", huerfanos);
+    const viejo = { ...activo, fecha: "2026-05-08" }; // ~90 días, hueco esperado ≈748 kg
+    // Pendiente real de 2000 kg (80% procesado): supera el hueco esperado.
+    const procesados = [{ lote_codigo: "26080101", kg_peso_total: 8000, date: "2026-06-01" }];
+    const stock = buildStockEntradas([viejo], procesados, "2026-08-06", huerfanos, fraccionEsperadaPorEdad);
     const fila = stock.filas[0];
     expect(fila.estado).toBe("parcial");
     expect(fila.procesadoEnCompuesto).toBeNull();
-    expect(fila.kg_en_camara).toBe(9500);
+    expect(fila.kg_en_camara).toBe(2000);
+  });
+
+  it("CASO DE CONTROL real (26042109, nombrado en '26042010- 26042109', cámara física vacía confirmada por el dueño): kg_ajuste_stock cubre el 100% -> pendiente 0 -> SIEMPRE candidato, incluso sin fraccionEsperadaPorEdad", () => {
+    const entrada26042109 = {
+      lote: "26042109", fecha: "2026-04-21", kg_entrada: 21280, finca: "Melendez - GG", articulo: "NAR VAL DELTA SEEDLESS", agricultor: null,
+      kg_ajuste_stock: 21280, // confirmado en BD: ajuste de stock cubre la entrada entera
+    };
+    const huerfanos = new Map([["26042109", { primeros: ["26042010"], ultimaFecha: "2026-06-26" }]]);
+    const stock = buildStockEntradas([entrada26042109], [], "2026-08-04", huerfanos); // sin fraccionEsperadaPorEdad: da igual, pendiente ya es 0
+    const fila = stock.filas[0];
+    expect(fila.estado).toBe("procesado");
+    expect(fila.procesadoEnCompuesto).toEqual({ primeros: ["26042010"], ultimaFecha: "2026-06-26" });
+    expect(esCandidatoCierreCompuesto(fila, "2026-08-04")).toBe(true); // 39 días desde la mención, sobra margen
   });
 
   it("sin evidencia de compuesta (no está en el mapa) -> se queda 'pendiente' de siempre, sin tocar", () => {
@@ -718,19 +798,19 @@ describe("procesadoEnCompuesto / esCandidatoCierreCompuesto — huérfanos de pa
   });
 
   it("esCandidatoCierreCompuesto: true con ≥2 días desde la ÚLTIMA pasada compuesta que lo menciona", () => {
-    const filaListo = { cerrado_at: null, procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: "2026-08-01" } };
+    const filaListo = { cerrado_at: null, procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: "2026-08-01" }, enCamaraExterna: false };
     expect(esCandidatoCierreCompuesto(filaListo, "2026-08-03")).toBe(true); // exactamente 2 días
     expect(esCandidatoCierreCompuesto(filaListo, "2026-08-02")).toBe(false); // 1 día: se espera a que se asiente
   });
 
   it("esCandidatoCierreCompuesto: false sin evidencia, ya cerrado, o evidencia sin fecha (nunca se demuestra el margen a ciegas)", () => {
-    expect(esCandidatoCierreCompuesto({ cerrado_at: null, procesadoEnCompuesto: null }, "2026-08-10")).toBe(false);
+    expect(esCandidatoCierreCompuesto({ cerrado_at: null, procesadoEnCompuesto: null, enCamaraExterna: false }, "2026-08-10")).toBe(false);
     expect(esCandidatoCierreCompuesto(
-      { cerrado_at: "2026-08-01T00:00:00Z", procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: "2026-07-01" } },
+      { cerrado_at: "2026-08-01T00:00:00Z", procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: "2026-07-01" }, enCamaraExterna: false },
       "2026-08-10",
     )).toBe(false);
     expect(esCandidatoCierreCompuesto(
-      { cerrado_at: null, procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: null } },
+      { cerrado_at: null, procesadoEnCompuesto: { primeros: ["X"], ultimaFecha: null }, enCamaraExterna: false },
       "2026-08-10",
     )).toBe(false);
   });

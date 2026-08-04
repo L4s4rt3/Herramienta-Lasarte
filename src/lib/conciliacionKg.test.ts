@@ -489,6 +489,77 @@ describe("capacidadFraccionEstimada — fracción exportada para el umbral diná
   });
 });
 
+describe("conciliarKgProcesados — lotesEnCamaraExterna (ground truth del dueño 04-08-2026 nº2, PRIORIDAD MÁXIMA)", () => {
+  // Caso real que destapó el bug: 26050809 (Invermarmelo, Guadex, sin
+  // venta_directa/entrada_lst/fecha_salida_camara/pasadas propias) recibía
+  // kg del derrame por misma finca/variedad de otro lote real de
+  // Invermarmelo con exceso, y el auto-cierre por edad lo cerraba
+  // "con_analisis" — físicamente imposible, la fruta seguía en Guadex.
+  it("un lote confirmado en cámara EXTERNA nunca recibe derrame por exceso, aunque sea el mejor candidato por finca/variedad", () => {
+    const res = conciliarKgProcesados(
+      [
+        entrada({ lote: "26050501", kg_entrada: 20000, fecha: "2026-05-05", finca: "INVERMARMELO - GG" }), // donante con exceso
+        entrada({ lote: "26050809", kg_entrada: 21060, fecha: "2026-05-08", finca: "INVERMARMELO - GG" }), // Guadex: confirmado en cámara
+      ],
+      [{ lote_codigo: "26050501", kg_peso_total: 25000, date: "2026-05-05" }],
+      [],
+      new Set(["26050809"]), // señal de cámara externa
+    );
+    const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
+    expect(kg.has("26050809")).toBe(false); // NUNCA recibe nada, ni un kg
+    // El exceso (25000 − 20000×0,97 = 5600) se queda en la cola de revisión:
+    // no hay a quién derramarlo, y NUNCA se inventa un receptor prohibido.
+    expect(res.excesosSinColocar).toEqual([{ lote: "26050501", kg: 5600 }]);
+  });
+
+  it("control: SIN la señal de cámara externa, el mismo exceso SÍ derrama normalmente al lote hermano (para confirmar que el bloqueo es justo por el Set)", () => {
+    const res = conciliarKgProcesados(
+      [
+        entrada({ lote: "26050501", kg_entrada: 20000, fecha: "2026-05-05", finca: "INVERMARMELO - GG" }),
+        entrada({ lote: "26050809", kg_entrada: 21060, fecha: "2026-05-08", finca: "INVERMARMELO - GG" }),
+      ],
+      [{ lote_codigo: "26050501", kg_peso_total: 25000, date: "2026-05-05" }],
+      // sin reciclajePorDia ni el Set de cámara externa:
+    );
+    const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
+    expect(kg.get("26050809")).toBeCloseTo(5600);
+    expect(res.excesosSinColocar).toHaveLength(0);
+  });
+
+  it("con OTRO candidato disponible además del bloqueado, el exceso va al que SÍ puede recibirlo (el bloqueo no rompe el resto del derrame)", () => {
+    const res = conciliarKgProcesados(
+      [
+        entrada({ lote: "26050501", kg_entrada: 20000, fecha: "2026-05-05", finca: "INVERMARMELO - GG" }),
+        entrada({ lote: "26050809", kg_entrada: 21060, fecha: "2026-05-08", finca: "INVERMARMELO - GG" }), // bloqueado
+        entrada({ lote: "26050602", kg_entrada: 21060, fecha: "2026-05-06", finca: "INVERMARMELO - GG" }), // libre, misma finca/variedad
+      ],
+      [{ lote_codigo: "26050501", kg_peso_total: 25000, date: "2026-05-05" }],
+      [],
+      new Set(["26050809"]),
+    );
+    const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
+    expect(kg.has("26050809")).toBe(false);
+    expect(kg.get("26050602")).toBeCloseTo(5600);
+    expect(res.excesosSinColocar).toHaveLength(0);
+  });
+
+  it("los 4 casos de control reales del dueño (26050809/26051106/26052207/26052506, todos Invermarmelo/Guadex) quedan sin kg cuando están en el Set, incluso con varios donantes distintos", () => {
+    const codigosGuadex = ["26050809", "26051106", "26052207", "26052506"];
+    const res = conciliarKgProcesados(
+      [
+        entrada({ lote: "26050502", kg_entrada: 20000, fecha: "2026-05-05", finca: "INVERMARMELO - GG" }), // donante con exceso
+        ...codigosGuadex.map((lote, i) => entrada({ lote, kg_entrada: 20000 + i * 100, fecha: "2026-05-08", finca: "INVERMARMELO - GG" })),
+      ],
+      [{ lote_codigo: "26050502", kg_peso_total: 40000, date: "2026-05-05" }], // exceso grande, cabría de sobra en cualquiera de los 4
+      [],
+      new Set(codigosGuadex),
+    );
+    const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
+    for (const lote of codigosGuadex) expect(kg.has(lote)).toBe(false);
+    expect(res.excesosSinColocar.length).toBeGreaterThan(0); // el exceso se queda en cola, nunca en Guadex
+  });
+});
+
 describe("detectarLotesEnPasadaCompuesta — evidencia de huérfanos en pasadas compuestas (refuerzo 2026-08-03)", () => {
   it("un código NO-primero de una pasada compuesta queda asociado al primero, aunque no reciba kg en el reparto", () => {
     const pasadas: PasadaConciliacion[] = [

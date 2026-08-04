@@ -24,6 +24,7 @@ const fila = (over: Partial<StockLoteRow> & { lote: string }): StockLoteRow => (
   probablementeTerminado: false,
   cerradoConActividadPosterior: false,
   procesadoEnCompuesto: null,
+  enCamaraExterna: false,
   ...over,
 });
 

@@ -13,6 +13,8 @@ import { toError } from "@/lib/errorMessage";
 import { escribirConReintentos, fetchAllRows } from "@/lib/fetchAllRows";
 import { buildStockEntradas, esCandidatoCierreAutomatico, esCandidatoCierreCompuesto, type CierreModo, type EntradaBasculaParsed, type LoteProcesadoInput } from "@/lib/entradasBascula";
 import { capacidadFraccionEstimada, conciliarKgProcesados, detectarLotesEnPasadaCompuesta, type EntradaConciliacion, type ReciclajeDiaInput } from "@/lib/conciliacionKg";
+import { codigosEnCamaraExterna, type SenalesRecepcion } from "@/lib/camarasExternas";
+import { useCamarasExternas } from "@/hooks/useCamarasExternas";
 import { normalizarLoteCodigo } from "@/lib/loteCodigo";
 import { esEntradaCampoCit, esEntradaPrecalibrado, esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
 import { esNotaOperarioLote } from "@/lib/trazabilidadSelector";
@@ -373,6 +375,38 @@ export function useEntradasBascula() {
   // pendiente (misma finca+variedad, luego misma variedad) — ver
   // src/lib/conciliacionKg.ts. El stock se construye con el resultado; los
   // datos crudos de lotes_dia no se tocan.
+  // ─── Señal de cámara EXTERNA confirmada (Guadex/Zamexfruit) ────────────────
+  // Ground truth del dueño 04-08-2026 (nº2, PRIORIDAD MÁXIMA): "un lote cuya
+  // señal de cámara externa diga que SIGUE EN CÁMARA NO PUEDE recibir
+  // derrames de exceso — es físicamente imposible que fruta que está en
+  // Guadex haya pasado por el calibrador". Caso real que lo destapó: 4 lotes
+  // de Guadex (26050809/26051106/26052207/26052506, Invermarmelo) recibían
+  // kg del derrame por misma finca/variedad de otros lotes reales de
+  // Invermarmelo y el auto-cierre por edad los cerraba "con_analisis" — el
+  // accidente exacto que esto impide. Se calcula AQUÍ (no en la página) para
+  // que conciliarKgProcesados pueda excluir estos lotes de sus candidatos al
+  // derrame (fase 2) directamente — ver codigosEnCamaraExterna en
+  // camarasExternas.ts. Reutiliza useCamarasExternas() (misma queryKey que la
+  // página, sin fetch duplicado por el dedupe de React Query).
+  const { camiones: camionesCamaraExterna } = useCamarasExternas();
+  const lotesEnCamaraExterna = useMemo(() => {
+    const salidaPorLote = new Map<string, string | null>();
+    for (const e of entradas) {
+      const salida = (e as { fecha_salida_camara?: string | null }).fecha_salida_camara ?? null;
+      const merma = (e as { merma_camara_kg?: number | null }).merma_camara_kg ?? null;
+      if (salida == null && merma == null) continue;
+      const lote8 = normalizarLoteCodigo(e.lote);
+      if (lote8) salidaPorLote.set(lote8, salida);
+    }
+    const lotesProcesados = new Set<string>();
+    for (const p of procesadosQuery.data?.procesados ?? []) {
+      const lote8 = normalizarLoteCodigo(p.lote_codigo);
+      if (lote8) lotesProcesados.add(lote8);
+    }
+    const senales: SenalesRecepcion = { salidaPorLote, lotesProcesados };
+    return codigosEnCamaraExterna(camionesCamaraExterna, senales, today());
+  }, [entradas, procesadosQuery.data, camionesCamaraExterna]);
+
   const conciliacionKg = useMemo(() => {
     const aConciliacion = (e: EntradaBasculaRow, esPrec: boolean): EntradaConciliacion => ({
       lote: e.lote,
@@ -391,8 +425,9 @@ export function useEntradasBascula() {
       [...entradas.map((e) => aConciliacion(e, false)), ...entradasPrecalibrado.map((e) => aConciliacion(e, true))],
       procesadosQuery.data?.procesados ?? [],
       procesadosQuery.data?.reciclajePorDia ?? [],
+      lotesEnCamaraExterna,
     );
-  }, [entradas, entradasPrecalibrado, procesadosQuery.data]);
+  }, [entradas, entradasPrecalibrado, procesadosQuery.data, lotesEnCamaraExterna]);
 
   // ─── Señales de calidad por lote: % industria y notas del operario ─────────
   // (para la ficha, la tabla del selector y la búsqueda por síntoma —
@@ -481,8 +516,13 @@ export function useEntradasBascula() {
       // reparto, inyectada aquí en vez de importada en entradasBascula.ts
       // para no crear un ciclo de imports.
       capacidadFraccionEstimada,
+      // Ground truth 04-08-2026 (nº2): protección simétrica en el propio
+      // StockLoteRow (enCamaraExterna) para que ningún candidato de cierre
+      // recoja un lote confirmado en Guadex/Zamexfruit, aunque algo más
+      // (derrame, ajuste de stock…) le haya dado kg — ver esCandidatoCierreAutomatico/esCandidatoCierreCompuesto.
+      lotesEnCamaraExterna,
     ),
-    [entradas, conciliacionKg, hoy, lotesEnPasadaCompuesta],
+    [entradas, conciliacionKg, hoy, lotesEnPasadaCompuesta, lotesEnCamaraExterna],
   );
 
   // ─── Candidatos al cierre automático PERSISTIDO (refuerzo 2026-08-03) ──────

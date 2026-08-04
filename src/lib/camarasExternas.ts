@@ -231,6 +231,41 @@ export function kgEnCamaraDeEstado(camion: CamionCamaraExterna, estado: EstadoCa
   return 0;
 }
 
+/**
+ * Códigos de lote CONFIRMADOS físicamente en una cámara EXTERNA ahora mismo
+ * (estado "en_camara": sin venta_directa, sin entrada_lst_1/2, sin
+ * fecha_salida_camara y sin pasadas propias en lotes_dia — ver
+ * estadoCamionExterno más arriba).
+ *
+ * REGLA DEL DUEÑO, 04-ago-2026 (ground truth nº2, prioridad máxima): "un
+ * lote cuya señal de cámara externa diga que SIGUE EN CÁMARA NO PUEDE
+ * recibir derrames de exceso en conciliarKgProcesados — es físicamente
+ * imposible que fruta que está en Guadex haya pasado por el calibrador".
+ * Caso real que destapó el bug: 4 lotes de Guadex (26052506, 26052207,
+ * 26051106, 26050809, todos Invermarmelo) recibieron kg vía el derrame por
+ * misma finca/variedad (exceso_misma_finca) de otros lotes reales de
+ * Invermarmelo, y el auto-cierre por edad los cerró "con_analisis" — el
+ * accidente exacto que esta función existe para impedir.
+ *
+ * Se exporta como un Set de códigos de 8 dígitos para que
+ * conciliarKgProcesados (conciliacionKg.ts) pueda EXCLUIR estos lotes de sus
+ * candidatos a derrame (fase 2) sin tener que importar este módulo — el
+ * caller (useEntradasBascula.ts) construye el Set con `estadoCamionExterno`
+ * y se lo inyecta como parámetro opcional. Solo cuenta "en_camara" (NO
+ * "parcial": ese estado ya tiene entrada_lst_1/2 registrado, así que no
+ * encaja en la descripción literal de la regla).
+ */
+export function codigosEnCamaraExterna(camiones: CamionCamaraExterna[], senales: SenalesRecepcion, hoy: string): Set<string> {
+  const codigos = new Set<string>();
+  for (const camion of camiones) {
+    const lote8 = normalizarLoteCodigo(camion.lote);
+    if (!lote8) continue;
+    const estado = estadoCamionExterno(camion, senales, hoy);
+    if (estado.estado === "en_camara") codigos.add(lote8);
+  }
+  return codigos;
+}
+
 export function agregarCamaraExterna(camiones: CamionCamaraExterna[], senales: SenalesRecepcion, hoy: string): CamaraExternaAgregado {
   const conEstado: CamionConEstado[] = camiones.map((camion) => ({ camion, estado: estadoCamionExterno(camion, senales, hoy) }));
   const enCamara = conEstado

@@ -820,21 +820,44 @@ export interface StockLoteRow {
   cerradoConActividadPosterior: boolean;
   /**
    * Evidencia de "procesado en compuesto" (refuerzo 04-ago-2026, encargo del
-   * dueño verificado contra la BD real: de 304 entradas PREC internas
-   * activas, 37 — 94,8 t — solo aparecen como código NO-primero de una
-   * pasada compuesta, el mismo patrón que 3 lotes reales activos —
-   * 70,6 t — con la misma evidencia). No null cuando el lote sigue ACTIVO
-   * (no cerrado a mano), tiene 0 kg conciliados bajo su PROPIO código, y
-   * `detectarLotesEnPasadaCompuesta` (conciliacionKg.ts) lo vio nombrado como
-   * código no-primero en alguna pasada compuesta: `primeros` son esos
-   * códigos y `ultimaFecha` la más reciente pasada que lo menciona. Cuando no
-   * es null, `estado` se fuerza a "procesado" (igual que un cierre manual) y
-   * `kg_en_camara` es 0 — la fruta muy probablemente ya se procesó bajo el
-   * código listado, así que no debe seguir contando como stock. Si el lote
-   * SÍ tiene algo de kg propio (aunque no llegue al umbral), este campo es
-   * null y el lote se queda "parcial" sin tocar, como hasta ahora.
+   * dueño, AJUSTADO tras la validación en real del commit ae30f5a). No null
+   * cuando el lote sigue ACTIVO (no cerrado a mano), `detectarLotesEnPasadaCompuesta`
+   * (conciliacionKg.ts) lo vio nombrado como código no-primero en alguna
+   * pasada compuesta, Y su PENDIENTE (kg_entrada − kg conciliado, ya con
+   * kg_ajuste_stock incluido) cabe dentro del hueco que la edad del lote ya
+   * explica (merma natural + podrido pre-calibrador habitual —
+   * capacidadFraccionEstimada de conciliacionKg.ts, inyectada como
+   * `fraccionEsperadaPorEdad`, nunca duplicada aquí).
+   *
+   * Primera versión (exigía 0 kg EXACTOS bajo su propio código) casi nunca
+   * disparaba en real: verificado contra la BD que la fase 1 de
+   * conciliarKgProcesados YA reparte algo de kg a los códigos nombrados (o,
+   * en los 3 casos reales encontrados aún activos — 26041702/26042109/
+   * 26050104 —, `kg_ajuste_stock` ya cubre el 100% de la entrada), así que
+   * el pendiente casi nunca era EXACTAMENTE 0 aunque fuera perfectamente
+   * explicable por la edad. `primeros` son los códigos que lo nombraron y
+   * `ultimaFecha` la pasada compuesta más reciente que lo menciona — la
+   * fecha de referencia del margen de 2 días (no la de una pasada bajo su
+   * propio código, que puede no existir).
+   *
+   * Cuando no es null, `estado` se fuerza a "procesado" (igual que un cierre
+   * manual) y `kg_en_camara` es 0. Si el pendiente SUPERA el hueco explicable
+   * por edad (el hueco es mayor de lo que la edad por sí sola justifica),
+   * este campo es null y el lote se queda "parcial"/"pendiente" sin tocar.
    */
   procesadoEnCompuesto: { primeros: string[]; ultimaFecha: string | null } | null;
+  /**
+   * true si una señal de cámara EXTERNA (Guadex/Zamexfruit,
+   * codigosEnCamaraExterna en camarasExternas.ts) confirma que este lote
+   * SIGUE físicamente allí ahora mismo. Ground truth del dueño 04-08-2026
+   * (nº2, prioridad máxima): es físicamente imposible que haya pasado por el
+   * calibrador, así que NUNCA es candidato a cierre automático (ni completo
+   * ni compuesto) aunque algo más (un derrame, un ajuste de stock…) le haya
+   * dado kg — protección simétrica a la de conciliarKgProcesados, que ya
+   * excluye estos lotes del derrame por exceso. `false` por defecto (sin la
+   * señal inyectada, no cambia nada del comportamiento existente).
+   */
+  enCamaraExterna: boolean;
 }
 
 export interface StockResumen {
@@ -892,6 +915,14 @@ export function buildStockEntradas(
    * umbral sigue siendo el plano UMBRAL_PROCESADO de siempre.
    */
   fraccionEsperadaPorEdad?: (dias: number) => number,
+  /**
+   * Códigos confirmados en cámara EXTERNA ahora mismo (ver
+   * codigosEnCamaraExterna en camarasExternas.ts). Ground truth del dueño
+   * 04-08-2026 (nº2): fuerza `enCamaraExterna=true` en la fila — protección
+   * de cinturón y tirantes para que ningún candidato de cierre (completo o
+   * compuesto) los recoja, aunque algo les haya dado kg por error. Opcional.
+   */
+  lotesEnCamaraExterna?: Set<string>,
 ): StockResumen {
   const procesadoPorLote = new Map<string, { kg: number; ultimaFecha: string | null }>();
   for (const p of procesados) {
@@ -912,18 +943,38 @@ export function buildStockEntradas(
     const kgProcesado = (procesado?.kg ?? 0) + (Number(entrada.kg_ajuste_stock) || 0);
     const kgEnCamara = Math.max(0, entrada.kg_entrada - kgProcesado);
     const cerradoManualmente = Boolean(entrada.cerrado_at);
-    // Solo aplica con 0 kg propios (ni un kg): si hay ALGO de kg conciliado
-    // bajo su código, el lote se queda "parcial" de toda la vida, sin tocar
-    // (encargo explícito del dueño).
-    const procesadoEnCompuesto = !cerradoManualmente && kgProcesado <= 0
-      ? huerfanosCompuesta?.get(clave) ?? null
-      : null;
     // Antigüedad DESDE LA ENTRADA hasta hoy: referencia del umbral dinámico
     // por edad (ground truth 04-08-2026, ver umbralCompletoPorEdad). Se usa
     // "hoy" (no la última pasada) porque el umbral decide si el lote sigue
     // ACTIVO, y su antigüedad como stock se cuenta hasta hoy mientras siga
     // abierto.
     const diasDesdeEntrada = diffDias(entrada.fecha, hoy);
+    /**
+     * Refuerzo 04-08-2026 (validación en real, commit ae30f5a): la
+     * precondición original ("0 kg propios") casi nunca se cumplía —
+     * confirmado contra la BD real (26041702/26042109/26050104, los 3
+     * huérfanos reales que seguían activos): la fase 1 de
+     * conciliarKgProcesados YA reparte kg a los códigos nombrados (o, en
+     * estos 3 casos concretos, kg_ajuste_stock ya cubre el 100% de la
+     * entrada), así que el hueco restante casi nunca es EXACTAMENTE 0 aunque
+     * sea perfectamente explicable por la edad del lote. Nuevo criterio: el
+     * lote nombrado en compuesta es candidato si su PENDIENTE (lo que de
+     * verdad le falta, ya con ajuste de stock incluido) cabe dentro del
+     * hueco que la edad ya explica (capacidadFraccionEstimada, inyectada vía
+     * `fraccionEsperadaPorEdad` — no se duplica la fórmula). Sin esa función
+     * inyectada, el hueco explicable es 0 y el criterio se reduce al
+     * original (compatibilidad con las llamadas/tests que no la pasan).
+     * Caso de control verificado: 26042109 (nombrado en "26042010-
+     * 26042109", cámara física vacía confirmada) tiene pendiente 0 (cubierto
+     * por kg_ajuste_stock) → 0 ≤ cualquier hueco → sale candidato.
+     */
+    const pendienteActual = Math.max(0, entrada.kg_entrada - kgProcesado);
+    const huecoExplicablePorEdad = fraccionEsperadaPorEdad
+      ? Math.max(0, entrada.kg_entrada * (1 - Math.min(1, Math.max(0, fraccionEsperadaPorEdad(diasDesdeEntrada)))))
+      : 0;
+    const procesadoEnCompuesto = !cerradoManualmente && pendienteActual <= huecoExplicablePorEdad
+      ? huerfanosCompuesta?.get(clave) ?? null
+      : null;
     const estado: StockEstado = estadoLotePorProcesado(
       entrada.kg_entrada,
       kgProcesado,
@@ -960,6 +1011,7 @@ export function buildStockEntradas(
       probablementeTerminado,
       cerradoConActividadPosterior: pasadasPosterioresAlCierre(entrada.cerrado_at ?? null, ultimaFechaProcesado),
       procesadoEnCompuesto,
+      enCamaraExterna: Boolean(lotesEnCamaraExterna?.has(clave)),
     };
   });
 
@@ -1008,9 +1060,15 @@ export function buildStockEntradas(
  * merma/podrido real, ver criterioCierreModo).
  */
 export function esCandidatoCierreAutomatico(
-  fila: Pick<StockLoteRow, "estado" | "cerrado_at" | "ultima_fecha_procesado">,
+  fila: Pick<StockLoteRow, "estado" | "cerrado_at" | "ultima_fecha_procesado" | "enCamaraExterna">,
   hoy: string,
 ): boolean {
+  // Ground truth del dueño 04-08-2026 (nº2, prioridad máxima): un lote
+  // confirmado en cámara EXTERNA nunca es candidato, aunque algo más
+  // (derrame, ajuste de stock...) le haya dado kg y su estado ya sea
+  // "procesado" — es físicamente imposible que haya pasado por el
+  // calibrador mientras sigue en Guadex/Zamexfruit.
+  if (fila.enCamaraExterna) return false;
   if (fila.estado !== "procesado") return false;
   if (fila.cerrado_at) return false;
   if (!fila.ultima_fecha_procesado) return false;
@@ -1038,9 +1096,12 @@ export function esCandidatoCierreAutomatico(
  * revisión manual en vez de cerrar a ciegas.
  */
 export function esCandidatoCierreCompuesto(
-  fila: Pick<StockLoteRow, "cerrado_at" | "procesadoEnCompuesto">,
+  fila: Pick<StockLoteRow, "cerrado_at" | "procesadoEnCompuesto" | "enCamaraExterna">,
   hoy: string,
 ): boolean {
+  // Misma protección que esCandidatoCierreAutomatico (ground truth nº2,
+  // 04-08-2026): un lote en cámara externa confirmada nunca cierra solo.
+  if (fila.enCamaraExterna) return false;
   if (fila.cerrado_at) return false;
   const evidencia = fila.procesadoEnCompuesto;
   if (!evidencia || !evidencia.ultimaFecha) return false;

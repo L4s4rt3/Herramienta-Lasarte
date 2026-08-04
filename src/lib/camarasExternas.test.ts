@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agregarCamaraExterna,
+  codigosEnCamaraExterna,
   estadoCamionExterno,
   parseRegistroCamaraExternaRows,
   type CamionCamaraExterna,
@@ -202,5 +203,66 @@ describe("agregarCamaraExterna", () => {
       "2026-07-27",
     );
     expect(agregado.enCamara.map((c) => c.camion.s_ref)).toEqual(["A", "B"]);
+  });
+});
+
+describe("codigosEnCamaraExterna — ground truth del dueño 04-08-2026 (nº2, PRIORIDAD MÁXIMA): 'físicamente imposible que haya pasado por el calibrador'", () => {
+  const camion = (over: Partial<CamionCamaraExterna>): CamionCamaraExterna => ({
+    procedencia: "GUADEX",
+    s_ref: "S26/1",
+    lote: null,
+    fecha_almacenamiento: "2026-05-08",
+    proveedor: "Invermarmelo",
+    finca: "Invermarmelo",
+    variedad: "Valencia",
+    envases: 104,
+    kg: 20000,
+    entrada_lst_1: null,
+    entrada_lst_2: null,
+    envases_1: null,
+    envases_2: null,
+    venta_directa: null,
+    nota_entrada: null,
+    transporte_lst: null,
+    ...over,
+  });
+  const sinSenales: SenalesRecepcion = { salidaPorLote: new Map(), lotesProcesados: new Set() };
+
+  it("los 4 casos de control reales del dueño (Invermarmelo/Guadex) salen en el Set cuando no hay ninguna señal de recepción", () => {
+    const codigosGuadex = ["26050809", "26051106", "26052207", "26052506"];
+    const camiones = codigosGuadex.map((lote, i) => camion({ s_ref: `S26/10020${i}`, lote }));
+    const set = codigosEnCamaraExterna(camiones, sinSenales, "2026-08-04");
+    for (const lote of codigosGuadex) expect(set.has(lote)).toBe(true);
+    expect(set.size).toBe(4);
+  });
+
+  it("con fecha_salida_camara (Excel de mermas) o pasadas de calibrador, el lote SALE del Set (ya no está en cámara)", () => {
+    const camiones = [camion({ lote: "26050809" }), camion({ s_ref: "S26/2", lote: "26051106" })];
+    const senales: SenalesRecepcion = {
+      salidaPorLote: new Map([["26050809", "2026-07-01"]]),
+      lotesProcesados: new Set(["26051106"]),
+    };
+    const set = codigosEnCamaraExterna(camiones, senales, "2026-08-04");
+    expect(set.size).toBe(0);
+  });
+
+  it("venta directa o entrada_lst_1/2 registrados también sacan al lote del Set", () => {
+    const camiones = [
+      camion({ lote: "26050809", venta_directa: "Venta directa 15/05" }),
+      camion({ s_ref: "S26/2", lote: "26051106", entrada_lst_1: "2026-07-01" }),
+    ];
+    const set = codigosEnCamaraExterna(camiones, sinSenales, "2026-08-04");
+    expect(set.size).toBe(0);
+  });
+
+  it("llegada PARCIAL (entrada_lst_1 con envases parciales) no cuenta como 'en_camara' a efectos de este Set (ya tiene indicación de recepción)", () => {
+    const camiones = [camion({ lote: "26050809", envases: 72, entrada_lst_1: "2026-06-26", envases_1: 6 })];
+    const set = codigosEnCamaraExterna(camiones, sinSenales, "2026-08-04");
+    expect(set.has("26050809")).toBe(false);
+  });
+
+  it("sin lote reconocible (null) no se añade nada al Set", () => {
+    const set = codigosEnCamaraExterna([camion({ lote: null })], sinSenales, "2026-08-04");
+    expect(set.size).toBe(0);
   });
 });
