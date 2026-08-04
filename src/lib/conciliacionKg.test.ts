@@ -53,14 +53,21 @@ describe("conciliarKgProcesados — asignación directa", () => {
       [{ lote_codigo: "25111002+25111001", kg_peso_total: 29929, date: "2025-11-10" }],
     );
     const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
-    expect(kg.get("25111002")).toBe(20000);
-    expect(kg.get("25111001")).toBeCloseTo(9929);
-    expect(res.movimientos).toEqual([{ de: "25111002", a: "25111001", kg: 9929, motivo: "multi_codigo" }]);
+    // Regla del dueño 04-08-2026 (2ª parte): la capacidad ya no es el 100 %
+    // de la entrada, descuenta también el podrido pre-calibrador habitual
+    // (×0,97): 20000×0,97=19400 y 15000×0,97=14550.
+    expect(kg.get("25111002")).toBe(19400);
+    expect(kg.get("25111001")).toBeCloseTo(10529); // 29929 − 19400, cabe entero en su pendiente (14550)
+    expect(res.movimientos).toEqual([{ de: "25111002", a: "25111001", kg: 10529, motivo: "multi_codigo" }]);
+    expect(res.excesosSinColocar).toHaveLength(0);
   });
 
   it("kg_preasignado (ajuste de stock) reduce el pendiente pero no aparece en el procesado sintético", () => {
     const res = conciliarKgProcesados(
-      [entrada({ lote: "26050101", kg_entrada: 20000, kg_preasignado: 15000 })],
+      // kg_preasignado bajado de 15000 a 10000 (regla 04-08-2026: la
+      // capacidad ya no es la entrada completa, 20000×0,97=19400 — con
+      // 15000 preasignados este caso ya no cabía y probaba otra cosa).
+      [entrada({ lote: "26050101", kg_entrada: 20000, kg_preasignado: 10000 })],
       [{ lote_codigo: "26050101", kg_peso_total: 5000, date: "2026-05-01" }],
     );
     expect(res.procesados[0].kg_peso_total).toBe(5000); // el ajuste lo suma buildStockEntradas aparte
@@ -78,13 +85,17 @@ describe("conciliarKgProcesados — derrame de excesos", () => {
       [{ lote_codigo: "26021405", kg_peso_total: 52235, date: "2026-02-14" }],
     );
     const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
-    expect(kg.get("26021405")).toBe(24940); // ya no supera su entrada
-    expect(kg.get("26021610")).toBeCloseTo(27295); // absorbe el exceso
+    // Regla del dueño 04-08-2026 (2ª parte): la capacidad descuenta también
+    // el podrido pre-calibrador habitual (×0,97): 24940×0,97=24191,8, y el
+    // exceso que absorbe el hermano es 52235−24191,8=28043,2 (30400×0,97=
+    // 29488 de capacidad en el receptor, le cabe entero).
+    expect(kg.get("26021405")).toBeCloseTo(24191.8); // ya no supera su entrada (y ahora tampoco llega al 100 %)
+    expect(kg.get("26021610")).toBeCloseTo(28043.2); // absorbe el exceso
     expect(res.movimientos).toEqual([
-      { de: "26021405", a: "26021610", kg: 27295, motivo: "exceso_misma_finca" },
+      { de: "26021405", a: "26021610", kg: 28043.2, motivo: "exceso_misma_finca" },
     ]);
-    expect(res.deltaPorLote.get("26021405")).toBeCloseTo(-27295);
-    expect(res.deltaPorLote.get("26021610")).toBeCloseTo(27295);
+    expect(res.deltaPorLote.get("26021405")).toBeCloseTo(-28043.2);
+    expect(res.deltaPorLote.get("26021610")).toBeCloseTo(28043.2);
   });
 
   it("prioridad: misma finca antes que otra finca de la misma variedad; nunca a variedad distinta", () => {
@@ -98,8 +109,11 @@ describe("conciliarKgProcesados — derrame de excesos", () => {
       [{ lote_codigo: "26030101", kg_peso_total: 20000, date: "2026-03-01" }],
     );
     const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
-    expect(kg.get("26030102")).toBe(4000); // primero agota la misma finca
-    expect(kg.get("26030103")).toBeCloseTo(6000); // luego la misma variedad en otra finca
+    // Regla 04-08-2026 (2ª parte): 26030101 solo absorbe 10000×0,97=9700 de su
+    // propia pasada; el exceso (10300) se derrama con el mismo tope ×0,97 en
+    // cada receptor (4000×0,97=3880 en 26030102, resto 6420 en 26030103).
+    expect(kg.get("26030102")).toBeCloseTo(3880); // primero agota la misma finca
+    expect(kg.get("26030103")).toBeCloseTo(6420); // luego la misma variedad en otra finca
     expect(kg.has("26030104")).toBe(false);
     expect(res.movimientos.map((m) => m.motivo)).toEqual(["exceso_misma_finca", "exceso_misma_variedad"]);
   });
@@ -114,7 +128,8 @@ describe("conciliarKgProcesados — derrame de excesos", () => {
       [{ lote_codigo: "26030101", kg_peso_total: 15000, date: "2026-03-01" }],
     );
     expect(res.movimientos[0].a).toBe("26030301");
-    expect(res.movimientos[0].kg).toBe(5000);
+    // Exceso = 15000 − 10000×0,97 (regla 04-08-2026, 2ª parte) = 5300.
+    expect(res.movimientos[0].kg).toBe(5300);
   });
 
   it("el exceso sin receptor queda en la cola de revisión, no se inventa", () => {
@@ -122,8 +137,10 @@ describe("conciliarKgProcesados — derrame de excesos", () => {
       [entrada({ lote: "26030101", kg_entrada: 10000 })],
       [{ lote_codigo: "26030101", kg_peso_total: 15000, date: "2026-03-02" }],
     );
-    expect(res.excesosSinColocar).toEqual([{ lote: "26030101", kg: 5000 }]);
-    expect(res.procesados[0].kg_peso_total).toBe(10000);
+    // Capacidad = 10000×0,97 = 9700 (regla 04-08-2026, 2ª parte: podrido
+    // pre-calibrador habitual descontado también aquí).
+    expect(res.excesosSinColocar).toEqual([{ lote: "26030101", kg: 5300 }]);
+    expect(res.procesados[0].kg_peso_total).toBe(9700);
   });
 });
 
@@ -138,25 +155,26 @@ describe("conciliarKgProcesados — reentrada_nombrados (regla del dueño 04-08-
         // recibir nada.
         entrada({ lote: "26030199", kg_entrada: 50000, fecha: "2026-03-01" }),
       ],
-      // 10000 (principal) + 4000 (2º) = 14000 de pendiente total; la pasada
-      // trae 20000: sobran 6000 tras llenar a los dos nombrados.
+      // Capacidad (regla 04-08-2026, 2ª parte, ×0,97): 10000→9700 (principal),
+      // 4000→3880 (2º). Pendiente total nombrados = 13580; la pasada trae
+      // 20000: sobran 6420 tras llenar a los dos nombrados.
       [{ lote_codigo: "26030101+26030102", kg_peso_total: 20000, date: "2026-03-01" }],
     );
     const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
-    expect(kg.get("26030101")).toBe(10000);
-    expect(kg.get("26030102")).toBe(4000); // sin inflar: el tope de capacidad se mantiene
+    expect(kg.get("26030101")).toBe(9700);
+    expect(kg.get("26030102")).toBe(3880); // sin inflar: el tope de capacidad se mantiene
     expect(kg.has("26030199")).toBe(false); // el lote ajeno NO recibe nada
 
     // El sobrante queda documentado como reentrada hacia el 2º nombrado (el
     // único "demás" código de esta pasada) y sigue en la cola de revisión
     // (no hay procesado real que lo absorba). También aparece el movimiento
-    // "multi_codigo" normal de la fase 1 (los 4000 que sí cupieron en su
+    // "multi_codigo" normal de la fase 1 (los 3880 que sí cupieron en su
     // pendiente directo).
     expect(res.movimientos).toEqual([
-      { de: "26030101", a: "26030102", kg: 4000, motivo: "multi_codigo" },
-      { de: "26030101", a: "26030102", kg: 6000, motivo: "reentrada_nombrados" },
+      { de: "26030101", a: "26030102", kg: 3880, motivo: "multi_codigo" },
+      { de: "26030101", a: "26030102", kg: 6420, motivo: "reentrada_nombrados" },
     ]);
-    expect(res.excesosSinColocar).toEqual([{ lote: "26030101", kg: 6000 }]);
+    expect(res.excesosSinColocar).toEqual([{ lote: "26030101", kg: 6420 }]);
     // Conservación: nada se inventa ni se pierde.
     expect(kg.get("26030101")! + kg.get("26030102")! + res.excesosSinColocar[0].kg).toBe(20000);
   });
@@ -168,16 +186,17 @@ describe("conciliarKgProcesados — reentrada_nombrados (regla del dueño 04-08-
         entrada({ lote: "26030202", kg_entrada: 3000, fecha: "2026-03-02" }),
         entrada({ lote: "26030203", kg_entrada: 1000, fecha: "2026-03-02" }),
       ],
-      // Pendiente total nombrados = 14000; pasada trae 18000: sobran 4000,
-      // repartidos 3000/1000 = 3:1 entre el 2º y el 3º.
+      // Capacidad ×0,97 (regla 04-08-2026, 2ª parte): 9700 + 2910 + 970 =
+      // 13580 de pendiente total nombrados; pasada trae 18000: sobran 4420,
+      // repartidos 2910/970 = 3:1 entre el 2º y el 3º (3315/1105).
       [{ lote_codigo: "26030201+26030202+26030203", kg_peso_total: 18000, date: "2026-03-02" }],
     );
     const reentradas = res.movimientos.filter((m) => m.motivo === "reentrada_nombrados");
     expect(reentradas).toEqual([
-      { de: "26030201", a: "26030202", kg: 3000, motivo: "reentrada_nombrados" },
-      { de: "26030201", a: "26030203", kg: 1000, motivo: "reentrada_nombrados" },
+      { de: "26030201", a: "26030202", kg: 3315, motivo: "reentrada_nombrados" },
+      { de: "26030201", a: "26030203", kg: 1105, motivo: "reentrada_nombrados" },
     ]);
-    expect(res.excesosSinColocar).toEqual([{ lote: "26030201", kg: 4000 }]);
+    expect(res.excesosSinColocar).toEqual([{ lote: "26030201", kg: 4420 }]);
   });
 
   it("pasada de código SIMPLE con exceso sigue el derrame de siempre (finca/variedad), sin cambios", () => {
@@ -189,10 +208,12 @@ describe("conciliarKgProcesados — reentrada_nombrados (regla del dueño 04-08-
       [{ lote_codigo: "26030301", kg_peso_total: 15000, date: "2026-03-03" }],
     );
     const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
-    expect(kg.get("26030301")).toBe(10000);
-    expect(kg.get("26030302")).toBe(5000);
+    // Capacidad ×0,97 (regla 04-08-2026, 2ª parte): 10000→9700, exceso
+    // 15000−9700=5300 cabe entero en el receptor (8000×0,97=7760).
+    expect(kg.get("26030301")).toBe(9700);
+    expect(kg.get("26030302")).toBe(5300);
     expect(res.movimientos).toEqual([
-      { de: "26030301", a: "26030302", kg: 5000, motivo: "exceso_misma_finca" },
+      { de: "26030301", a: "26030302", kg: 5300, motivo: "exceso_misma_finca" },
     ]);
     expect(res.excesosSinColocar).toHaveLength(0);
   });
@@ -205,8 +226,9 @@ describe("conciliarKgProcesados — reentrada_nombrados (regla del dueño 04-08-
       ],
       [{ lote_codigo: "26030401+26030401", kg_peso_total: 15000, date: "2026-03-04" }],
     );
+    // Capacidad ×0,97 (regla 04-08-2026, 2ª parte): exceso 15000−9700=5300.
     expect(res.movimientos).toEqual([
-      { de: "26030401", a: "26030402", kg: 5000, motivo: "exceso_misma_finca" },
+      { de: "26030401", a: "26030402", kg: 5300, motivo: "exceso_misma_finca" },
     ]);
   });
 });
@@ -247,7 +269,9 @@ describe("conciliarKgProcesados — precalibrado", () => {
       ],
       [{ lote_codigo: "26050101", kg_peso_total: 14000, date: "2026-05-01" }],
     );
-    expect(res.excesosSinColocar).toEqual([{ lote: "26050101", kg: 4000 }]);
+    // Capacidad ×0,97 (regla 04-08-2026, 2ª parte): 10000×0,97=9700, exceso
+    // 14000−9700=4300 (el PREC sigue sin ser candidato, esté o no lleno).
+    expect(res.excesosSinColocar).toEqual([{ lote: "26050101", kg: 4300 }]);
   });
 
   it("pasada sin ningún código ('PREC DIA…') va a la cola con su texto crudo", () => {
@@ -325,8 +349,12 @@ describe("conciliarKgProcesados — capacidad de cámara (tope de merma)", () =>
       // El calibrador atribuyó 23.561 kg a este lote el 08/07 (incluía otra fruta).
       [{ lote_codigo: "26042811", kg_peso_total: 23561, date: "2026-07-08" }],
     );
-    expect(res.procesados[0].kg_peso_total).toBe(21580 - 820); // 20.760 = peso final real de cámara
-    expect(res.excesosSinColocar[0].kg).toBeCloseTo(23561 - 20760);
+    // Regla del dueño 04-08-2026 (2ª parte): sobre el peso final real de
+    // cámara (21580−820=20760) se descuenta TAMBIÉN el podrido
+    // pre-calibrador habitual (×0,97): 20760×0,97=20137,2.
+    const capacidadEsperada = (21580 - 820) * 0.97;
+    expect(res.procesados[0].kg_peso_total).toBeCloseTo(capacidadEsperada);
+    expect(res.excesosSinColocar[0].kg).toBeCloseTo(23561 - capacidadEsperada);
   });
 
   it("sin dato real, la capacidad se estima con la tasa diaria: un lote 70 días en cámara no llega al 100 % de su entrada", () => {
@@ -334,9 +362,100 @@ describe("conciliarKgProcesados — capacidad de cámara (tope de merma)", () =>
       [entrada({ lote: "26042811", kg_entrada: 20000, fecha: "2026-04-28" })],
       [{ lote_codigo: "26042811", kg_peso_total: 20000, date: "2026-07-07" }], // 70 días
     );
-    const esperado = 20000 * (1 - 0.000513 * 70);
+    // Regla del dueño 04-08-2026 (2ª parte): tras la merma natural estimada
+    // por días se descuenta también el podrido pre-calibrador habitual
+    // (×0,97).
+    const esperado = 20000 * (1 - 0.000513 * 70) * 0.97;
     expect(res.procesados[0].kg_peso_total).toBeCloseTo(esperado, 0);
     expect(res.excesosSinColocar[0].kg).toBeCloseTo(20000 - esperado, 0);
+  });
+});
+
+describe("conciliarKgProcesados — podrido pre-calibrador habitual en la capacidad (regla del dueño 04-08-2026, 2ª parte: \"nunca habrá un lote que no tenga podrido o mermas\")", () => {
+  it("SIN merma de cámara real: la capacidad es entrada × (1 − TASA_MERMA_NATURAL_DIA×días) × 0,97, no el 100 % de la entrada", () => {
+    const res = conciliarKgProcesados(
+      [entrada({ lote: "26080101", kg_entrada: 20000, fecha: "2026-08-01" })],
+      // Pasada el mismo día (0 días de cámara): sin la 2ª parte de la regla
+      // cabrían los 20000 enteros; con ella, el tope es 20000×0,97=19400.
+      [{ lote_codigo: "26080101", kg_peso_total: 19400, date: "2026-08-01" }],
+    );
+    expect(res.procesados[0].kg_peso_total).toBe(19400); // cabe justo en el tope, sin exceso
+    expect(res.excesosSinColocar).toHaveLength(0);
+
+    // Un solo kg más ya no cabe: se convierte en exceso (cola de revisión,
+    // al no haber más lotes candidatos).
+    const conExceso = conciliarKgProcesados(
+      [entrada({ lote: "26080101", kg_entrada: 20000, fecha: "2026-08-01" })],
+      [{ lote_codigo: "26080101", kg_peso_total: 19401, date: "2026-08-01" }],
+    );
+    expect(conExceso.procesados[0].kg_peso_total).toBe(19400);
+    expect(conExceso.excesosSinColocar).toEqual([{ lote: "26080101", kg: 1 }]);
+  });
+
+  it("CON merma de cámara real: el podrido pre-calibrador se descuenta SOBRE el resto tras la merma, no sobre la entrada bruta", () => {
+    const res = conciliarKgProcesados(
+      [entrada({ lote: "26080201", kg_entrada: 10000, fecha: "2026-08-02", kg_merma_camara: 200 })],
+      [{ lote_codigo: "26080201", kg_peso_total: 20000, date: "2026-08-02" }],
+    );
+    // (10000 − 200) × 0,97 = 9506, NO (10000 × 0,97) − 200.
+    const capacidadEsperada = (10000 - 200) * 0.97;
+    expect(capacidadEsperada).toBeCloseTo(9506);
+    expect(res.procesados[0].kg_peso_total).toBeCloseTo(9506);
+    expect(res.excesosSinColocar[0].kg).toBeCloseTo(20000 - 9506);
+  });
+
+  it("el podrido de CALIBRADOR (clase J) NO se descuenta de la capacidad: ya pasó y pesó en la pasada, no es doble cuenta", () => {
+    // La pasada trae exactamente el 97% de la entrada (incluyendo posible
+    // podrido de calibrador ya pesado dentro de esos kg): debe caber ENTERA,
+    // sin generar exceso ni cola de revisión — la capacidad no vuelve a
+    // restar nada que ya viniera dentro del kg de la pasada.
+    const res = conciliarKgProcesados(
+      [entrada({ lote: "26080301", kg_entrada: 30000, fecha: "2026-08-03" })],
+      [{ lote_codigo: "26080301", kg_peso_total: 29100, date: "2026-08-03" }], // 30000×0,97
+    );
+    expect(res.procesados[0].kg_peso_total).toBeCloseTo(29100);
+    expect(res.excesosSinColocar).toHaveLength(0);
+  });
+
+  it("multi-código: el principal YA NO absorbe el 100 % de su entrada, el resto fluye entero al 2º nombrado", () => {
+    const res = conciliarKgProcesados(
+      [
+        entrada({ lote: "26080401", kg_entrada: 10000, fecha: "2026-08-04" }), // principal
+        entrada({ lote: "26080402", kg_entrada: 5000, fecha: "2026-08-04" }), // 2º nombrado, con pendiente de sobra
+      ],
+      // La pasada trae justo la entrada del principal (10000): antes de la
+      // regla, el principal se la habría llevado ENTERA (100 %). Ahora su
+      // tope es 9700, así que 300 kg fluyen al 2º nombrado en vez de
+      // quedarse (falsamente) en el principal.
+      [{ lote_codigo: "26080401+26080402", kg_peso_total: 10000, date: "2026-08-04" }],
+    );
+    const kg = new Map(res.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
+    expect(kg.get("26080401")).toBe(9700); // < su entrada (10000): ya no se llena al 100 %
+    expect(kg.get("26080401")!).toBeLessThan(10000);
+    expect(kg.get("26080402")).toBe(300); // absorbe el resto vía multi_codigo, dentro de su pendiente (4850)
+    expect(res.movimientos).toEqual([
+      { de: "26080401", a: "26080402", kg: 300, motivo: "multi_codigo" },
+    ]);
+    expect(res.excesosSinColocar).toHaveLength(0); // no hizo falta reentrada: el 2º nombrado tenía pendiente de sobra
+  });
+
+  it("conservación global: con capacidad reducida por podrido + reentrada_nombrados, nada se inventa ni se pierde", () => {
+    const entradas: EntradaConciliacion[] = [
+      entrada({ lote: "26080501", kg_entrada: 10000, fecha: "2026-08-05" }), // principal
+      entrada({ lote: "26080502", kg_entrada: 2000, fecha: "2026-08-05" }), // 2º nombrado, pendiente pequeño
+    ];
+    const pasadas: PasadaConciliacion[] = [
+      { lote_codigo: "26080501+26080502", kg_peso_total: 15000, date: "2026-08-05" },
+    ];
+    const totalPasadas = pasadas.reduce((s, p) => s + (p.kg_peso_total ?? 0), 0);
+    const res = conciliarKgProcesados(entradas, pasadas);
+    const totalProcesado = res.procesados.reduce((s, p) => s + p.kg_peso_total, 0);
+    const totalCola = res.excesosSinColocar.reduce((s, e) => s + e.kg, 0);
+    // Σ procesados + Σ cola de revisión === Σ pasadas (los movimientos
+    // "reentrada_nombrados" son solo atribución/auditoría, no mueven kg real
+    // fuera de esta suma — ver docstring del módulo).
+    expect(totalProcesado + totalCola).toBeCloseTo(totalPasadas);
+    expect(res.movimientos.some((m) => m.motivo === "reentrada_nombrados")).toBe(true);
   });
 });
 
@@ -399,6 +518,8 @@ describe("conciliarKgProcesados — fechas y cierres", () => {
     const porLote = new Map(res.procesados.map((p) => [p.lote_codigo, p]));
     expect(porLote.get("26030301")?.date).toBe("2026-03-01"); // hereda
     expect(porLote.get("26030401")?.date).toBeNull(); // cerrado: recibe kg pero sin fecha (no dispara "actividad posterior al cierre")
-    expect(porLote.get("26030401")?.kg_peso_total).toBe(8000);
+    // Capacidad ×0,97 (regla 04-08-2026, 2ª parte): 8000×0,97=7760 — el lote
+    // cerrado también tiene su propio tope de capacidad más bajo.
+    expect(porLote.get("26030401")?.kg_peso_total).toBe(7760);
   });
 });

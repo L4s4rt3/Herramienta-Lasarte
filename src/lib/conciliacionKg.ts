@@ -52,8 +52,29 @@
  * que cambia es que ya no se inventa un receptor ajeno al informe). El
  * derrame por finca/variedad del punto 2 queda EXCLUSIVAMENTE para el exceso
  * de pasadas de código SIMPLE (un único lote nombrado).
+ *
+ * REGLA DEL DUEÑO, 04-ago-2026, 2ª parte (textual): "también debes tener en
+ * cuenta el valor normal o usual de podrido y mermas porque nunca habrá un
+ * lote que no tenga podrido o mermas, siempre será alrededor del porcentaje
+ * habitual". La CAPACIDAD del lote (ver `capacidad` más abajo) ya descontaba
+ * la merma de cámara; ahora descuenta TAMBIÉN el podrido PRE-calibrador
+ * habitual (fruta apartada sin pesar antes de línea, nunca llega a figurar en
+ * ninguna pasada — % `PCT_PODRIDO_NO_PESADO_DEFECTO` importado de
+ * `forfait.ts`, no duplicado). El podrido DE CALIBRADOR (clase "J", el que sí
+ * pasa y pesa en las pasadas) NO se descuenta aquí: ya viene dentro del kg de
+ * la pasada, así que restarlo también sería doble cuenta. Efecto esperado:
+ * el "lote principal" de una pasada multi-código (que antes se llenaba al
+ * 100 % de su capacidad) ahora se llena a su rendimiento REAL esperado —
+ * entrada − merma − podrido habitual, "entero o casi entero" pero no más —
+ * dejando más kg para repartir entre los demás nombrados o como
+ * `reentrada_nombrados`, coherente con la 1ª parte de esta misma regla.
  */
 import { diffDias } from "@/lib/entradasBascula";
+// % de podrido pre-calibrador ASUMIDO (no duplicar el número, ver el
+// docstring de `capacidad` más abajo): mismo % que ya usa el simulador del
+// forfait para el mismo concepto (fruta apartada a contenedor sin pesar
+// antes de línea, jul-2026).
+import { PCT_PODRIDO_NO_PESADO_DEFECTO } from "@/lib/forfait";
 import { TASA_MERMA_NATURAL_DIA } from "@/lib/mermaLote";
 
 export interface EntradaConciliacion {
@@ -275,17 +296,45 @@ export function conciliarKgProcesados(
    * fecha de referencia), acotada a un 15 % de descuento como salvaguarda.
    * Sin este tope la conciliación rellenaba lotes al 100 % de su entrada y la
    * merma salía ≈ 0 en todos los lotes tocados por el reparto.
+   *
+   * Regla del dueño, 04-ago-2026 (textual): "también debes tener en cuenta el
+   * valor normal o usual de podrido y mermas porque nunca habrá un lote que
+   * no tenga podrido o mermas, siempre será alrededor del porcentaje
+   * habitual". Sobre lo anterior (merma de cámara) se descuenta TAMBIÉN el
+   * podrido PRE-calibrador habitual: fruta que se aparta a un contenedor SIN
+   * pesar antes de entrar a línea y que por tanto JAMÁS llega a figurar en
+   * ninguna pasada del calibrador — mismo % asumido que ya usa el simulador
+   * del forfait para este concepto (`PCT_PODRIDO_NO_PESADO_DEFECTO`,
+   * src/lib/forfait.ts, documentado allí junto a `calidadReferencias.ts`; se
+   * importa, no se duplica el número). OJO, matiz importante: el podrido DE
+   * CALIBRADOR (clase "(J) Podrido") NO se descuenta aquí — ese SÍ pasa por
+   * la máquina y SÍ pesa en las pasadas crudas, así que ya viene incluido en
+   * el kg de la pasada que se reparte; restarlo de la capacidad sería doble
+   * cuenta. v1 usa el % global asumido; enchufar la referencia medida POR
+   * PRODUCTOR (calidad_referencias_productor) es trivial en cuanto haga falta
+   * más precisión, pero exigiría pasarle ese dato a `conciliarKgProcesados`
+   * (una query nueva) — se deja para cuando se necesite, no ahora.
+   *
+   * Las re-entradas de PRECALIBRADO quedan fuera de este descuento (ver más
+   * abajo): su podrido pre-calibrador ya se separó en la entrada ORIGINAL, no
+   * se resta dos veces en la re-entrada.
    */
   const capacidad = (r: RegistroLote, fechaRef: string | null | undefined): number => {
-    const mermaReal = r.entrada.kg_merma_camara;
-    if (mermaReal != null) return Math.max(0, r.entrada.kg_entrada - Math.max(0, mermaReal));
     // Las re-entradas de PRECALIBRADO ya se pesan en neto al volver: sin
-    // descuento estimado (su "cámara" empieza en la re-entrada).
+    // descuento estimado (su "cámara" empieza en la re-entrada) NI descuento
+    // de podrido pre-calibrador (ya se separó en su entrada original).
     if (r.entrada.esPrecalibrado) return r.entrada.kg_entrada;
-    const dias = fechaRef && r.entrada.fecha && fechaRef > r.entrada.fecha
-      ? diffDias(r.entrada.fecha, fechaRef)
-      : 0;
-    return r.entrada.kg_entrada * (1 - Math.min(0.15, TASA_MERMA_NATURAL_DIA * dias));
+    const mermaReal = r.entrada.kg_merma_camara;
+    let trasMermaCamara: number;
+    if (mermaReal != null) {
+      trasMermaCamara = Math.max(0, r.entrada.kg_entrada - Math.max(0, mermaReal));
+    } else {
+      const dias = fechaRef && r.entrada.fecha && fechaRef > r.entrada.fecha
+        ? diffDias(r.entrada.fecha, fechaRef)
+        : 0;
+      trasMermaCamara = r.entrada.kg_entrada * (1 - Math.min(0.15, TASA_MERMA_NATURAL_DIA * dias));
+    }
+    return trasMermaCamara * (1 - PCT_PODRIDO_NO_PESADO_DEFECTO);
   };
   const pendiente = (r: RegistroLote, fechaRef: string | null | undefined) =>
     Math.max(0, capacidad(r, fechaRef) - r.asignado);
