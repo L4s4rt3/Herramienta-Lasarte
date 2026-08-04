@@ -1,0 +1,79 @@
+/**
+ * useAsentamientoDia — cobertura del "asentamiento" de toda la campaña
+ * (src/lib/asentamientoDia.ts) para la card de Análisis diario (eje TIEMPO:
+ * "¿qué pasó cada día?"). Hook FINO: no hace ningún fetch propio, reutiliza
+ * los datos que useEntradasBascula ya carga con fetchAllRows (entradas,
+ * precalibrado, pasadas crudas de lotes_dia, reciclaje diario) para no
+ * duplicar ninguna consulta — React Query dedupea por queryKey, así que
+ * visitar Análisis diario sin haber abierto /entradas antes solo dispara el
+ * mismo fetch una vez.
+ *
+ * IMPORTANTE (regla del repo): este hook NUNCA debe reproducir el efecto de
+ * cierre automático de EntradasBascula.tsx (ese vive SOLO en esa página,
+ * gatillado por un useEffect propio) — aquí solo se LEE, nunca se muta nada.
+ */
+import { useMemo } from "react";
+import { useEntradasBascula } from "@/hooks/useEntradasBascula";
+import { normalizarLoteCodigo } from "@/lib/loteCodigo";
+import { today } from "@/lib/format";
+import {
+  construirAsentamientoCampana,
+  type CoberturaCampana,
+  type EntradaPrecalibradoAsentamiento,
+  type EntradaRealAsentamiento,
+} from "@/lib/asentamientoDia";
+import type { PasadaConciliacion } from "@/lib/conciliacionKg";
+
+export function useAsentamientoDia(): { cobertura: CoberturaCampana; isLoading: boolean; error: unknown } {
+  const { entradas, entradasPrecalibrado, procesados, reciclajePorDia, stock, isLoading, error } = useEntradasBascula();
+
+  const cobertura = useMemo(() => {
+    const entradasReales: EntradaRealAsentamiento[] = entradas.map((e) => ({
+      lote: e.lote,
+      fecha: e.fecha,
+      finca: e.finca,
+      articulo: e.articulo,
+      agricultor: e.agricultor,
+      kg_entrada: Number(e.kg_entrada) || 0,
+      kg_ajuste_stock: Number(e.kg_ajuste_stock) || 0,
+      cerrado_at: e.cerrado_at ?? null,
+      cierre_modo: e.cierre_modo ?? null,
+      // Merma real de cámara (migración 20260721150000, sin tipos generados):
+      // mismo acceso que hace useEntradasBascula al montar la conciliación.
+      kg_merma_camara: (e as { merma_camara_kg?: number | null }).merma_camara_kg ?? null,
+    }));
+
+    const entradasPrec: EntradaPrecalibradoAsentamiento[] = entradasPrecalibrado.map((e) => ({
+      lote: e.lote,
+      fecha: e.fecha,
+      finca: e.finca,
+      kg_entrada: Number(e.kg_entrada) || 0,
+      id: e.id,
+      cerrado_at: e.cerrado_at ?? null,
+    }));
+
+    const pasadas: PasadaConciliacion[] = procesados.map((p) => ({
+      lote_codigo: p.lote_codigo,
+      kg_peso_total: p.kg_peso_total,
+      date: p.date,
+    }));
+
+    // Códigos en cámara EXTERNA confirmada: se reconstruye del propio `stock`
+    // (StockLoteRow.enCamaraExterna) en vez de recalcular camarasExternas.ts
+    // por su cuenta — useEntradasBascula ya inyectó esa señal al construirlo.
+    const lotesEnCamaraExterna = new Set(
+      stock.filas.filter((f) => f.enCamaraExterna).map((f) => normalizarLoteCodigo(f.lote) ?? f.lote),
+    );
+
+    return construirAsentamientoCampana({
+      entradas: entradasReales,
+      entradasPrecalibrado: entradasPrec,
+      pasadas,
+      reciclajePorDia,
+      lotesEnCamaraExterna,
+      hoy: today(),
+    });
+  }, [entradas, entradasPrecalibrado, procesados, reciclajePorDia, stock.filas]);
+
+  return { cobertura, isLoading, error };
+}

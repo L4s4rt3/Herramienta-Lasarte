@@ -23,6 +23,7 @@ import {
 } from "@/hooks/useAnalisisDiario";
 import type { LoteResumen, ProductorResumen } from "@/hooks/useAnalisisDiario";
 import { useProductoresCatalogo } from "@/hooks/useProductoresCatalogo";
+import { useAsentamientoDia } from "@/hooks/useAsentamientoDia";
 import { esProductorPrecalibrado, resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import { DailyListTable } from "@/components/DailyListTable";
 import { MiniKpi } from "@/components/MiniKpi";
@@ -479,6 +480,10 @@ export default function AnalisisDiario() {
             </div>
           </section>
 
+          {/* ─── Asentamiento de la campaña (cobertura de evidencia, TODA
+               la campaña — no depende del periodo elegido arriba) ────── */}
+          <AsentamientoCampanaCard />
+
           {/* ─── Tabs ───────────────────────────────────────────────── */}
           <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
             <div className="glass-accented rounded-xl p-1.5">
@@ -601,6 +606,77 @@ function VerDetalleButton({ onClick }: { onClick: () => void }) {
     <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1 text-xs text-primary hover:text-primary" onClick={onClick}>
       Ver detalle <ArrowRight className="h-3 w-3" />
     </Button>
+  );
+}
+
+// ─── Asentamiento de la campaña (src/lib/asentamientoDia.ts) ───────────────
+// Cobertura de EVIDENCIA por kg desde el inicio de la campaña: cuántos kg
+// están respaldados por una pasada nombrada (dura), cuántos por el derrame
+// de la conciliación (derivada) y cuántos sin ningún rastro todavía. A
+// diferencia del resto de la página, este dato es de TODA la campaña, no del
+// periodo seleccionado arriba — se avisa en el subtítulo para no confundir.
+const EVIDENCIA_SEGMENTOS: Array<{ key: "dura" | "derivada" | "sin_rastro"; label: string; color: string }> = [
+  { key: "dura", label: "Evidencia dura", color: C.success },
+  { key: "derivada", label: "Derivada (conciliación)", color: C.warning },
+  { key: "sin_rastro", label: "Sin rastro", color: C.destructive },
+];
+
+function AsentamientoCampanaCard() {
+  const { cobertura, isLoading } = useAsentamientoDia();
+
+  if (isLoading) {
+    return <Skeleton className="h-40 w-full" />;
+  }
+  if (cobertura.kgTotales <= 0) return null; // sin entradas de báscula todavía: nada que asentar
+
+  const segmentos = EVIDENCIA_SEGMENTOS.map((s) => {
+    const kg = s.key === "dura" ? cobertura.kgEvidenciaDura : s.key === "derivada" ? cobertura.kgDerivada : cobertura.kgSinRastro;
+    const n = s.key === "dura" ? cobertura.nLotesEvidenciaDura : s.key === "derivada" ? cobertura.nLotesDerivada : cobertura.nLotesSinRastro;
+    const pct = cobertura.kgTotales > 0 ? (kg / cobertura.kgTotales) * 100 : 0;
+    return { ...s, kg, n, pct };
+  });
+
+  return (
+    <Card className="glass-accented">
+      <CardContent className="p-4 sm:p-5 space-y-4">
+        <SectionHeading
+          title="Asentamiento de la campaña"
+          subtitle={`Con qué solidez sabemos qué pasó con cada lote · ${formatKg(cobertura.kgTotales)} en ${cobertura.nLotes} lotes de toda la campaña (no cambia con el periodo elegido arriba)`}
+        />
+        <div className="flex h-6 w-full overflow-hidden rounded-md border border-[var(--glass-border)]">
+          {segmentos.map((s) => {
+            if (s.pct <= 0) return null;
+            return (
+              <div
+                key={s.key}
+                style={{ width: `${s.pct}%`, backgroundColor: s.color }}
+                title={`${s.label}: ${formatKg(s.kg)} (${s.pct.toFixed(1)}%)`}
+              />
+            );
+          })}
+        </div>
+        <ul className="grid gap-2.5 sm:grid-cols-3">
+          {segmentos.map((s) => (
+            <li key={s.key} className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-3">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: s.color }} />
+                {s.label}
+              </div>
+              <p className="mt-1 text-lg font-bold tabular-nums text-foreground">{formatKg(s.kg)}</p>
+              <p className="text-xs text-muted-foreground">{s.pct.toFixed(1)}% · {s.n} lote{s.n === 1 ? "" : "s"}</p>
+            </li>
+          ))}
+        </ul>
+        {cobertura.nLotesSinRastroCerrado > 0 && (
+          <p className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            <span>
+              {cobertura.nLotesSinRastroCerrado} lote{cobertura.nLotesSinRastroCerrado === 1 ? "" : "s"} ya cerrado{cobertura.nLotesSinRastroCerrado === 1 ? "" : "s"} ({formatKg(cobertura.kgSinRastroCerrado)}) sin ninguna evidencia — ni pasada nombrada ni derrame de conciliación. Revisar a mano.
+            </span>
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
