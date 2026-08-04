@@ -866,6 +866,21 @@ export interface StockLoteRow {
    */
   enCamaraConfirmada: boolean;
   /**
+   * REGLA DE ORO de la refundación de trazabilidad (aprobada por el dueño
+   * 04-08-2026, ver docs/TRAZABILIDAD_REFUNDACION.md — fase 2 puente): true
+   * cuando el lote alcanza el umbral de COMPLETO contando SOLO kg con
+   * evidencia (pasadas nombradas/anotadas + ajuste de stock medido), es
+   * decir, SIN los kg recibidos por derrame de la conciliación
+   * (exceso_misma_finca/variedad — una suposición estadística, clase
+   * "derivado"). El derrame puede seguir pintando kg_procesado/estado (vista
+   * derivada, útil para investigar), pero NO puntúa para cerrar: en la
+   * Cámara 5 el derrame atribuyó 310 t fantasma a 18 lotes intactos y 8 se
+   * cerraron solos. Sin `kgDerramePorLote` inyectado (llamadas/tests
+   * antiguos) es equivalente a `estado === "procesado"` sobre el lote
+   * abierto: compatibilidad total.
+   */
+  completoConEvidencia: boolean;
+  /**
    * Detalle de la confirmación FÍSICA vigente (nombre de cámara + fecha del
    * inventario, ver camaraConfirmadaVigentePorLote en camaraConfirmada.ts):
    * solo para pintar el badge "En cámara · {nombre} (confirmado {fecha})" en
@@ -953,6 +968,15 @@ export function buildStockEntradas(
    * cambia ningún cálculo. Opcional; sin ella el campo sale `null` siempre.
    */
   confirmacionCamaraPorLote?: Map<string, { nombre: string; fecha: string }>,
+  /**
+   * Kg recibidos por DERRAME (motivos exceso_misma_finca/exceso_misma_variedad
+   * de conciliarKgProcesados) por lote normalizado. REGLA DE ORO (fase 2
+   * puente, docs/TRAZABILIDAD_REFUNDACION.md): estos kg son clase "derivado"
+   * (suposición estadística) y no puntúan ni para `completoConEvidencia` ni
+   * para el pendiente del candidato compuesto. Opcional: sin él, ningún kg se
+   * descuenta (comportamiento previo, tests antiguos intactos).
+   */
+  kgDerramePorLote?: Map<string, number>,
 ): StockResumen {
   const procesadoPorLote = new Map<string, { kg: number; ultimaFecha: string | null }>();
   for (const p of procesados) {
@@ -998,7 +1022,13 @@ export function buildStockEntradas(
      * 26042109", cámara física vacía confirmada) tiene pendiente 0 (cubierto
      * por kg_ajuste_stock) → 0 ≤ cualquier hueco → sale candidato.
      */
-    const pendienteActual = Math.max(0, entrada.kg_entrada - kgProcesado);
+    // REGLA DE ORO (fase 2 puente): los kg de derrame no puntúan. El pendiente
+    // que decide el candidato compuesto y el "completo con evidencia" se
+    // calculan sobre el procesado SIN derrame (pasadas nombradas/anotadas +
+    // ajuste medido); kg_procesado/estado siguen mostrando la vista conciliada.
+    const kgDerrame = kgDerramePorLote?.get(clave) ?? 0;
+    const kgProcesadoConEvidencia = kgProcesado - kgDerrame;
+    const pendienteActual = Math.max(0, entrada.kg_entrada - kgProcesadoConEvidencia);
     const huecoExplicablePorEdad = fraccionEsperadaPorEdad
       ? Math.max(0, entrada.kg_entrada * (1 - Math.min(1, Math.max(0, fraccionEsperadaPorEdad(diasDesdeEntrada)))))
       : 0;
@@ -1043,6 +1073,16 @@ export function buildStockEntradas(
       procesadoEnCompuesto,
       enCamaraConfirmada: Boolean(lotesConfirmadosEnCamara?.has(clave)),
       confirmacionCamara: confirmacionCamaraPorLote?.get(clave) ?? null,
+      // Sin forzar por cierre/compuesto: refleja SOLO si la evidencia (kg sin
+      // derrame) alcanza el umbral por edad. Es lo único que el candidato de
+      // cierre automático acepta como "completo" (regla de oro).
+      completoConEvidencia: estadoLotePorProcesado(
+        entrada.kg_entrada,
+        kgProcesadoConEvidencia,
+        false,
+        diasDesdeEntrada,
+        fraccionEsperadaPorEdad,
+      ) === "procesado",
     };
   });
 
@@ -1091,7 +1131,7 @@ export function buildStockEntradas(
  * merma/podrido real, ver criterioCierreModo).
  */
 export function esCandidatoCierreAutomatico(
-  fila: Pick<StockLoteRow, "estado" | "cerrado_at" | "ultima_fecha_procesado" | "enCamaraConfirmada">,
+  fila: Pick<StockLoteRow, "estado" | "cerrado_at" | "ultima_fecha_procesado" | "enCamaraConfirmada" | "completoConEvidencia">,
   hoy: string,
 ): boolean {
   // Ground truth del dueño 04-08-2026 (nº2, prioridad máxima): un lote con
@@ -1102,6 +1142,11 @@ export function esCandidatoCierreAutomatico(
   // cámara 5.
   if (fila.enCamaraConfirmada) return false;
   if (fila.estado !== "procesado") return false;
+  // REGLA DE ORO (dueño, 04-08-2026, docs/TRAZABILIDAD_REFUNDACION.md): el
+  // derrame no cierra lotes. Si el umbral solo se alcanza gracias a kg de
+  // derrame (clase "derivado"), el lote NO es candidato aunque su estado
+  // derivado pinte "procesado" — se queda visible en stock/cola manual.
+  if (!fila.completoConEvidencia) return false;
   if (fila.cerrado_at) return false;
   if (!fila.ultima_fecha_procesado) return false;
   return diffDias(fila.ultima_fecha_procesado, hoy) >= DIAS_SIN_ACTIVIDAD_AUTOCIERRE;

@@ -718,7 +718,7 @@ describe("enCamaraConfirmada — protección simétrica en los candidatos (groun
 
   it("esCandidatoCierreAutomatico/esCandidatoCierreCompuesto: enCamaraConfirmada manda incluso si el resto de condiciones serían candidatas", () => {
     expect(esCandidatoCierreAutomatico(
-      { estado: "procesado", cerrado_at: null, ultima_fecha_procesado: "2026-08-01", enCamaraConfirmada: true },
+      { estado: "procesado", cerrado_at: null, ultima_fecha_procesado: "2026-08-01", enCamaraConfirmada: true, completoConEvidencia: true },
       "2026-08-04",
     )).toBe(false);
     expect(esCandidatoCierreCompuesto(
@@ -866,5 +866,71 @@ describe("DIAS_SIN_ACTIVIDAD_TERMINADO — documentación del margen frente al g
 
   it("UMBRAL_PROBABLE_TERMINADO es 0.80 (ajustado por análisis de clasificación sobre la campaña, no reutiliza UMBRAL_CIERRE_CON_ANALISIS)", () => {
     expect(UMBRAL_PROBABLE_TERMINADO).toBe(0.80);
+  });
+});
+
+// ─── REGLA DE ORO (refundación, fase 2 puente): el derrame no cierra lotes ──
+// Aprobada por el dueño el 04-08-2026 (docs/TRAZABILIDAD_REFUNDACION.md).
+// Caso real que la motiva: 18 lotes intactos de la Cámara 5 con 310 t
+// atribuidas por derrame; 8 se cerraron solos como "con_analisis".
+describe("regla de oro: kg de derrame no puntúan para el cierre automático", () => {
+  // 26051509 (caso real): 20.220 kg de entrada, CERO pasadas propias, todo su
+  // "procesado" viene de derrame de la conciliación.
+  const entrada = { lote: "26051509", fecha: "2026-05-15", kg_entrada: 20220, finca: "INVERMARMELO - GG", articulo: "NAR VAL DELTA SEEDLESS", agricultor: null };
+  // buildStockEntradas recibe los procesados YA conciliados (derrame incluido):
+  // se simula la fila conciliada que el hook le pasa de verdad.
+  const procesadosConciliados = [{ lote_codigo: "26051509", kg_peso_total: 19613, date: "2026-05-20" }];
+
+  it("un lote 'completo' SOLO por derrame no es candidato (completoConEvidencia=false), aunque su estado derivado pinte procesado", () => {
+    const stock = buildStockEntradas(
+      [entrada], procesadosConciliados, "2026-08-04",
+      undefined,
+      (dias) => (dias >= 80 ? 0.93 : 1), // umbral por edad, como lo inyecta el hook (81 días)
+      undefined, undefined,
+      new Map([["26051509", 19613]]), // todo lo suyo era derrame
+    );
+    const fila = stock.filas[0];
+    expect(fila.estado).toBe("procesado"); // la vista derivada no cambia (sigue siendo útil para investigar)
+    expect(fila.completoConEvidencia).toBe(false);
+    expect(esCandidatoCierreAutomatico(fila, "2026-08-04")).toBe(false);
+  });
+
+  it("con evidencia real (pasadas propias) y solo un pico de derrame, sigue siendo candidato: la regla no castiga a los legítimos", () => {
+    const stock = buildStockEntradas(
+      [entrada], procesadosConciliados, "2026-08-04", undefined, undefined, undefined, undefined,
+      new Map([["26051509", 500]]), // derrame marginal: 19.113 kg propios ≥ umbral por edad
+      // sin fraccionEsperadaPorEdad el umbral es el 97% plano: 19.113/20.220 = 94,5% < 97% → no completo…
+    );
+    // …así que este caso usa el umbral por edad real (misma inyección que el hook):
+    const stockConEdad = buildStockEntradas(
+      [entrada], procesadosConciliados, "2026-08-04", undefined,
+      (dias) => (dias >= 80 ? 0.93 : 1), // a 81 días la edad ya explica un 7% de hueco
+      undefined, undefined,
+      new Map([["26051509", 500]]),
+    );
+    expect(stock.filas[0].completoConEvidencia).toBe(false); // plano: honesto, no llega
+    expect(stockConEdad.filas[0].completoConEvidencia).toBe(true);
+    expect(esCandidatoCierreAutomatico(stockConEdad.filas[0], "2026-08-04")).toBe(true);
+  });
+
+  it("sin el mapa inyectado (llamadas/tests antiguos) nada cambia: compatibilidad total", () => {
+    const stock = buildStockEntradas([entrada], procesadosConciliados, "2026-08-04", undefined, (dias) => (dias >= 80 ? 0.93 : 1));
+    expect(stock.filas[0].completoConEvidencia).toBe(true);
+    expect(esCandidatoCierreAutomatico(stock.filas[0], "2026-08-04")).toBe(true);
+  });
+
+  it("el candidato COMPUESTO tampoco se deja explicar el pendiente por derrame: sin el descuento sería candidato, con él no", () => {
+    const huerfanos = new Map([["26051509", { primeros: ["26051401"], ultimaFecha: "2026-05-20" }]]);
+    const fraccion = (dias: number) => (dias >= 80 ? 0.95 : 1); // la edad explica un 5% (1.011 kg)
+    // Con derrame contando (mapa ausente): pendiente = 20.220 − 19.613 = 607 ≤ 1.011 → candidato.
+    const sinRegla = buildStockEntradas([entrada], procesadosConciliados, "2026-08-04", huerfanos, fraccion);
+    expect(sinRegla.filas[0].procesadoEnCompuesto).not.toBeNull();
+    // Con la regla de oro: pendiente real = 20.220 − 0 = 20.220 > 1.011 → nada de candidato.
+    const conRegla = buildStockEntradas(
+      [entrada], procesadosConciliados, "2026-08-04", huerfanos, fraccion, undefined, undefined,
+      new Map([["26051509", 19613]]),
+    );
+    expect(conRegla.filas[0].procesadoEnCompuesto).toBeNull();
+    expect(esCandidatoCierreCompuesto(conRegla.filas[0], "2026-08-04")).toBe(false);
   });
 });

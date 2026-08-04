@@ -720,6 +720,23 @@ export function useEntradasBascula() {
     [procesadosQuery.data],
   );
 
+  // ─── Kg recibidos por DERRAME por lote (clase de evidencia "derivado") ─────
+  // REGLA DE ORO de la refundación (dueño, 04-08-2026, ver
+  // docs/TRAZABILIDAD_REFUNDACION.md): el derrame no cierra lotes. Este mapa
+  // (kilos que cada lote RECIBE por exceso_misma_finca/exceso_misma_variedad)
+  // se inyecta en buildStockEntradas para que ni `completoConEvidencia` ni el
+  // pendiente del candidato compuesto los cuenten — Cámara 5: 310 t fantasma
+  // repartidas a 18 lotes intactos, 8 cierres falsos que este mapa evita.
+  const kgDerramePorLote = useMemo(() => {
+    const mapa = new Map<string, number>();
+    for (const m of conciliacionKg.movimientos) {
+      if (m.motivo !== "exceso_misma_finca" && m.motivo !== "exceso_misma_variedad") continue;
+      const clave = normalizarLoteCodigo(m.a) ?? m.a;
+      mapa.set(clave, (mapa.get(clave) ?? 0) + (Number(m.kg) || 0));
+    }
+    return mapa;
+  }, [conciliacionKg]);
+
   const stock = useMemo(
     () => buildStockEntradas(
       entradas.map((e) => ({
@@ -753,8 +770,10 @@ export function useEntradasBascula() {
       // Detalle (nombre + fecha) de la confirmación física vigente, solo
       // para pintar el badge en la pestaña Stock (StockLoteRow.confirmacionCamara).
       camaraConfirmadaPorLote,
+      // Regla de oro (fase 2 puente): los kg de derrame no puntúan para cerrar.
+      kgDerramePorLote,
     ),
-    [entradas, conciliacionKg, hoy, lotesEnPasadaCompuesta, lotesConfirmadosEnCamara, camaraConfirmadaPorLote],
+    [entradas, conciliacionKg, hoy, lotesEnPasadaCompuesta, lotesConfirmadosEnCamara, camaraConfirmadaPorLote, kgDerramePorLote],
   );
 
   // ─── Candidatos al cierre automático PERSISTIDO (refuerzo 2026-08-03) ──────
