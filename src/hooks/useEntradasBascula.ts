@@ -19,9 +19,10 @@ import { useCamarasExternas } from "@/hooks/useCamarasExternas";
 import { normalizarLoteCodigo } from "@/lib/loteCodigo";
 import { esEntradaCampoCit, esEntradaPrecalibrado, esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
 import { esNotaOperarioLote } from "@/lib/trazabilidadSelector";
+import { agruparAnotacionesPorLoteDia, construirLoteCodigoEfectivo, type PasadaAnotacionRow } from "@/lib/pasadaAnotaciones";
 
-/** Pasada de lotes_dia con los extras de calidad que consume Trazabilidad (notas del operario y destrío a industria). */
-export type LoteProcesadoConCalidad = LoteProcesadoInput & { kg_industria: number; notas: string | null };
+/** Pasada de lotes_dia con los extras de calidad que consume Trazabilidad (notas del operario y destrío a industria), más el `id` real de la fila — necesario para poder anotar a posteriori qué más se echó (ver pasadaAnotaciones.ts) y para cruzar con `pasada_anotaciones.lote_dia_id`. */
+export type LoteProcesadoConCalidad = LoteProcesadoInput & { id: string; kg_industria: number; notas: string | null };
 
 /** Señales de calidad por lote derivadas de las pasadas: % a industria (destrío medible) y notas del operario. */
 export interface CalidadLotesDerivada {
@@ -66,6 +67,7 @@ const CHUNK = 200;
 const MENSAJE_MIGRACION_CIERRE = "La columna cerrado_at todavía no existe: aplica primero la migración 20260715090000_entradas_bascula_cierre_manual.sql.";
 const MENSAJE_MIGRACION_CIERRE_MODO = "La columna cierre_modo todavía no existe: aplica primero la migración 20260716120000_entradas_bascula_cierre_modo.sql.";
 const MENSAJE_MIGRACION_CAMARA_CONFIRMADA = "La columna camara_confirmada_nombre todavía no existe: aplica primero la migración 20260804120000_camara_confirmada.sql.";
+const MENSAJE_MIGRACION_ANOTACIONES = "La tabla pasada_anotaciones todavía no existe: aplica primero la migración 20260804150000_pasada_anotaciones.sql.";
 
 export function useEntradasBascula() {
   const { user } = useAuth();
@@ -121,8 +123,11 @@ export function useEntradasBascula() {
         }
       };
       const [lotes, partes] = await Promise.all([
-        fetchAllRows<{ lote_codigo: string | null; kg_peso_total: number; part_id: string; kg_industria: number | null; notas: string | null }>((from, to) =>
-          supabase.from("lotes_dia").select("lote_codigo, kg_peso_total, part_id, kg_industria, notas").order("id").range(from, to),
+        // `id` incluido (refuerzo 04-08-2026): es la clave a la que se
+        // engancha pasada_anotaciones.lote_dia_id — sin ella no habría forma
+        // de saber a qué fila concreta de lotes_dia pertenece cada anotación.
+        fetchAllRows<{ id: string; lote_codigo: string | null; kg_peso_total: number; part_id: string; kg_industria: number | null; notas: string | null }>((from, to) =>
+          supabase.from("lotes_dia").select("id, lote_codigo, kg_peso_total, part_id, kg_industria, notas").order("id").range(from, to),
         ),
         fetchPartes(),
       ]);
@@ -136,6 +141,7 @@ export function useEntradasBascula() {
       // productor: cuenta TODA fila de lotes_dia, sea el productor el que sea.
       return {
         procesados: lotes.map((l) => ({
+          id: l.id,
           lote_codigo: l.lote_codigo,
           kg_peso_total: Number(l.kg_peso_total) || 0,
           date: fechaPorParte.get(l.part_id) ?? null,
@@ -152,6 +158,32 @@ export function useEntradasBascula() {
           }))
           .filter((p) => p.kgBruto > 0),
       };
+    },
+    enabled: Boolean(user),
+  });
+
+  // ─── Anotaciones a posteriori de pasadas (refuerzo 04-08-2026) ─────────────
+  // Ver src/lib/pasadaAnotaciones.ts: qué más se echó en una pasada del
+  // calibrador que planta no escribió en el código. Degradado con gracia si
+  // la migración 20260804150000_pasada_anotaciones.sql aún no está aplicada
+  // (mismo patrón que fetchPartes más arriba): la tabla no existe todavía en
+  // ningún entorno de test/desarrollo sin aplicar, así que SIEMPRE debe caer
+  // a lista vacía sin romper el resto de la página.
+  const anotacionesQuery = useQuery({
+    queryKey: ["pasada_anotaciones"] as const,
+    queryFn: async (): Promise<PasadaAnotacionRow[]> => {
+      try {
+        return await fetchAllRows<PasadaAnotacionRow>((from, to) =>
+          SUPA.from("pasada_anotaciones")
+            .select("id, user_id, lote_dia_id, codigo_extra, nota, created_at")
+            .order("created_at")
+            .order("id")
+            .range(from, to),
+        );
+      } catch (e) {
+        if (!esErrorTablaOColumnaInexistente(e)) throw e;
+        return [];
+      }
     },
     enabled: Boolean(user),
   });
@@ -389,6 +421,55 @@ export function useEntradasBascula() {
     },
   });
 
+  // ─── Anotar/quitar qué más se echó en una pasada (solo admin en la UI) ─────
+  // Ver src/lib/pasadaAnotaciones.ts para el porqué de insertar UNA A UNA: el
+  // orden de `created_at` es la única forma de conservar "el resto según
+  // indicación" (regla del dueño, jamás FIFO) sin añadir una columna de
+  // posición que el encargo no pidió.
+  const agregarAnotacion = useMutation({
+    mutationFn: async ({ loteDiaId, codigos, nota }: {
+      loteDiaId: string;
+      codigos: string[];
+      nota: string | null;
+    }): Promise<{ agregados: number }> => {
+      if (!user) throw new Error("No auth");
+      if (codigos.length === 0) return { agregados: 0 };
+      const notaLimpia = nota && nota.trim() ? nota.trim() : null;
+      let agregados = 0;
+      for (const codigo of codigos) {
+        const { error } = await escribirConReintentos(() => SUPA
+          .from("pasada_anotaciones")
+          .insert({ user_id: user.id, lote_dia_id: loteDiaId, codigo_extra: codigo, nota: notaLimpia }));
+        if (error) {
+          if (esErrorTablaOColumnaInexistente(error)) throw new Error(MENSAJE_MIGRACION_ANOTACIONES);
+          // "23505" = unique_violation: el código ya estaba anotado para esta
+          // pasada (choque con pasada_anotaciones_lote_dia_codigo_unique) —
+          // no es un error real, simplemente no hay nada nuevo que anotar.
+          if ((error as { code?: string }).code === "23505") continue;
+          throw toError(error);
+        }
+        agregados++;
+      }
+      return { agregados };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pasada_anotaciones"] });
+    },
+  });
+
+  const quitarAnotacion = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await escribirConReintentos(() => SUPA.from("pasada_anotaciones").delete().eq("id", id));
+      if (error) {
+        if (esErrorTablaOColumnaInexistente(error)) throw new Error(MENSAJE_MIGRACION_ANOTACIONES);
+        throw toError(error);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pasada_anotaciones"] });
+    },
+  });
+
   // ─── Movimientos internos de precalibrado (cierre definitivo, jul-2026) ────
   // La báscula registra el movimiento al almacén de precalibrado como si
   // fuera una entrada normal (278 filas, 764.846 kg verificados en BD): es
@@ -508,6 +589,51 @@ export function useEntradasBascula() {
     [codigosCamaraExterna, camaraConfirmadaPorLote],
   );
 
+  // ─── Anotaciones a posteriori: inyección ANTES del motor (refuerzo 04-08-2026) ─
+  // Ver src/lib/pasadaAnotaciones.ts. `conciliarKgProcesados` NO se toca: se
+  // le construye un `lote_codigo` EFECTIVO por pasada (código anotado
+  // añadido al final, principal siempre primero) y eso es lo único que
+  // cambia — para el motor, un código anotado es indistinguible de uno que
+  // el calibrador escribió de verdad.
+  const anotacionesPorLoteDia = useMemo(
+    () => agruparAnotacionesPorLoteDia(anotacionesQuery.data ?? []),
+    [anotacionesQuery.data],
+  );
+
+  const pasadasConAnotaciones = useMemo((): LoteProcesadoConCalidad[] => {
+    const crudas = procesadosQuery.data?.procesados ?? [];
+    if (anotacionesPorLoteDia.size === 0) return crudas; // caso normal: 0 coste, mismo array
+    return crudas.map((p) => {
+      const filas = anotacionesPorLoteDia.get(p.id);
+      if (!filas || filas.length === 0) return p;
+      return { ...p, lote_codigo: construirLoteCodigoEfectivo(p.lote_codigo, filas.map((f) => f.codigo_extra)) };
+    });
+  }, [procesadosQuery.data, anotacionesPorLoteDia]);
+
+  /**
+   * Pasadas CRUDAS agrupadas por su PRIMER código (tal cual las escribió el
+   * calibrador, sin anotaciones): permite, dado un código donante de la cola
+   * de excesos (`excesosSinColocar`, que solo trae `{lote, kg}` agregados),
+   * localizar la(s) fila(s) de lotes_dia concretas a las que anotar — el
+   * grano de la anotación es la PASADA, no el lote agregado. Normalmente hay
+   * una sola fila por código (una entrada real = un camión), pero puede
+   * haber varias (el patrón típico de exceso: camiones seguidos sin cambiar
+   * el código del calibrador, ver la cabecera de conciliacionKg.ts).
+   */
+  const pasadasPorLoteDonante = useMemo(() => {
+    const mapa = new Map<string, Array<{ id: string; lote_codigo: string; kg_peso_total: number; date: string | null }>>();
+    for (const p of procesadosQuery.data?.procesados ?? []) {
+      const kg = Number(p.kg_peso_total) || 0;
+      if (kg <= 0) continue;
+      const primero = String(p.lote_codigo ?? "").match(/\d{8}/)?.[0];
+      if (!primero) continue;
+      const arr = mapa.get(primero) ?? [];
+      arr.push({ id: p.id, lote_codigo: p.lote_codigo ?? "", kg_peso_total: kg, date: p.date ?? null });
+      mapa.set(primero, arr);
+    }
+    return mapa;
+  }, [procesadosQuery.data]);
+
   const conciliacionKg = useMemo(() => {
     const aConciliacion = (e: EntradaBasculaRow, esPrec: boolean): EntradaConciliacion => ({
       lote: e.lote,
@@ -524,11 +650,11 @@ export function useEntradasBascula() {
     });
     return conciliarKgProcesados(
       [...entradas.map((e) => aConciliacion(e, false)), ...entradasPrecalibrado.map((e) => aConciliacion(e, true))],
-      procesadosQuery.data?.procesados ?? [],
+      pasadasConAnotaciones,
       procesadosQuery.data?.reciclajePorDia ?? [],
       lotesConfirmadosEnCamara,
     );
-  }, [entradas, entradasPrecalibrado, procesadosQuery.data, lotesConfirmadosEnCamara]);
+  }, [entradas, entradasPrecalibrado, pasadasConAnotaciones, procesadosQuery.data, lotesConfirmadosEnCamara]);
 
   // ─── Señales de calidad por lote: % industria y notas del operario ─────────
   // (para la ficha, la tabla del selector y la búsqueda por síntoma —
@@ -665,6 +791,24 @@ export function useEntradasBascula() {
     return items;
   }, [stock.filas, entradas, hoy]);
 
+  // ─── Códigos de báscula (incluido PREC) para validar anotaciones ──────────
+  // Ver src/lib/pasadaAnotaciones.ts (validarCodigosContraBascula): el
+  // diálogo de anotación nunca inventa un cruce, así que necesita el
+  // conjunto completo de códigos que SÍ existen — el precalibrado interno
+  // cuenta (el dueño puede anotar una re-entrada PREC, no solo un lote real).
+  const codigosBascula = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of entradas) {
+      const codigo = normalizarLoteCodigo(e.lote);
+      if (codigo) set.add(codigo);
+    }
+    for (const e of entradasPrecalibrado) {
+      const codigo = normalizarLoteCodigo(e.lote);
+      if (codigo) set.add(codigo);
+    }
+    return set;
+  }, [entradas, entradasPrecalibrado]);
+
   return {
     entradas,
     stock,
@@ -687,8 +831,14 @@ export function useEntradasBascula() {
     lotesEnPasadaCompuesta,
     /** lote (8 dígitos) -> confirmación FÍSICA vigente (nombre + fecha), ver camaraConfirmadaVigentePorLote en camaraConfirmada.ts. Ya está inyectada en `stock` (StockLoteRow.confirmacionCamara); se expone aparte para el diálogo de admin (ver ConfirmarLotesEnCamaraDialog.tsx), que necesita saber qué lotes están YA confirmados sin recorrer stock.filas. */
     camaraConfirmadaPorLote,
-    isLoading: entradasQuery.isLoading || procesadosQuery.isLoading,
-    error: entradasQuery.error ?? procesadosQuery.error,
+    /** Anotaciones a posteriori (pasada_anotaciones) agrupadas por lote_dia_id, en el orden en que se indicaron — ver pasadaAnotaciones.ts. Alimenta el diálogo "Indicar qué más se echó" (existentes + botón quitar) y ya está inyectado en `conciliacionKg`. */
+    anotacionesPorLoteDia,
+    /** Pasadas CRUDAS (sin anotar) agrupadas por su PRIMER código: localiza, dado un código donante de `conciliacionKg.excesosSinColocar`, la(s) fila(s) reales de lotes_dia a las que se puede anotar. */
+    pasadasPorLoteDonante,
+    /** Códigos de 8 dígitos que existen en báscula (real + PREC): para validar los códigos pegados en el diálogo de anotación sin inventar ningún cruce. */
+    codigosBascula,
+    isLoading: entradasQuery.isLoading || procesadosQuery.isLoading || anotacionesQuery.isLoading,
+    error: entradasQuery.error ?? procesadosQuery.error ?? anotacionesQuery.error,
     importar,
     importarStock,
     eliminar,
@@ -697,5 +847,7 @@ export function useEntradasBascula() {
     cerrarLotesEnBloque,
     reabrirLotesEnBloque,
     actualizarCamaraConfirmada,
+    agregarAnotacion,
+    quitarAnotacion,
   };
 }

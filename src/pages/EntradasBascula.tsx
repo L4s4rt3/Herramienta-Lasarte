@@ -625,7 +625,9 @@ export default function EntradasBascula() {
   const {
     entradas, entradasPrecalibrado, stock, procesados, conciliacionKg, movimientosPrecalibrado, derivadosCampoCit, isLoading, error,
     candidatosCierreAutomatico, candidatosCierreCompuesto, lotesEnPasadaCompuesta, camaraConfirmadaPorLote,
+    pasadasPorLoteDonante, anotacionesPorLoteDia, codigosBascula,
     importar, importarStock, eliminar, cerrarLote, reabrirLote, cerrarLotesEnBloque, reabrirLotesEnBloque, actualizarCamaraConfirmada,
+    agregarAnotacion, quitarAnotacion,
   } = useEntradasBascula();
   const { role } = useAuth();
   const isAdmin = role === "admin";
@@ -1832,7 +1834,16 @@ export default function EntradasBascula() {
 
             {/* ─── Conciliación de kg: dónde ha ido cada kg reasignado ───── */}
             <TabsContent value="conciliacion" className="mt-0">
-              <ConciliacionKgPanel conciliacion={conciliacionKg} filasStock={stock.filas} />
+              <ConciliacionKgPanel
+                conciliacion={conciliacionKg}
+                filasStock={stock.filas}
+                isAdmin={isAdmin}
+                pasadasPorLoteDonante={pasadasPorLoteDonante}
+                anotacionesPorLoteDia={anotacionesPorLoteDia}
+                codigosBascula={codigosBascula}
+                agregarAnotacion={agregarAnotacion}
+                quitarAnotacion={quitarAnotacion}
+              />
             </TabsContent>
           </Tabs>
 

@@ -8,15 +8,23 @@
 // revisión: exceso que NO encontró receptor y que alguien debe mirar a mano
 // (códigos con errores de tecleo, excesos sin lote hermano con pendiente…).
 // Todo enlaza a la ficha de Trazabilidad del lote.
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, ArrowRight, Recycle, Scale } from "lucide-react";
+import { AlertTriangle, ArrowRight, ClipboardEdit, Recycle, Scale } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { ConciliacionKg, MovimientoKg } from "@/lib/conciliacionKg";
 import type { StockLoteRow } from "@/lib/entradasBascula";
 import { formatKgCompact as formatKg, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import {
+  AnotarPasadaDialog,
+  type AgregarAnotacionMutation,
+  type CandidatoPasada,
+  type QuitarAnotacionMutation,
+} from "@/components/AnotarPasadaDialog";
+import type { PasadaAnotacionRow } from "@/lib/pasadaAnotaciones";
 
 // Exportadas (además de este panel) para el badge compacto de "cedió Xkg" en
 // la fila de Stock de EntradasBascula.tsx (refuerzo 2026-08-03): misma
@@ -46,11 +54,27 @@ function LoteLink({ lote }: { lote: string }) {
   );
 }
 
-export function ConciliacionKgPanel({ conciliacion, filasStock }: {
+export function ConciliacionKgPanel({
+  conciliacion, filasStock, isAdmin, pasadasPorLoteDonante, anotacionesPorLoteDia, codigosBascula,
+  agregarAnotacion, quitarAnotacion,
+}: {
   conciliacion: ConciliacionKg;
   filasStock: StockLoteRow[];
+  /** Solo admin ve el botón "Indicar qué más se echó" (mismo gating que ConfirmarLotesEnCamaraDialog.tsx). Opcional: sin ella, el botón no se pinta (compatibilidad con llamadas existentes/tests). */
+  isAdmin?: boolean;
+  /** Pasadas CRUDAS de lotes_dia agrupadas por su PRIMER código (ver useEntradasBascula.ts): localiza a qué fila física anotar dado un código donante de la cola. */
+  pasadasPorLoteDonante?: Map<string, CandidatoPasada[]>;
+  anotacionesPorLoteDia?: Map<string, PasadaAnotacionRow[]>;
+  codigosBascula?: Set<string>;
+  agregarAnotacion?: AgregarAnotacionMutation;
+  quitarAnotacion?: QuitarAnotacionMutation;
 }) {
   const { movimientos, excesosSinColocar, reciclaje, kgReciclajeEstimado } = conciliacion;
+  const [loteAAnotar, setLoteAAnotar] = useState<string | null>(null);
+
+  // Botón "Indicar qué más se echó" habilitado: solo admin y con las
+  // mutaciones/datos de anotación inyectados por la página (EntradasBascula.tsx).
+  const anotacionDisponible = Boolean(isAdmin && pasadasPorLoteDonante && anotacionesPorLoteDia && codigosBascula && agregarAnotacion && quitarAnotacion);
 
   const infoPorLote = useMemo(() => {
     const map = new Map<string, { finca: string | null; articulo: string | null }>();
@@ -263,18 +287,45 @@ export function ConciliacionKgPanel({ conciliacion, filasStock }: {
                         <th className="px-3 py-1.5 font-medium">Código</th>
                         <th className="px-3 py-1.5 font-medium">Finca · variedad</th>
                         <th className="px-3 py-1.5 text-right font-medium">Kg sin colocar</th>
+                        {anotacionDisponible && <th className="px-3 py-1.5 font-medium" />}
                       </tr>
                     </thead>
                     <tbody>
                       {colaOrdenada.map((e, i) => {
                         const info = infoPorLote.get(e.lote);
+                        // ¿Alguna de las pasadas físicas de este código donante ya tiene anotación? (badge "anotada por dirección" — visibilidad pedida por el dueño).
+                        const candidatosPasada = pasadasPorLoteDonante?.get(e.lote) ?? [];
+                        const tieneAnotacion = candidatosPasada.some((c) => (anotacionesPorLoteDia?.get(c.id)?.length ?? 0) > 0);
                         return (
                           <tr key={`${e.lote}-${i}`} className="border-b border-[var(--glass-border)] last:border-0">
-                            <td className="px-3 py-1.5"><LoteLink lote={e.lote} /></td>
+                            <td className="px-3 py-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <LoteLink lote={e.lote} />
+                                {tieneAnotacion && (
+                                  <Badge variant="outline" className="border-primary/40 bg-primary/10 px-1.5 py-0 text-[9px] text-primary">
+                                    anotada por dirección
+                                  </Badge>
+                                )}
+                              </div>
+                            </td>
                             <td className="max-w-48 truncate px-3 py-1.5 text-xs text-muted-foreground">
                               {info ? `${info.finca ?? "—"}${info.articulo ? ` · ${info.articulo}` : ""}` : "—"}
                             </td>
                             <td className="px-3 py-1.5 text-right font-medium tabular-nums">{formatKg(e.kg)}</td>
+                            {anotacionDisponible && (
+                              <td className="px-3 py-1.5 text-right">
+                                {candidatosPasada.length > 0 && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                                    onClick={() => setLoteAAnotar(e.lote)}
+                                  >
+                                    <ClipboardEdit className="h-3 w-3" /> Indicar qué más se echó
+                                  </Button>
+                                )}
+                              </td>
+                            )}
                           </tr>
                         );
                       })}
@@ -286,6 +337,20 @@ export function ConciliacionKgPanel({ conciliacion, filasStock }: {
           </CardContent>
         </Card>
       </div>
+
+      {anotacionDisponible && loteAAnotar && (
+        <AnotarPasadaDialog
+          open={Boolean(loteAAnotar)}
+          onOpenChange={(next) => { if (!next) setLoteAAnotar(null); }}
+          lote={loteAAnotar}
+          kgExceso={excesosSinColocar.find((e) => e.lote === loteAAnotar)?.kg ?? 0}
+          candidatos={pasadasPorLoteDonante?.get(loteAAnotar) ?? []}
+          anotacionesPorLoteDia={anotacionesPorLoteDia!}
+          codigosBascula={codigosBascula!}
+          agregarAnotacion={agregarAnotacion!}
+          quitarAnotacion={quitarAnotacion!}
+        />
+      )}
     </div>
   );
 }
