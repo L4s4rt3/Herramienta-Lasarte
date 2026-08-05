@@ -62,6 +62,8 @@ import { esEntradaPrecalibrado, resolveProductorGroupKey } from "@/lib/productor
 import { MOTIVO_BADGE, MOTIVO_LABEL } from "@/components/ConciliacionKgPanel";
 import type { MovimientoKg } from "@/lib/conciliacionKg";
 import { cn } from "@/lib/utils";
+import { compararConMotorViejo } from "@/lib/cicloVidaLoteAdapter";
+import { ESTADO_LOTE_BADGE, ESTADO_LOTE_LABEL } from "@/components/CicloVidaEvidenciaSection";
 
 const ESTADO_BADGE: Record<StockEstado, { label: string; className: string }> = {
   pendiente: { label: "En cámara", className: "border-info/40 bg-info/10 text-info" },
@@ -625,7 +627,7 @@ export default function EntradasBascula() {
   const {
     entradas, entradasPrecalibrado, stock, procesados, conciliacionKg, movimientosPrecalibrado, derivadosCampoCit, isLoading, error,
     candidatosCierreAutomatico, candidatosCierreCompuesto, lotesEnPasadaCompuesta, camaraConfirmadaPorLote,
-    pasadasPorLoteDonante, anotacionesPorLoteDia, codigosBascula,
+    pasadasPorLoteDonante, anotacionesPorLoteDia, codigosBascula, discrepanciasCierre, cicloPorLote,
     importar, importarStock, eliminar, cerrarLote, reabrirLote, cerrarLotesEnBloque, reabrirLotesEnBloque, actualizarCamaraConfirmada,
     agregarAnotacion, quitarAnotacion,
   } = useEntradasBascula();
@@ -1268,6 +1270,47 @@ export default function EntradasBascula() {
             </div>
           )}
 
+          {/* ─── CINTURÓN Y TIRANTES (fase 3b): discrepancias de cierre entre ──
+              motores. Cola de revisión, NO un error: el motor viejo daba estos
+              lotes por candidatos a cierre automático, pero el motor de
+              evidencia (cicloVidaLote.ts) los veta — no se cierran solos
+              mientras estén aquí (ver aplicarCinturonYTirantes,
+              cicloVidaLoteAdapter.ts, y useEntradasBascula.ts). ── */}
+          {discrepanciasCierre.length > 0 && (
+            <Card className="glass-accented border-warning/30">
+              <CardContent className="space-y-2.5 p-4 sm:p-5">
+                <div className="flex items-center gap-2 text-sm font-semibold text-warning">
+                  <GitCompare className="h-4 w-4 shrink-0" />
+                  Discrepancias de cierre entre motores ({discrepanciasCierre.length})
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  El motor de evidencia (fase 3b, solo lectura) veta el cierre automático de estos lotes aunque el motor
+                  anterior los daba por candidatos — no se cierran solos, cola de revisión.
+                </p>
+                <ul className="space-y-1.5">
+                  {discrepanciasCierre.map((d) => (
+                    <li
+                      key={`${d.tipo}-${d.lote}`}
+                      className="flex flex-wrap items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs"
+                    >
+                      <Link
+                        to={`/trazabilidad?lote=${encodeURIComponent(d.lote)}`}
+                        className="inline-flex shrink-0 items-center gap-1 font-semibold tabular-nums text-warning hover:underline"
+                      >
+                        {d.lote} <ArrowRight className="h-3 w-3 opacity-60" />
+                      </Link>
+                      <Badge variant="outline" className="shrink-0 border-warning/40 bg-warning/10 px-1.5 py-0 text-[10px] text-warning">
+                        {d.tipo === "compuesto" ? "candidato compuesto" : "candidato completo"}
+                        {d.estadoNuevo && <> · {ESTADO_LOTE_LABEL[d.estadoNuevo]}</>}
+                      </Badge>
+                      <span className="text-muted-foreground">{d.razon}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "stock" | "dias" | "mermas" | "conciliacion")} className="space-y-4">
             <TabsList className="w-full flex-wrap sm:w-auto">
               <TabsTrigger value="stock">Stock en cámara</TabsTrigger>
@@ -1629,9 +1672,26 @@ export default function EntradasBascula() {
                       sk: "estado",
                       render: (fila) => {
                         const badge = ESTADO_BADGE[fila.estado];
+                        // FASE 3b: badge del motor de EVIDENCIA solo cuando DIFIERE
+                        // de lo que ya dice el motor viejo (compararConMotorViejo
+                        // solo informa cuando discrepan en si el lote está resuelto
+                        // o no) — si coinciden, no se añade ruido a la fila. Reutiliza
+                        // las etiquetas de CicloVidaEvidenciaSection.tsx, no duplica
+                        // el mapa de labels/estilos.
+                        const ciclo = cicloPorLote.get(fila.lote);
+                        const discrepanciaMotor = ciclo ? compararConMotorViejo(fila, ciclo) : null;
                         return (
                           <div className="flex flex-wrap items-center gap-1">
                             <Badge variant="outline" className={cn("px-1.5 py-0 text-[11px]", badge.className)}>{badge.label}</Badge>
+                            {discrepanciaMotor && ciclo && (
+                              <Badge
+                                variant="outline"
+                                className={cn("px-1.5 py-0 text-[10px]", ESTADO_LOTE_BADGE[ciclo.estado])}
+                                title={`Motor de evidencia (fase 3b, solo lectura): ${discrepanciaMotor.nota}`}
+                              >
+                                <GitCompare className="mr-1 h-2.5 w-2.5" /> evidencia: {ESTADO_LOTE_LABEL[ciclo.estado]}
+                              </Badge>
+                            )}
                             {fila.probablementeTerminado && (
                               <Badge
                                 variant="outline"

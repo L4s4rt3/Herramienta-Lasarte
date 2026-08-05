@@ -20,6 +20,13 @@ import { normalizarLoteCodigo } from "@/lib/loteCodigo";
 import { esEntradaCampoCit, esEntradaPrecalibrado, esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
 import { esNotaOperarioLote } from "@/lib/trazabilidadSelector";
 import { agruparAnotacionesPorLoteDia, construirLoteCodigoEfectivo, type PasadaAnotacionRow } from "@/lib/pasadaAnotaciones";
+import {
+  aplicarCinturonYTirantes,
+  construirCicloVidaCampana,
+  type DiscrepanciaCierre,
+  type EntradaParaEventos,
+} from "@/lib/cicloVidaLoteAdapter";
+import type { LoteCiclo } from "@/lib/cicloVidaLote";
 
 /** Pasada de lotes_dia con los extras de calidad que consume Trazabilidad (notas del operario y destrío a industria), más el `id` real de la fila — necesario para poder anotar a posteriori qué más se echó (ver pasadaAnotaciones.ts) y para cruzar con `pasada_anotaciones.lote_dia_id`. */
 export type LoteProcesadoConCalidad = LoteProcesadoInput & { id: string; kg_industria: number; notas: string | null };
@@ -61,6 +68,31 @@ export type EntradaBasculaRow = Tables<"entradas_bascula"> & {
   camara_confirmada_nombre?: string | null;
   camara_confirmada_fecha?: string | null;
 };
+
+/**
+ * Adapta una fila cruda de entradas_bascula (o su equivalente de
+ * precalibrado/CAMPO-CIT) al shape mínimo que pide el motor nuevo
+ * (cicloVidaLoteAdapter.ts). ÚNICA fuente de esta conversión — antes vivía
+ * duplicada en useCicloVidaLoteEvidencia.ts (fase 3a, un solo lote); se
+ * generaliza aquí (fase 3b, toda la campaña) y ese hook la importa de vuelta
+ * en vez de mantener su propia copia.
+ */
+export function aEntradaParaEventos(e: EntradaBasculaRow): EntradaParaEventos {
+  return {
+    lote: e.lote,
+    fecha: e.fecha,
+    finca: e.finca,
+    articulo: e.articulo,
+    agricultor: e.agricultor,
+    kg_entrada: Number(e.kg_entrada) || 0,
+    kg_ajuste_stock: Number(e.kg_ajuste_stock) || 0,
+    merma_camara_kg: (e as { merma_camara_kg?: number | null }).merma_camara_kg ?? null,
+    cerrado_at: e.cerrado_at ?? null,
+    cierre_modo: e.cierre_modo ?? null,
+    camara_confirmada_nombre: e.camara_confirmada_nombre ?? null,
+    camara_confirmada_fecha: e.camara_confirmada_fecha ?? null,
+  };
+}
 
 const CHUNK = 200;
 
@@ -541,7 +573,11 @@ export function useEntradasBascula() {
   // camarasExternas.ts. Reutiliza useCamarasExternas() (misma queryKey que la
   // página, sin fetch duplicado por el dedupe de React Query).
   const { camiones: camionesCamaraExterna } = useCamarasExternas();
-  const codigosCamaraExterna = useMemo(() => {
+  // Hoisted (fase 3b): antes vivía inline dentro de `codigosCamaraExterna`;
+  // el motor nuevo (más abajo, `cicloVidaCampana`) necesita EXACTAMENTE la
+  // misma señal — se calcula una sola vez y la reutilizan ambos, en vez de
+  // que cada uno repita el mismo par de bucles.
+  const senalesCamaraExterna = useMemo((): SenalesRecepcion => {
     const salidaPorLote = new Map<string, string | null>();
     for (const e of entradas) {
       const salida = (e as { fecha_salida_camara?: string | null }).fecha_salida_camara ?? null;
@@ -555,9 +591,12 @@ export function useEntradasBascula() {
       const lote8 = normalizarLoteCodigo(p.lote_codigo);
       if (lote8) lotesProcesados.add(lote8);
     }
-    const senales: SenalesRecepcion = { salidaPorLote, lotesProcesados };
-    return codigosEnCamaraExterna(camionesCamaraExterna, senales, today());
-  }, [entradas, procesadosQuery.data, camionesCamaraExterna]);
+    return { salidaPorLote, lotesProcesados };
+  }, [entradas, procesadosQuery.data]);
+  const codigosCamaraExterna = useMemo(
+    () => codigosEnCamaraExterna(camionesCamaraExterna, senalesCamaraExterna, today()),
+    [camionesCamaraExterna, senalesCamaraExterna],
+  );
 
   // ─── Señal de CONFIRMACIÓN FÍSICA en cámara (refuerzo 04-08-2026) ──────────
   // Generalización de la protección anterior: el dueño puede confirmar a pie
@@ -776,6 +815,55 @@ export function useEntradasBascula() {
     [entradas, conciliacionKg, hoy, lotesEnPasadaCompuesta, lotesConfirmadosEnCamara, camaraConfirmadaPorLote, kgDerramePorLote],
   );
 
+  // ─── Motor NUEVO para TODA la campaña (fase 3b, ver docs/TRAZABILIDAD_ ────
+  // REFUNDACION.md): arquitectura "estrangulador" — el motor viejo (arriba)
+  // sigue pintando `stock`/las cifras agregadas; el nuevo se calcula en
+  // paralelo, por lote, para poder VETAR candidatos de cierre automático
+  // (cinturón y tirantes, más abajo) y para el badge de discrepancia por fila
+  // (EntradasBascula.tsx). Reutiliza `construirCicloVidaCampana`
+  // (cicloVidaLoteAdapter.ts, fase 3a) generalizado a TODA la campaña de una
+  // vez — YA lo hacía así (conciliarKgProcesados reparte a nivel de campaña,
+  // no admite acotar a un lote), así que no hace falta tocar el adaptador:
+  // esta es la primera vez que se consume el resultado completo en vez de
+  // buscar un único lote (useCicloVidaLoteEvidencia.ts). CERO fetches nuevos
+  // (mismos datos que ya carga este hook); el coste es O(campaña) — un solo
+  // paso por las 1.300 y pico entradas, nada de replay por fecha (eso sigue
+  // siendo asentamientoDia.ts, no se toca aquí. OJO coste: `eventosDePasadasCalibrador`
+  // vuelve a llamar a `conciliarKgProcesados` internamente (misma función que
+  // ya corrió arriba para `conciliacionKg`) — se acepta la redundancia (el
+  // mismo patrón que ya usa useCicloVidaLoteEvidencia.ts desde la fase 3a)
+  // porque sigue siendo O(campaña), no O(campaña²); unificarla en una sola
+  // pasada es una refactorización mayor fuera del alcance de esta fase.
+  const anotacionesParaEventos = useMemo(
+    () => Array.from(anotacionesPorLoteDia.values()).flat().map((a) => ({
+      lote_dia_id: a.lote_dia_id,
+      codigo_extra: a.codigo_extra,
+      nota: a.nota,
+    })),
+    [anotacionesPorLoteDia],
+  );
+  const cicloVidaCampana = useMemo(() => construirCicloVidaCampana({
+    // Las tres fuentes juntas (reales + precalibrado + CAMPO/CIT): cada una
+    // se clasifica sola dentro de eventosDeEntradaBascula (esEntradaPrecalibrado/
+    // esEntradaCampoCit) — mismo criterio que useCicloVidaLoteEvidencia.ts y
+    // el banco dorado.
+    entradas: [...entradas, ...entradasPrecalibrado, ...derivadosCampoCit.filas].map(aEntradaParaEventos),
+    entradasConciliacionReales: entradas.map(aEntradaParaEventos),
+    entradasConciliacionPrecalibrado: entradasPrecalibrado.map(aEntradaParaEventos),
+    pasadas: (procesadosQuery.data?.procesados ?? []).map((p) => ({ id: p.id, lote_codigo: p.lote_codigo, kg_peso_total: p.kg_peso_total, date: p.date ?? null })),
+    reciclajePorDia: procesadosQuery.data?.reciclajePorDia ?? [],
+    anotaciones: anotacionesParaEventos,
+    camionesCamaraExterna,
+    lotesConfirmadosEnCamara,
+    senalesCamaraExterna,
+    hoy,
+  }), [entradas, entradasPrecalibrado, derivadosCampoCit.filas, procesadosQuery.data, anotacionesParaEventos, camionesCamaraExterna, lotesConfirmadosEnCamara, senalesCamaraExterna, hoy]);
+
+  const cicloPorLote = useMemo(
+    () => new Map<string, LoteCiclo>(cicloVidaCampana.ciclo.map((c) => [c.lote, c])),
+    [cicloVidaCampana],
+  );
+
   // ─── Candidatos al cierre automático PERSISTIDO (refuerzo 2026-08-03) ──────
   // esCandidatoCierreAutomatico (src/lib/entradasBascula.ts) decide sobre
   // StockLoteRow; aquí solo se junta con el `id` real de entradas_bascula
@@ -783,7 +871,13 @@ export function useEntradasBascula() {
   // página (EntradasBascula.tsx) es quien dispara la mutación al cargar la
   // pestaña Stock — este hook solo calcula QUIÉN es candidato, no escribe
   // nada por su cuenta (mismo principio que el resto de estados derivados).
-  const candidatosCierreAutomatico = useMemo(() => {
+  //
+  // CINTURÓN Y TIRANTES (fase 3b, decisión de diseño central del encargo, no
+  // negociable): un candidato del motor VIEJO solo se cierra si el motor
+  // NUEVO también lo ve completo (`aplicarCinturonYTirantes`,
+  // cicloVidaLoteAdapter.ts). Cuando discrepan, el lote NO se cierra — se
+  // queda en `discrepanciasCierre` con la razón del motor nuevo.
+  const candidatosCierreAutomaticoDelViejo = useMemo(() => {
     const entradaPorLote = new Map(entradas.map((e) => [e.lote, e]));
     const items: Array<{ id: string; lote: string }> = [];
     for (const fila of stock.filas) {
@@ -798,8 +892,8 @@ export function useEntradasBascula() {
   // 04-08-2026, ver esCandidatoCierreCompuesto/StockLoteRow.procesadoEnCompuesto
   // en entradasBascula.ts): mismo patrón que candidatosCierreAutomatico, pero
   // el cierre_modo SIEMPRE es "sin_registro" — su kg no consta bajo su
-  // código, no es una pérdida real medible.
-  const candidatosCierreCompuesto = useMemo(() => {
+  // código, no es una pérdida real medible. Mismo cinturón y tirantes.
+  const candidatosCierreCompuestoDelViejo = useMemo(() => {
     const entradaPorLote = new Map(entradas.map((e) => [e.lote, e]));
     const items: Array<{ id: string; lote: string }> = [];
     for (const fila of stock.filas) {
@@ -809,6 +903,20 @@ export function useEntradasBascula() {
     }
     return items;
   }, [stock.filas, entradas, hoy]);
+
+  const { candidatosCierreAutomatico, candidatosCierreCompuesto, discrepanciasCierre } = useMemo((): {
+    candidatosCierreAutomatico: typeof candidatosCierreAutomaticoDelViejo;
+    candidatosCierreCompuesto: typeof candidatosCierreCompuestoDelViejo;
+    discrepanciasCierre: DiscrepanciaCierre[];
+  } => {
+    const completo = aplicarCinturonYTirantes(candidatosCierreAutomaticoDelViejo, "completo", cicloPorLote);
+    const compuesto = aplicarCinturonYTirantes(candidatosCierreCompuestoDelViejo, "compuesto", cicloPorLote);
+    return {
+      candidatosCierreAutomatico: completo.confirmados,
+      candidatosCierreCompuesto: compuesto.confirmados,
+      discrepanciasCierre: [...completo.discrepancias, ...compuesto.discrepancias],
+    };
+  }, [candidatosCierreAutomaticoDelViejo, candidatosCierreCompuestoDelViejo, cicloPorLote]);
 
   // ─── Códigos de báscula (incluido PREC) para validar anotaciones ──────────
   // Ver src/lib/pasadaAnotaciones.ts (validarCodigosContraBascula): el
@@ -842,10 +950,22 @@ export function useEntradasBascula() {
     calidadLotes,
     movimientosPrecalibrado,
     derivadosCampoCit,
-    /** Candidatos (id + lote) al cierre automático persistido: COMPLETO (≥97% o calibrador>entrada) y ≥2 días sin pasada nueva. Ver esCandidatoCierreAutomatico. */
+    /** Candidatos (id + lote) al cierre automático persistido: COMPLETO (≥97% o calibrador>entrada) y ≥2 días sin pasada nueva SEGÚN LOS DOS MOTORES (cinturón y tirantes, fase 3b: esCandidatoCierreAutomatico Y el motor de evidencia de acuerdo). Los que el viejo daba por candidatos pero el nuevo veta están en `discrepanciasCierre`, no aquí. */
     candidatosCierreAutomatico,
-    /** Candidatos (id + lote) al cierre automático por evidencia de COMPUESTA (refuerzo 04-08-2026): 0 kg propios pero nombrados como no-primero en una pasada compuesta, ≥2 días desde la última mención. Cierre SIEMPRE "sin_registro". Ver esCandidatoCierreCompuesto. */
+    /** Candidatos (id + lote) al cierre automático por evidencia de COMPUESTA (refuerzo 04-08-2026): 0 kg propios pero nombrados como no-primero en una pasada compuesta, ≥2 días desde la última mención, Y confirmado por el motor de evidencia (cinturón y tirantes). Cierre SIEMPRE "sin_registro". Ver esCandidatoCierreCompuesto. */
     candidatosCierreCompuesto,
+    /**
+     * FASE 3b — cola de revisión del cinturón y tirantes: lotes donde el motor
+     * VIEJO (esCandidatoCierreAutomatico/esCandidatoCierreCompuesto) dice
+     * "candidato a cierre" pero el motor de EVIDENCIA (cicloVidaLote.ts) lo
+     * veta (no llega a "completo_pendiente_cierre"). NUNCA se cierran solos
+     * mientras estén aquí — es una cola de revisión, no un error (ver
+     * aplicarCinturonYTirantes en cicloVidaLoteAdapter.ts para la razón de
+     * cada uno).
+     */
+    discrepanciasCierre,
+    /** lote (8 dígitos, normalizado) -> ciclo de vida derivado por el motor de evidencia para TODA la campaña (fase 3b, cicloVidaLoteAdapter.ts). Solo lectura: el motor viejo (`stock`) sigue mandando en cifras agregadas — esto alimenta el badge de discrepancia por fila y `discrepanciasCierre`. */
+    cicloPorLote,
     /** lote -> evidencia (primeros códigos + última fecha) con la que apareció en una pasada compuesta (ver detectarLotesEnPasadaCompuesta). Alimenta tanto el Stock de lotes reales como el Stock de precalibrado (mismo mecanismo, dos superficies). */
     lotesEnPasadaCompuesta,
     /** lote (8 dígitos) -> confirmación FÍSICA vigente (nombre + fecha), ver camaraConfirmadaVigentePorLote en camaraConfirmada.ts. Ya está inyectada en `stock` (StockLoteRow.confirmacionCamara); se expone aparte para el diálogo de admin (ver ConfirmarLotesEnCamaraDialog.tsx), que necesita saber qué lotes están YA confirmados sin recorrer stock.filas. */

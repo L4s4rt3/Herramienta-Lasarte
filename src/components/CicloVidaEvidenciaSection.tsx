@@ -58,7 +58,8 @@ const KG_CLASE_SEGMENTOS: Array<{ key: keyof KgPorClase; label: string; color: s
   { key: "sinRastro", label: "Sin rastro", color: C.destructive },
 ];
 
-const ESTADO_LOTE_LABEL: Record<EstadoLote, string> = {
+/** Exportado (fase 3b): el badge de discrepancia por fila en la pestaña Stock (EntradasBascula.tsx) reutiliza este mismo vocabulario — no se duplica el mapa de labels. */
+export const ESTADO_LOTE_LABEL: Record<EstadoLote, string> = {
   cerrado: "Cerrado",
   completo_pendiente_cierre: "Completo (cierre pendiente)",
   parcial: "Parcial",
@@ -70,7 +71,8 @@ const ESTADO_LOTE_LABEL: Record<EstadoLote, string> = {
   sin_evidencia_suficiente: "Sin evidencia suficiente",
 };
 
-const ESTADO_LOTE_BADGE: Record<EstadoLote, string> = {
+/** Exportado (fase 3b): mismo motivo que ESTADO_LOTE_LABEL. */
+export const ESTADO_LOTE_BADGE: Record<EstadoLote, string> = {
   cerrado: "border-success/40 bg-success/10 text-success",
   completo_pendiente_cierre: "border-success/40 bg-success/10 text-success",
   parcial: "border-warning/40 bg-warning/10 text-warning",
@@ -157,6 +159,19 @@ function describirEvento(e: EventoLote): { titulo: string; detalle: string } {
 
 // ─── Sub-componentes ─────────────────────────────────────────────────────────
 
+/**
+ * FASE 3b (cicloVidaLote.ts, rama "parcial"): `kgPorClase.medido` puede salir
+ * NEGATIVO (foto de stock que corrige a la baja) y, cuando eso pasa,
+ * `kgPorClase.sinRastro` puede superar el 100% de kg_entrada (la contradicción
+ * ya viene marcada aparte, ver ContradiccionesLista) — nunca se capa a 0 en
+ * silencio para que `nombrado` no tenga que sacrificarse para cuadrar la
+ * suma. Esta barra NO necesita lógica especial para ninguno de los dos casos:
+ * un segmento con pct≤0 simplemente no se dibuja (nunca un ancho imposible,
+ * `if (s.pct <= 0) return null` más abajo) y, si la suma de anchos supera
+ * 100%, flexbox reescala los `<div>` proporcionalmente (tienen flex-shrink
+ * por defecto) en vez de desbordar. La lista de cifras bajo la barra sí
+ * enseña el kg/% negativo o >100% tal cual, como aviso numérico legible.
+ */
 function BarraKgPorClase({ kgPorClase, kgEntrada }: { kgPorClase: KgPorClase; kgEntrada: number }) {
   const segmentos = KG_CLASE_SEGMENTOS.map((s) => {
     const kg = kgPorClase[s.key];

@@ -15,7 +15,7 @@
  * (el motor viejo sigue mandando ahí).
  */
 import { useMemo } from "react";
-import { useEntradasBascula } from "@/hooks/useEntradasBascula";
+import { aEntradaParaEventos, useEntradasBascula } from "@/hooks/useEntradasBascula";
 import { useCamarasExternas } from "@/hooks/useCamarasExternas";
 import { normalizarLoteCodigo } from "@/lib/loteCodigo";
 import { today } from "@/lib/format";
@@ -23,12 +23,10 @@ import {
   compararConMotorViejo,
   construirCicloVidaCampana,
   type DiscrepanciaMotor,
-  type EntradaParaEventos,
 } from "@/lib/cicloVidaLoteAdapter";
 import { eventosPorLote, type EventoLote } from "@/lib/eventosLote";
 import type { LoteCiclo } from "@/lib/cicloVidaLote";
 import type { SenalesRecepcion } from "@/lib/camarasExternas";
-import type { EntradaBasculaRow } from "@/hooks/useEntradasBascula";
 
 export interface CicloVidaLoteEvidencia {
   /** null: el lote no existe en las fuentes crudas (sin entrada de báscula) — el motor nuevo, igual que el viejo, no tiene nada que derivar. */
@@ -39,24 +37,6 @@ export interface CicloVidaLoteEvidencia {
   discrepancia: DiscrepanciaMotor | null;
   isLoading: boolean;
   error: unknown;
-}
-
-/** Adapta una fila cruda de entradas_bascula (o su equivalente de precalibrado/CAMPO-CIT) al shape mínimo que pide el adaptador — mismos campos que usa useEntradasBascula.ts para construir EntradaConciliacion/senales, sin duplicar el cálculo. */
-function aEntradaParaEventos(e: EntradaBasculaRow): EntradaParaEventos {
-  return {
-    lote: e.lote,
-    fecha: e.fecha,
-    finca: e.finca,
-    articulo: e.articulo,
-    agricultor: e.agricultor,
-    kg_entrada: Number(e.kg_entrada) || 0,
-    kg_ajuste_stock: Number(e.kg_ajuste_stock) || 0,
-    merma_camara_kg: (e as { merma_camara_kg?: number | null }).merma_camara_kg ?? null,
-    cerrado_at: e.cerrado_at ?? null,
-    cierre_modo: e.cierre_modo ?? null,
-    camara_confirmada_nombre: e.camara_confirmada_nombre ?? null,
-    camara_confirmada_fecha: e.camara_confirmada_fecha ?? null,
-  };
 }
 
 export function useCicloVidaLoteEvidencia(loteInput: string | null): CicloVidaLoteEvidencia {

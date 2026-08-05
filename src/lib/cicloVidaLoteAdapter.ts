@@ -231,8 +231,16 @@ export const ESTADO_VIEJO_LABEL: Record<EstadoViejoResumen, string> = {
   pendiente: "pendiente",
 };
 
-/** Explicación textual del motivo más específico disponible — prioriza la contradicción de primera clase si la hay, luego la señal de ubicación, y por último la regla de oro genérica. */
-function motivoDiscrepancia(ciclo: LoteCiclo): string {
+/**
+ * Explicación textual del motivo más específico disponible — prioriza la
+ * contradicción de primera clase si la hay, luego la señal de ubicación, y
+ * por último la regla de oro genérica. Exportada (además de usarse en
+ * `compararConMotorViejo`) porque el CINTURÓN Y TIRANTES del cierre
+ * automático (fase 3b, ver `aplicarCinturonYTirantes` más abajo) necesita la
+ * MISMA razón para explicar por qué el motor nuevo veta un candidato del
+ * motor viejo — una sola función, dos consumidores.
+ */
+export function motivoDiscrepancia(ciclo: LoteCiclo): string {
   const excesoSinDueno = ciclo.contradicciones.find((c) => c.tipo === "exceso_sin_dueno");
   if (excesoSinDueno) return excesoSinDueno.detalle;
   const pasadaVsFoto = ciclo.contradicciones.find((c) => c.tipo === "pasada_vs_foto_stock");
@@ -275,4 +283,73 @@ export function compararConMotorViejo(
     estadoNuevo: ciclo.estado,
     nota: `El motor de evidencia lo deja en "${ciclo.destino}" (${resueltoNuevoTxt}) mientras el motor anterior lo marca "${ESTADO_VIEJO_LABEL[viejo]}" (${resueltoViejoTxt}) porque ${motivoDiscrepancia(ciclo)}.`,
   };
+}
+
+// ─── 3) CINTURÓN Y TIRANTES del cierre automático (fase 3b) ─────────────────
+// Decisión de diseño central del encargo (no negociable, ver
+// docs/TRAZABILIDAD_REFUNDACION.md fase 3): un lote solo es candidato a
+// cierre automático (normal o compuesto) si LOS DOS motores están de acuerdo.
+// El motor viejo (esCandidatoCierreAutomatico/esCandidatoCierreCompuesto,
+// entradasBascula.ts, con su propio puente de la regla de oro —
+// completoConEvidencia, commit 15eb711) sigue siendo quien decide en primera
+// instancia (useEntradasBascula.ts sigue montando `stock.filas` y llamando a
+// esas dos funciones tal cual); esto solo AÑADE el veto del motor nuevo.
+
+/**
+ * ¿El motor NUEVO también daría este lote por completo? El vocabulario de
+ * cicloVidaLote.ts no distingue "completo por pasada propia" de "completo
+ * por evidencia de pasada compuesta" (ambos son, para el motor nuevo,
+ * simplemente "la evidencia nombrada/anotada+medida, con la puerta abierta,
+ * alcanza el umbral") — por eso un único estado (`completo_pendiente_cierre`)
+ * sirve para intersecar TANTO los candidatos normales como los compuestos
+ * del motor viejo (ver el encargo: "el equivalente compuesto de
+ * cicloVidaLote" es este mismo estado, no hay uno aparte).
+ */
+export function esCandidatoSegunMotorNuevo(ciclo: LoteCiclo | null | undefined): boolean {
+  return ciclo?.estado === "completo_pendiente_cierre";
+}
+
+export interface DiscrepanciaCierre {
+  lote: string;
+  /** Qué candidatura del motor viejo vetó el motor nuevo: "completo" = esCandidatoCierreAutomatico; "compuesto" = esCandidatoCierreCompuesto. */
+  tipo: "completo" | "compuesto";
+  /** Estado que le da el motor nuevo a este lote — `null` si el motor nuevo no tiene ningún evento para él (no debería pasar con datos reales: toda fila de stock viene de una entrada de báscula, que siempre genera al menos el evento `entrada_bascula`). */
+  estadoNuevo: EstadoLote | null;
+  /** Por qué el motor nuevo no lo ve completo — misma explicación que `compararConMotorViejo` (motivoDiscrepancia), para no mantener dos redacciones distintas del mismo hecho. */
+  razon: string;
+}
+
+/**
+ * Aplica el cinturón y tirantes a una lista de candidatos YA filtrados por el
+ * motor VIEJO (esCandidatoCierreAutomatico o esCandidatoCierreCompuesto): los
+ * separa en `confirmados` (los dos motores de acuerdo — estos SÍ se cierran)
+ * y `discrepancias` (el viejo dice sí, el nuevo veta — estos NO se cierran,
+ * quedan en la cola de revisión `discrepanciasCierre` del hook). Función PURA
+ * y genérica en `T` porque el hook llama a esto dos veces con formas de
+ * candidato ligeramente distintas (candidatosCierreAutomatico y
+ * candidatosCierreCompuesto, ambos `{id, lote}`), sin duplicar el bucle.
+ */
+export function aplicarCinturonYTirantes<T extends { lote: string }>(
+  candidatosMotorViejo: T[],
+  tipo: DiscrepanciaCierre["tipo"],
+  cicloPorLote: Map<string, LoteCiclo>,
+): { confirmados: T[]; discrepancias: DiscrepanciaCierre[] } {
+  const confirmados: T[] = [];
+  const discrepancias: DiscrepanciaCierre[] = [];
+  for (const candidato of candidatosMotorViejo) {
+    const ciclo = cicloPorLote.get(candidato.lote) ?? null;
+    if (esCandidatoSegunMotorNuevo(ciclo)) {
+      confirmados.push(candidato);
+      continue;
+    }
+    discrepancias.push({
+      lote: candidato.lote,
+      tipo,
+      estadoNuevo: ciclo?.estado ?? null,
+      razon: ciclo
+        ? motivoDiscrepancia(ciclo)
+        : "el motor de evidencia no tiene ningún evento para este lote (sin entrada de báscula reconocida) — revisar manualmente antes de cerrar.",
+    });
+  }
+  return { confirmados, discrepancias };
 }

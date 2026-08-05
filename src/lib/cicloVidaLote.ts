@@ -77,7 +77,21 @@ export interface KgPorClase {
   nombrado: number;
   /** Cierre/reapertura manual, confirmación física, anotación de pasada — SOLO la parte que aporta un kg real o que "rellena" un cierre legítimo (ver corolario 3). */
   anotado: number;
-  /** Foto de stock (positiva), merma real de cámara, cámara externa, venta directa. */
+  /**
+   * Foto de stock, merma real de cámara, cámara externa, venta directa.
+   * FASE 3b: en la rama "parcial" puede salir NEGATIVO cuando la foto de
+   * stock es una corrección a la baja (kg_ajuste_stock < 0) — ES una
+   * medición negativa real (el programa de báscula dice "hay menos de lo
+   * que muestran los partes"), no un error a esconder ni a capar a 0: capar
+   * el ajuste negativo escondería la magnitud de la contradicción con
+   * `nombrado` (ver `pasada_vs_foto_stock` en `contradicciones`) y obligaría
+   * a sacrificar el kg NOMBRADO real para que la suma cuadrase (el bug real
+   * del caso 26042810/26042313, ver cicloVidaLote.golden.test.ts). En el
+   * resto de ramas (cerrado, venta directa, cámara externa/confirmada) sigue
+   * capado a ≥0 — esas ramas ya tienen su propia forma de repartir el resto
+   * (p. ej. "anotado" en un cierre legítimo) y no está verificado que
+   * soporten un negativo aquí sin resultados absurdos.
+   */
   medido: number;
   /** Derrame de exceso (misma finca/variedad) — SOLO sugerencia, nunca cuenta para completar. */
   derivado: number;
@@ -87,7 +101,11 @@ export interface KgPorClase {
    * documento, es el resto) para que la suma cierre EXACTAMENTE con
    * kg_entrada — invariante de conservación que el banco dorado verifica lote
    * a lote. null ≠ 0: que salga 0 aquí significa "todo explicado", no que no
-   * se haya mirado.
+   * se haya mirado. FASE 3b: cuando `medido` sale negativo por una
+   * contradicción grande (ver arriba), `sinRastro` puede superar el 100% de
+   * kg_entrada — es la propia magnitud de la contradicción haciéndose
+   * visible como aviso numérico (nunca se absorbe en silencio), no un lote
+   * con más kg de los que entraron.
    */
   sinRastro: number;
 }
@@ -251,6 +269,23 @@ function derivarLote(lote: string, eventos: EventoLote[], hoy: string): LoteCicl
   const hayEvidenciaNombradaOAnotada = huboMencionPropia || kgAnotacionPasada > 0;
   const puertaAbierta = hayEvidenciaNombradaOAnotada || Boolean(cierre);
   const kgHaciaUmbral = puertaAbierta ? kgNombradoNumerico + kgAnotacionPasada + kgMedidoParaUmbral : kgNombradoNumerico + kgAnotacionPasada;
+  /**
+   * FASE 3b (edge case documentado en cicloVidaLote.golden.test.ts, caso real
+   * 26042810/26042313): `kgHaciaUmbral` neteA nombrado/anotado con el ajuste
+   * de stock CON SIGNO — si la foto de stock es muy negativa (contradice una
+   * pasada propia grande, ver `pasada_vs_foto_stock` más arriba) el neto puede
+   * salir ≤0 aunque haya kilos NOMBRADOS reales y cuantiosos. Antes, la rama
+   * "parcial" de más abajo comprobaba `kgHaciaUmbral > 0` y ese neto negativo
+   * la saltaba entera: el lote caía en las ramas de "nada" (kgPorClase.nombrado
+   * forzado a 0), contradiciendo la propia timeline de eventos (que SÍ muestra
+   * la pasada nombrada con su kg). La REGLA DE ORO nunca pidió borrar
+   * evidencia nombrada/anotada por una contradicción de OTRA fuente — la
+   * contradicción ya queda señalada aparte (`contradicciones`); esta variable
+   * solo decide si hay ALGO cuantificable que enseñar como "a medias", usando
+   * cada fuente por separado (nunca neteada) para que una corrección negativa
+   * grande no pueda "tapar" evidencia nombrada/anotada real.
+   */
+  const hayEvidenciaCuantificablePorFuente = kgNombradoNumerico > 0 || kgAnotacionPasada > 0 || kgMedidoParaUmbral > 0;
 
   // ── Cierre manual (ANOTADO) ────────────────────────────────────────────────
   if (cierre) {
@@ -395,8 +430,27 @@ function derivarLote(lote: string, eventos: EventoLote[], hoy: string): LoteCicl
     };
   }
 
-  if (puertaAbierta && kgHaciaUmbral > 0) {
-    const derivadoCapado = Math.min(kgDerivadoBase, Math.max(0, kgEntrada - kgNombradoNumerico - kgAnotacionPasada - kgMedidoBase));
+  if (puertaAbierta && hayEvidenciaCuantificablePorFuente) {
+    /**
+     * `kgMedidoConSigno` (no `kgMedidoBase`, que capa el ajuste a ≥0):
+     * cuando la foto de stock es una corrección negativa, ES una medición
+     * negativa real (no un error a esconder) — se conserva con signo para
+     * que kgPorClase.nombrado NO tenga que sacrificarse para que la suma
+     * cuadre. El invariante de conservación (Σ clases = kg_entrada) se
+     * mantiene igual: `sinRastro` (crearKgPorClase) absorbe la diferencia
+     * como residuo, aunque eso implique que sinRastro supere el 100% de
+     * kg_entrada cuando la contradicción es grande (caso 26042810: -27.713 kg
+     * de ajuste sobre 20.600 kg de entrada) — es justo la señal de que hay
+     * una contradicción gorda por revisar (ya viene marcada aparte en
+     * `contradicciones`), nunca se absorbe en silencio. La UI (BarraKgPorClase,
+     * CicloVidaEvidenciaSection.tsx) no necesita cambios: el segmento con
+     * pct≤0 ya se omite en la barra (nunca se dibuja un ancho imposible) y
+     * flexbox reescala proporcionalmente los segmentos cuando la suma pasa
+     * de 100%; la lista de cifras bajo la barra muestra el kg/% negativo o
+     * >100% tal cual, como aviso numérico.
+     */
+    const kgMedidoConSigno = kgAjusteStockSigned + (mermaCamara?.kg ?? 0);
+    const derivadoCapado = Math.min(kgDerivadoBase, Math.max(0, kgEntrada - kgNombradoNumerico - kgAnotacionPasada - kgMedidoConSigno));
     return {
       lote,
       fechaEntrada,
@@ -404,7 +458,7 @@ function derivarLote(lote: string, eventos: EventoLote[], hoy: string): LoteCicl
       esPrecalibrado: entradaEv.esPrecalibrado,
       esCampoCit: false,
       estado: "parcial",
-      kgPorClase: crearKgPorClase(kgEntrada, kgNombradoNumerico, kgAnotacionPasada, kgMedidoBase, derivadoCapado),
+      kgPorClase: crearKgPorClase(kgEntrada, kgNombradoNumerico, kgAnotacionPasada, kgMedidoConSigno, derivadoCapado),
       pctConEvidenciaDura: Math.min(1, Math.max(0, pct)),
       destino: "A medias — cola pendiente",
       contradicciones,
