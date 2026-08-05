@@ -2,9 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   compararConMotorViejo,
   construirCicloVidaCampana,
-  construirInputEventosLote,
-  estadoViejoDeFila,
-  type AnotacionParaEventos,
   type ConstruirInputEventosParams,
   type EntradaParaEventos,
 } from "@/lib/cicloVidaLoteAdapter";
@@ -29,56 +26,6 @@ const baseParams: Omit<ConstruirInputEventosParams, "entradas" | "entradasConcil
   senalesCamaraExterna: { salidaPorLote: new Map(), lotesProcesados: new Set() },
   hoy: "2026-05-10",
 };
-
-describe("construirInputEventosLote", () => {
-  it("adapta entradas reales y precalibrado con el esPrecalibrado correcto para la conciliación", () => {
-    const real = entrada({ lote: "26050101", kg_entrada: 1000 });
-    const prec = entrada({ lote: "26050102", kg_entrada: 500, agricultor: "LASARTE ALMACEN PRECALIBRADO" });
-    const input = construirInputEventosLote({
-      ...baseParams,
-      entradas: [real, prec],
-      entradasConciliacionReales: [real],
-      entradasConciliacionPrecalibrado: [prec],
-      pasadas: [],
-      anotaciones: [],
-    });
-    expect(input.entradas).toHaveLength(2);
-    const conciliacionReal = input.entradasConciliacion.find((e) => e.lote === "26050101");
-    const conciliacionPrec = input.entradasConciliacion.find((e) => e.lote === "26050102");
-    expect(conciliacionReal?.esPrecalibrado).toBe(false);
-    expect(conciliacionPrec?.esPrecalibrado).toBe(true);
-  });
-
-  it("las anotaciones heredan la fecha de la pasada (lote_dia_id) a la que se refieren", () => {
-    const real = entrada({ lote: "26050101", kg_entrada: 1000 });
-    const anotacion: AnotacionParaEventos = { lote_dia_id: "pasada-1", codigo_extra: "26050199", nota: "también se echó este" };
-    const input = construirInputEventosLote({
-      ...baseParams,
-      entradas: [real],
-      entradasConciliacionReales: [real],
-      entradasConciliacionPrecalibrado: [],
-      pasadas: [{ id: "pasada-1", lote_codigo: "26050101", kg_peso_total: 900, date: "2026-05-05" }],
-      anotaciones: [anotacion],
-    });
-    expect(input.anotacionesPasada).toEqual([
-      { lote: "26050199", fecha: "2026-05-05", kg: null, nota: "también se echó este" },
-    ]);
-  });
-
-  it("descarta una anotación cuya pasada (lote_dia_id) no se encuentra: no inventa fecha", () => {
-    const real = entrada({ lote: "26050101", kg_entrada: 1000 });
-    const anotacion: AnotacionParaEventos = { lote_dia_id: "pasada-fantasma", codigo_extra: "26050199", nota: null };
-    const input = construirInputEventosLote({
-      ...baseParams,
-      entradas: [real],
-      entradasConciliacionReales: [real],
-      entradasConciliacionPrecalibrado: [],
-      pasadas: [{ id: "pasada-1", lote_codigo: "26050101", kg_peso_total: 900, date: "2026-05-05" }],
-      anotaciones: [anotacion],
-    });
-    expect(input.anotacionesPasada).toEqual([]);
-  });
-});
 
 describe("construirCicloVidaCampana", () => {
   it("caso 26042313-like: una foto de stock negativa que anula una pasada propia sale como contradicción visible", () => {
@@ -109,20 +56,6 @@ describe("construirCicloVidaCampana", () => {
     const lote = ciclo.find((c) => c.lote === "26050101")!;
     expect(lote.estado).toBe("cerrado");
     expect(lote.pctConEvidenciaDura).toBe(1);
-  });
-});
-
-describe("estadoViejoDeFila", () => {
-  it("null sin fila (lote sin fila de stock, p.ej. CAMPO/CIT excluido del stock)", () => {
-    expect(estadoViejoDeFila(null)).toBeNull();
-  });
-
-  it("cerrado_at manda sobre el estado calculado", () => {
-    expect(estadoViejoDeFila({ cerrado_at: "2026-05-06", estado: "parcial" } as StockLoteRow)).toBe("cerrado");
-  });
-
-  it("sin cierre manual, usa el StockEstado tal cual", () => {
-    expect(estadoViejoDeFila({ cerrado_at: null, estado: "procesado" } as StockLoteRow)).toBe("procesado");
   });
 });
 

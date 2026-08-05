@@ -48,21 +48,6 @@ export interface ParseEntradasBasculaResult {
 export const UMBRAL_PROCESADO = 0.97;
 
 /**
- * Alias de UMBRAL_PROCESADO (mismo valor, nunca diverge) para el refuerzo de
- * cierre/estado "COMPLETO" pedido por el dueño (03-08-2026): "cuando pasa
- * todo, se debe cerrar el lote y contarlo como procesado". Un lote está
- * COMPLETO cuando el calibrador ha pasado ≥97% de sus kg de entrada — el
- * hueco típico del 3% restante lo explican la merma natural de cámara
- * (deshidratación, ver TASA_MERMA_NATURAL_DIA en mermaLote.ts) y el podrido
- * pre-calibrador (contenedor que no se pesa a diario), no fruta pendiente de
- * procesar. Se expone con este segundo nombre porque esCandidatoCierreAutomatico
- * y el resto del refuerzo hablan en términos de "COMPLETO" (concepto de
- * negocio nuevo), mientras que UMBRAL_PROCESADO sigue siendo el nombre
- * histórico que ya usan estadoLotePorProcesado/buildStockEntradas.
- */
-export const UMBRAL_LOTE_COMPLETO = UMBRAL_PROCESADO;
-
-/**
  * Un resto en cámara es "relevante" (el lote sigue activo, no se pinta como
  * procesado) cuando supera el margen de tolerancia del calibrador
  * (deshidratación / destrío): el mismo criterio 1 - UMBRAL_PROCESADO que usa
@@ -248,7 +233,7 @@ export function parseEntradasBasculaRows(rows: unknown[][]): ParseEntradasBascul
 // De ese modo el stock calculado (entrada − procesado) devuelve exactamente el
 // stock del informe, y el procesado futuro descuenta bien.
 
-export interface StockLoteParsed {
+interface StockLoteParsed {
   fecha: string; // fecha de creación del lote
   lote: string;
   articulo: string | null;
@@ -350,7 +335,7 @@ export interface InformeAprovechamientoLote {
   fechaCreacion: string;
 }
 
-export interface ParseInformeAprovechamientoResult {
+interface ParseInformeAprovechamientoResult {
   lotes: InformeAprovechamientoLote[];
   descartadas: Array<{ fila: number; motivo: string }>;
 }
@@ -382,7 +367,7 @@ export function parseInformeAprovechamientoStock(rows: unknown[][]): ParseInform
   };
 }
 
-export interface ConciliacionCuadraItem {
+interface ConciliacionCuadraItem {
   lote: string;
   articulo: string | null;
   agricultor: string | null;
@@ -394,7 +379,7 @@ export interface ConciliacionCuadraItem {
   deltaKg: number;
 }
 
-export interface ConciliacionSobranteItem {
+interface ConciliacionSobranteItem {
   lote: string;
   articulo: string | null;
   agricultor: string | null;
@@ -407,7 +392,7 @@ export interface ConciliacionSobranteItem {
   modoSugerido: CierreModo;
 }
 
-export interface ConciliacionReabrirItem {
+interface ConciliacionReabrirItem {
   lote: string;
   articulo: string | null;
   agricultor: string | null;
@@ -418,7 +403,7 @@ export interface ConciliacionReabrirItem {
   cierreModo: CierreModo | null;
 }
 
-export interface ConciliacionConflictoItem {
+interface ConciliacionConflictoItem {
   lote: string;
   articulo: string | null;
   agricultor: string | null;
@@ -428,7 +413,7 @@ export interface ConciliacionConflictoItem {
   ultimaFechaProcesado: string | null;
 }
 
-export interface ConciliacionSinEntradaItem {
+interface ConciliacionSinEntradaItem {
   lote: string;
   producto: string | null;
   agricultor: string | null;
@@ -776,7 +761,7 @@ export const DIAS_SIN_ACTIVIDAD_AUTOCIERRE = 2;
  * (mismo espíritu que faltanEnHerramienta.conflicto en conciliarStockConInforme:
  * se avisa, no se actúa sola).
  */
-export function pasadasPosterioresAlCierre(cerradoAt: string | null, ultimaPasada: string | null): boolean {
+function pasadasPosterioresAlCierre(cerradoAt: string | null, ultimaPasada: string | null): boolean {
   if (!cerradoAt || !ultimaPasada) return false;
   const fechaCierre = cerradoAt.slice(0, 10); // "YYYY-MM-DDTHH:mm:ss..." -> "YYYY-MM-DD"
   return ultimaPasada > fechaCierre;
@@ -893,7 +878,7 @@ export interface StockLoteRow {
   confirmacionCamara: { nombre: string; fecha: string } | null;
 }
 
-export interface StockResumen {
+interface StockResumen {
   filas: StockLoteRow[];
   /** Total en cámara (firme + probablemente terminado), igual que antes de introducir la partición — mantiene compatibilidad con el resto de la app y los tests existentes. */
   kgEnCamara: number;

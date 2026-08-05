@@ -206,12 +206,12 @@ export function estadoCamionExterno(camion: CamionCamaraExterna, senales: Senale
 
 // ─── Agregados para la UI ────────────────────────────────────────────────────
 
-export interface CamionConEstado {
+interface CamionConEstado {
   camion: CamionCamaraExterna;
   estado: EstadoCamionExterno;
 }
 
-export interface CamaraExternaAgregado {
+interface CamaraExternaAgregado {
   /** Camiones total o parcialmente en cámara, los más antiguos primero (los parciales cuentan solo su kg restante). */
   enCamara: CamionConEstado[];
   /** Camiones con venta directa según el registro (candidatos a cierre "sin registro" si siguen activos). */

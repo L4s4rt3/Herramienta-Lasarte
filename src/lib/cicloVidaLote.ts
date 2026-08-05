@@ -39,8 +39,6 @@ import {
   type EventoLote,
 } from "@/lib/eventosLote";
 import {
-  UMBRAL_COMPLETO_MINIMO,
-  UMBRAL_PROCESADO,
   diffDias,
   umbralCompletoPorEdad,
 } from "@/lib/entradasBascula";
@@ -142,10 +140,10 @@ export interface LoteCiclo {
 }
 
 /** Umbral (fracción, sobre kg_ajuste_stock negativo respecto a kg_entrada) a partir del cual una foto de stock negativa se considera CONTRADICCIÓN con una pasada propia, no un simple redondeo. Calibrado contra el banco dorado: los ajustes negativos "de ruido" observados son ≤3% de la entrada; los 9 casos reales de contradicción son ≥100%. 0,5 deja un margen amplio entre ambos grupos sin caer en un umbral de "% de acierto" (es un criterio de MAGNITUD del propio dato, no de cuántos lotes acierta el motor). */
-export const UMBRAL_CONTRADICCION_AJUSTE_NEGATIVO = 0.5;
+const UMBRAL_CONTRADICCION_AJUSTE_NEGATIVO = 0.5;
 
 /** Días de "sin rastro" a partir de los cuales un lote real (no precalibrado) sin ninguna evidencia se marca como contradicción "sin_rastro_con_edad" (ya no es plausible que "todavía no le toque"). Mismo margen que el aviso "probablemente terminado" existente (DIAS_SIN_ACTIVIDAD_TERMINADO, entradasBascula.ts) para no inventar un número nuevo sin motivo. */
-export const DIAS_SOSPECHA_SIN_RASTRO = 7;
+const DIAS_SOSPECHA_SIN_RASTRO = 7;
 
 function crearKgPorClase(kgEntrada: number, nombrado: number, anotado: number, medido: number, derivado: number): KgPorClase {
   const sinRastro = kgEntrada - nombrado - anotado - medido - derivado;
@@ -532,10 +530,6 @@ export function derivarCicloVidaLote(eventos: EventoLote[], hoy: string): LoteCi
   resultado.sort((a, b) => a.lote.localeCompare(b.lote));
   return resultado;
 }
-
-// Reexport de los umbrales reutilizados para que los consumidores/tests no
-// tengan que importar de dos módulos para entender el umbral efectivo.
-export { UMBRAL_PROCESADO, UMBRAL_COMPLETO_MINIMO };
 
 /**
  * ¿Tiene este lote la contradicción "pasada_vs_foto_stock" VIGENTE ahora

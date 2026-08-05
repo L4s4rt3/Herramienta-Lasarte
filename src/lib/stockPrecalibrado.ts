@@ -62,16 +62,16 @@ export interface ReentradaPrecalibradoInput {
 }
 
 /** Filas sintéticas de la conciliación (conciliacionKg.procesados). `date` es la última fecha de esa pasada — margen del cierre automático de "consumida del todo". */
-export interface ProcesadoConciliadoInput {
+interface ProcesadoConciliadoInput {
   lote_codigo: string;
   kg_peso_total: number;
   date?: string | null;
 }
 
 /** lote (interno o real) → evidencia de pasada COMPUESTA que lo nombra como código no-primero (detectarLotesEnPasadaCompuesta, conciliacionKg.ts). */
-export type EvidenciaCompuestaPorLote = Map<string, { primeros: string[]; ultimaFecha: string | null }>;
+type EvidenciaCompuestaPorLote = Map<string, { primeros: string[]; ultimaFecha: string | null }>;
 
-export interface ReentradaPrecalibradoPendiente {
+interface ReentradaPrecalibradoPendiente {
   lote: string;
   fecha: string;
   almacen: string;
@@ -85,7 +85,7 @@ export interface ReentradaPrecalibradoPendiente {
 }
 
 /** Re-entrada SIN pasada bajo su propio código pero nombrada como no-primero en una pasada compuesta (ver cabecera del archivo): se da por usada aunque no se le pueda atribuir un kg exacto. */
-export interface ReentradaResueltaPorCompuesta {
+interface ReentradaResueltaPorCompuesta {
   lote: string;
   fecha: string;
   almacen: string;
@@ -97,7 +97,7 @@ export interface ReentradaResueltaPorCompuesta {
   dias: number;
 }
 
-export interface CandidatoCierrePrecalibrado {
+interface CandidatoCierrePrecalibrado {
   id: string;
   lote: string;
   /** "consumido" = re-pasada bajo su propio código llegó a cubrir su kg; "compuesto" = evidencia de pasada compuesta (ver ReentradaResueltaPorCompuesta). Ambos cierran con cierre_modo "sin_registro": su kg no consta como pérdida real. */

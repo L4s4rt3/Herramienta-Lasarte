@@ -52,7 +52,7 @@ export interface EntradaParaEventos {
 }
 
 /** Pasada cruda de lotes_dia (LoteProcesadoConCalidad de useEntradasBascula.ts), con el `id` real de la fila para poder cruzar las anotaciones por lote_dia_id. */
-export interface PasadaParaEventos {
+interface PasadaParaEventos {
   id: string;
   lote_codigo: string | null;
   kg_peso_total: number | null;
@@ -60,7 +60,7 @@ export interface PasadaParaEventos {
 }
 
 /** Fila de pasada_anotaciones (PasadaAnotacionRow, pasadaAnotaciones.ts) tal cual la agrupa useEntradasBascula().anotacionesPorLoteDia. */
-export interface AnotacionParaEventos {
+interface AnotacionParaEventos {
   lote_dia_id: string;
   codigo_extra: string;
   nota: string | null;
@@ -124,7 +124,7 @@ function aEntradaConciliacion(e: EntradaParaEventos, esPrecalibrado: boolean): E
  * nuevo, mismo reparto que el motor viejo (conciliarKgProcesados se reutiliza
  * tal cual dentro de eventosLote.ts, no se reimplementa aquí).
  */
-export function construirInputEventosLote(params: ConstruirInputEventosParams): ConstruirEventosLoteInput {
+function construirInputEventosLote(params: ConstruirInputEventosParams): ConstruirEventosLoteInput {
   const entradasEvento: EntradaBasculaEventoInput[] = params.entradas.map(aEventoEntrada);
 
   const entradasConciliacion: EntradaConciliacion[] = [
@@ -173,7 +173,7 @@ export function construirInputEventosLote(params: ConstruirInputEventosParams): 
   };
 }
 
-export interface CicloVidaCampana {
+interface CicloVidaCampana {
   eventos: EventoLote[];
   ciclo: LoteCiclo[];
 }
@@ -187,7 +187,7 @@ export function construirCicloVidaCampana(params: ConstruirInputEventosParams): 
 
 // ─── 2) Comparación honesta con el motor VIEJO (buildStockEntradas) ─────────
 
-export type EstadoViejoResumen = "cerrado" | "procesado" | "parcial" | "pendiente";
+type EstadoViejoResumen = "cerrado" | "procesado" | "parcial" | "pendiente";
 
 /**
  * Traduce la fila del motor VIEJO (buildStockEntradas/StockLoteRow) al mismo
@@ -195,7 +195,7 @@ export type EstadoViejoResumen = "cerrado" | "procesado" | "parcial" | "pendient
  * un estado nuevo: es una lectura de lo que la ficha YA enseña hoy (badge
  * "Procesado" / cerrado_at / StockEstado).
  */
-export function estadoViejoDeFila(
+function estadoViejoDeFila(
   fila: Pick<StockLoteRow, "cerrado_at" | "estado"> | null | undefined,
 ): EstadoViejoResumen | null {
   if (!fila) return null;
@@ -224,7 +224,7 @@ const RESUELTO_NUEVO: Record<EstadoLote, boolean> = {
   sin_evidencia_suficiente: false,
 };
 
-export const ESTADO_VIEJO_LABEL: Record<EstadoViejoResumen, string> = {
+const ESTADO_VIEJO_LABEL: Record<EstadoViejoResumen, string> = {
   cerrado: "cerrado a mano",
   procesado: "procesado (completo)",
   parcial: "parcial",
@@ -341,7 +341,7 @@ export function compararConMotorViejo(
  * cuantificable, sin cierre_manual todavía) y por tanto SIGUEN VETADOS — ver
  * cicloVidaLoteAdapter.precalibrado.test.ts.
  */
-export function esCandidatoSegunMotorNuevo(ciclo: LoteCiclo | null | undefined, tipo: DiscrepanciaCierre["tipo"]): boolean {
+function esCandidatoSegunMotorNuevo(ciclo: LoteCiclo | null | undefined, tipo: DiscrepanciaCierre["tipo"]): boolean {
   if (ciclo?.estado === "completo_pendiente_cierre") return true;
   return tipo === "precalibrado" && ciclo?.estado === "cerrado";
 }

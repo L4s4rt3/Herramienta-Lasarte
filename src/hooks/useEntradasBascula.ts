@@ -30,10 +30,10 @@ import {
 import type { LoteCiclo } from "@/lib/cicloVidaLote";
 
 /** Pasada de lotes_dia con los extras de calidad que consume Trazabilidad (notas del operario y destrío a industria), más el `id` real de la fila — necesario para poder anotar a posteriori qué más se echó (ver pasadaAnotaciones.ts) y para cruzar con `pasada_anotaciones.lote_dia_id`. */
-export type LoteProcesadoConCalidad = LoteProcesadoInput & { id: string; kg_industria: number; notas: string | null };
+type LoteProcesadoConCalidad = LoteProcesadoInput & { id: string; kg_industria: number; notas: string | null };
 
 /** Señales de calidad por lote derivadas de las pasadas: % a industria (destrío medible) y notas del operario. */
-export interface CalidadLotesDerivada {
+interface CalidadLotesDerivada {
   /** kg a industria acumulados por lote (solo lotes con dato > 0). */
   industriaKgPorLote: Map<string, number>;
   /** kg_industria / kg procesado crudo, 0..1 (solo lotes con base > 0). */

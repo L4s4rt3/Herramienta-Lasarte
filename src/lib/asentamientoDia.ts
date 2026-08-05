@@ -87,10 +87,7 @@ import {
   type CierreModo,
   type StockEstado,
 } from "@/lib/entradasBascula";
-import {
-  extraerAlmacenPrec,
-  type ReentradaPrecalibradoInput,
-} from "@/lib/stockPrecalibrado";
+import type { ReentradaPrecalibradoInput } from "@/lib/stockPrecalibrado";
 import type { LoteCiclo } from "@/lib/cicloVidaLote";
 
 // ─── Entradas del módulo (superset de lo que piden conciliarKgProcesados / ──
@@ -135,9 +132,9 @@ export interface AsentamientoInput {
   hoy: string;
 }
 
-export type EvidenciaLote = "dura" | "derivada" | "sin_rastro";
+type EvidenciaLote = "dura" | "derivada" | "sin_rastro";
 
-export interface LoteAsentado {
+interface LoteAsentado {
   codigo: string;
   esPrecalibrado: boolean;
   fechaEntrada: string;
@@ -235,7 +232,7 @@ function clasificarEvidenciaDesdeCiclo(
 
 // ─── Replay cronológico por fecha ───────────────────────────────────────────
 
-export interface SnapshotFecha {
+interface SnapshotFecha {
   fecha: string;
   /** lote → kg conciliado ACUMULADO hasta esa fecha (inclusive), sin kg_preasignado — mismo shape que ConciliacionKg.procesados, en Map para lookup O(1). */
   porLote: Map<string, number>;
@@ -250,7 +247,7 @@ export interface SnapshotFecha {
  * "acumulado por día" de un lote concreto sin pasar por todo el agregado de
  * cobertura.
  */
-export function replayConciliacionPorFecha(
+function replayConciliacionPorFecha(
   entradas: EntradaConciliacion[],
   pasadas: PasadaConciliacion[],
   reciclajePorDia: ReciclajeDiaInput[] = [],
@@ -539,7 +536,3 @@ export function construirAsentamientoCampana(input: AsentamientoInput): Cobertur
     porLote,
   };
 }
-
-// Reexport de utilidades menores útiles para el hook/la card (evita un import
-// cruzado extra en el caller).
-export { extraerAlmacenPrec };

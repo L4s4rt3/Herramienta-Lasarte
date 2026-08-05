@@ -14,10 +14,8 @@ import {
   parseFechaBascula,
   parseInformeAprovechamientoStock,
   parseStockLotesRows,
-  pasadasPosterioresAlCierre,
   UMBRAL_CIERRE_CON_ANALISIS,
   UMBRAL_COMPLETO_MINIMO,
-  UMBRAL_LOTE_COMPLETO,
   UMBRAL_PROBABLE_TERMINADO,
   UMBRAL_PROCESADO,
   umbralCompletoPorEdad,
@@ -504,21 +502,6 @@ describe("buildStockEntradas — probablementeTerminado (aviso derivado, sin cie
 });
 
 describe("pasadasPosterioresAlCierre — guardia inversa (cerrado con actividad posterior)", () => {
-  it("true si hay pasada posterior a la fecha de cierre", () => {
-    expect(pasadasPosterioresAlCierre("2026-06-10T00:00:00Z", "2026-06-12")).toBe(true);
-  });
-
-  it("false si la última pasada es anterior o igual a la fecha de cierre", () => {
-    expect(pasadasPosterioresAlCierre("2026-06-10T00:00:00Z", "2026-06-09")).toBe(false);
-    expect(pasadasPosterioresAlCierre("2026-06-10T00:00:00Z", "2026-06-10")).toBe(false);
-  });
-
-  it("false si el lote no está cerrado o no hay ninguna pasada registrada", () => {
-    expect(pasadasPosterioresAlCierre(null, "2026-06-12")).toBe(false);
-    expect(pasadasPosterioresAlCierre("2026-06-10T00:00:00Z", null)).toBe(false);
-    expect(pasadasPosterioresAlCierre(null, null)).toBe(false);
-  });
-
   it("buildStockEntradas expone la guardia por fila y el conteo agregado", () => {
     const entradas = [
       { lote: "26060601", fecha: "2026-06-01", kg_entrada: 10000, finca: null, articulo: null, agricultor: null, cerrado_at: "2026-06-10T00:00:00Z" },
@@ -534,13 +517,6 @@ describe("pasadasPosterioresAlCierre — guardia inversa (cerrado con actividad 
     expect(porLote.get("26060602")?.cerradoConActividadPosterior).toBe(false);
     expect(stock.lotesCerradosConActividadPosterior).toHaveLength(1);
     expect(stock.lotesCerradosConActividadPosterior[0].lote).toBe("26060601");
-  });
-});
-
-describe("UMBRAL_LOTE_COMPLETO — alias de UMBRAL_PROCESADO para el estado COMPLETO", () => {
-  it("es exactamente UMBRAL_PROCESADO (0.97), nunca diverge", () => {
-    expect(UMBRAL_LOTE_COMPLETO).toBe(UMBRAL_PROCESADO);
-    expect(UMBRAL_LOTE_COMPLETO).toBe(0.97);
   });
 });
 

@@ -55,7 +55,7 @@ interface EventoBase {
 }
 
 /** La entrada de báscula en sí: el kg de partida del lote. MEDIDO — fija la cantidad, no basta para cerrar. */
-export interface EventoEntradaBascula extends EventoBase {
+interface EventoEntradaBascula extends EventoBase {
   tipo: "entrada_bascula";
   clase: "medido";
   kg: number;
@@ -69,7 +69,7 @@ export interface EventoEntradaBascula extends EventoBase {
  * ser negativo (ver 26042313 en el banco dorado: un ajuste negativo que casi
  * cancela una pasada propia real, contradicción de primera clase).
  */
-export interface EventoFotoStock extends EventoBase {
+interface EventoFotoStock extends EventoBase {
   tipo: "foto_stock";
   clase: "medido";
   /** Con signo: positivo = más procesado de lo que muestran los partes; negativo = corrección a la baja. */
@@ -77,7 +77,7 @@ export interface EventoFotoStock extends EventoBase {
 }
 
 /** Merma REAL de cámara (entradas_bascula.merma_camara_kg, peso inicial − peso final). MEDIDO. */
-export interface EventoMermaCamara extends EventoBase {
+interface EventoMermaCamara extends EventoBase {
   tipo: "merma_camara";
   clase: "medido";
   /** Siempre ≥ 0: kg que se evaporaron, nunca llegaron al calibrador. */
@@ -92,7 +92,7 @@ export interface EventoMermaCamara extends EventoBase {
  * `kg` es siempre null: el cierre no aporta un número, es una declaración de
  * estado — cicloVidaLote.ts decide cuánto kg "explica" ese cierre.
  */
-export interface EventoCierreManual extends EventoBase {
+interface EventoCierreManual extends EventoBase {
   tipo: "cierre_manual";
   clase: "anotado";
   kg: null;
@@ -119,7 +119,7 @@ export interface EventoCierreManual extends EventoBase {
  * puerta para dejar que el resto de evidencia (medida) complete el lote —
  * nunca al revés (medido nunca abre la puerta él solo).
  */
-export interface EventoPasadaNombrada extends EventoBase {
+interface EventoPasadaNombrada extends EventoBase {
   tipo: "pasada_nombrada";
   clase: "nombrado";
   kg: number | null;
@@ -133,7 +133,7 @@ export interface EventoPasadaNombrada extends EventoBase {
  * evento existe para que la UI pueda mostrar la sugerencia, pero
  * cicloVidaLote.ts nunca lo deja completar ni cerrar un lote (REGLA DE ORO).
  */
-export interface EventoDerrameExceso extends EventoBase {
+interface EventoDerrameExceso extends EventoBase {
   tipo: "derrame_exceso";
   clase: "derivado";
   kg: number;
@@ -148,7 +148,7 @@ export interface EventoDerrameExceso extends EventoBase {
  * jamás cierra ni completa: es físicamente imposible que haya pasado por el
  * calibrador mientras sigue fuera (ground truth del dueño 04-08-2026 nº2).
  */
-export interface EventoCamaraExterna extends EventoBase {
+interface EventoCamaraExterna extends EventoBase {
   tipo: "camara_externa";
   clase: "medido";
   kg: number;
@@ -158,7 +158,7 @@ export interface EventoCamaraExterna extends EventoBase {
 }
 
 /** Venta directa detectada en el registro de cámara externa. MEDIDO: la fruta nunca llega a la central, así que su kg no es stock ni procesado. */
-export interface EventoVentaDirecta extends EventoBase {
+interface EventoVentaDirecta extends EventoBase {
   tipo: "venta_directa";
   clase: "medido";
   kg: number;
@@ -172,7 +172,7 @@ export interface EventoVentaDirecta extends EventoBase {
  * como veto de cierre/derrame, nunca como kg a favor de completar. `kg` es
  * siempre null (no es una medición de cantidad, solo de ubicación).
  */
-export interface EventoConfirmacionFisica extends EventoBase {
+interface EventoConfirmacionFisica extends EventoBase {
   tipo: "confirmacion_fisica";
   clase: "anotado";
   kg: null;
@@ -195,7 +195,7 @@ export interface PasadaAnotacionInput {
   nota?: string | null;
 }
 
-export interface EventoAnotacionPasada extends EventoBase {
+interface EventoAnotacionPasada extends EventoBase {
   tipo: "anotacion_pasada";
   clase: "anotado";
   kg: number | null;

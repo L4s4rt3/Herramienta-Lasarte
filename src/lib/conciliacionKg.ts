@@ -119,17 +119,11 @@ export interface MovimientoKg {
   motivo: "multi_codigo" | "exceso_misma_finca" | "exceso_misma_variedad" | "reentrada_nombrados";
 }
 
-export interface ProcesadoConciliado {
+interface ProcesadoConciliado {
   lote_codigo: string;
   kg_peso_total: number;
   date: string | null;
 }
-
-/**
- * Tara física de un box. Se aplica al introducir los datos manuales de cada
- * zona; la conciliación recibe Z1/Z2 ya netos y no vuelve a descontarla.
- */
-export const TARA_BOX_RECICLAJE = 30;
 
 /**
  * Codigos de lote que aparecen como codigo NO-primero en alguna pasada
@@ -212,7 +206,7 @@ export function detectarLotesEnPasadaCompuesta(pasadas: PasadaConciliacion[]): M
   return salida;
 }
 
-export interface ReciclajePasada {
+interface ReciclajePasada {
   /** Primer código de lote de la pasada a la que se le descontó, o "(parte del YYYY-MM-DD)" para el reparto proporcional del día. */
   lote: string;
   /** Boxes: los anotados en el nombre de la pasada, o los del parte en la fila de reparto del día. */
@@ -223,7 +217,7 @@ export interface ReciclajePasada {
 }
 
 /** "26042712 + 7 BOX DE RECICLAJE" → 7; "…+2 BOX +5 BOX PREC" → 7. 0 si no menciona boxes. */
-export function contarBoxesReciclaje(texto: string | null | undefined): number {
+function contarBoxesReciclaje(texto: string | null | undefined): number {
   let total = 0;
   for (const m of String(texto ?? "").matchAll(/(\d+)\s*BOX/gi)) total += Number(m[1]) || 0;
   return total;
@@ -256,7 +250,7 @@ export interface ConciliacionKg {
 const TOKENS_GENERICOS = new Set(["NAR", "NARANJA", "NARANJAS", "VAL", "VALENCIA", "NAVEL", "DE", "DEL", "LA", "LAS", "EL", "LOS"]);
 
 /** Primer token distintivo del artículo ("NAR VAL DELTA SEEDLESS" → "DELTA"); "" si no hay ninguno. */
-export function familiaVariedad(articulo: string | null | undefined): string {
+function familiaVariedad(articulo: string | null | undefined): string {
   const tokens = String(articulo ?? "")
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
@@ -267,7 +261,7 @@ export function familiaVariedad(articulo: string | null | undefined): string {
 }
 
 /** Misma familia si un token es prefijo del otro (cubre "POWEL"/"POWELL"). Familias vacías nunca casan. */
-export function mismaFamiliaVariedad(a: string, b: string): boolean {
+function mismaFamiliaVariedad(a: string, b: string): boolean {
   return a !== "" && b !== "" && (a.startsWith(b) || b.startsWith(a));
 }
 

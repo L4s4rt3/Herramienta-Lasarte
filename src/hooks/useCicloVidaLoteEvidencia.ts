@@ -28,7 +28,7 @@ import { eventosPorLote, type EventoLote } from "@/lib/eventosLote";
 import type { LoteCiclo } from "@/lib/cicloVidaLote";
 import type { SenalesRecepcion } from "@/lib/camarasExternas";
 
-export interface CicloVidaLoteEvidencia {
+interface CicloVidaLoteEvidencia {
   /** null: el lote no existe en las fuentes crudas (sin entrada de báscula) — el motor nuevo, igual que el viejo, no tiene nada que derivar. */
   ciclo: LoteCiclo | null;
   /** Eventos del lote, en el orden en que los devuelve eventosLote.ts (la UI los ordena cronológicamente). */

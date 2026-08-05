@@ -2,10 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   capacidadFraccionEstimada,
   conciliarKgProcesados,
-  contarBoxesReciclaje,
   detectarLotesEnPasadaCompuesta,
-  familiaVariedad,
-  mismaFamiliaVariedad,
   type EntradaConciliacion,
   type PasadaConciliacion,
 } from "./conciliacionKg";
@@ -16,23 +13,6 @@ const entrada = (over: Partial<EntradaConciliacion> & { lote: string; kg_entrada
   finca: "INVERMARMELO",
   articulo: "NAR VAL DELTA SEEDLESS",
   ...over,
-});
-
-describe("familiaVariedad / mismaFamiliaVariedad", () => {
-  it("extrae el primer token distintivo, saltando los genéricos", () => {
-    expect(familiaVariedad("NAR VAL DELTA SEEDLESS")).toBe("DELTA");
-    expect(familiaVariedad("NARANJA VALENCIA DELTA")).toBe("DELTA");
-    expect(familiaVariedad("NARANJA VALENCIA MIDKNIGHT")).toBe("MIDKNIGHT");
-    expect(familiaVariedad("NAVELINA")).toBe("NAVELINA"); // NAVEL es genérico, NAVELINA no
-    expect(familiaVariedad(null)).toBe("");
-  });
-
-  it("casa por prefijo (POWEL/POWELL) y nunca con familia vacía", () => {
-    expect(mismaFamiliaVariedad("POWEL", "POWELL")).toBe(true);
-    expect(mismaFamiliaVariedad("DELTA", "DELTA")).toBe(true);
-    expect(mismaFamiliaVariedad("DELTA", "MIDKNIGHT")).toBe(false);
-    expect(mismaFamiliaVariedad("", "")).toBe(false);
-  });
 });
 
 describe("conciliarKgProcesados — asignación directa", () => {
@@ -286,14 +266,6 @@ describe("conciliarKgProcesados — precalibrado", () => {
 });
 
 describe("conciliarKgProcesados — reciclaje diario (Z1/Z2 ya netos de tara)", () => {
-  it("contarBoxesReciclaje suma todas las menciones 'N BOX' del texto", () => {
-    expect(contarBoxesReciclaje("26042712 + 7 BOX DE RECICLAJE")).toBe(7);
-    expect(contarBoxesReciclaje("26042411+PREC 26063001+8 BOX DE 4K M")).toBe(8);
-    expect(contarBoxesReciclaje("26043003+2 BOX DE RECICLAJE")).toBe(2);
-    expect(contarBoxesReciclaje("26050101")).toBe(0);
-    expect(contarBoxesReciclaje(null)).toBe(0);
-  });
-
   it("descuenta directamente los kg netos guardados en Z1/Z2 sin aplicar una segunda tara", () => {
     const res = conciliarKgProcesados(
       [entrada({ lote: "26050101", kg_entrada: 50000 })],

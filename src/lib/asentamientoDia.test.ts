@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   construirAsentamientoCampana,
-  replayConciliacionPorFecha,
   type AsentamientoInput,
   type EntradaPrecalibradoAsentamiento,
   type EntradaRealAsentamiento,
@@ -371,25 +370,5 @@ describe("construirAsentamientoCampana — agregado de cobertura de campaña", (
     // invariante que se mantiene EXACTO tras la 3c (viene directo del propio
     // invariante de crearKgPorClase en cicloVidaLote.ts).
     expect(res.kgEvidenciaDura + res.kgDerivada + res.kgSinRastro).toBeCloseTo(res.kgTotales);
-  });
-});
-
-describe("replayConciliacionPorFecha", () => {
-  it("reproduce el acumulado kg-a-kg, snapshot por cada fecha con pasadas, en orden cronológico", () => {
-    const entradas: EntradaConciliacion[] = [
-      { lote: "26070101", fecha: "2026-07-01", finca: "X", articulo: "NAR VAL DELTA", kg_entrada: 20000 },
-    ];
-    const pasadas: PasadaConciliacion[] = [
-      { lote_codigo: "26070101", kg_peso_total: 5000, date: "2026-07-02" },
-      { lote_codigo: "26070101", kg_peso_total: 4000, date: "2026-07-05" },
-    ];
-    const snapshots = replayConciliacionPorFecha(entradas, pasadas);
-    expect(snapshots.map((s) => s.fecha)).toEqual(["2026-07-02", "2026-07-05"]);
-    expect(snapshots[0].porLote.get("26070101")).toBe(5000);
-    expect(snapshots[1].porLote.get("26070101")).toBe(9000); // acumulado, no solo el del día
-  });
-
-  it("sin pasadas no hay snapshots (nada que reproducir)", () => {
-    expect(replayConciliacionPorFecha([], [])).toEqual([]);
   });
 });
