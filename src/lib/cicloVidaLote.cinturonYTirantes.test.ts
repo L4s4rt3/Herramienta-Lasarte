@@ -296,6 +296,10 @@ describe("cinturón y tirantes — intersección de los dos motores sobre el ban
     const loteSet = new Set(candidatosGrandes.map((c) => c.lote));
     for (const c of confirmados) expect(loteSet.has(c.lote)).toBe(true);
     // Y todo confirmado tiene, en efecto, el estado nuevo "completo_pendiente_cierre".
+    // (TAREA 0: el relajo "o cerrado" de esCandidatoSegunMotorNuevo solo aplica
+    // al tipo "precalibrado" — ver su docstring en cicloVidaLoteAdapter.ts —
+    // así que para "completo"/"compuesto" el criterio sigue siendo el mismo
+    // de siempre.)
     for (const c of confirmados) expect(cicloPorLote.get(c.lote)?.estado).toBe("completo_pendiente_cierre");
   });
 });

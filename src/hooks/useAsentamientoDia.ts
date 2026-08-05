@@ -8,6 +8,16 @@
  * visitar Análisis diario sin haber abierto /entradas antes solo dispara el
  * mismo fetch una vez.
  *
+ * FASE 3c (docs/TRAZABILIDAD_REFUNDACION.md, "mismo número ⇒ misma función
+ * pura"): la CLASIFICACIÓN de evidencia (dura/derivada/sin rastro) de
+ * asentamientoDia.ts ya no es un cálculo propio — sale de `cicloPorLote`
+ * (motor único, cicloVidaLote.ts vía cicloVidaLoteAdapter.ts), que
+ * useEntradasBascula() YA calcula para el badge de discrepancia y el
+ * cinturón y tirantes (fase 3b). Se reutiliza AQUÍ tal cual (mismo patrón que
+ * useCicloVidaLoteEvidencia.ts): cero cálculos duplicados, este hook nunca
+ * vuelve a construir eventos ni a derivar el ciclo por su cuenta — solo lo
+ * pasa a construirAsentamientoCampana.
+ *
  * IMPORTANTE (regla del repo): este hook NUNCA debe reproducir el efecto de
  * cierre automático de EntradasBascula.tsx (ese vive SOLO en esa página,
  * gatillado por un useEffect propio) — aquí solo se LEE, nunca se muta nada.
@@ -25,7 +35,7 @@ import {
 import type { PasadaConciliacion } from "@/lib/conciliacionKg";
 
 export function useAsentamientoDia(): { cobertura: CoberturaCampana; isLoading: boolean; error: unknown } {
-  const { entradas, entradasPrecalibrado, procesados, reciclajePorDia, stock, isLoading, error } = useEntradasBascula();
+  const { entradas, entradasPrecalibrado, procesados, reciclajePorDia, stock, cicloPorLote, isLoading, error } = useEntradasBascula();
 
   const cobertura = useMemo(() => {
     const entradasReales: EntradaRealAsentamiento[] = entradas.map((e) => ({
@@ -73,9 +83,10 @@ export function useAsentamientoDia(): { cobertura: CoberturaCampana; isLoading: 
       pasadas,
       reciclajePorDia,
       lotesConfirmadosEnCamara,
+      cicloPorLote,
       hoy: today(),
     });
-  }, [entradas, entradasPrecalibrado, procesados, reciclajePorDia, stock.filas]);
+  }, [entradas, entradasPrecalibrado, procesados, reciclajePorDia, stock.filas, cicloPorLote]);
 
   return { cobertura, isLoading, error };
 }

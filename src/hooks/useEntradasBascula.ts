@@ -13,6 +13,7 @@ import { toError } from "@/lib/errorMessage";
 import { escribirConReintentos, fetchAllRows } from "@/lib/fetchAllRows";
 import { buildStockEntradas, esCandidatoCierreAutomatico, esCandidatoCierreCompuesto, type CierreModo, type EntradaBasculaParsed, type LoteProcesadoInput } from "@/lib/entradasBascula";
 import { capacidadFraccionEstimada, conciliarKgProcesados, detectarLotesEnPasadaCompuesta, type EntradaConciliacion, type ReciclajeDiaInput } from "@/lib/conciliacionKg";
+import { buildStockPrecalibrado, type StockPrecalibrado } from "@/lib/stockPrecalibrado";
 import { codigosEnCamaraExterna, type SenalesRecepcion } from "@/lib/camarasExternas";
 import { camaraConfirmadaVigentePorLote, unirLotesConfirmadosEnCamara, type EntradaConCamaraConfirmada } from "@/lib/camaraConfirmada";
 import { useCamarasExternas } from "@/hooks/useCamarasExternas";
@@ -815,6 +816,31 @@ export function useEntradasBascula() {
     [entradas, conciliacionKg, hoy, lotesEnPasadaCompuesta, lotesConfirmadosEnCamara, camaraConfirmadaPorLote, kgDerramePorLote],
   );
 
+  // ─── Stock de precalibrado (TAREA 0, movido aquí desde EntradasBascula.tsx) ─
+  // Antes vivía solo en la página (nada más lo necesitaba); ahora el propio
+  // hook necesita `candidatosCierre` para poder aplicarle el CINTURÓN Y
+  // TIRANTES (tercer origen del auto-cierre, ver más abajo) con los mismos
+  // datos que ya tiene a mano (entradasPrecalibrado/conciliacionKg.procesados/
+  // lotesEnPasadaCompuesta) — se calcula UNA sola vez aquí (cero cálculos
+  // duplicados) y la página consume el mismo objeto para pintar
+  // StockPrecalibradoCard, tal cual hacía antes.
+  const stockPrecalibrado = useMemo(
+    (): StockPrecalibrado => buildStockPrecalibrado(
+      entradasPrecalibrado.map((e) => ({
+        lote: e.lote,
+        fecha: e.fecha,
+        finca: e.finca,
+        kg_entrada: Number(e.kg_entrada) || 0,
+        id: e.id,
+        cerrado_at: e.cerrado_at ?? null,
+      })),
+      conciliacionKg.procesados,
+      hoy,
+      lotesEnPasadaCompuesta,
+    ),
+    [entradasPrecalibrado, conciliacionKg.procesados, hoy, lotesEnPasadaCompuesta],
+  );
+
   // ─── Motor NUEVO para TODA la campaña (fase 3b, ver docs/TRAZABILIDAD_ ────
   // REFUNDACION.md): arquitectura "estrangulador" — el motor viejo (arriba)
   // sigue pintando `stock`/las cifras agregadas; el nuevo se calcula en
@@ -904,19 +930,33 @@ export function useEntradasBascula() {
     return items;
   }, [stock.filas, entradas, hoy]);
 
-  const { candidatosCierreAutomatico, candidatosCierreCompuesto, discrepanciasCierre } = useMemo((): {
+  // TAREA 0 (hueco documentado de la 3b): el cinturón cubría "completo" y
+  // "compuesto" pero no el TERCER origen del auto-cierre —
+  // stockPrecalibrado.candidatosCierre (buildStockPrecalibrado,
+  // stockPrecalibrado.ts), consumido por el mismo cerrarLotesEnBloque en
+  // EntradasBascula.tsx. Caso real que lo motivó: el barrido del 04-08 a las
+  // 07:28 cerró 5 re-entradas PREC (26030507/26031908/26032309/26070801/
+  // 26070802) con SOLO una mención textual sin kg cuantificable (evidencia
+  // "nombrado" pero kg:null en pasada compuesta) — el motor viejo lo tomaba
+  // como "consumido" (motivo "compuesto") sin pasar por la regla de oro. Se
+  // aplica AQUÍ, con la MISMA función genérica, en vez de un tipo de
+  // candidato ad hoc — mismo patrón que los otros dos orígenes.
+  const { candidatosCierreAutomatico, candidatosCierreCompuesto, candidatosCierrePrecalibrado, discrepanciasCierre } = useMemo((): {
     candidatosCierreAutomatico: typeof candidatosCierreAutomaticoDelViejo;
     candidatosCierreCompuesto: typeof candidatosCierreCompuestoDelViejo;
+    candidatosCierrePrecalibrado: typeof stockPrecalibrado.candidatosCierre;
     discrepanciasCierre: DiscrepanciaCierre[];
   } => {
     const completo = aplicarCinturonYTirantes(candidatosCierreAutomaticoDelViejo, "completo", cicloPorLote);
     const compuesto = aplicarCinturonYTirantes(candidatosCierreCompuestoDelViejo, "compuesto", cicloPorLote);
+    const precalibrado = aplicarCinturonYTirantes(stockPrecalibrado.candidatosCierre, "precalibrado", cicloPorLote);
     return {
       candidatosCierreAutomatico: completo.confirmados,
       candidatosCierreCompuesto: compuesto.confirmados,
-      discrepanciasCierre: [...completo.discrepancias, ...compuesto.discrepancias],
+      candidatosCierrePrecalibrado: precalibrado.confirmados,
+      discrepanciasCierre: [...completo.discrepancias, ...compuesto.discrepancias, ...precalibrado.discrepancias],
     };
-  }, [candidatosCierreAutomaticoDelViejo, candidatosCierreCompuestoDelViejo, cicloPorLote]);
+  }, [candidatosCierreAutomaticoDelViejo, candidatosCierreCompuestoDelViejo, stockPrecalibrado.candidatosCierre, cicloPorLote]);
 
   // ─── Códigos de báscula (incluido PREC) para validar anotaciones ──────────
   // Ver src/lib/pasadaAnotaciones.ts (validarCodigosContraBascula): el
@@ -950,18 +990,23 @@ export function useEntradasBascula() {
     calidadLotes,
     movimientosPrecalibrado,
     derivadosCampoCit,
+    /** Stock VISIBLE de precalibrado (pendientes/resueltas por compuesta/candidatos a cierre) — ver src/lib/stockPrecalibrado.ts. Calculado UNA vez aquí (TAREA 0: antes vivía en la página) para que `candidatosCierre` pueda pasar por el mismo cinturón y tirantes que los otros dos orígenes; la página lo consume tal cual para StockPrecalibradoCard. */
+    stockPrecalibrado,
     /** Candidatos (id + lote) al cierre automático persistido: COMPLETO (≥97% o calibrador>entrada) y ≥2 días sin pasada nueva SEGÚN LOS DOS MOTORES (cinturón y tirantes, fase 3b: esCandidatoCierreAutomatico Y el motor de evidencia de acuerdo). Los que el viejo daba por candidatos pero el nuevo veta están en `discrepanciasCierre`, no aquí. */
     candidatosCierreAutomatico,
     /** Candidatos (id + lote) al cierre automático por evidencia de COMPUESTA (refuerzo 04-08-2026): 0 kg propios pero nombrados como no-primero en una pasada compuesta, ≥2 días desde la última mención, Y confirmado por el motor de evidencia (cinturón y tirantes). Cierre SIEMPRE "sin_registro". Ver esCandidatoCierreCompuesto. */
     candidatosCierreCompuesto,
+    /** Candidatos (id + lote) al cierre automático del TERCER origen — PRECALIBRADO (stockPrecalibrado.candidatosCierre), YA filtrados por el cinturón y tirantes (TAREA 0). Los que el motor viejo daba por candidatos pero el nuevo veta están en `discrepanciasCierre` con tipo "precalibrado", no aquí. */
+    candidatosCierrePrecalibrado,
     /**
-     * FASE 3b — cola de revisión del cinturón y tirantes: lotes donde el motor
-     * VIEJO (esCandidatoCierreAutomatico/esCandidatoCierreCompuesto) dice
-     * "candidato a cierre" pero el motor de EVIDENCIA (cicloVidaLote.ts) lo
-     * veta (no llega a "completo_pendiente_cierre"). NUNCA se cierran solos
-     * mientras estén aquí — es una cola de revisión, no un error (ver
-     * aplicarCinturonYTirantes en cicloVidaLoteAdapter.ts para la razón de
-     * cada uno).
+     * FASE 3b + TAREA 0 — cola de revisión del cinturón y tirantes: lotes
+     * donde el motor VIEJO (esCandidatoCierreAutomatico/esCandidatoCierreCompuesto/
+     * stockPrecalibrado.candidatosCierre, los TRES orígenes del auto-cierre)
+     * dice "candidato a cierre" pero el motor de EVIDENCIA (cicloVidaLote.ts)
+     * lo veta (no llega a "completo_pendiente_cierre"/"cerrado"). NUNCA se
+     * cierran solos mientras estén aquí — es una cola de revisión, no un
+     * error (ver aplicarCinturonYTirantes en cicloVidaLoteAdapter.ts para la
+     * razón de cada uno; `tipo` distingue "completo"/"compuesto"/"precalibrado").
      */
     discrepanciasCierre,
     /** lote (8 dígitos, normalizado) -> ciclo de vida derivado por el motor de evidencia para TODA la campaña (fase 3b, cicloVidaLoteAdapter.ts). Solo lectura: el motor viejo (`stock`) sigue mandando en cifras agregadas — esto alimenta el badge de discrepancia por fila y `discrepanciasCierre`. */

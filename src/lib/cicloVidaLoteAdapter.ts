@@ -285,7 +285,7 @@ export function compararConMotorViejo(
   };
 }
 
-// ─── 3) CINTURÓN Y TIRANTES del cierre automático (fase 3b) ─────────────────
+// ─── 3) CINTURÓN Y TIRANTES del cierre automático (fase 3b + TAREA 0) ───────
 // Decisión de diseño central del encargo (no negociable, ver
 // docs/TRAZABILIDAD_REFUNDACION.md fase 3): un lote solo es candidato a
 // cierre automático (normal o compuesto) si LOS DOS motores están de acuerdo.
@@ -294,6 +294,19 @@ export function compararConMotorViejo(
 // completoConEvidencia, commit 15eb711) sigue siendo quien decide en primera
 // instancia (useEntradasBascula.ts sigue montando `stock.filas` y llamando a
 // esas dos funciones tal cual); esto solo AÑADE el veto del motor nuevo.
+//
+// TAREA 0 (hueco documentado de la 3b): el cinturón cubría solo DOS de los
+// TRES orígenes del auto-cierre — faltaba el candidato de PRECALIBRADO
+// (stockPrecalibrado.candidatosCierre, buildStockPrecalibrado en
+// stockPrecalibrado.ts). Caso real que lo motivó: el barrido del 04-08 a las
+// 07:28 cerró 5 re-entradas PREC (26030507/26031908/26032309/26070801/
+// 26070802) SIN ninguna indicación real en los informes — solo tenían una
+// MENCIÓN textual sin kg cuantificable en una pasada compuesta (evidencia
+// "nombrado" pero kg:null, ver eventosLote.ts), que el motor viejo tomaba
+// igualmente como "consumido" (motivo "compuesto") sin pasar por la regla de
+// oro. `aplicarCinturonYTirantes` es genérica en `T`/`tipo` precisamente para
+// poder aplicarse también a este tercer origen sin duplicar el bucle ni la
+// redacción de la razón (ver useEntradasBascula.ts, tercera llamada).
 
 /**
  * ¿El motor NUEVO también daría este lote por completo? El vocabulario de
@@ -304,15 +317,39 @@ export function compararConMotorViejo(
  * sirve para intersecar TANTO los candidatos normales como los compuestos
  * del motor viejo (ver el encargo: "el equivalente compuesto de
  * cicloVidaLote" es este mismo estado, no hay uno aparte).
+ *
+ * TAREA 0 (tercer origen del cinturón, PRECALIBRADO): para ese tipo en
+ * concreto también se acepta el estado "cerrado" — SOLO para "precalibrado",
+ * no para "completo"/"compuesto" (ver `tipo` más abajo). Motivo —
+ * `eventosPorLote` (eventosLote.ts) agrupa TODOS los eventos de un mismo
+ * código de 8 dígitos normalizado, así que una re-entrada de PRECALIBRADO
+ * puede compartir código con una entrada que YA tiene un cierre manual
+ * (ANOTADO) legítimo de otro origen: en ese caso el GRUPO entero ya es
+ * "cerrado" para el motor de evidencia, y vetar el candidato PREC solo porque
+ * su propio kg no llegó a "completo_pendiente_cierre" sería MÁS estricto que
+ * el propio veredicto del motor nuevo (que ya dio el código por resuelto vía
+ * evidencia ANOTADA). Se restringe a "precalibrado" (no se generaliza a los
+ * otros dos orígenes) porque esCandidatoCierreAutomatico/esCandidatoCierreCompuesto
+ * YA excluyen cualquier fila con `cerrado_at` propio (entradasBascula.ts) —
+ * el único camino real hacia un "cerrado" heredado es el código COMPARTIDO
+ * con una re-entrada PREC, y ensanchar el criterio para los otros dos tipos
+ * sin ese caso de uso solo aumentaría la superficie de cierres automáticos
+ * sin ningún caso real que lo pida. OJO: esto NO relaja el caso que motivó la
+ * tarea — los 5 PREC "sin indicación" del barrido 04-08
+ * (26030507/26031908/26032309/26070801/26070802) evaluados ANTES de escribir
+ * su propio cierre siguen dando "sin_rastro" (mención textual sin kg
+ * cuantificable, sin cierre_manual todavía) y por tanto SIGUEN VETADOS — ver
+ * cicloVidaLoteAdapter.precalibrado.test.ts.
  */
-export function esCandidatoSegunMotorNuevo(ciclo: LoteCiclo | null | undefined): boolean {
-  return ciclo?.estado === "completo_pendiente_cierre";
+export function esCandidatoSegunMotorNuevo(ciclo: LoteCiclo | null | undefined, tipo: DiscrepanciaCierre["tipo"]): boolean {
+  if (ciclo?.estado === "completo_pendiente_cierre") return true;
+  return tipo === "precalibrado" && ciclo?.estado === "cerrado";
 }
 
 export interface DiscrepanciaCierre {
   lote: string;
-  /** Qué candidatura del motor viejo vetó el motor nuevo: "completo" = esCandidatoCierreAutomatico; "compuesto" = esCandidatoCierreCompuesto. */
-  tipo: "completo" | "compuesto";
+  /** Qué candidatura del motor viejo vetó el motor nuevo: "completo" = esCandidatoCierreAutomatico; "compuesto" = esCandidatoCierreCompuesto; "precalibrado" = stockPrecalibrado.candidatosCierre (TAREA 0, tercer origen del auto-cierre). */
+  tipo: "completo" | "compuesto" | "precalibrado";
   /** Estado que le da el motor nuevo a este lote — `null` si el motor nuevo no tiene ningún evento para él (no debería pasar con datos reales: toda fila de stock viene de una entrada de báscula, que siempre genera al menos el evento `entrada_bascula`). */
   estadoNuevo: EstadoLote | null;
   /** Por qué el motor nuevo no lo ve completo — misma explicación que `compararConMotorViejo` (motivoDiscrepancia), para no mantener dos redacciones distintas del mismo hecho. */
@@ -338,7 +375,7 @@ export function aplicarCinturonYTirantes<T extends { lote: string }>(
   const discrepancias: DiscrepanciaCierre[] = [];
   for (const candidato of candidatosMotorViejo) {
     const ciclo = cicloPorLote.get(candidato.lote) ?? null;
-    if (esCandidatoSegunMotorNuevo(ciclo)) {
+    if (esCandidatoSegunMotorNuevo(ciclo, tipo)) {
       confirmados.push(candidato);
       continue;
     }

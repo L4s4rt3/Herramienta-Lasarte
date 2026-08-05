@@ -9,39 +9,67 @@
  * de la campaña para que los informes de lotes se asienten". Corrección
  * textual del dueño sobre cómo clasificar: "nada de FIFO por conveniencia:
  * cada lote de precalibrado SE INDICA en los informes, se usa el que se
- * indique". La evidencia se clasifica así:
- *   (a) DURA = el código del lote aparece NOMBRADO en alguna pasada (propia
- *       o compuesta), o su kg viene de un informe de stock REAL (kg_ajuste_stock:
- *       no es texto de pasada, pero es una medición física, no una asunción).
- *   (b) DERIVADA = kg recibido por el derrame de exceso ya existente en
- *       conciliarKgProcesados (misma finca/variedad) — un lote AJENO al
- *       informe que absorbió sobrante de otro.
- *   (c) SIN RASTRO = ni una mención textual ni un derrame lo tocó: 0 kg con
- *       cualquier evidencia (puede ser stock legítimamente joven que aún no
- *       le toca, o el "stock fantasma" documentado en conciliacionKg.ts).
- * Nunca se inventa un casado (ni FIFO, ni antigüedad, ni proximidad): todo lo
- * que este módulo reporta sale de datos ya existentes (pasadas nombradas,
- * movimientos de conciliación, informe de stock).
+ * indique".
+ *
+ * FASE 3c de la refundación (docs/TRAZABILIDAD_REFUNDACION.md, "mismo número
+ * ⇒ misma función pura"): la CLASIFICACIÓN de evidencia (dura/derivada/sin
+ * rastro) ya NO es un cálculo paralelo de este módulo — sale de
+ * `kgPorClase` del motor único (cicloVidaLote.ts), el mismo que consumen
+ * Stock/Trazabilidad. Se recibe ya calculado (`AsentamientoInput.cicloPorLote`,
+ * reutilizando `cicloPorLote` del hook de entradas — cero cálculos
+ * duplicados, ver useAsentamientoDia.ts) y se traduce así:
+ *   (a) DURA = kgPorClase.nombrado + kgPorClase.anotado (evidencia NOMBRADA o
+ *       ANOTADA — la REGLA DE ORO dice que ambas "pueden todo": mover kg,
+ *       completar, cerrar).
+ *   (b) DERIVADA = kgPorClase.derivado (derrame de exceso, misma finca/
+ *       variedad — SOLO sugerencia, la regla de oro prohíbe que cuente como
+ *       evidencia real).
+ *   (c) SIN RASTRO = el resto: kgPorClase.medido + kgPorClase.sinRastro. OJO
+ *       (cambio de comportamiento respecto a ANTES de la 3c, documentado caso
+ *       a caso en asentamientoDia.test.ts): antes, un informe de stock REAL
+ *       (kg_ajuste_stock) contaba aquí como evidencia "dura" por sí solo (una
+ *       medición física, "no una asunción"). La REGLA DE ORO del motor nuevo
+ *       es más estricta: lo MEDIDO (foto de stock, merma real, cámara
+ *       externa, venta directa) fija cantidad/ubicación pero NUNCA prueba por
+ *       sí solo que el lote se procesó — así que ahora cuenta como "sin
+ *       rastro" salvo que ADEMÁS haya una mención NOMBRADA/ANOTADA (en cuyo
+ *       caso ya suma dentro de (a) vía kgPorClase.medido, que cicloVidaLote.ts
+ *       solo deja sumar con la "puerta" abierta). Es MÁS honesto: la card ya
+ *       no puede confundir "alguien midió esto" con "sabemos qué pasó con
+ *       ello". El invariante de conservación (a + b + c === kg_entrada) se
+ *       mantiene EXACTO porque reutiliza el propio invariante de
+ *       `crearKgPorClase` (cicloVidaLote.ts): medido + sinRastro
+ *       === kg_entrada − nombrado − anotado − derivado, incluido el caso raro
+ *       de un `medido` NEGATIVO por contradicción (foto de stock que anula
+ *       una pasada propia, FASE 3b) — ese negativo se conserva con signo
+ *       dentro de "sin rastro" (nunca se capa a 0), la misma magnitud de aviso
+ *       que ya expone cicloVidaLote.ts.
+ * Nunca se inventa un casado (ni FIFO, ni antigüedad, ni proximidad): la
+ * clasificación sale del motor único; el REPLAY (más abajo) sigue leyendo
+ * datos ya existentes (pasadas nombradas, conciliación, informe de stock).
  *
  * MOTOR REUTILIZADO (regla del repo: no duplicar fórmulas) — TODO el cálculo
  * de reparto/capacidad/cierre sale de módulos ya existentes:
+ *   - cicloVidaLote.ts (kgPorClase) — la CLASIFICACIÓN de evidencia (3c)
  *   - conciliarKgProcesados / detectarLotesEnPasadaCompuesta (conciliacionKg.ts)
  *   - buildStockEntradas / capacidadFraccionEstimada (entradasBascula.ts)
- *   - buildStockPrecalibrado (stockPrecalibrado.ts)
  * Este módulo NO reimplementa ninguna de esas fórmulas: solo las invoca sobre
  * prefijos crecientes de pasadas (el "replay") y organiza su salida por lote.
  *
- * REPLAY DÍA A DÍA — cómo se consigue "kg acumulado a fecha X" sin duplicar la
- * fórmula de reparto: se llama a `conciliarKgProcesados` UNA VEZ POR CADA
- * FECHA DISTINTA que trae alguna pasada (no una vez por día de calendario),
- * cada vez con el prefijo de pasadas hasta esa fecha (inclusive). Es el MISMO
- * motor, exacto, aplicado a una "foto" cada vez más completa de la campaña —
- * no una aproximación. Con la campaña real (~215 fechas con parte, ~1.300
- * pasadas, ~1.300 entradas, verificado contra la BD 04-08-2026) esto tarda
- * del orden de segundos, aceptable para un cálculo en segundo plano (useMemo)
- * que no se repite en cada render. Si la campaña creciera mucho más, la
- * siguiente optimización sería exponer la atribución por-pasada directamente
- * desde conciliacionKg.ts (fuera de alcance de este encargo).
+ * REPLAY DÍA A DÍA (SE CONSERVA tal cual en la 3c: es el eje TIEMPO que
+ * cicloVidaLote.ts no calcula — "el día en que un lote quedó completo" no es
+ * evidencia, es cuándo se alcanzó el umbral) — cómo se consigue "kg acumulado
+ * a fecha X" sin duplicar la fórmula de reparto: se llama a
+ * `conciliarKgProcesados` UNA VEZ POR CADA FECHA DISTINTA que trae alguna
+ * pasada (no una vez por día de calendario), cada vez con el prefijo de
+ * pasadas hasta esa fecha (inclusive). Es el MISMO motor, exacto, aplicado a
+ * una "foto" cada vez más completa de la campaña — no una aproximación. Con
+ * la campaña real (~215 fechas con parte, ~1.300 pasadas, ~1.300 entradas,
+ * verificado contra la BD 04-08-2026) esto tarda del orden de segundos,
+ * aceptable para un cálculo en segundo plano (useMemo) que no se repite en
+ * cada render. Si la campaña creciera mucho más, la siguiente optimización
+ * sería exponer la atribución por-pasada directamente desde conciliacionKg.ts
+ * (fuera de alcance de este encargo).
  */
 import {
   capacidadFraccionEstimada,
@@ -49,7 +77,6 @@ import {
   detectarLotesEnPasadaCompuesta,
   type EntradaConciliacion,
   type EvidenciaLotePasadaCompuesta,
-  type MovimientoKg,
   type PasadaConciliacion,
   type ReciclajeDiaInput,
 } from "@/lib/conciliacionKg";
@@ -64,6 +91,7 @@ import {
   extraerAlmacenPrec,
   type ReentradaPrecalibradoInput,
 } from "@/lib/stockPrecalibrado";
+import type { LoteCiclo } from "@/lib/cicloVidaLote";
 
 // ─── Entradas del módulo (superset de lo que piden conciliarKgProcesados / ──
 // buildStockEntradas / buildStockPrecalibrado, para no repetir el mapeo tres
@@ -94,6 +122,15 @@ export interface AsentamientoInput {
   reciclajePorDia?: ReciclajeDiaInput[];
   /** Códigos con señal VIGENTE de "sigue en cámara" ahora mismo — la UNIÓN de cámara EXTERNA (camarasExternas.ts) y confirmación FÍSICA (camaraConfirmada.ts, refuerzo 04-08-2026): se pasa tal cual a conciliarKgProcesados/buildStockEntradas — nunca reciben derrame ni cierran solos. Se llamó `lotesEnCamaraExterna` cuando solo cubría la primera señal. */
   lotesConfirmadosEnCamara?: Set<string>;
+  /**
+   * FASE 3c: lote (8 dígitos normalizado) → ciclo de vida derivado por el
+   * motor único (cicloVidaLote.ts) — de aquí sale la CLASIFICACIÓN de
+   * evidencia (kgPorClase), ver cabecera del archivo. El caller (useAsentamientoDia.ts)
+   * reutiliza el `cicloPorLote` que useEntradasBascula() YA calcula — cero
+   * cálculos duplicados, este módulo nunca vuelve a construir eventos ni a
+   * derivar el ciclo por su cuenta.
+   */
+  cicloPorLote: Map<string, LoteCiclo>;
   /** Fecha de referencia ("hoy", ISO) para antigüedad/estado final. */
   hoy: string;
 }
@@ -105,11 +142,11 @@ export interface LoteAsentado {
   esPrecalibrado: boolean;
   fechaEntrada: string;
   kgEntrada: number;
-  /** kg con evidencia DURA (nombrado en pasadas propias/compuestas + kg_ajuste_stock). */
+  /** kg con evidencia DURA — FASE 3c: kgPorClase.nombrado + kgPorClase.anotado del motor único (cicloVidaLote.ts). Ya NO incluye kg_ajuste_stock por sí solo (ver cabecera del archivo: lo MEDIDO nunca prueba por sí solo que el lote se procesó). */
   kgEvidenciaDura: number;
-  /** kg recibido por derrame de exceso (misma finca / misma variedad) — nunca aplica a precalibrado. */
+  /** kg recibido por derrame de exceso (misma finca / misma variedad) — FASE 3c: kgPorClase.derivado. Nunca aplica a precalibrado (conciliarKgProcesados excluye el PREC del derrame). */
   kgDerivada: number;
-  /** kg_entrada − (kgEvidenciaDura + kgDerivada): sin ningún rastro todavía. */
+  /** kg_entrada − (kgEvidenciaDura + kgDerivada): sin ningún rastro todavía — FASE 3c: kgPorClase.medido + kgPorClase.sinRastro (conserva el invariante de crearKgPorClase, ver cabecera). */
   kgSinRastro: number;
   /** Etiqueta única (la evidencia más fuerte que tenga el lote: dura > derivada > sin_rastro). */
   evidencia: EvidenciaLote;
@@ -158,6 +195,42 @@ function fechasNombradoPorLote(pasadas: PasadaConciliacion[]): { primera: Map<st
     }
   }
   return { primera, ultima };
+}
+
+// ─── Clasificación de evidencia — FASE 3c: sale del motor único ─────────────
+// (cicloVidaLote.ts), NO de un cálculo paralelo. Función compartida por
+// clasificarLotesReales/clasificarLotesPrecalibrado para no repetir la
+// traducción kgPorClase → {dura, derivada, sinRastro, evidencia} dos veces
+// (mismo código, mismo número, ver docs/TRAZABILIDAD_REFUNDACION.md).
+function clasificarEvidenciaDesdeCiclo(
+  ciclo: LoteCiclo | undefined,
+  kgEntradaSiFalta: number,
+): Pick<LoteAsentado, "kgEvidenciaDura" | "kgDerivada" | "kgSinRastro" | "evidencia"> {
+  if (!ciclo) {
+    // Defensivo, no debería pasar con datos reales: toda fila de esta función
+    // viene de una entrada de báscula, y esa entrada SIEMPRE genera al menos
+    // el evento `entrada_bascula` en el motor nuevo (eventosLote.ts) — así
+    // que cicloPorLote.get(código) nunca debería faltar. Si faltara de
+    // verdad (p.ej. un caller de test con datos a medio construir), se deja
+    // "sin_rastro" en vez de inventar evidencia — null ≠ 0, pero aquí no hay
+    // ningún dato de kg que perder: se declara TODO sin rastro, nunca 0 kg
+    // "procesados" por defecto.
+    return { kgEvidenciaDura: 0, kgDerivada: 0, kgSinRastro: kgEntradaSiFalta, evidencia: "sin_rastro" };
+  }
+  // (a) DURA = nombrado + anotado (evidencia NOMBRADA/ANOTADA, "puede todo").
+  const kgEvidenciaDura = ciclo.kgPorClase.nombrado + ciclo.kgPorClase.anotado;
+  // (b) DERIVADA = derrame de exceso (DERIVADO, solo sugerencia — regla de oro).
+  const kgDerivada = ciclo.kgPorClase.derivado;
+  // (c) SIN RASTRO = el resto: medido + sinRastro (ver cabecera del archivo
+  // para el porqué de incluir `medido` aquí y no en "dura"). Se conserva CON
+  // SIGNO (nunca Math.max(0, …)): si `medido` sale negativo por una
+  // contradicción grande (foto de stock que anula una pasada propia, FASE
+  // 3b), esa magnitud de aviso debe seguir siendo visible en la card en vez
+  // de esconderse capando a 0 — exactamente el mismo criterio que
+  // cicloVidaLote.ts aplica a su propio `kgPorClase.sinRastro`.
+  const kgSinRastro = ciclo.kgPorClase.medido + ciclo.kgPorClase.sinRastro;
+  const evidencia: EvidenciaLote = kgEvidenciaDura > 0 ? "dura" : kgDerivada > 0 ? "derivada" : "sin_rastro";
+  return { kgEvidenciaDura, kgDerivada, kgSinRastro, evidencia };
 }
 
 // ─── Replay cronológico por fecha ───────────────────────────────────────────
@@ -264,19 +337,14 @@ function clasificarLotesReales(
   snapshots: SnapshotFecha[],
   hoy: string,
   lotesConfirmadosEnCamara: Set<string> | undefined,
+  cicloPorLote: Map<string, LoteCiclo>,
 ): LoteAsentado[] {
-  const kgConciliadoPorLote = new Map(final.procesados.map((p) => [p.lote_codigo, p.kg_peso_total]));
-  // kg recibido por DERRAME de exceso (misma finca/variedad): la ÚNICA fuente
-  // de evidencia "derivada" — multi_codigo/reentrada_nombrados son kg de
-  // lotes que SÍ estaban nombrados en esa misma pasada, así que cuentan como
-  // evidencia dura (ver cabecera del archivo).
-  const derramaRecibida = new Map<string, number>();
-  for (const m of final.movimientos) {
-    if (m.motivo === "exceso_misma_finca" || m.motivo === "exceso_misma_variedad") {
-      derramaRecibida.set(m.a, (derramaRecibida.get(m.a) ?? 0) + m.kg);
-    }
-  }
-
+  // PODA 3c: antes aquí se calculaba `kgConciliadoPorLote`/`derramaRecibida`
+  // para la clasificación de evidencia propia de este módulo — ya no hace
+  // falta (sale de `cicloPorLote`, ver clasificarEvidenciaDesdeCiclo más
+  // arriba). `final.procesados` sigue entrando en buildStockEntradas (estado/
+  // eje tiempo, no se toca) y en diaCompletoPorUmbral vía los `snapshots` del
+  // replay (que se calculan aparte, ver construirAsentamientoCampana).
   const stock = buildStockEntradas(
     entradas.map((e) => ({
       lote: e.lote,
@@ -301,12 +369,6 @@ function clasificarLotesReales(
   return stock.filas.map((fila): LoteAsentado => {
     const original = entradaPorLote.get(fila.lote);
     const kgPreasignado = Math.max(0, Number(original?.kg_ajuste_stock) || 0);
-    const kgConciliado = kgConciliadoPorLote.get(fila.lote) ?? 0;
-    const totalAsignado = kgPreasignado + kgConciliado;
-    const kgDerivada = Math.min(totalAsignado, derramaRecibida.get(fila.lote) ?? 0);
-    const kgEvidenciaDura = totalAsignado - kgDerivada;
-    const kgSinRastro = Math.max(0, fila.kg_entrada - totalAsignado);
-    const evidencia: EvidenciaLote = kgEvidenciaDura > 0 ? "dura" : kgDerivada > 0 ? "derivada" : "sin_rastro";
 
     // Día completo: primero se intenta el cruce "natural" de umbral vía el
     // replay; si el lote solo cierra por evidencia de compuesta o cierre
@@ -318,6 +380,8 @@ function clasificarLotesReales(
         ?? fila.ultima_fecha_procesado
         ?? (fila.cerrado_at ? fila.cerrado_at.slice(0, 10) : null);
     }
+
+    const { kgEvidenciaDura, kgDerivada, kgSinRastro, evidencia } = clasificarEvidenciaDesdeCiclo(cicloPorLote.get(fila.lote), fila.kg_entrada);
 
     return {
       codigo: fila.lote,
@@ -339,16 +403,18 @@ function clasificarLotesReales(
 
 // ─── Clasificación de re-entradas de PRECALIBRADO ───────────────────────────
 // El circuito PREC nunca recibe derrame (conciliarKgProcesados lo excluye a
-// propósito, ver su cabecera): su evidencia es SIEMPRE dura (nombrado propio
-// o compuesto) o sin_rastro (pendientes sin ninguna mención, ver
-// stockPrecalibrado.ts). Se reutilizan sus mismas señales (evidenciaCompuesta,
-// kg conciliado) en vez de volver a calcular el reparto.
+// propósito, ver su cabecera): la EVIDENCIA (dura/derivada/sin_rastro) sale
+// ahora de cicloPorLote (motor único, FASE 3c) — lo que este bloque calcula
+// (directo/compuesta/pendiente) sigue vivo SOLO para el EJE TIEMPO
+// (estadoFinal/diaCompleto: "¿en qué fecha se dio por resuelta esta
+// re-entrada?"), que cicloVidaLote.ts no expone por fecha.
 function clasificarLotesPrecalibrado(
   reentradas: EntradaPrecalibradoAsentamiento[],
   final: ReturnType<typeof conciliarKgProcesados>,
   evidenciaCompuesta: Map<string, EvidenciaLotePasadaCompuesta>,
   fechasNombrado: { primera: Map<string, string>; ultima: Map<string, string> },
   hoy: string,
+  cicloPorLote: Map<string, LoteCiclo>,
 ): LoteAsentado[] {
   // buildStockPrecalibrado ya hace exactamente esta clasificación (directo vs
   // compuesta vs pendiente) pero solo devuelve LISTADOS parciales (pendientes,
@@ -371,19 +437,23 @@ function clasificarLotesPrecalibrado(
     const cerrada = Boolean(r.cerrado_at);
     const evidenciaComp = !cerrada && pendienteDirecto > 0 ? evidenciaCompuesta.get(r.lote) ?? null : null;
 
-    const kgEvidenciaDura = evidenciaComp ? kg : reprocesadoDirecto;
-    const kgSinRastro = kg - kgEvidenciaDura;
-    const evidencia: EvidenciaLote = kgEvidenciaDura > 0 ? "dura" : "sin_rastro";
-    const estadoFinal: StockEstado = cerrada || kgSinRastro <= 0.5 ? "procesado" : reprocesadoDirecto > 0 ? "parcial" : "pendiente";
+    // "Resuelta del todo" — SOLO estado/tiempo, ya NO alimenta la evidencia de
+    // la card (antes esta misma condición se llamaba `kgSinRastro <= 0.5` y
+    // hacía ambas cosas a la vez): cerrada a mano, o la evidencia de compuesta
+    // la da por consumida entera, o el directo ya cubrió el kg reintroducido.
+    const resueltaDelTodo = cerrada || Boolean(evidenciaComp) || pendienteDirecto <= 0.5;
+    const estadoFinal: StockEstado = resueltaDelTodo ? "procesado" : reprocesadoDirecto > 0 ? "parcial" : "pendiente";
     const diasEnCamara = diffDias(r.fecha, hoy);
 
     const diaCompleto = cerrada
       ? (r.cerrado_at ? r.cerrado_at.slice(0, 10) : null)
       : evidenciaComp
         ? evidenciaComp.ultimaFecha
-        : kgSinRastro <= 0.5
+        : pendienteDirecto <= 0.5
           ? (directo?.ultimaFecha ?? null)
           : null;
+
+    const { kgEvidenciaDura, kgDerivada, kgSinRastro, evidencia } = clasificarEvidenciaDesdeCiclo(cicloPorLote.get(r.lote), kg);
 
     return {
       codigo: r.lote,
@@ -391,8 +461,8 @@ function clasificarLotesPrecalibrado(
       fechaEntrada: r.fecha,
       kgEntrada: kg,
       kgEvidenciaDura,
-      kgDerivada: 0,
-      kgSinRastro: Math.max(0, kgSinRastro),
+      kgDerivada,
+      kgSinRastro,
       evidencia,
       fechaPrimeraPasada: fechasNombrado.primera.get(r.lote) ?? null,
       fechaUltimaPasada: fechasNombrado.ultima.get(r.lote) ?? null,
@@ -413,7 +483,7 @@ function clasificarLotesPrecalibrado(
  * es quien carga los datos con fetchAllRows y se los pasa ya listos.
  */
 export function construirAsentamientoCampana(input: AsentamientoInput): CoberturaCampana {
-  const { entradas, entradasPrecalibrado, pasadas, reciclajePorDia = [], lotesConfirmadosEnCamara, hoy } = input;
+  const { entradas, entradasPrecalibrado, pasadas, reciclajePorDia = [], lotesConfirmadosEnCamara, cicloPorLote, hoy } = input;
 
   const entradasConciliacion = [
     ...entradas.map((e) => aEntradaConciliacion(e, false)),
@@ -425,8 +495,8 @@ export function construirAsentamientoCampana(input: AsentamientoInput): Cobertur
   const fechasNombrado = fechasNombradoPorLote(pasadas);
   const snapshots = replayConciliacionPorFecha(entradasConciliacion, pasadas, reciclajePorDia, lotesConfirmadosEnCamara);
 
-  const porLoteReal = clasificarLotesReales(entradas, final, evidenciaCompuesta, fechasNombrado, snapshots, hoy, lotesConfirmadosEnCamara);
-  const porLotePrec = clasificarLotesPrecalibrado(entradasPrecalibrado, final, evidenciaCompuesta, fechasNombrado, hoy);
+  const porLoteReal = clasificarLotesReales(entradas, final, evidenciaCompuesta, fechasNombrado, snapshots, hoy, lotesConfirmadosEnCamara, cicloPorLote);
+  const porLotePrec = clasificarLotesPrecalibrado(entradasPrecalibrado, final, evidenciaCompuesta, fechasNombrado, hoy, cicloPorLote);
   const porLote = [...porLoteReal, ...porLotePrec];
 
   let kgTotales = 0;
@@ -473,4 +543,3 @@ export function construirAsentamientoCampana(input: AsentamientoInput): Cobertur
 // Reexport de utilidades menores útiles para el hook/la card (evita un import
 // cruzado extra en el caller).
 export { extraerAlmacenPrec };
-export type { MovimientoKg };

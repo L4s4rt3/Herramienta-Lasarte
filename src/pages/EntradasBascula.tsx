@@ -52,8 +52,7 @@ import {
   type StockLoteRow,
 } from "@/lib/entradasBascula";
 import { errorMessage } from "@/lib/errorMessage";
-import { formatDate, formatKgCompact as formatKg, formatNumber, formatPct, normalizarTexto, today } from "@/lib/format";
-import { buildStockPrecalibrado } from "@/lib/stockPrecalibrado";
+import { formatDate, formatKgCompact as formatKg, formatNumber, formatPct, normalizarTexto } from "@/lib/format";
 import { INFO_PODRIDO_PRE_CALIBRADOR, TASA_MERMA_NATURAL_DIA, type MermaLote } from "@/lib/mermaLote";
 import { exportarMermasProductores, type FilaMermaExport } from "@/lib/exportMermasProductores";
 import { casarMermaCamara, parseMermaCamaraRows } from "@/lib/mermaCamaraImport";
@@ -62,13 +61,22 @@ import { esEntradaPrecalibrado, resolveProductorGroupKey } from "@/lib/productor
 import { MOTIVO_BADGE, MOTIVO_LABEL } from "@/components/ConciliacionKgPanel";
 import type { MovimientoKg } from "@/lib/conciliacionKg";
 import { cn } from "@/lib/utils";
-import { compararConMotorViejo } from "@/lib/cicloVidaLoteAdapter";
+import { compararConMotorViejo, type DiscrepanciaCierre } from "@/lib/cicloVidaLoteAdapter";
 import { ESTADO_LOTE_BADGE, ESTADO_LOTE_LABEL } from "@/components/CicloVidaEvidenciaSection";
 
 const ESTADO_BADGE: Record<StockEstado, { label: string; className: string }> = {
   pendiente: { label: "En cámara", className: "border-info/40 bg-info/10 text-info" },
   parcial: { label: "Parcial", className: "border-warning/40 bg-warning/10 text-warning" },
   procesado: { label: "Procesado", className: "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground" },
+};
+
+// Etiqueta de la card "Discrepancias de cierre entre motores" (cinturón y
+// tirantes, fase 3b + TAREA 0): un texto por cada uno de los TRES orígenes
+// del auto-cierre que el motor viejo puede proponer.
+const DISCREPANCIA_TIPO_LABEL: Record<DiscrepanciaCierre["tipo"], string> = {
+  completo: "candidato completo",
+  compuesto: "candidato compuesto",
+  precalibrado: "candidato precalibrado",
 };
 
 function diasClass(dias: number, estado: StockEstado): string {
@@ -625,9 +633,9 @@ interface ImportPreview {
 
 export default function EntradasBascula() {
   const {
-    entradas, entradasPrecalibrado, stock, procesados, conciliacionKg, movimientosPrecalibrado, derivadosCampoCit, isLoading, error,
-    candidatosCierreAutomatico, candidatosCierreCompuesto, lotesEnPasadaCompuesta, camaraConfirmadaPorLote,
-    pasadasPorLoteDonante, anotacionesPorLoteDia, codigosBascula, discrepanciasCierre, cicloPorLote,
+    entradas, stock, procesados, conciliacionKg, movimientosPrecalibrado, derivadosCampoCit, isLoading, error,
+    candidatosCierreAutomatico, candidatosCierreCompuesto, candidatosCierrePrecalibrado, lotesEnPasadaCompuesta, camaraConfirmadaPorLote,
+    pasadasPorLoteDonante, anotacionesPorLoteDia, codigosBascula, discrepanciasCierre, cicloPorLote, stockPrecalibrado,
     importar, importarStock, eliminar, cerrarLote, reabrirLote, cerrarLotesEnBloque, reabrirLotesEnBloque, actualizarCamaraConfirmada,
     agregarAnotacion, quitarAnotacion,
   } = useEntradasBascula();
@@ -699,29 +707,12 @@ export default function EntradasBascula() {
   }, [conciliacionKg.movimientos]);
 
   // ─── Stock de precalibrado (refuerzo 04-08-2026) ───────────────────────────
-  // Se calcula UNA vez aquí (antes solo vivía dentro de la card) para que el
-  // efecto de cierre automático de más abajo pueda leer `candidatosCierre`
-  // sin duplicar la llamada a buildStockPrecalibrado. `lotesEnPasadaCompuesta`
-  // es la MISMA evidencia textual que resuelve los huérfanos reales de más
-  // abajo — el dueño confirmó contra la BD que 37 de las 304 entradas PREC
-  // activas están en ese mismo caso (nombradas en una pasada compuesta, 0 kg
-  // bajo su propio código).
-  const stockPrecalibrado = useMemo(
-    () => buildStockPrecalibrado(
-      entradasPrecalibrado.map((e) => ({
-        lote: e.lote,
-        fecha: e.fecha,
-        finca: e.finca,
-        kg_entrada: Number(e.kg_entrada) || 0,
-        id: e.id,
-        cerrado_at: e.cerrado_at ?? null,
-      })),
-      conciliacionKg.procesados,
-      today(),
-      lotesEnPasadaCompuesta,
-    ),
-    [entradasPrecalibrado, conciliacionKg.procesados, lotesEnPasadaCompuesta],
-  );
+  // TAREA 0: se movió el CÁLCULO al hook (useEntradasBascula.ts) para que
+  // `candidatosCierre` pudiera pasar por el cinturón y tirantes con los datos
+  // que el propio hook ya tiene — aquí solo se CONSUME (`stockPrecalibrado`,
+  // desestructurado arriba), sin duplicar la llamada a buildStockPrecalibrado.
+  // El efecto de más abajo usa `candidatosCierrePrecalibrado` (YA filtrado
+  // por el cinturón), no `stockPrecalibrado.candidatosCierre` (crudo).
 
   // ─── Cierre automático PERSISTIDO de lotes COMPLETOS (refuerzo 2026-08-03) ──
   // Encargo del dueño: "cuando pasa todo, se debe cerrar el lote... refuerza
@@ -740,17 +731,23 @@ export default function EntradasBascula() {
   // Refuerzo 04-08-2026: además de los COMPLETOS de siempre (con_analisis),
   // en la MISMA pasada se cierran solos los huérfanos de pasada COMPUESTA
   // (lotes reales Y entradas internas PREC, ver candidatosCierreCompuesto /
-  // stockPrecalibrado.candidatosCierre) — siempre con cierre_modo
-  // "sin_registro", nunca "con_analisis": su kg no consta bajo su propio
-  // código, así que el hueco NO es una pérdida real (no se le inventa merma).
-  // Los tres orígenes comparten la misma mutación en bloque (ya agrupa por
-  // modo internamente) para no disparar 3 escrituras separadas al cargar.
+  // candidatosCierrePrecalibrado) — siempre con cierre_modo "sin_registro",
+  // nunca "con_analisis": su kg no consta bajo su propio código, así que el
+  // hueco NO es una pérdida real (no se le inventa merma). Los tres orígenes
+  // comparten la misma mutación en bloque (ya agrupa por modo internamente)
+  // para no disparar 3 escrituras separadas al cargar.
+  //
+  // TAREA 0 (hueco documentado de la 3b): `candidatosCierrePrecalibrado` ya
+  // viene filtrado por el cinturón y tirantes del hook (antes se usaba
+  // `stockPrecalibrado.candidatosCierre` crudo, sin veto — el bug real que
+  // motivó esta tarea: el barrido del 04-08 cerró 5 PREC sin indicación real,
+  // ver useEntradasBascula.ts). Los vetados quedan en `discrepanciasCierre`.
   const autoCierreDisparado = useRef(false);
   useEffect(() => {
     if (!isAdmin || isLoading || autoCierreDisparado.current) return;
     const itemsCompletos = candidatosCierreAutomatico.map((c) => ({ id: c.id, cierreModo: "con_analisis" as const }));
     const itemsCompuestoReal = candidatosCierreCompuesto.map((c) => ({ id: c.id, cierreModo: "sin_registro" as const }));
-    const itemsCompuestoPrec = stockPrecalibrado.candidatosCierre.map((c) => ({ id: c.id, cierreModo: "sin_registro" as const }));
+    const itemsCompuestoPrec = candidatosCierrePrecalibrado.map((c) => ({ id: c.id, cierreModo: "sin_registro" as const }));
     const items = [...itemsCompletos, ...itemsCompuestoReal, ...itemsCompuestoPrec];
     if (items.length === 0) return;
     autoCierreDisparado.current = true;
@@ -772,7 +769,7 @@ export default function EntradasBascula() {
         onError: (e) => toast({ title: "No se pudo cerrar automáticamente", description: errorMessage(e), variant: "destructive" }),
       },
     );
-  }, [isAdmin, isLoading, candidatosCierreAutomatico, candidatosCierreCompuesto, stockPrecalibrado.candidatosCierre, cerrarLotesEnBloque]);
+  }, [isAdmin, isLoading, candidatosCierreAutomatico, candidatosCierreCompuesto, candidatosCierrePrecalibrado, cerrarLotesEnBloque]);
 
   // ─── Conectividad: llegada desde Trazabilidad con ?lote= ────────────────
   // Prefiltra el buscador, se asegura de que la fila sea visible (aunque esté
@@ -1300,7 +1297,7 @@ export default function EntradasBascula() {
                         {d.lote} <ArrowRight className="h-3 w-3 opacity-60" />
                       </Link>
                       <Badge variant="outline" className="shrink-0 border-warning/40 bg-warning/10 px-1.5 py-0 text-[10px] text-warning">
-                        {d.tipo === "compuesto" ? "candidato compuesto" : "candidato completo"}
+                        {DISCREPANCIA_TIPO_LABEL[d.tipo]}
                         {d.estadoNuevo && <> · {ESTADO_LOTE_LABEL[d.estadoNuevo]}</>}
                       </Badge>
                       <span className="text-muted-foreground">{d.razon}</span>
