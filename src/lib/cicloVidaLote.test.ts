@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { derivarCicloVidaLote } from "@/lib/cicloVidaLote";
+import { derivarCicloVidaLote, tieneContradiccionPasadaVsFotoStock } from "@/lib/cicloVidaLote";
 import type { EventoLote } from "@/lib/eventosLote";
 
 const HOY = "2026-08-04";
@@ -188,6 +188,34 @@ describe("cicloVidaLote — contradicciones de primera clase", () => {
     ];
     const lote = derivarUno(eventos);
     expect(lote.contradicciones.some((c) => c.tipo === "pasada_vs_foto_stock")).toBe(false);
+  });
+
+  // ─── tieneContradiccionPasadaVsFotoStock — corolario de la REGLA DE ORO ────
+  // (decisión del dueño 05-08-2026, FASE 3d, ver docs/TRAZABILIDAD_REFUNDACION.md):
+  // envoltorio con nombre sobre la MISMA condición de arriba, para que
+  // mermaPorProductor.ts (y cualquier ranking por productor) no repita el
+  // `.some(c => c.tipo === ...)` en cada sitio que lo necesite.
+  it("tieneContradiccionPasadaVsFotoStock: true solo cuando esa contradicción concreta está presente", () => {
+    const conContradiccion: EventoLote[] = [
+      entrada("26050101", 10000, "2026-05-01"),
+      { tipo: "pasada_nombrada", clase: "nombrado", lote: "26050101", fecha: "2026-05-05", kg: 9500, posicion: "principal" },
+      { tipo: "foto_stock", clase: "medido", lote: "26050101", fecha: "2026-05-01", kg: -9000 },
+    ];
+    expect(tieneContradiccionPasadaVsFotoStock(derivarUno(conContradiccion))).toBe(true);
+
+    const sinContradiccion: EventoLote[] = [entrada("26050102", 10000, "2026-05-01")];
+    expect(tieneContradiccionPasadaVsFotoStock(derivarUno(sinContradiccion))).toBe(false);
+
+    // Otra contradicción distinta (exceso_sin_dueno) no cuenta para este predicado.
+    const conOtraContradiccion: EventoLote[] = [
+      entrada("26050103", 10000, "2026-05-01"),
+      { tipo: "derrame_exceso", clase: "derivado", lote: "26050103", fecha: "2026-05-10", kg: 10000, motivo: "exceso_misma_finca", loteDonante: "26050104" },
+    ];
+    expect(tieneContradiccionPasadaVsFotoStock(derivarUno(conOtraContradiccion))).toBe(false);
+
+    // null/undefined (lote sin ciclo derivado, p. ej. sin entrada de báscula): false, nunca lanza.
+    expect(tieneContradiccionPasadaVsFotoStock(null)).toBe(false);
+    expect(tieneContradiccionPasadaVsFotoStock(undefined)).toBe(false);
   });
 
   it("prec_sin_indicacion: precalibrado sin ninguna mención en los informes", () => {

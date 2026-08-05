@@ -536,3 +536,26 @@ export function derivarCicloVidaLote(eventos: EventoLote[], hoy: string): LoteCi
 // Reexport de los umbrales reutilizados para que los consumidores/tests no
 // tengan que importar de dos módulos para entender el umbral efectivo.
 export { UMBRAL_PROCESADO, UMBRAL_COMPLETO_MINIMO };
+
+/**
+ * ¿Tiene este lote la contradicción "pasada_vs_foto_stock" VIGENTE ahora
+ * mismo (según los eventos actuales)? Corolario de la REGLA DE ORO, decisión
+ * del dueño 05-08-2026 (ver docs/TRAZABILIDAD_REFUNDACION.md, FASE 3d): la
+ * pasada del calibrador y la foto de stock del lote se contradicen de forma
+ * grande (≥50% de la entrada, ver UMBRAL_CONTRADICCION_AJUSTE_NEGATIVO) — su
+ * merma/coste es INCALCULABLE mientras el dueño no resuelva la contradicción
+ * FÍSICAMENTE (no se puede repartir en silencio entre productores un kg que
+ * ni siquiera se sabe si está en la báscula o en la cámara). No se decide
+ * aquí NADA de negocio nuevo: solo se expone el mismo criterio que ya
+ * calcula `derivarCicloVidaLote` (la contradicción ya existe en
+ * `contradicciones`) como una función con nombre, para que
+ * mermaPorProductor.ts (y cualquier otro ranking por productor futuro) no
+ * tenga que repetir el `.some(c => c.tipo === ...)` en cada sitio. "Vigente
+ * ahora mismo" porque es una función DERIVADA, no un estado guardado: en
+ * cuanto el dueño aporte el evento que resuelve la contradicción (una
+ * corrección de la foto de stock, una anotación, etc.), el próximo cálculo
+ * deja de marcar el lote sin que nadie tenga que "reabrirlo" a mano.
+ */
+export function tieneContradiccionPasadaVsFotoStock(ciclo: LoteCiclo | null | undefined): boolean {
+  return ciclo?.contradicciones.some((c) => c.tipo === "pasada_vs_foto_stock") ?? false;
+}

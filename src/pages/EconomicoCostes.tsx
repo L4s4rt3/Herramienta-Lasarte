@@ -41,6 +41,7 @@ import {
   mermaLotesEnPeriodo,
   type ItemPerdidaProductor,
 } from "@/lib/mermaLote";
+import { separarLotesPendientesComprobacionFisica } from "@/lib/mermaPorProductor";
 import { esAgricultorMovimientoInterno, resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import {
   buildPeriodoRange,
@@ -386,7 +387,11 @@ export default function EconomicoCostes() {
   // ─── Pérdidas de fruta (merma + podrido): DESGLOSE del coste de compra de
   // arriba, no un gasto adicional — nunca se suma a costeTotalPeriodo/margen.
   const { lotes: mermaLotesTodos, isLoading: isLoadingMerma } = useMermaLotes();
-  const { entradas: entradasBascula } = useEntradasBascula();
+  // cicloPorLote: motor NUEVO ya calculado por useEntradasBascula() (fase 3b)
+  // — cero fetches nuevos, se reutiliza tal cual para el corolario de la
+  // REGLA DE ORO (exclusión de contradicciones del ranking POR PRODUCTOR, ver
+  // más abajo).
+  const { entradas: entradasBascula, cicloPorLote } = useEntradasBascula();
   const { aliasPorNombreNormalizado, nombrePorProductorId } = useProductoresCatalogo();
 
   const mermaLotesPeriodo = useMemo(
@@ -423,8 +428,21 @@ export default function EconomicoCostes() {
     [entradasBascula],
   );
 
+  // ─── Corolario de la REGLA DE ORO (decisión del dueño 05-08-2026, FASE 3d) ──
+  // Lotes con la contradicción "pasada_vs_foto_stock" VIGENTE en el motor
+  // nuevo: su € es incalculable por productor (ver mermaPorProductor.ts) — se
+  // separan ANTES de construir los items del ranking en € (`topAgricultorEur`
+  // nunca los ve); `mermaAgregado`/`topPodridoEur`/`topPctPerdida` de arriba
+  // NO se tocan porque son agregados/rankings POR LOTE, no por productor (la
+  // regla del encargo solo excluye el reparto POR PRODUCTOR, nunca esconde el
+  // dato a nivel de lote).
+  const { normales: mermaLotesAsignablesAgricultor, pendientes: lotesPendientesComprobacionEur } = useMemo(
+    () => separarLotesPendientesComprobacionFisica(mermaLotesPeriodo, cicloPorLote),
+    [mermaLotesPeriodo, cicloPorLote],
+  );
+
   const topAgricultorEur = useMemo(() => {
-    const items: ItemPerdidaProductor[] = mermaLotesPeriodo
+    const items: ItemPerdidaProductor[] = mermaLotesAsignablesAgricultor
       // Movimientos internos de confección/sobrante (2026-08-03): no son
       // productores reales, fuera de este ranking (ver
       // esAgricultorMovimientoInterno en productoresCanonicos.ts).
@@ -445,7 +463,7 @@ export default function EconomicoCostes() {
       .filter((r) => (r.eurPerdido ?? 0) > 0)
       .sort((a, b) => (b.eurPerdido ?? 0) - (a.eurPerdido ?? 0))
       .slice(0, 5);
-  }, [mermaLotesPeriodo, entradaPorLoteFruta, aliasPorNombreNormalizado, nombrePorProductorId]);
+  }, [mermaLotesAsignablesAgricultor, entradaPorLoteFruta, aliasPorNombreNormalizado, nombrePorProductorId]);
 
   const [personaSortKey, setPersonaSortKey] = useState<PersonaSortKey>("coste");
   const [personaSortDir, setPersonaSortDir] = useState<SortDir>("desc");
@@ -1150,6 +1168,34 @@ export default function EconomicoCostes() {
               ))}
             </RankingMiniCard>
           </div>
+
+          {/* Corolario de la REGLA DE ORO (decisión del dueño 05-08-2026): lotes
+              con contradicción "pasada_vs_foto_stock" vigente del motor nuevo —
+              su € es incalculable por productor, así que "Pérdida por
+              agricultor" de arriba NUNCA los reparte; se enseñan aparte (kg,
+              sin €, con link a la ficha) para no esconderlos en silencio. */}
+          {lotesPendientesComprobacionEur.length > 0 && (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/6 p-3">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-destructive">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                {lotesPendientesComprobacionEur.length} lote{lotesPendientesComprobacionEur.length === 1 ? "" : "s"} pendiente{lotesPendientesComprobacionEur.length === 1 ? "" : "s"} de comprobación física — excluido{lotesPendientesComprobacionEur.length === 1 ? "" : "s"} de "Pérdida por agricultor"
+              </p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                La pasada del calibrador y la foto de stock no cuadran: su € por productor es incalculable hasta que se resuelva físicamente.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {lotesPendientesComprobacionEur.map((l) => (
+                  <Link
+                    key={l.lote}
+                    to={`/trazabilidad?lote=${encodeURIComponent(l.lote)}`}
+                    className="inline-flex items-center gap-1 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2 py-1 text-[11px] font-medium tabular-nums hover:bg-[var(--glass-bg-strong)]"
+                  >
+                    {l.lote} <span className="text-muted-foreground">· {formatKg(l.kgEntrada)}</span> <ArrowRight className="h-3 w-3 opacity-40" />
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
 

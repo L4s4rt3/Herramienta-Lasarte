@@ -4,7 +4,8 @@
 // Presentación densa/compacta: toolbar única con KPIs inline, tablas con
 // filas finas (py-1.5), zebra sutil y sin cards anidadas.
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { BRAND } from "@/lib/brand";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,7 +33,10 @@ import { useMermaLotes } from "@/hooks/useMermaLote";
 import { useEntradasBascula } from "@/hooks/useEntradasBascula";
 import { useCalidadReferencias, type CalidadReferenciaRow } from "@/hooks/useCalidadReferencias";
 import { mermaLotesEnPeriodo, pctPerdidaTotalDeAgregado, type MermaLotesAgregado } from "@/lib/mermaLote";
-import { agregarMermaPorProductor, type ItemMermaAgrupable } from "@/lib/mermaPorProductor";
+import {
+  agregarMermaPorProductor, separarLotesPendientesComprobacionFisica,
+  type ItemMermaAgrupable, type LotePendienteComprobacionFisica,
+} from "@/lib/mermaPorProductor";
 import { esAgricultorMovimientoInterno, resolveProductorGroupKey } from "@/lib/productoresCanonicos";
 import { buildInformeProductoresFincas, type FincaInforme } from "@/lib/informeProductoresFincas";
 import { exportInformeProductoresFincasExcel, type DetalleEntradaExport } from "@/lib/exportInformeProductoresFincas";
@@ -53,8 +57,8 @@ import {
 } from "recharts";
 import { Input } from "@/components/ui/input";
 import {
-  RefreshCw, AlertCircle, BarChart3, Search, X, Loader2, UserPlus,
-  ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ArrowLeft, Sprout, Ruler, StickyNote,
+  RefreshCw, AlertCircle, AlertTriangle, BarChart3, Search, X, Loader2, UserPlus,
+  ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ArrowLeft, ArrowRight, Sprout, Ruler, StickyNote,
   ArrowUpRight, FileSpreadsheet, GitCompare, Merge,
 } from "lucide-react";
 
@@ -212,7 +216,9 @@ export default function Productores() {
   // MermaLote no traen productor: es el mismo cruce que ya hace el ranking
   // "Pérdida por agricultor" de EntradasBascula.tsx.
   const { lotes: mermaLotesTodos } = useMermaLotes();
-  const { entradas, derivadosCampoCit } = useEntradasBascula();
+  // cicloPorLote: motor NUEVO ya calculado por useEntradasBascula() para TODA
+  // la campaña (fase 3b) — cero fetches nuevos, se reutiliza tal cual.
+  const { entradas, derivadosCampoCit, cicloPorLote } = useEntradasBascula();
   const { aliasPorNombreNormalizado, nombrePorProductorId } = useProductoresCatalogo();
   const { referencias: calidadReferencias } = useCalidadReferencias();
   const [conciliarOpen, setConciliarOpen] = useState(false);
@@ -225,8 +231,21 @@ export default function Productores() {
   );
   const entradaPorLote = useMemo(() => new Map(entradas.map((e) => [e.lote, e])), [entradas]);
 
+  // ─── Corolario de la REGLA DE ORO (decisión del dueño 05-08-2026, FASE 3d) ──
+  // Los lotes con la contradicción "pasada_vs_foto_stock" VIGENTE en el motor
+  // nuevo son incalculables por productor (ver mermaPorProductor.ts): se
+  // separan ANTES de construir los items del agregado, así que
+  // `mermaAgregadoPorProductor` nunca los ve — los demás productores quedan
+  // exactamente igual (test de regresión en mermaPorProductor.test.ts). Se
+  // muestran aparte en `mermaLotesPendientesComprobacion` (kg + link a la
+  // ficha), nunca desaparecidos en silencio.
+  const { normales: mermaLotesAsignables, pendientes: mermaLotesPendientesComprobacion } = useMemo(
+    () => separarLotesPendientesComprobacionFisica(mermaLotesPeriodo, cicloPorLote),
+    [mermaLotesPeriodo, cicloPorLote],
+  );
+
   const mermaAgregadoPorProductor = useMemo(() => {
-    const items: ItemMermaAgrupable[] = mermaLotesPeriodo
+    const items: ItemMermaAgrupable[] = mermaLotesAsignables
       // Movimientos internos de confección/sobrante (2026-08-03): no son
       // productores reales, fuera de este agregado (ver
       // esAgricultorMovimientoInterno en productoresCanonicos.ts).
@@ -242,7 +261,7 @@ export default function Productores() {
         return { lote: l, productorKey: key };
       });
     return agregarMermaPorProductor(items);
-  }, [mermaLotesPeriodo, entradaPorLote, aliasPorNombreNormalizado]);
+  }, [mermaLotesAsignables, entradaPorLote, aliasPorNombreNormalizado]);
 
   // % de pérdida por clave canónica para la columna "% Pérdida" del ranking
   // (movida aquí desde el ranking "Pérdida por agricultor" de /entradas,
@@ -527,6 +546,13 @@ export default function Productores() {
       {/* ─── Cola de "nombres sin vincular" (solo admin) ───────────── */}
       {isAdmin && !selectedDossier && <NombresSinVincularSection />}
 
+      {/* ─── Lotes con contradicción abierta (motor nuevo): incalculables por
+           productor, nunca desaparecidos en silencio (corolario REGLA DE ORO,
+           decisión del dueño 05-08-2026) ────────────────────────────────── */}
+      {!selectedDossier && mermaLotesPendientesComprobacion.length > 0 && (
+        <PendientesComprobacionFisicaSection lotes={mermaLotesPendientesComprobacion} />
+      )}
+
       {/* ─── Loading (skeletons, mismo patrón que Análisis diario) ── */}
       {loading && (
         <>
@@ -590,7 +616,7 @@ export default function Productores() {
                   className="h-9"
                   onClick={handleExportFincas}
                   disabled={exportandoFincas || informeFincas.productores.length === 0}
-                  title="Excel con marca Lasarte: totales por productor, desglose por finca y detalle de entradas del periodo"
+                  title={`Excel con marca ${BRAND.nombreCorto}: totales por productor, desglose por finca y detalle de entradas del periodo`}
                 >
                   {exportandoFincas ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5" />}
                   Excel fincas
@@ -950,6 +976,52 @@ function ProductoresAutoCreadosSection({ onFusionar }: { onFusionar: () => void 
                   creado automáticamente, revisar
                 </Badge>
               </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Lotes con contradicción abierta del motor nuevo: pendientes de ────────
+// comprobación física (corolario de la REGLA DE ORO, decisión del dueño
+// 05-08-2026, ver docs/TRAZABILIDAD_REFUNDACION.md FASE 3d y
+// mermaPorProductor.ts). Su merma/€ es incalculable por productor mientras el
+// dueño no resuelva la contradicción físicamente (la pasada del calibrador y
+// la foto de stock no cuadran) — se muestran aparte, nunca desaparecidos en
+// silencio del ranking/agregado.
+
+function PendientesComprobacionFisicaSection({ lotes }: { lotes: LotePendienteComprobacionFisica[] }) {
+  const [expandido, setExpandido] = useState(false);
+  const kgTotal = lotes.reduce((s, l) => s + l.kgEntrada, 0);
+
+  return (
+    <Card className="glass-accented border-destructive/30">
+      <CardContent className="space-y-3 p-3">
+        <button type="button" onClick={() => setExpandido((v) => !v)} className="flex w-full items-center gap-2 text-left">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
+          <p className="text-sm font-semibold">
+            {lotes.length} lote{lotes.length === 1 ? "" : "s"} ({formatKg(kgTotal)}) pendiente{lotes.length === 1 ? "" : "s"} de comprobación física
+          </p>
+          <span className="text-[11px] text-muted-foreground">
+            — la pasada del calibrador y la foto de stock no cuadran: excluidos de la merma/€ por productor hasta resolverlo
+          </span>
+          {expandido ? <ChevronUp className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />}
+        </button>
+        {expandido && (
+          <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
+            {lotes.map((l) => (
+              <Link
+                key={l.lote}
+                to={`/trazabilidad?lote=${encodeURIComponent(l.lote)}`}
+                className="flex items-center justify-between gap-2 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2.5 py-1.5 text-xs transition-colors hover:bg-[var(--glass-bg-strong)]"
+              >
+                <span className="inline-flex items-center gap-1 font-medium tabular-nums">
+                  {l.lote} <ArrowRight className="h-3 w-3 opacity-40" />
+                </span>
+                <span className="tabular-nums text-muted-foreground">{formatKg(l.kgEntrada)}</span>
+              </Link>
             ))}
           </div>
         )}
