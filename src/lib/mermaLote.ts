@@ -10,16 +10,29 @@
  *    de stock, y CONTIENE dos componentes (modelo del dueño, 21-jul-2026):
  *      a) la merma de cámara (deshidratación; real si hay registro, estimada
  *         por tasa × días si no), y
- *      b) el PODRIDO MANUAL: fruta retirada ANTES de entrar al calibrador
- *         (contenedor/bolsa de basura pre-línea). El contador
- *         kg_podrido_bolsa_basura del parte es la medición diaria de (b) —
- *         por eso el podrido manual NUNCA se suma encima de la merma medida
- *         (estaría dentro dos veces): es su desglose, no una pérdida extra.
+ *      b) el PODRIDO PRE-CALIBRADOR: fruta retirada ANTES de entrar a la
+ *         máquina. El dueño lo saca por DOS sitios y pesa los dos
+ *         (confirmado 06-ago-2026):
+ *           · la bolsa/contenedor de la tría → kg_podrido_bolsa_basura,
+ *             que se apunta a diario, y
+ *           · las BATEAS de la tría → kg_podrido_bateas, que se llenan
+ *             durante varios días y se pesan al vaciarlas.
+ *         Los dos son MEDICIONES de (b), no pérdidas aparte: ninguno se suma
+ *         nunca encima de la merma medida (estaría dentro dos veces). Por eso
+ *         `podridoPreCalibradorKg` (el trozo de la merma que no explica la
+ *         deshidratación) se ASUME por resta y estas dos pesadas sirven solo
+ *         para contrastarlo.
  * 2. PODRIDO DE CALIBRADOR: kg que SÍ pasaron por el calibrador — incluidos
  *    en `kgCalibrador` — y que la máquina descartó.
  *
- * Pérdida total = merma medida (cámara + podrido manual) + podrido de
+ * Pérdida total = merma medida (cámara + podrido pre-calibrador) + podrido de
  * calibrador: cada kg cuenta exactamente una vez.
+ *
+ * Fuera de este módulo hay UNA excepción deliberada: el DSJ del día
+ * (src/lib/cascade.ts) sí descuenta el podrido de la bolsa de su balance,
+ * como aproximación a esta pérdida mientras no se pueda medir por lote. Está
+ * razonado en la cabecera de cascade.ts; no es un criterio que deba copiarse
+ * aquí.
  *
  * ─── Solo procesados tienen merma ───────────────────────────────────────────
  * Un lote "parcial" o "pendiente" (ver estadoLotePorProcesado en
@@ -61,21 +74,28 @@
  * detecta por la simple PRESENCIA de cualquier fila para ese lote, sea cual
  * sea su clase) se usa la suma REAL de la(s) clase(s) que contengan
  * "Podrido" (puede ser 0 si el informe no tiene ninguna fila de esa clase:
- * sigue siendo un 0 REAL, no una ausencia de dato). Solo ~28 de 398 lotes
- * tienen Informe LOTE (verificado contra la BD real, jul-2026); el resto se
- * ESTIMA por prorrateo: kg_podrido_calibrador_auto del parte × (kg del lote
- * en ese parte / Σ kg de TODOS los lotes de ese parte). El podrido MANUAL
- * (bolsa de basura) no se registra nunca por lote en origen, así que
- * SIEMPRE es prorrateo, exista o no Informe LOTE.
+ * sigue siendo un 0 REAL, no una ausencia de dato). El resto se ESTIMA por
+ * prorrateo: kg_podrido_calibrador_auto del parte × (kg del lote en ese parte
+ * / Σ kg de TODOS los lotes de ese parte). El podrido MANUAL (bolsa de
+ * basura) no se registra nunca por lote en origen, así que SIEMPRE es
+ * prorrateo, exista o no Informe LOTE.
+ *
+ * COBERTURA (no la fijes por escrito, crece con cada import): eran ~28 de 398
+ * lotes en jul-2026 y son 937 de 1.321 (71 %) a 06-ago-2026. La UI la enseña
+ * calculada en vivo (pestaña "Mermas y coste" de EntradasBascula.tsx), que es
+ * la única cifra en la que hay que fiarse.
  *
  * Limitación conocida y asumida (no se intenta corregir con lógica extra no
  * pedida): si en un mismo parte conviven un lote con Informe LOTE real y
  * otros sin él, el prorrateo de los segundos sigue usando el
  * kg_podrido_calibrador_auto ENTERO del parte como numerador (no se resta la
- * porción ya explicada por el informe real de otro lote). Con solo 28/398
- * lotes con informe, el sesgo es marginal; por eso se documenta en vez de
- * enmascararlo. La propiedad de conservación (ver test) solo se cumple
- * cuando NINGÚN lote del parte tiene informe real.
+ * porción ya explicada por el informe real de otro lote). Medido en la BD el
+ * 06-ago-2026, tras subir la cobertura al 71 %: de los 79 partes con dato de
+ * podrido solo 13 son MIXTOS, el 92,8 % de las pasadas ya tiene informe y
+ * apenas 1.198 kg de 38.787 (3,1 %) se reparten por este camino — el sesgo
+ * sigue siendo marginal, ahora por el motivo contrario (casi todo es real).
+ * Por eso se documenta en vez de enmascararlo. La propiedad de conservación
+ * (ver test) solo se cumple cuando NINGÚN lote del parte tiene informe real.
  *
  * ─── Coste y pérdidas en € ───────────────────────────────────────────────────
  * costeTotalLote reutiliza `importeEntradaFruta` de economico.ts (no se
@@ -701,6 +721,18 @@ export interface MermaLotesAgregado {
 
   /** Σ kg_entrada de los lotes procesados (denominador de la merma media ponderada). */
   kgEntradaProcesados: number;
+  /**
+   * Denominador del % de PÉRDIDA TOTAL (ver pctPerdidaTotalDeAgregado).
+   * Decisión del dueño 06-ago-2026 ("el podrido de lotes a medio procesar
+   * cuenta"): los totales de podrido incluyen lotes que todavía no han
+   * terminado, así que el denominador tiene que incluirlos también o el % sale
+   * inflado. Para un lote TERMINADO se cuenta toda su entrada (ya se arriesgó
+   * entera); para uno a medias, solo los kg que YA han pasado por el
+   * calibrador — el resto sigue en cámara y todavía no ha podido perderse.
+   */
+  kgBaseParaPctPerdida: number;
+  /** Nº de lotes NO terminados que aportan podrido a los totales (los que hacen que kgBaseParaPctPerdida > kgEntradaProcesados). */
+  nLotesSinTerminarConPodrido: number;
   /** Σ mermaNaturalKg CON SIGNO de los lotes procesados (sin clamp: refleja la media real, no la pérdida en €). */
   kgMermaNaturalTotal: number;
   /** Σ merma / Σ entrada de procesados, en %. `null` si no hay procesados. */
@@ -765,9 +797,25 @@ export function agregarMermaLotes(lotes: MermaLote[]): MermaLotesAgregado {
   const kgPodridoPreCalibradorTotal = lotes.reduce((s, l) => s + (l.podridoPreCalibradorKg ?? 0), 0);
   const eurNaturalEstimadaTotal = lotes.reduce((s, l) => s + (l.mermaNaturalEstimadaEur ?? 0), 0);
   const eurPodridoPreCalibradorTotal = lotes.reduce((s, l) => s + (l.podridoPreCalibradorEur ?? 0), 0);
+  // "No se pudo desglosar" se pregunta por el RESULTADO, no por una de sus
+  // condiciones: desde que la merma REAL de cámara (merma_camara_kg) permite
+  // desglosar un lote sin días en cámara conocidos, mirar solo `diasEnCamara`
+  // contaba como no calculable un lote que sí tiene su desglose hecho.
   const nSinDesglosePosible = procesados.filter(
-    (l) => !l.calibradorSuperaEntrada && l.mermaNaturalKg != null && l.diasEnCamara == null,
+    (l) => !l.calibradorSuperaEntrada && l.mermaNaturalKg != null && l.mermaNaturalEstimadaKg == null,
   ).length;
+
+  // Lotes SIN terminar que ya han dejado podrido (decisión del dueño
+  // 06-ago-2026: ese podrido cuenta aunque el lote siga en marcha). Sus kg ya
+  // pasados por línea entran en el denominador del % — ver
+  // `kgBaseParaPctPerdida`. Los cerrados sin registro nunca cuentan.
+  const sinTerminarConPodrido = lotes.filter((l) =>
+    l.estado !== "procesado"
+    && !l.cerradoSinRegistro
+    && ((l.podridoCalibradorKg ?? 0) > 0 || (l.podridoManualKg ?? 0) > 0),
+  );
+  const kgBaseParaPctPerdida = kgEntradaProcesados
+    + sinTerminarConPodrido.reduce((s, l) => s + Math.max(0, l.kgCalibrador), 0);
 
   const podridoCalibradorReal = lotes.filter((l) => l.podridoCalibradorFuente === "real");
   const podridoCalibradorEstimado = lotes.filter((l) => l.podridoCalibradorFuente === "prorrateo");
@@ -790,10 +838,18 @@ export function agregarMermaLotes(lotes: MermaLote[]): MermaLotesAgregado {
     (s, l) => s + (l.costePorKg != null ? l.costePorKg * (l.podridoManualKg ?? 0) : 0),
     0,
   );
+  // El podrido MANUAL no se suma aquí (corrección 06-ago-2026, confirmada por
+  // el dueño: esa fruta se aparta ANTES de entrar al calibrador, así que ya
+  // está dentro de `mermaNaturalKg` = entrada − calibrador y por tanto dentro
+  // de eurPerdidaMermaTotal). Sumarlo la contaba dos veces: era la única
+  // fórmula del módulo que se desviaba del modelo de la cabecera y del
+  // `perdidaPodridoEur` por lote, y hacía que este total no fuera la suma de
+  // los `perdidaTotalEur` de sus lotes. Se sigue exponiendo aparte
+  // (`eurPerdidaPodridoManualEstimado`) como DESGLOSE de la merma, nunca como
+  // sumando adicional.
   const eurPerdidaTotal = eurPerdidaMermaTotal
     + eurPerdidaPodridoCalibradorReal
-    + eurPerdidaPodridoCalibradorEstimado
-    + eurPerdidaPodridoManualEstimado;
+    + eurPerdidaPodridoCalibradorEstimado;
 
   // Excluye también los cerrados sin registro del denominador de
   // pctPerdidaTotalSobreCoste: su coste es real, pero incluirlo aquí (con
@@ -814,6 +870,8 @@ export function agregarMermaLotes(lotes: MermaLote[]): MermaLotesAgregado {
     nConDatoARevisar: lotes.filter((l) => l.calibradorSuperaEntrada).length,
 
     kgEntradaProcesados,
+    kgBaseParaPctPerdida,
+    nLotesSinTerminarConPodrido: sinTerminarConPodrido.length,
     kgMermaNaturalTotal,
     mermaMediaPonderadaPct: kgEntradaProcesados > 0 ? (kgMermaNaturalTotal / kgEntradaProcesados) * 100 : null,
 
@@ -849,23 +907,29 @@ export function agregarMermaLotes(lotes: MermaLote[]): MermaLotesAgregado {
  * otra no).
  */
 export const INFO_PODRIDO_PRE_CALIBRADOR =
-  "Podrido retirado en la tría, antes de pasar por el calibrador. Por lote es SIEMPRE una estimación a partir de los pesos (entrada − merma natural − procesado): las bateas donde se tira se llenan durante varios días y se pesan al vaciarlas, así que su pesada no se puede repartir por lote — queda como contraste agregado en el parte del día del vaciado.";
+  "Podrido retirado en la tría, antes de pasar por el calibrador: sale por la bolsa/contenedor que se pesa a diario y por las bateas que se pesan al vaciarlas. Por lote es SIEMPRE una estimación a partir de los pesos (entrada − merma natural − procesado), porque ninguna de las dos pesadas se puede repartir por lote — las bateas además se llenan durante varios días, así que su kg ni siquiera es del día en que se apuntó. Las dos quedan como contraste agregado del parte, nunca se suman encima de esta cifra.";
 
 /**
  * % de pérdida total (merma natural clampada + podrido de calibrador real y
- * estimado + podrido manual) sobre los kg de entrada de los lotes procesados
- * de un agregado. Fórmula ÚNICA (2026-07-28) compartida por la tira de ficha
- * del dossier, PerdidaFrutaCard y la columna "% Pérdida" del ranking de
- * /productores — antes vivía copiada a mano en cada sitio. `null` si el
- * agregado no tiene lotes procesados. El podrido manual entra en este %
- * INFORMATIVO (misma decisión que PerdidaFrutaCard, jul-2026) aunque en € no
- * se sume aparte (ya vive dentro de la merma medida).
+ * estimado) sobre los kg de entrada de los lotes procesados de un agregado.
+ * Fórmula ÚNICA (2026-07-28) compartida por la tira de ficha del dossier,
+ * PerdidaFrutaCard y la columna "% Pérdida" del ranking de /productores —
+ * antes vivía copiada a mano en cada sitio. `null` si el agregado no tiene
+ * lotes procesados.
+ *
+ * El podrido MANUAL ya NO entra (corrección 06-ago-2026, confirmada por el
+ * dueño: se aparta antes del calibrador, así que `kgMermaNaturalTotal` ya lo
+ * contiene). Antes se sumaba aparte "como informativo" y eso lo contaba dos
+ * veces, inflando el % de pérdida de cada productor.
  */
 export function pctPerdidaTotalDeAgregado(agregado: MermaLotesAgregado | null): number | null {
-  if (!agregado || agregado.kgEntradaProcesados <= 0) return null;
-  const podridoTotalKg = agregado.kgPodridoCalibradorReal + agregado.kgPodridoCalibradorEstimado + agregado.kgPodridoManualEstimado;
+  if (!agregado || agregado.kgBaseParaPctPerdida <= 0) return null;
+  const podridoTotalKg = agregado.kgPodridoCalibradorReal + agregado.kgPodridoCalibradorEstimado;
   const naturalKg = Math.max(0, agregado.kgMermaNaturalTotal);
-  return ((naturalKg + podridoTotalKg) / agregado.kgEntradaProcesados) * 100;
+  // Denominador que incluye los kg ya pasados de los lotes sin terminar que
+  // aportan podrido al numerador (decisión del dueño 06-ago-2026): antes el
+  // numerador los contaba y el denominador no, y el % salía inflado.
+  return ((naturalKg + podridoTotalKg) / agregado.kgBaseParaPctPerdida) * 100;
 }
 
 // ─── Filtro por periodo (para Económico: € solo tienen sentido acotados a un rango) ─

@@ -26,6 +26,8 @@ import { EconomicoSubnav } from "@/components/economico/EconomicoSubnav";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthProvider";
 import { useCostesPeriodo, useCosteFruta } from "@/hooks/useEconomico";
+import { usePodridoBateas } from "@/hooks/usePodridoBateas";
+import { costeMedioCompraFruta, INFO_COSTE_PODRIDO_BATEAS } from "@/lib/podridoBateas";
 import { useCostePersonal } from "@/hooks/useCostePersonal";
 import { useCosteMallas } from "@/hooks/useCosteMallas";
 import { useEntradasBascula } from "@/hooks/useEntradasBascula";
@@ -387,6 +389,17 @@ export default function EconomicoCostes() {
   // ─── Pérdidas de fruta (merma + podrido): DESGLOSE del coste de compra de
   // arriba, no un gasto adicional — nunca se suma a costeTotalPeriodo/margen.
   const { lotes: mermaLotesTodos, isLoading: isLoadingMerma } = useMermaLotes();
+
+  // Bateas de la tría: los únicos kg PESADOS del podrido pre-calibrador,
+  // valorados al coste medio de compra del periodo (encargo del dueño
+  // 06-08-2026). Lectura aparte del mismo dinero que ya está en la tarjeta de
+  // "Podrido pre-calibrador (asumido)": jamás se suma a nada. Ver
+  // src/lib/podridoBateas.ts.
+  const costeMedioCompraKg = useMemo(
+    () => costeMedioCompraFruta(frutaTotalImporte, frutaKgTotales),
+    [frutaTotalImporte, frutaKgTotales],
+  );
+  const { data: bateas } = usePodridoBateas(periodoRange.start, periodoRange.end, costeMedioCompraKg);
   // cicloPorLote: motor NUEVO ya calculado por useEntradasBascula() (fase 3b)
   // — cero fetches nuevos, se reutiliza tal cual para el corolario de la
   // REGLA DE ORO (exclusión de contradicciones del ranking POR PRODUCTOR, ver
@@ -401,13 +414,15 @@ export default function EconomicoCostes() {
   );
   const mermaAgregado = useMemo(() => agregarMermaLotes(mermaLotesPeriodo), [mermaLotesPeriodo]);
 
-  // Total podrido del lote = calibrador + manual + pre-calibrador (asumido):
-  // los tres cuentan como PODRIDO en este ranking de atención, aunque en las
-  // demás vistas cada componente siga visible por separado con su etiqueta.
+  // Total podrido del lote = calibrador + pre-calibrador (asumido): los dos
+  // cuentan como PODRIDO en este ranking de atención, aunque en las demás
+  // vistas cada componente siga visible por separado con su etiqueta. El
+  // podrido MANUAL no se suma aparte (corrección 06-ago-2026): se aparta antes
+  // del calibrador, así que ya está dentro de `podridoPreCalibradorEur`.
   const topPodridoEur = useMemo(
     () => mermaLotesPeriodo
       .filter((l) => l.costePorKg != null)
-      .map((l) => ({ lote: l.lote, eur: l.costePorKg! * ((l.podridoCalibradorKg ?? 0) + (l.podridoManualKg ?? 0)) + (l.podridoPreCalibradorEur ?? 0) }))
+      .map((l) => ({ lote: l.lote, eur: l.costePorKg! * (l.podridoCalibradorKg ?? 0) + (l.podridoPreCalibradorEur ?? 0) }))
       .filter((r) => r.eur > 0)
       .sort((a, b) => b.eur - a.eur)
       .slice(0, 5),
@@ -456,7 +471,12 @@ export default function EconomicoCostes() {
         const productorIdDirecto = (fila as { productor_id?: string | null } | undefined)?.productor_id ?? null;
         const { key, productorId } = resolveProductorGroupKey(agricultor ?? "", productorIdDirecto, aliasPorNombreNormalizado);
         const label = (productorId ? nombrePorProductorId.get(productorId) : null) ?? agricultor ?? "Sin agricultor";
-        const kgPerdido = Math.max(0, l.mermaNaturalKg ?? 0) + (l.podridoCalibradorKg ?? 0) + (l.podridoManualKg ?? 0);
+        // Merma medida + podrido de calibrador, los dos disjuntos. El manual
+        // NO se suma (corrección 06-ago-2026): se aparta antes del calibrador
+        // y por tanto ya está dentro de `mermaNaturalKg`. Antes se sumaba y
+        // los kg de esta misma fila no cuadraban con su `eurPerdido`, que
+        // nunca lo incluyó.
+        const kgPerdido = Math.max(0, l.mermaNaturalKg ?? 0) + (l.podridoCalibradorKg ?? 0);
         return { productorKey: key, productorLabel: label, kgEntrada: l.kgEntrada, kgPerdido, eurPerdido: l.perdidaTotalEur };
       });
     return agruparPerdidaPorProductor(items)
@@ -1126,16 +1146,24 @@ export default function EconomicoCostes() {
               hint={`${formatKg(mermaAgregado.kgPodridoPreCalibradorTotal)} por encima de lo esperable por deshidratación`}
               labelInfo="Σ podridoPreCalibradorKg × €/kg: podrido de un contenedor pre-calibrador que no se pesa a diario, ASUMIDO por el dueño (decisión 2026-07-15) — antes se llamaba 'diferencia sin justificar'. Es una asunción, no una medición directa por lote."
             />
+            {bateas.kgTotal > 0 && (
+              <KPICard
+                label="De eso, pesado en bateas"
+                value={bateas.eur != null ? formatEuro(bateas.eur) : "—"}
+                icon={AlertTriangle}
+                hint={`${formatKg(bateas.kgTotal)} en ${bateas.nVaciados} vaciado${bateas.nVaciados === 1 ? "" : "s"}${bateas.costeMedioKg != null ? ` · ${formatEuro(bateas.costeMedioKg)}/kg medio` : " · sin coste medio del periodo"}`}
+                labelInfo={INFO_COSTE_PODRIDO_BATEAS}
+              />
+            )}
             <KPICard
-              label="Podrido (calibrador + manual)"
+              label="Podrido de calibrador"
               value={formatEuro(
                 mermaAgregado.eurPerdidaPodridoCalibradorReal
-                + mermaAgregado.eurPerdidaPodridoCalibradorEstimado
-                + mermaAgregado.eurPerdidaPodridoManualEstimado,
+                + mermaAgregado.eurPerdidaPodridoCalibradorEstimado,
               )}
               icon={Package}
-              hint={`${formatEuro(mermaAgregado.eurPerdidaPodridoCalibradorReal)} real · ${formatEuro(mermaAgregado.eurPerdidaPodridoCalibradorEstimado + mermaAgregado.eurPerdidaPodridoManualEstimado)} ≈ estimado`}
-              labelInfo="Podrido calibrador (real si hay Informe LOTE, si no prorrateo) + podrido manual (siempre prorrateo, no se registra por lote en origen), valorados al €/kg de compra."
+              hint={`${formatEuro(mermaAgregado.eurPerdidaPodridoCalibradorReal)} real · ${formatEuro(mermaAgregado.eurPerdidaPodridoCalibradorEstimado)} ≈ estimado`}
+              labelInfo="Lo que descartó la máquina de la fruta que sí llegó a pasar por ella (real si hay Informe LOTE, si no prorrateo del podrido del parte), valorado al €/kg de compra. El podrido MANUAL del parte no se suma aquí (corrección 06-08-2026): se aparta antes del calibrador, así que ya está contado en la tarjeta de podrido pre-calibrador."
             />
             <KPICard
               label="Pérdida total del periodo"

@@ -394,13 +394,15 @@ export default function Dashboard() {
   // ─── Fila "Atención": lotes con más podrido de la semana activa (kg, sin €) ─
   // Mismo criterio que "Atención especial" de EntradasBascula.tsx: solo lotes
   // procesados y con análisis (excluye cerrados sin registro), podrido total =
-  // calibrador + manual + pre-calibrador (asumido).
+  // calibrador + pre-calibrador (asumido). El manual no se suma aparte
+  // (corrección 06-08-2026): se aparta antes del calibrador, así que ya está
+  // dentro del pre-calibrador y sumarlo lo contaba dos veces.
   const { lotes: mermaLotes, isLoading: mermaLoading } = useMermaLotes();
   const topPodridoSemana = useMemo(() => {
     const semana = mermaLotesEnPeriodo(mermaLotes, currentWeek.start, currentWeek.end);
     return semana
       .filter((l) => l.estado === "procesado" && !l.cerradoSinRegistro)
-      .map((l) => ({ lote: l.lote, kg: (l.podridoCalibradorKg ?? 0) + (l.podridoManualKg ?? 0) + (l.podridoPreCalibradorKg ?? 0) }))
+      .map((l) => ({ lote: l.lote, kg: (l.podridoCalibradorKg ?? 0) + (l.podridoPreCalibradorKg ?? 0) }))
       .filter((r) => r.kg > 0)
       .sort((a, b) => b.kg - a.kg)
       .slice(0, 5);

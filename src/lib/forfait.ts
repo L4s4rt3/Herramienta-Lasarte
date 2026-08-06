@@ -8,31 +8,40 @@
  * El forfait quiere responder "¿cuánto me cuesta de verdad el kilo que
  * realmente puedo vender?", no el kilo que entró por báscula. De los kg que
  * entran, una parte nunca llega al calibrador (merma natural + podrido
- * pre-calibrador: YA quedan fuera de `kgCalibrador`, ver mermaLote.ts) y otra
- * parte SÍ llega pero se descarta allí o en la mesa manual (podrido de
- * calibrador + podrido manual). El aprovechable es lo que queda después de
- * quitar SOLO esta segunda parte:
+ * pre-calibrador, incluido el podrido MANUAL del parte: YA quedan fuera de
+ * `kgCalibrador`, ver mermaLote.ts) y otra parte SÍ llega y se descarta allí
+ * (podrido de calibrador). El aprovechable es lo que queda después de quitar
+ * SOLO esta segunda parte:
  *
- *   kgAprovechable = kgCalibrador − podridoCalibradorKg − podridoManualKg
+ *   kgAprovechable = kgCalibrador − podridoCalibradorKg
  *
- * El pre-calibrador (merma natural + podrido pre-calibrador asumido) NO se
- * resta aquí aparte porque NUNCA estuvo dentro de `kgCalibrador`: restarlo de
- * nuevo sería contarlo dos veces. Por eso, en cambio, SÍ entra en
- * `pctPerdidaTotal` (que se mide contra `kgEntrada`, no contra `kgCalibrador`):
+ * Lo pre-calibrador NO se resta aquí aparte porque NUNCA estuvo dentro de
+ * `kgCalibrador`: restarlo de nuevo sería contarlo dos veces (es justo el
+ * error que tenía el podrido manual hasta el 06-ago-2026, ver más abajo). Por
+ * eso, en cambio, SÍ entra en `pctPerdidaTotal`, que se mide contra
+ * `kgEntrada` y no contra `kgCalibrador`:
  *
  *   pctPerdidaTotal = (kgEntrada − kgAprovechable) / kgEntrada
  *
  * Desarrollando: kgEntrada − kgAprovechable = (kgEntrada − kgCalibrador) +
- * podridoCalibradorKg + podridoManualKg. Cuando el lote no tiene ajuste de
- * stock (kg_ajuste_stock = 0, el caso normal) y el calibrador no supera la
- * entrada, (kgEntrada − kgCalibrador) es exactamente `mermaNaturalKg`, que a
- * su vez se descompone en mermaNaturalEstimadaKg (asumido por días en cámara)
- * + podridoPreCalibradorKg (asumido, contenedor no pesado). Es decir:
- * pctPerdidaTotal = (natural estimada + podrido pre-calibrador + podrido de
- * calibrador + podrido manual) / kgEntrada — la pérdida total desde que la
- * fruta entra hasta lo que queda aprovechable, tal y como pidió el dueño (ver
- * el test de coherencia en forfait.test.ts, que verifica esta identidad
- * reconstruyendo ambos lados a partir de un MermaLote real).
+ * podridoCalibradorKg. Cuando el lote no tiene ajuste de stock
+ * (kg_ajuste_stock = 0, el caso normal) y el calibrador no supera la entrada,
+ * (kgEntrada − kgCalibrador) es exactamente `mermaNaturalKg`, que a su vez se
+ * descompone en mermaNaturalEstimadaKg (asumido por días en cámara) +
+ * podridoPreCalibradorKg (asumido, contenedor no pesado, del que el podrido
+ * manual del parte es la medición diaria). Es decir: pctPerdidaTotal =
+ * (natural estimada + podrido pre-calibrador + podrido de calibrador) /
+ * kgEntrada — la pérdida total desde que la fruta entra hasta lo que queda
+ * aprovechable, tal y como pidió el dueño (ver el test de coherencia en
+ * forfait.test.ts, que verifica esta identidad reconstruyendo ambos lados a
+ * partir de un MermaLote real).
+ *
+ * CORRECCIÓN 06-ago-2026 (confirmada por el dueño: "el podrido manual se
+ * aparta antes de entrar al calibrador"): hasta esta fecha `kgAprovechable`
+ * restaba TAMBIÉN `podridoManualKg`, suponiendo que se descartaba en la mesa
+ * después de pasar. Como en realidad nunca llegó a pesarse en el calibrador,
+ * esa resta dejaba el aprovechable corto y el forfait €/kg alto para todos
+ * los lotes con podrido manual.
  *
  * Si el lote SÍ trae `kg_ajuste_stock` distinto de 0 (caso raro, conciliación
  * manual de stock), `pctPerdidaTotal` no lo descuenta (la fórmula usa
@@ -74,7 +83,7 @@ export interface LoteForfait {
   /** costeTotalLote del MermaLote de origen (importeEntradaFruta). */
   costeTotalEur: number;
   /**
-   * kgCalibrador − podridoCalibradorKg − podridoManualKg. Puede ser <= 0 (ver
+   * kgCalibrador − podridoCalibradorKg. Puede ser <= 0 (ver
    * `sinForfait`). Si el lote tiene podrido desconocido (import histórico de
    * campaña sin dato de podrido, ver mermaLote.ts), la resta usa SOLO lo
    * conocido (el componente `null` no se resta, ver `podridoDesconocido`):
@@ -104,7 +113,12 @@ export function computeForfaitLote(lote: MermaLote): LoteForfait | null {
 
   const kgEntrada = lote.kgEntrada;
   const costeTotalEur = lote.costeTotalLote;
-  const kgAprovechable = lote.kgCalibrador - (lote.podridoCalibradorKg ?? 0) - (lote.podridoManualKg ?? 0);
+  // Solo el podrido de CALIBRADOR se resta: es el único que llegó a estar
+  // dentro de `kgCalibrador`. El manual se aparta ANTES de entrar (corrección
+  // 06-ago-2026 confirmada por el dueño), así que nunca se pesó ahí y
+  // restarlo dejaba el aprovechable corto — el mismo error que sumarlo aparte
+  // en los € de mermaLote.ts.
+  const kgAprovechable = lote.kgCalibrador - (lote.podridoCalibradorKg ?? 0);
   const sinForfait = kgAprovechable <= 0;
 
   const forfaitEurKg = sinForfait ? null : costeTotalEur / kgAprovechable;
@@ -286,8 +300,9 @@ export function precioMaxCompra(forfaitObjetivoEurKg: number, pctPerdida: number
 // hay que COMPONERLO a partir de lo que sí se conoce:
 //   1. El podrido REAL del calibrador para ese productor, si existe informe
 //      (calidad_referencias_productor, ver src/lib/calidadReferencias.ts):
-//      aproxima podridoCalibradorKg + podridoManualKg reales (lo que el
-//      calibrador SÍ pesó y descartó).
+//      aproxima podridoCalibradorKg (lo que el calibrador SÍ pesó y
+//      descartó). El podrido manual del parte no entra aquí: se aparta antes
+//      del calibrador, así que lo cubre el componente 3.
 //   2. La merma natural esperada por días en cámara (mismo TASA_MERMA_NATURAL_DIA
 //      que mermaLote.ts, aplicado a unos días ESTIMADOS en vez de medidos).
 //   3. El podrido NO pesado: fruta que se retira en un contenedor

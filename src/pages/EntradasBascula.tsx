@@ -232,7 +232,21 @@ function MermasCosteTab() {
   // Excluye los cerrados sin registro (ver mermaLote.ts): su estado es
   // "procesado" para el stock, pero no tienen merma/podrido calculable y no
   // deben aparecer en esta tabla (el contador del pie los informa aparte).
-  const procesados = useMemo(() => lotes.filter((l) => l.estado === "procesado" && !l.cerradoSinRegistro), [lotes]);
+  //
+  // Incluye, además de los terminados, los lotes A MEDIAS que YA han dejado
+  // podrido (decisión del dueño 06-ago-2026: ese podrido cuenta): su podrido
+  // suma en las tarjetas de arriba, así que la tabla que las explica tiene que
+  // enseñarlos — antes las tarjetas contaban filas que la tabla no mostraba.
+  // Su merma sale "pendiente" (no es calculable hasta que el lote termine).
+  const procesados = useMemo(
+    () => lotes.filter((l) =>
+      !l.cerradoSinRegistro
+      && (l.estado === "procesado"
+        || (l.podridoCalibradorKg ?? 0) > 0
+        || (l.podridoManualKg ?? 0) > 0),
+    ),
+    [lotes],
+  );
   const filasOrdenadas = useMemo(() => {
     const ordenadas = [...procesados].sort((a, b) => compareMermaRows(a, b, sortKey));
     if (sortDir === "desc") ordenadas.reverse();
@@ -410,7 +424,7 @@ function MermasCosteTab() {
           value={formatKg(agregado.kgPodridoCalibradorReal + agregado.kgPodridoCalibradorEstimado)}
           hint={`${formatKg(agregado.kgPodridoCalibradorReal)} real · ${formatKg(agregado.kgPodridoCalibradorEstimado)} ≈ estimado`}
           icon={Package}
-          labelInfo="Kg descartados en el calibrador. Real = suma del Informe LOTE cuando existe (28 de 398 lotes); estimado = prorrateo del podrido del parte por el peso de cada lote."
+          labelInfo="Kg descartados en el calibrador. Real = suma del Informe LOTE cuando existe; estimado = prorrateo del podrido del parte por el peso de cada lote. La cobertura real/prorrateo de ahora mismo está justo debajo de estas tarjetas."
         />
         <KPICard
           className="glass-accented"
@@ -432,8 +446,12 @@ function MermasCosteTab() {
           <span className="font-semibold tabular-nums text-foreground">
             {procesados.filter((l) => l.podridoCalibradorFuente === "real").length}
           </span>{" "}
-          de <span className="font-semibold tabular-nums text-foreground">{procesados.length}</span> lotes procesados —
+          de <span className="font-semibold tabular-nums text-foreground">{procesados.length}</span> lotes de la tabla —
           el resto es prorrateo. Cuantos más informes se importen, más fiable el % por productor.
+          {agregado.nLotesSinTerminarConPodrido > 0 && (
+            <> Incluye {agregado.nLotesSinTerminarConPodrido} lote{agregado.nLotesSinTerminarConPodrido === 1 ? "" : "s"} sin
+            terminar que ya han dejado podrido: su merma aún no se puede calcular, pero su podrido sí cuenta.</>
+          )}
         </span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <input

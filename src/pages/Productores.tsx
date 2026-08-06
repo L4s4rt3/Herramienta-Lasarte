@@ -1576,11 +1576,18 @@ function FincasProductorCard({ fincas }: { fincas: FincaInforme[] }) {
 // con EntradasBascula.tsx, TrazabilidadLote.tsx, etc.
 
 function PerdidaFrutaCard({ agregado }: { agregado: MermaLotesAgregado | null }) {
+  // Solo el podrido de CALIBRADOR (corrección 06-ago-2026): el manual se
+  // aparta antes de entrar, así que es una MEDICIÓN de la parte pre-calibrador
+  // de la merma natural — se enseña ahí, en su columna, no como podrido aparte
+  // (sumarlo aquí lo contaba dos veces y las dos columnas no cuadraban con el
+  // % de pérdida total).
   const podridoTotalKg = agregado
-    ? agregado.kgPodridoCalibradorReal + agregado.kgPodridoCalibradorEstimado + agregado.kgPodridoManualEstimado
+    ? agregado.kgPodridoCalibradorReal + agregado.kgPodridoCalibradorEstimado
     : 0;
   const naturalKg = agregado ? Math.max(0, agregado.kgMermaNaturalTotal) : 0;
-  const kgEntrada = agregado?.kgEntradaProcesados ?? 0;
+  // MISMA base que pctPerdidaTotalDeAgregado (kgBaseParaPctPerdida): si las
+  // columnas se dividieran por otra cosa, no sumarían el % total de arriba.
+  const kgEntrada = agregado?.kgBaseParaPctPerdida ?? 0;
   const pctPerdidaTotal = pctPerdidaTotalDeAgregado(agregado); // fórmula única (2026-07-28)
   const pctNatural = agregado && kgEntrada > 0 ? (naturalKg / kgEntrada) * 100 : null;
   const pctPodrido = agregado && kgEntrada > 0 ? (podridoTotalKg / kgEntrada) * 100 : null;
@@ -1592,10 +1599,12 @@ function PerdidaFrutaCard({ agregado }: { agregado: MermaLotesAgregado | null })
           <div className="h-5 w-1 rounded-full bg-primary" />
           <p className="text-sm font-semibold">Pérdidas de fruta</p>
           <InfoTooltip iconClassName="h-3 w-3">
-            Merma natural (báscula − calibrador) + podrido (calibrador + manual) de los lotes de báscula de este
+            Merma natural (báscula − calibrador) + podrido de calibrador de los lotes de báscula de este
             productor en el periodo, en kg y % — sin €: el valor económico de estas pérdidas vive en Económico →
-            Fruta. Real = Informe LOTE cuando existe; ≈ estimado = prorrateo del podrido del parte; asumido = podrido
-            de un contenedor pre-calibrador que no se pesa a diario.
+            Fruta. Las dos columnas suman el % de pérdida total: el podrido manual del parte NO se suma aparte
+            porque se aparta antes del calibrador y ya está dentro de la merma natural (ahí se enseña, como la
+            parte de ella que sí se pesó). Real = Informe LOTE cuando existe; ≈ estimado = prorrateo del podrido
+            del parte; asumido = podrido de un contenedor pre-calibrador que no se pesa a diario.
           </InfoTooltip>
         </div>
 
@@ -1622,7 +1631,9 @@ function PerdidaFrutaCard({ agregado }: { agregado: MermaLotesAgregado | null })
                 </p>
               </div>
               <p className="text-[11px] text-muted-foreground">
-                sobre {formatKg(kgEntrada)} entrados en {agregado.nProcesados} lote{agregado.nProcesados === 1 ? "" : "s"} con dato
+                sobre {formatKg(kgEntrada)} en {agregado.nProcesados + agregado.nLotesSinTerminarConPodrido} lote
+                {agregado.nProcesados + agregado.nLotesSinTerminarConPodrido === 1 ? "" : "s"} con dato
+                {agregado.nLotesSinTerminarConPodrido > 0 && ` (${agregado.nLotesSinTerminarConPodrido} aún sin terminar, solo sus kg ya pasados)`}
               </p>
             </div>
 
@@ -1640,19 +1651,22 @@ function PerdidaFrutaCard({ agregado }: { agregado: MermaLotesAgregado | null })
                 <p className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
                   {formatKg(agregado.kgPodridoPreCalibradorTotal)} <FuenteBadge fuente="asumido" size="sm" /> pre-calibrador
                 </p>
+                <p className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+                  de los que {formatKg(agregado.kgPodridoManualEstimado)} <FuenteBadge fuente={fuentePodridoAVariant("prorrateo")} size="sm" /> se pesaron (podrido manual del parte)
+                </p>
               </div>
               <div className="rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] p-2">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] font-semibold text-muted-foreground">Podrido (calibrador + manual)</p>
+                  <p className="text-[11px] font-semibold text-muted-foreground">Podrido de calibrador</p>
                   <span className="text-xs font-semibold tabular-nums">
                     {formatKg(podridoTotalKg)}{pctPodrido !== null && <span className="ml-1 text-muted-foreground">({formatPct(pctPodrido)})</span>}
                   </span>
                 </div>
                 <p className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
-                  {formatKg(agregado.kgPodridoCalibradorReal)} <FuenteBadge fuente={fuentePodridoAVariant("real")} size="sm" /> · {formatKg(agregado.kgPodridoCalibradorEstimado)} <FuenteBadge fuente={fuentePodridoAVariant("prorrateo")} size="sm" /> calibrador
+                  {formatKg(agregado.kgPodridoCalibradorReal)} <FuenteBadge fuente={fuentePodridoAVariant("real")} size="sm" /> · {formatKg(agregado.kgPodridoCalibradorEstimado)} <FuenteBadge fuente={fuentePodridoAVariant("prorrateo")} size="sm" /> prorrateado
                 </p>
-                <p className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
-                  {formatKg(agregado.kgPodridoManualEstimado)} <FuenteBadge fuente={fuentePodridoAVariant("prorrateo")} size="sm" /> manual
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  Lo que descartó la máquina de lo que sí llegó a pasar por ella.
                 </p>
               </div>
             </div>

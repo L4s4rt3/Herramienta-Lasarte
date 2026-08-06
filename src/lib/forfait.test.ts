@@ -65,21 +65,23 @@ function loteMerma(params: {
 describe("computeForfaitLote — fórmulas básicas", () => {
   it("kgAprovechable, forfait, nominal y sobrecoste con un caso simple", () => {
     // 1000 kg entrada, 980 al calibrador (98%, "procesado"; merma natural 20,
-    // fuera de kgAprovechable por definición). Del calibrador se descartan
-    // 30 (calibrador) + 10 (manual).
+    // fuera de kgAprovechable por definición). De lo que pasó por el
+    // calibrador se descartan 30 allí; los 10 del podrido MANUAL no se restan
+    // (corrección 06-ago-2026: se apartan antes de entrar, así que ya están
+    // fuera de los 980 y dentro de la merma natural).
     const lote = loteMerma({
       lote: "26050101", kgEntrada: 1000, kgCalibrador: 980, podridoCalibradorKg: 30, podridoManualKg: 10, importeTotal: 475, // 0.475 €/kg nominal
     });
     expect(lote.estado).toBe("procesado");
     const forfait = computeForfaitLote(lote)!;
 
-    expect(forfait.kgAprovechable).toBeCloseTo(980 - 30 - 10); // 940
+    expect(forfait.kgAprovechable).toBeCloseTo(980 - 30); // 950, el manual NO se resta
     expect(forfait.sinForfait).toBe(false);
     expect(forfait.eurKgNominal).toBeCloseTo(475 / 1000); // 0.475
-    expect(forfait.forfaitEurKg).toBeCloseTo(475 / 940);
-    expect(forfait.sobrecosteEurKg).toBeCloseTo(475 / 940 - 475 / 1000);
+    expect(forfait.forfaitEurKg).toBeCloseTo(475 / 950);
+    expect(forfait.sobrecosteEurKg).toBeCloseTo(475 / 950 - 475 / 1000);
     expect(forfait.sobrecosteEurKg!).toBeGreaterThan(0); // el forfait siempre >= nominal (aprovechable <= entrada)
-    expect(forfait.pctPerdidaTotal).toBeCloseTo((1000 - 940) / 1000); // 0.06
+    expect(forfait.pctPerdidaTotal).toBeCloseTo((1000 - 950) / 1000); // 0.05
   });
 
   it("un lote sin ninguna pérdida (podrido 0, calibrador = entrada): forfait === nominal", () => {
@@ -95,10 +97,10 @@ describe("computeForfaitLote — fórmulas básicas", () => {
 
 describe("computeForfaitLote — guards", () => {
   it("kgAprovechable exactamente 0: sinForfait=true, forfaitEurKg null (no Infinity)", () => {
-    // kgCalibrador 971 (97,1%, sigue "procesado"); podrido calibrador+manual
-    // suma exactamente 971 -> no queda nada aprovechable.
+    // kgCalibrador 971 (97,1%, sigue "procesado"); el podrido de calibrador
+    // se lleva exactamente esos 971 -> no queda nada aprovechable.
     const lote = loteMerma({
-      lote: "26050103", kgEntrada: 1000, kgCalibrador: 971, podridoCalibradorKg: 600, podridoManualKg: 371, importeTotal: 200,
+      lote: "26050103", kgEntrada: 1000, kgCalibrador: 971, podridoCalibradorKg: 971, importeTotal: 200,
     });
     expect(lote.estado).toBe("procesado");
     const forfait = computeForfaitLote(lote)!;
@@ -113,7 +115,7 @@ describe("computeForfaitLote — guards", () => {
 
   it("kgAprovechable negativo (podrido declarado mayor que lo pesado, dato a revisar): mismo guard", () => {
     const lote = loteMerma({
-      lote: "26050104", kgEntrada: 1000, kgCalibrador: 971, podridoCalibradorKg: 600, podridoManualKg: 401, importeTotal: 200,
+      lote: "26050104", kgEntrada: 1000, kgCalibrador: 971, podridoCalibradorKg: 1001, importeTotal: 200,
     });
     const forfait = computeForfaitLote(lote)!;
     expect(forfait.kgAprovechable).toBeCloseTo(-30);
@@ -162,7 +164,7 @@ describe("computeForfaitLote — guards", () => {
 });
 
 describe("computeForfaitLote — coherencia de pctPerdidaTotal con el desglose merma+podrido", () => {
-  it("(kgEntrada-kgAprovechable)/kgEntrada === (mermaNaturalKg + podridoCalibrador + podridoManual)/kgEntrada, sin ajuste de stock ni calibradorSuperaEntrada", () => {
+  it("(kgEntrada-kgAprovechable)/kgEntrada === (mermaNaturalKg + podridoCalibrador)/kgEntrada, sin ajuste de stock ni calibradorSuperaEntrada", () => {
     const lote = loteMerma({
       lote: "26050109", kgEntrada: 2000, kgCalibrador: 1950, podridoCalibradorKg: 40, podridoManualKg: 20, importeTotal: 1000,
     });
@@ -170,12 +172,17 @@ describe("computeForfaitLote — coherencia de pctPerdidaTotal con el desglose m
     expect(lote.calibradorSuperaEntrada).toBe(false);
     const forfait = computeForfaitLote(lote)!;
 
+    // El podrido MANUAL no entra en la identidad: ya está contado dentro de
+    // `mermaNaturalKg` (se aparta antes del calibrador). Sumarlo aquí lo
+    // contaría dos veces — es justo lo que hacía hasta el 06-ago-2026.
     const perdidaViaDesglose = (
-      Math.max(0, lote.mermaNaturalKg ?? 0) + (lote.podridoCalibradorKg ?? 0) + (lote.podridoManualKg ?? 0)
+      Math.max(0, lote.mermaNaturalKg ?? 0) + (lote.podridoCalibradorKg ?? 0)
     ) / lote.kgEntrada;
 
     expect(forfait.pctPerdidaTotal).toBeCloseTo(perdidaViaDesglose, 9);
-    expect(forfait.pctPerdidaTotal).toBeCloseTo(0.055); // (50 + 40 + 20) / 2000
+    expect(forfait.pctPerdidaTotal).toBeCloseTo(0.045); // (50 + 40) / 2000
+    // Y el manual, que sí existe en el lote, queda dentro de la merma medida.
+    expect(lote.podridoManualKg).toBeCloseTo(20);
   });
 });
 
@@ -246,7 +253,7 @@ describe("agruparForfait — ponderación (Σcoste/Σaprovechable, NO media de f
 
   it("Σaprovechable <= 0 en TODO el grupo: forfaitEurKg del grupo es null", () => {
     const loteMalo = loteMerma({
-      lote: "26050117", kgEntrada: 1000, kgCalibrador: 971, podridoCalibradorKg: 600, podridoManualKg: 371, importeTotal: 200,
+      lote: "26050117", kgEntrada: 1000, kgCalibrador: 971, podridoCalibradorKg: 971, importeTotal: 200,
     });
     const { grupos } = agruparForfait([{ lote: loteMalo, groupKey: "id:1", groupLabel: "Productor 1" }]);
     expect(grupos[0].kgAprovechable).toBe(0);

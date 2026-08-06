@@ -6,6 +6,7 @@ import {
   mapPodridoAggToClasificacionInput,
   mermaLotesEnPeriodo,
   mermaLotesProcesadosEnPeriodo,
+  pctPerdidaTotalDeAgregado,
   TASA_MERMA_NATURAL_DIA,
   type ClasificacionLoteInput,
   type EntradaLoteInput,
@@ -433,12 +434,62 @@ describe("agregarMermaLotes — real y estimado SIEMPRE separados", () => {
     expect(agregado.eurPerdidaPodridoCalibradorEstimado).toBeCloseTo(50 * 0.5);
     expect(agregado.eurPerdidaPodridoManualEstimado).toBeCloseTo(40 * 0.5);
 
-    // El total se expone junto a (no en lugar de) el desglose real/estimado.
+    // El total se expone junto a (no en lugar de) el desglose real/estimado,
+    // y NO suma el podrido manual: se aparta antes del calibrador, así que ya
+    // está dentro de la merma medida (corrección 06-ago-2026, confirmada por
+    // el dueño). El manual sigue expuesto aparte como desglose.
     const sumaComponentes = agregado.eurPerdidaMermaTotal
       + agregado.eurPerdidaPodridoCalibradorReal
-      + agregado.eurPerdidaPodridoCalibradorEstimado
-      + agregado.eurPerdidaPodridoManualEstimado;
+      + agregado.eurPerdidaPodridoCalibradorEstimado;
     expect(agregado.eurPerdidaTotal).toBeCloseTo(sumaComponentes);
+    expect(agregado.eurPerdidaTotal).not.toBeCloseTo(sumaComponentes + agregado.eurPerdidaPodridoManualEstimado);
+  });
+
+  it("el podrido de un lote SIN terminar cuenta, y sus kg ya pasados entran en el denominador del %", () => {
+    // Decisión del dueño 06-08-2026. Antes el numerador contaba ese podrido y
+    // el denominador no, así que el % de pérdida salía inflado.
+    const entradas = [
+      entrada({ lote: "26050101", kg_entrada: 1000, importe_total: 500 }), // terminado
+      entrada({ lote: "26050102", kg_entrada: 5000, importe_total: 2500 }), // a medias
+    ];
+    const lotesDia: LoteDiaKgInput[] = [
+      { lote_codigo: "26050101", kg_peso_total: 1000, part_id: "p1" },
+      { lote_codigo: "26050102", kg_peso_total: 1000, part_id: "p1" }, // 20% -> parcial
+    ];
+    const partes: ParteMermaInput[] = [{ part_id: "p1", kg_podrido_calibrador_auto: 100, kg_podrido_bolsa_basura: 0 }];
+
+    const lotes = computeMermaLotes(entradas, lotesDia, [], partes);
+    const agregado = agregarMermaLotes(lotes);
+
+    expect(lotes[1].estado).toBe("parcial");
+    expect(agregado.nLotesSinTerminarConPodrido).toBe(1);
+    // Denominador = entrada del terminado (1000) + kg YA pasados del parcial
+    // (1000), no sus 5000 de entrada: el resto sigue en cámara.
+    expect(agregado.kgEntradaProcesados).toBe(1000);
+    expect(agregado.kgBaseParaPctPerdida).toBe(2000);
+    // El podrido del parcial (50 kg, su mitad del prorrateo) sí cuenta arriba.
+    expect(agregado.kgPodridoCalibradorEstimado).toBeCloseTo(100);
+    expect(pctPerdidaTotalDeAgregado(agregado)).toBeCloseTo((0 + 100) / 2000 * 100);
+  });
+
+  it("el total en € del agregado es EXACTAMENTE la suma de los perdidaTotalEur de sus lotes", () => {
+    // Invariante que se rompía antes de la corrección del podrido manual: el
+    // KPI de pérdida de Económico no era la suma del detalle por lote.
+    const entradas = [
+      entrada({ lote: "26050101", kg_entrada: 1000, importe_total: 500 }),
+      entrada({ lote: "26050102", kg_entrada: 1000, importe_total: 500 }),
+    ];
+    const lotesDia: LoteDiaKgInput[] = [
+      { lote_codigo: "26050101", kg_peso_total: 980, part_id: "p1" },
+      { lote_codigo: "26050102", kg_peso_total: 990, part_id: "p1" },
+    ];
+    const partes: ParteMermaInput[] = [{ part_id: "p1", kg_podrido_calibrador_auto: 100, kg_podrido_bolsa_basura: 40 }];
+
+    const lotes = computeMermaLotes(entradas, lotesDia, [], partes);
+    const agregado = agregarMermaLotes(lotes);
+
+    const sumaPorLote = lotes.reduce((s, l) => s + (l.perdidaTotalEur ?? 0), 0);
+    expect(agregado.eurPerdidaTotal).toBeCloseTo(sumaPorLote, 6);
   });
 
   it("cuenta procesados/pendientes-parciales/sin coste/con dato a revisar y la merma media ponderada", () => {

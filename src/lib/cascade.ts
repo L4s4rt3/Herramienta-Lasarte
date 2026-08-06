@@ -9,6 +9,28 @@
  * DSJ = Diferencia bruta − Mermas totales
  * % DSJ = DSJ / Producción real
  *
+ * POR QUÉ EL PODRIDO MANUAL SE DESCUENTA AQUÍ (explicación del dueño,
+ * 06-ago-2026 — NO es un descuido, no lo "arregles"): esa fruta se aparta
+ * ANTES de entrar al calibrador, así que en rigor no está dentro de
+ * `kg_produccion_calibrador` y no explica la diferencia contra palets. Se
+ * descuenta igualmente porque es la ÚNICA parte que se pesa de lo que se
+ * pierde entre la báscula y la línea: "no tengo forma de saber cuál es la
+ * diferencia entre los kg de entrada que debería pesar el lote y los kg que
+ * han pasado; esa diferencia es merma y podrido". El DSJ asume ese descuento
+ * como la mejor aproximación disponible a esa pérdida.
+ *
+ * Consecuencia medida en la campaña 25/26 (79 partes): el descuento mejora el
+ * balance en 28.871 kg sobre 6,88 M kg de producción — el DSJ pasa de +3,71 %
+ * a +3,29 %. Si algún día se mide la pérdida pre-calibrador por lote (con las
+ * bateas de la tría, hoy solo 2 partes con dato), este descuento debería
+ * quitarse de aquí y llevarse a ese balance.
+ *
+ * OJO al usar estos números fuera del DSJ: el análisis por lote
+ * (src/lib/mermaLote.ts) trata el podrido manual como lo que es, parte de la
+ * merma medida (entrada − calibrador), y por eso NUNCA lo suma aparte en kg,
+ * € ni %. Los dos criterios conviven a propósito: aquí es un descuento
+ * operativo del día, allí es el desglose de una pérdida ya contada.
+ *
  * El destino de fruta (exportación/mercado/industria) y la eficiencia de
  * máquina (T/h) NO se calculan aquí: viven en calibres_dia y lotes_dia,
  * y se consultan aparte (ver PartDetail.tsx) porque no forman parte del
