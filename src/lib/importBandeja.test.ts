@@ -178,6 +178,48 @@ describe("clasificarArchivoBandeja — un caso positivo por tipo", () => {
     expect(r.motivo).toMatch(/sembrar|conciliar/i);
   });
 
+  // Informes de entrada de fruta del ERP (encargo 06-08-2026): dos formatos
+  // reales, ninguno con código de lote. Filas tal cual salen del programa.
+  it("entrada-fruta, formato A (con nº de pesada escrito)", () => {
+    const r = clasificarArchivoBandeja(entrada("entrada 27 4.xlsx", {
+      "Sheet 1": [
+        ["Fecha", "Pesada", "Matrícula", "Agricultor", "Finca", "Kilos", "Producto", "Tipo", "Entrada", "PrC", "Prod"],
+        ["31/07/2026", 1, "CAMION", "LASARTE ALMACEN PRECAL", "PREC 1 ALMACEN", 6098, "NAR VAL DELTA SEEDLESS", "Comercial", " 16957", 0, 1],
+        ["31/07/2026", 2, "CAMION", "LASARTE ALMACEN PRECAL", "PREC 2 ALMACEN", 2142, "NAR VAL DELTA SEEDLESS", "Comercial", " 16958", 0, 1],
+      ],
+    }));
+    expect(r.tipo).toBe("entrada-fruta");
+    expect(r.n).toBe(2);
+    const { entradas, formato } = r.payload as import("@/lib/entradasBascula").ParseEntradaFrutaResult;
+    expect(formato).toBe("A");
+    // El código se compone con fecha + pesada: 31/07/2026 pesada 1 → 26073101.
+    expect(entradas.map((e) => e.lote)).toEqual(["26073101", "26073102"]);
+    expect(entradas.every((e) => !e.pesadaDeducida)).toBe(true);
+  });
+
+  it("entrada-fruta, formato B (pesada deducida del orden del nº de entrada)", () => {
+    const r = clasificarArchivoBandeja(entrada("entrada fruta 27 4.xlsx", {
+      "Sheet 1": [
+        ["Fec.Entrada", "Ser.", "Número", "Vehículo", "Razón Social", "Finca", "Tipo", "S/Dcmto", "Fecha", "Importe", "Kilos"],
+        // A propósito en orden inverso: manda el nº de entrada, no la fila.
+        ["03/08/2026", "", 16960, "CAMION", "LASARTE ALMACEN PRECAL", "PREC 2 ALMACEN", "Comerclz", "260308", "03/08/2026", 0, 192],
+        ["03/08/2026", "", 16959, "CAMION", "LASARTE ALMACEN PRECAL", "PREC 1 ALMACEN", "Comerclz", "263108", "03/08/2026", 0, 7811],
+      ],
+    }));
+    expect(r.tipo).toBe("entrada-fruta");
+    const { entradas, formato } = r.payload as import("@/lib/entradasBascula").ParseEntradaFrutaResult;
+    expect(formato).toBe("B");
+    expect(entradas.find((e) => e.kg_entrada === 7811)?.lote).toBe("26080301");
+    expect(entradas.find((e) => e.kg_entrada === 192)?.lote).toBe("26080302");
+    expect(entradas.every((e) => e.pesadaDeducida)).toBe(true);
+    expect(r.motivo).toMatch(/deducido/i);
+  });
+
+  it("el export de báscula sigue ganando al informe de entrada de fruta (trae el lote de verdad)", () => {
+    const r = clasificarArchivoBandeja(entrada("entrada 2604.xlsx", { Hoja1: [HEADER_BASCULA, FILA_BASCULA] }));
+    expect(r.tipo).toBe("bascula-entradas");
+  });
+
   it("camaras-externas", () => {
     const r = clasificarArchivoBandeja(entrada("Registro_Control_Guadex.xlsx", { "Entradas total": [HEADER_CAMARAS, FILA_CAMARA] }));
     expect(r.tipo).toBe("camaras-externas");

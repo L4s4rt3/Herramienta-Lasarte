@@ -11,7 +11,7 @@ import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
 import { escribirConReintentos, fetchAllRows } from "@/lib/fetchAllRows";
-import { buildStockEntradas, esCandidatoCierreAutomatico, esCandidatoCierreCompuesto, type CierreModo, type EntradaBasculaParsed, type LoteProcesadoInput } from "@/lib/entradasBascula";
+import { buildStockEntradas, esCandidatoCierreAutomatico, esCandidatoCierreCompuesto, type CierreModo, type EntradaBasculaParsed, type EntradaFrutaParsed, type LoteProcesadoInput } from "@/lib/entradasBascula";
 import { capacidadFraccionEstimada, conciliarKgProcesados, detectarLotesEnPasadaCompuesta, type EntradaConciliacion, type ReciclajeDiaInput } from "@/lib/conciliacionKg";
 import { buildStockPrecalibrado, type StockPrecalibrado } from "@/lib/stockPrecalibrado";
 import { codigosEnCamaraExterna, type SenalesRecepcion } from "@/lib/camarasExternas";
@@ -236,6 +236,40 @@ export function useEntradasBascula() {
         const { error } = await supabase
           .from("entradas_bascula")
           .upsert(chunk, { onConflict: "lote" });
+        if (error) throw toError(error);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: entradasKey });
+    },
+  });
+
+  /**
+   * Informe de ENTRADA DE FRUTA del ERP (parseEntradaFrutaRows): trae fecha,
+   * agricultor, finca, artículo y kg, con el código de lote reconstruido —
+   * pero NO trae envases. Por eso escribe SOLO sus propias columnas: al ser un
+   * upsert de PostgREST, las columnas ausentes del payload no entran en el DO
+   * UPDATE y conservan lo que ya hubiera (los envases sembrados desde el
+   * informe de stock de lotes, que son los box de cada re-entrada, no se
+   * pierden al reimportar).
+   */
+  const importarEntradaFruta = useMutation({
+    mutationFn: async (entradas: EntradaFrutaParsed[]) => {
+      if (!user) throw new Error("No auth");
+      if (entradas.length === 0) throw new Error("El informe no contiene entradas importables.");
+      for (let i = 0; i < entradas.length; i += CHUNK) {
+        const chunk = entradas.slice(i, i + CHUNK).map((e) => ({
+          user_id: user.id,
+          origen: "bascula" as const,
+          fecha: e.fecha,
+          lote: e.lote,
+          num_entrada: e.num_entrada,
+          agricultor: e.agricultor,
+          finca: e.finca,
+          articulo: e.articulo,
+          kg_entrada: e.kg_entrada,
+        }));
+        const { error } = await supabase.from("entradas_bascula").upsert(chunk, { onConflict: "lote" });
         if (error) throw toError(error);
       }
     },
@@ -1061,6 +1095,7 @@ export function useEntradasBascula() {
     isLoading: entradasQuery.isLoading || procesadosQuery.isLoading || anotacionesQuery.isLoading,
     error: entradasQuery.error ?? procesadosQuery.error ?? anotacionesQuery.error,
     importar,
+    importarEntradaFruta,
     importarStock,
     eliminar,
     cerrarLote,

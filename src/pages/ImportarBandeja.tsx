@@ -25,6 +25,7 @@ import { ZonaAutomatica } from "@/components/importar/ZonaAutomatica";
 import { CardVentasMensual } from "@/components/importar/CardVentasMensual";
 import { CardMercadonaSemanal } from "@/components/importar/CardMercadonaSemanal";
 import { CardBasculaEntradas } from "@/components/importar/CardBasculaEntradas";
+import { CardEntradaFruta } from "@/components/importar/CardEntradaFruta";
 import { CardStockLotes } from "@/components/importar/CardStockLotes";
 import { CardMermaCamara } from "@/components/importar/CardMermaCamara";
 import { CardAsistenciaHoras } from "@/components/importar/CardAsistenciaHoras";
@@ -35,7 +36,7 @@ const TIPOS_ZONA_A: TipoArchivoBandeja[] = [
 ];
 const TIPOS_ZONA_B: TipoArchivoBandeja[] = [
   "ventas-lineas", "ventas-metodos-catalogo", "ventas-metodo",
-  "mercadona-semanal", "bascula-entradas", "stock-lotes", "merma-camara",
+  "mercadona-semanal", "bascula-entradas", "entrada-fruta", "stock-lotes", "merma-camara",
 ];
 
 export default function ImportarBandeja() {
@@ -234,6 +235,7 @@ function ImportarBandejaAdmin() {
                 />
                 <CardMercadonaSemanal key={`mercadona-${batchId}`} archivos={porTipo.get("mercadona-semanal") ?? []} />
                 <CardBasculaEntradas key={`bascula-${batchId}`} archivos={porTipo.get("bascula-entradas") ?? []} entradasBascula={entradasBascula} />
+                <CardEntradaFruta key={`entrada-fruta-${batchId}`} archivos={porTipo.get("entrada-fruta") ?? []} entradasBascula={entradasBascula} />
                 <CardStockLotes key={`stock-${batchId}`} archivos={porTipo.get("stock-lotes") ?? []} entradasBascula={entradasBascula} />
                 <CardMermaCamara key={`merma-${batchId}`} archivos={porTipo.get("merma-camara") ?? []} entradasBascula={entradasBascula} />
                 <CardAsistenciaHoras key={`asistencia-horas-${batchId}`} archivos={asistenciaHorasArchivos} />

@@ -54,7 +54,7 @@ import { parseInformeLoteRows } from "@/lib/informeLote";
 import { parseInformeTamanosClases } from "@/lib/calidadReferencias";
 import { parseInformeProduccionRows } from "@/lib/historicoProduccion";
 import { parseInformePaletsRows } from "@/lib/historicoPalets";
-import { parseEntradasBasculaRows, parseStockLotesRows } from "@/lib/entradasBascula";
+import { parseEntradaFrutaRows, parseEntradasBasculaRows, parseStockLotesRows } from "@/lib/entradasBascula";
 import { parseRegistroCamaraExternaRows } from "@/lib/camarasExternas";
 import { parseMermaCamaraRows } from "@/lib/mermaCamaraImport";
 import { parseMercadonaWorkbook, type SheetRows } from "@/lib/mercadonaVentas";
@@ -65,6 +65,7 @@ export type TipoArchivoBandeja =
   | "informe-produccion"
   | "palets-campana"
   | "bascula-entradas"
+  | "entrada-fruta"
   | "stock-lotes"
   | "camaras-externas"
   | "merma-camara"
@@ -81,6 +82,7 @@ export const TIPO_BANDEJA_LABEL: Record<TipoArchivoBandeja, string> = {
   "informe-produccion": "Informe PRODUCCIÓN (campaña)",
   "palets-campana": "Histórico de palets (campaña)",
   "bascula-entradas": "Entradas de báscula",
+  "entrada-fruta": "Entradas de fruta (informe del ERP)",
   "stock-lotes": "Stock de lotes (báscula)",
   "camaras-externas": "Registro de cámara externa",
   "merma-camara": "Merma de cámara (manual)",
@@ -241,6 +243,24 @@ export function clasificarArchivoBandeja(entrada: EntradaBandeja): ArchivoClasif
       n: resBascula.entradas.length,
       motivo: `Export de báscula: ${resBascula.entradas.length} entradas de fruta.`,
       payload: resBascula,
+    };
+  }
+
+  // 1e-bis. Informe de ENTRADA DE FRUTA del ERP (dos formatos, ninguno trae el
+  // código de lote: se reconstruye con fecha + nº de pesada). Va DESPUÉS del
+  // export de báscula porque aquel sí trae "Lote" y es la fuente completa;
+  // este solo aporta fecha/agricultor/finca/kg y las re-entradas de
+  // precalibrado del día. Ver parseEntradaFrutaRows.
+  const resEntradaFruta = intentar(() => parseEntradaFrutaRows(primeraHoja));
+  if (resEntradaFruta && resEntradaFruta.entradas.length > 0) {
+    const { entradas, formato } = resEntradaFruta;
+    const fechas = entradas.map((e) => e.fecha).sort();
+    return {
+      fileName,
+      tipo: "entrada-fruta",
+      n: entradas.length,
+      motivo: `Informe de entrada de fruta (formato ${formato}): ${entradas.length} entrada(s) del ${fechas[0]} al ${fechas[fechas.length - 1]}. El código de lote se reconstruye con fecha + nº de pesada${formato === "B" ? " (deducido del orden del nº de entrada: revisa los códigos antes de confirmar)" : ""}.`,
+      payload: resEntradaFruta,
     };
   }
 

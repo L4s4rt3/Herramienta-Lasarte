@@ -317,6 +317,170 @@ export function parseStockLotesRows(rows: unknown[][]): ParseStockLotesResult {
   return { lotes, descartadas };
 }
 
+// ─── Informe de ENTRADA DE FRUTA (dos formatos del ERP) ────────────────────
+// Encargo del dueño (06-08-2026): la bandeja no reconocía los informes de
+// entrada de fruta que saca del ERP, y son los que traen las re-entradas de
+// precalibrado del día (sin ellas, el desglose por box de una pasada no puede
+// atribuir un "22/07" a ningún lote). Son DOS informes distintos del mismo
+// hecho — la misma pesada aparece en los dos con el mismo nº de entrada:
+//
+//   Formato A ("entrada fruta 1 jul 31 jul.xlsx", "entrada 27 4.xlsx"):
+//     Fecha | Pesada | Matrícula | Agricultor | Finca | Kilos | Producto | Tipo | Entrada | PrC | Prod
+//   Formato B ("entrada fruta 27 4.xlsx"):
+//     Fec.Entrada | Ser. | Número | Vehículo | Razón Social | Finca | Tipo | S/Dcmto | Fecha | Importe | Kilos
+//
+// NINGUNO trae el código de LOTE ni los envases. El código se RECONSTRUYE con
+// la convención del propio ERP (ver cabecera del módulo): AAMMDD + nº de
+// pesada del día a dos dígitos — verificado contra la BD real (30/07 pesada 1
+// = 5.259 kg = lote 26073001; pesada 2 = 4.030 kg = 26073002, etc.).
+//
+// En el formato A la pesada viene escrita. En el B no: se deduce del ORDEN del
+// nº de entrada dentro de cada fecha, lo que es correcto solo si el informe
+// trae TODAS las pesadas de ese día — por eso el resultado marca
+// `pesadaDeducida` y la tarjeta de la bandeja enseña los códigos antes de
+// confirmar. Los envases quedan a `null` a propósito: este informe no los
+// tiene y la importación NO debe pisar los que ya haya (llegan por el informe
+// de stock de lotes, parseStockLotesRows).
+
+export interface EntradaFrutaParsed {
+  fecha: string;
+  lote: string;
+  num_entrada: string | null;
+  agricultor: string | null;
+  finca: string | null;
+  articulo: string | null;
+  kg_entrada: number;
+  /** true si el nº de pesada se dedujo del orden (formato B) en vez de leerse. */
+  pesadaDeducida: boolean;
+}
+
+export interface ParseEntradaFrutaResult {
+  entradas: EntradaFrutaParsed[];
+  descartadas: Array<{ fila: number; motivo: string }>;
+  formato: "A" | "B" | null;
+}
+
+/** Código de lote del ERP: AAMMDD de la fecha + nº de pesada a dos dígitos. */
+export function loteDesdeFechaYPesada(fechaIso: string, pesada: number): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fechaIso);
+  if (!m || !Number.isFinite(pesada) || pesada < 1 || pesada > 99) return null;
+  return `${m[1].slice(2)}${m[2]}${m[3]}${pad2(pesada)}`;
+}
+
+/**
+ * Parsea cualquiera de los dos informes de entrada de fruta (ver el bloque de
+ * arriba). Devuelve las entradas con su código de lote reconstruido, listas
+ * para el upsert por lote de la bandeja.
+ */
+export function parseEntradaFrutaRows(rows: unknown[][]): ParseEntradaFrutaResult {
+  const cabecera = (predicado: (headers: string[]) => boolean) =>
+    rows.findIndex((row) => predicado((row ?? []).map(normalizeHeader)));
+
+  // Formato A: tiene "pesada" explícita. Formato B: "fec entrada" + "numero".
+  const iCabA = cabecera((h) => h.includes("pesada") && h.includes("kilos") && h.includes("fecha"));
+  const iCabB = iCabA !== -1 ? -1 : cabecera((h) => h.includes("fec entrada") && h.includes("numero") && h.includes("kilos"));
+
+  const headerIndex = iCabA !== -1 ? iCabA : iCabB;
+  const formato: "A" | "B" | null = iCabA !== -1 ? "A" : iCabB !== -1 ? "B" : null;
+
+  if (formato === null || headerIndex === -1) {
+    return {
+      entradas: [],
+      descartadas: [{ fila: 0, motivo: "No se encontró la cabecera de un informe de entrada de fruta (Fecha/Pesada/Kilos o Fec.Entrada/Número/Kilos)" }],
+      formato: null,
+    };
+  }
+
+  const headers = (rows[headerIndex] ?? []).map(normalizeHeader);
+  const col = (...names: string[]) => {
+    for (const name of names) {
+      const index = headers.findIndex((h) => h === name || h.startsWith(name));
+      if (index !== -1) return index;
+    }
+    return -1;
+  };
+
+  const iFecha = formato === "A" ? col("fecha") : col("fec entrada");
+  const iPesada = col("pesada");
+  const iNumero = formato === "A" ? col("entrada") : col("numero");
+  const iAgricultor = formato === "A" ? col("agricultor") : col("razon social");
+  const iFinca = col("finca");
+  const iArticulo = col("producto");
+  const iKg = col("kilos");
+
+  const descartadas: Array<{ fila: number; motivo: string }> = [];
+  // Paso 1: filas válidas, sin código todavía.
+  const crudas: Array<{ fila: number; fecha: string; pesada: number | null; numero: number | null; entrada: Omit<EntradaFrutaParsed, "lote" | "pesadaDeducida"> }> = [];
+
+  rows.slice(headerIndex + 1).forEach((row, offset) => {
+    const fila = headerIndex + offset + 2;
+    const vacia = (row ?? []).every((cell) => String(cell ?? "").trim() === "");
+    if (vacia) return;
+
+    const fecha = parseFechaBascula(row[iFecha]);
+    const kg = toNumber(row[iKg]);
+    if (!fecha) {
+      descartadas.push({ fila, motivo: "Sin fecha de entrada" });
+      return;
+    }
+    if (kg == null || kg <= 0) {
+      descartadas.push({ fila, motivo: "Sin kilos" });
+      return;
+    }
+
+    const numeroTexto = iNumero === -1 ? null : toText(row[iNumero]);
+    crudas.push({
+      fila,
+      fecha,
+      pesada: iPesada === -1 ? null : toNumber(row[iPesada]),
+      numero: numeroTexto == null ? null : Number(numeroTexto),
+      entrada: {
+        fecha,
+        num_entrada: numeroTexto,
+        agricultor: iAgricultor === -1 ? null : toText(row[iAgricultor]),
+        finca: iFinca === -1 ? null : toText(row[iFinca]),
+        articulo: iArticulo === -1 ? null : toText(row[iArticulo]),
+        kg_entrada: kg,
+      },
+    });
+  });
+
+  // Paso 2: nº de pesada. Formato A lo trae; en el B se deduce del orden del
+  // nº de entrada DENTRO de cada fecha (ver el bloque de arriba).
+  const ordenPorFila = new Map<number, number>();
+  if (formato === "B") {
+    const porFecha = new Map<string, typeof crudas>();
+    for (const c of crudas) {
+      const arr = porFecha.get(c.fecha) ?? [];
+      arr.push(c);
+      porFecha.set(c.fecha, arr);
+    }
+    for (const arr of porFecha.values()) {
+      arr
+        .slice()
+        .sort((a, b) => (a.numero ?? 0) - (b.numero ?? 0) || a.fila - b.fila)
+        .forEach((c, i) => ordenPorFila.set(c.fila, i + 1));
+    }
+  }
+
+  const entradas: EntradaFrutaParsed[] = [];
+  for (const c of crudas) {
+    const pesada = formato === "A" ? c.pesada : ordenPorFila.get(c.fila) ?? null;
+    if (pesada == null) {
+      descartadas.push({ fila: c.fila, motivo: "Sin nº de pesada con el que componer el código de lote" });
+      continue;
+    }
+    const lote = loteDesdeFechaYPesada(c.fecha, pesada);
+    if (!lote) {
+      descartadas.push({ fila: c.fila, motivo: `Nº de pesada fuera de rango (${pesada})` });
+      continue;
+    }
+    entradas.push({ ...c.entrada, lote, pesadaDeducida: formato === "B" });
+  }
+
+  return { entradas, descartadas, formato };
+}
+
 // ─── Conciliación con el informe de cámara ("APROVECHAMIENTO STOCK LOTES") ──
 // Motivada por el cierre masivo por fecha del 2026-07-16 que cerró 97 lotes
 // que en realidad seguían físicamente en cámara (fruta que puede llevar 2-3
