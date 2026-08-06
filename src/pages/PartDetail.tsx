@@ -759,12 +759,16 @@ export default function PartDetail() {
     setAnalyzing(true);
     type AnalyzeParteResult = {
       vision_warning?: string | null;
+      /** Informes que se esperaban y no han llegado (p.ej. la tabla de calibres). */
+      avisos?: string[];
       detalles_insertados?: {
         foto_lotes?: {
           extraidos: number;
           aplicados: number;
           no_emparejados?: string[];
           dudas?: string[];
+          banderas?: string[];
+          sin_referencia?: number;
           modelo?: string | null;
           modelo_pesos?: string | null;
           recortes_pesos?: number;
@@ -808,6 +812,19 @@ export default function PartDetail() {
     // "vacío" previo al análisis durante los 5 min de staleTime global).
     await queryClient.invalidateQueries({ queryKey: ["parte-detail", parte.id] });
 
+    // Un informe del paquete que no se ha podido leer deja el día cojo en toda
+    // la herramienta (destino, calibres, % exportación): va primero, antes que
+    // el resumen de la foto, porque es lo que hay que corregir hoy mismo.
+    const avisos = analysisResult?.avisos ?? [];
+    if (avisos.length > 0) {
+      toast({
+        title: "⚠️ Análisis completado con avisos",
+        description: avisos.join(" "),
+        variant: "destructive",
+      });
+      return;
+    }
+
     const foto = analysisResult?.detalles_insertados?.foto_lotes;
     if (analysisResult?.vision_warning) {
       toast({
@@ -824,9 +841,22 @@ export default function PartDetail() {
       const dudas = foto.dudas?.length
         ? ` ${foto.dudas.length} lectura(s) dudosa(s) quedaron sin convertir a campos.`
         : "";
+      // Las banderas de la red aritmética son lo importante de revisar: son
+      // kilos que NO se han escrito porque no cuadran con el calibrador.
+      if (foto.banderas?.length) {
+        toast({
+          title: `⚠️ Foto analizada con ${foto.banderas.length} incoherencia(s)`,
+          description: `${foto.extraidos} lotes leídos; ${foto.aplicados} aplicados. ${foto.banderas.join(" ")}`,
+          variant: "destructive",
+        });
+        return;
+      }
+      const sinReferencia = foto.sin_referencia
+        ? ` ${foto.sin_referencia} lote(s) sin peso de calibrador: sus kilos no se han podido verificar.`
+        : "";
       toast({
         title: "✅ Foto analizada",
-        description: `${foto.extraidos} lotes leídos; ${foto.aplicados} aplicados.${pendientes}${dudas}`,
+        description: `${foto.extraidos} lotes leídos; ${foto.aplicados} aplicados.${pendientes}${dudas}${sinReferencia}`,
       });
       return;
     }

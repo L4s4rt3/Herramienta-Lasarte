@@ -1,6 +1,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 import { unzipSync, zipSync, type AsyncZipOptions } from "https://esm.sh/fflate@0.8.2";
+import {
+  parseVisionDecimal,
+  parseVisionKg,
+  revisarCoherenciaFoto,
+  type ParLoteFoto,
+} from "../_shared/fotoLotesCoherencia.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -97,7 +103,12 @@ Deno.serve(async (req) => {
       const ft = (f.file_type ?? "").toLowerCase();
       // Primero por NOMBRE (mas preciso)
       if (ft === "gstock" || /g[\s_-]?stock/i.test(name)) return "gstock";
-      if (/tama[ñn]o|clase|calidad|producto|empaque|envase|packing|formato/i.test(name)) return "tamanos";
+      // "tcc" = Tamaños, Clase y Calidad. Es como abrevia el calibrador ese
+      // informe desde agosto de 2026 ("tcc variedad.xlsx"): sin esta
+      // alternativa no casaba por nombre, caía al fallback por file_type
+      // ("Produccion") y se analizaba como informe de producción, así que el
+      // día entero se quedaba sin calibres (03→05-08-2026).
+      if (/tama[ñn]o|clase|calidad|\btcc\b|producto|empaque|envase|packing|formato/i.test(name)) return "tamanos";
       if (/producci[oó]n/i.test(name) && !/producto|tamaño|tamano|clase|calidad|empaque|envase/i.test(name)) return "produccion";
       if (/palet/i.test(name)) return "palets";
       // Fallback por file_type (etiqueta del usuario)
@@ -107,6 +118,10 @@ Deno.serve(async (req) => {
     };
 
     const server: Record<string, number> = {};
+    // Cosas que se esperaban del paquete de informes y no han llegado. Viajan
+    // en la respuesta para que el análisis avise en pantalla en vez de dejar
+    // el día cojo en silencio.
+    const avisos: string[] = [];
     const csvContexts: { name: string; kind: string; csv: string }[] = [];
     let serverLotes: any[] = [];
     let serverPalets: any[] = [];
@@ -172,6 +187,19 @@ Deno.serve(async (req) => {
           if (v > 0) server.kg_produccion_calibrador = v;
           const lotes = extractLotesDetalle(rowsAll);
           if (lotes.length > 0) serverLotes = lotes;
+        }
+
+        // Red de seguridad por CONTENIDO, no por nombre. El parser de calibres
+        // exige la cabecera "(X) Clase" y la fila "Tamaño / Piezas / Peso (kg)"
+        // propias del informe de tamaños, así que no engancha nada en los demás
+        // Excel. Se pasa a TODOS los archivos para que otro cambio de nombre
+        // del fichero no vuelva a dejar el día sin calibres.
+        if (kind !== "tamanos" && serverCalibres.length === 0) {
+          const rescatados = extractCalibresDetalle(rowsAll);
+          if (rescatados.length > 0) {
+            serverCalibres = rescatados;
+            console.warn("[CALIBRES] rescatados por contenido de " + (f.file_name ?? "") + " (clasificado como " + kind + ")");
+          }
         }
 
         const csv = rowsAll.map((r) => r.map((c) => (c == null ? "" : String(c))).join(",")).join("\n").slice(0, 1500);
@@ -625,6 +653,8 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
       aplicados: number;
       no_emparejados: string[];
       dudas: string[];
+      banderas: string[];
+      sin_referencia: number;
       fecha_detectada: string | null;
       modelo: string | null;
       modelo_pesos: string | null;
@@ -633,13 +663,23 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
       warning: string | null;
     } | null = null;
     if (fotosLotes.length > 0) {
-      const unavailable = { data: {}, success: false, model: null, warning: "OPENROUTER_API_KEY no configurada" };
+      const visionProviders: VisionProviders = {
+        openRouterKey: OPENROUTER_API_KEY ?? null,
+        openRouterModel: OPENROUTER_VISION_MODEL,
+      };
+      const visionReady = Boolean(visionProviders.openRouterKey);
+      const unavailable = {
+        data: {},
+        success: false,
+        model: null,
+        warning: "Sin lector de fotos configurado (OPENROUTER_API_KEY)",
+      };
       const [vision, weightVision] = await Promise.all([
-        OPENROUTER_API_KEY
-          ? callVisionFotoLotes(fotosLotes, OPENROUTER_API_KEY, OPENROUTER_VISION_MODEL, String(parte.date ?? ""), "full")
+        visionReady
+          ? callVisionFotoLotes(fotosLotes, visionProviders, String(parte.date ?? ""), "full")
           : Promise.resolve(unavailable),
-        OPENROUTER_API_KEY && visionWeightCrops.length > 0
-          ? callVisionFotoLotes(visionWeightCrops, OPENROUTER_API_KEY, OPENROUTER_VISION_MODEL, String(parte.date ?? ""), "weights")
+        visionReady && visionWeightCrops.length > 0
+          ? callVisionFotoLotes(visionWeightCrops, visionProviders, String(parte.date ?? ""), "weights")
           : Promise.resolve({ data: {}, success: false, model: null, warning: null }),
       ]);
       const fechaEsperada = normalizeVisionDate(parte.date);
@@ -652,13 +692,18 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
       let aplicados = 0;
       const noEmparejados: string[] = [];
       const dudasLectura: string[] = [];
+      const banderas: string[] = [];
+      let sinReferencia = 0;
       if (items.length > 0) {
         const { data: lotesRows } = await admin
           .from("lotes_dia")
-          .select("id, lote_codigo, productor, notas, kg_industria, kg_precalibrado_z1, kg_precalibrado_z2")
+          .select("id, lote_codigo, productor, notas, kg_industria, kg_precalibrado_z1, kg_precalibrado_z2, kg_peso_total")
           .eq("part_id", part_id);
         const norm8 = (s: unknown) => String(s ?? "").match(/\d{8}/)?.[0] ?? null;
         const normTxt = (s: unknown) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().trim();
+
+        // ── Fase 1: emparejar cada lectura con su lote del parte ────────────
+        const pares: Array<ParLoteFoto & { trozos: string[] }> = [];
         for (const item of items) {
           const code = norm8(item.lote_codigo);
           const dudasItem = Array.isArray(item.dudas)
@@ -677,53 +722,42 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
             noEmparejados.push(code ?? (String(item.productor ?? "").trim() || "sin identificar"));
             continue;
           }
-          const patch: Record<string, unknown> = {};
-          const kgInd = parseVisionKg(item.kg_industria);
-          const kgP1 = parseVisionKg(item.kg_prec1);
-          const kgP2 = parseVisionKg(item.kg_prec2);
-          if (kgInd > 0) patch.kg_industria = kgInd;
-          if (kgP1 > 0) patch.kg_precalibrado_z1 = kgP1;
-          if (kgP2 > 0) patch.kg_precalibrado_z2 = kgP2;
-          const trozos: string[] = [];
-          const comentario = String(item.comentario ?? "").trim();
-          if (comentario) trozos.push(comentario);
-          const incidencias = Array.isArray(item.incidencias)
-            ? item.incidencias.map((v: unknown) => String(v ?? "").trim()).filter(Boolean)
-            : [];
-          for (const incidencia of incidencias) trozos.push(`Incidencia: ${incidencia}`);
-          const movimientos = Array.isArray(item.movimientos_box) ? item.movimientos_box : [];
-          for (const movimiento of movimientos) {
-            const textoOriginal = String(movimiento?.texto_original ?? "").trim();
-            if (textoOriginal) {
-              trozos.push(`Box: ${textoOriginal}`);
-              continue;
-            }
-            const boxes = parseVisionKg(movimiento?.boxes);
-            const destino = visionBoxDestination(movimiento?.destino);
-            const kgTotal = parseVisionKg(movimiento?.kg_total);
-            const pesoPorBox = parseVisionDecimal(movimiento?.peso_por_box_kg);
-            const categoria = String(movimiento?.categoria ?? "").trim();
-            const partesMovimiento = [
-              boxes > 0 ? `${boxes} box` : "Movimiento de box",
-              destino ? `a ${destino}` : "",
-              kgTotal > 0 ? `(${kgTotal} kg totales)` : "",
-              pesoPorBox > 0 ? `(${formatVisionNumber(pesoPorBox)} kg/box)` : "",
-              categoria ? `[${categoria}]` : "",
-            ].filter(Boolean);
-            trozos.push(partesMovimiento.join(" "));
-          }
-          // Compatibilidad con respuestas del esquema anterior. Solo se usa
-          // cuando el modelo no ha devuelto movimientos con destino.
-          const boxes = parseVisionKg(item.boxes_echados);
-          if (movimientos.length === 0 && boxes > 0) trozos.push(`Se echaron ${boxes} box (destino no identificado)`);
-          const juntado = String(item.juntado_con ?? "").trim();
-          if (juntado) trozos.push(`JUNTADO CON ${juntado}`);
-          if (trozos.length > 0) {
-            const notaFoto = Array.from(new Set(trozos.map((t) => t.trim()).filter(Boolean))).join(" · ");
-            patch.notas = notaFoto;
-          }
+          pares.push({
+            item,
+            fila: {
+              id: String((row as any).id),
+              lote_codigo: (row as any).lote_codigo ?? null,
+              kg_peso_total: Number((row as any).kg_peso_total) || 0,
+            },
+            trozos: construirTrozosNota(item),
+          });
+        }
+
+        // ── Fase 2: red aritmética ──────────────────────────────────────────
+        // Los kilos leídos se cruzan con los del calibrador antes de escribir
+        // nada. Lo que no cuadra no se aplica: sale como bandera.
+        const revision = revisarCoherenciaFoto(pares, {
+          kgProduccionParte: Number(update.kg_produccion_calibrador) || 0,
+        });
+        banderas.push(...revision.banderas);
+        sinReferencia = revision.sinReferencia;
+
+        // ── Fase 3: escribir ────────────────────────────────────────────────
+        // Se agrupa por lote para que dos lecturas del mismo lote no se pisen
+        // la nota (antes ganaba la última en silencio).
+        const trozosPorLote = new Map<string, string[]>();
+        for (const par of pares) {
+          const previos = trozosPorLote.get(par.fila.id) ?? [];
+          trozosPorLote.set(par.fila.id, [...previos, ...par.trozos]);
+        }
+        for (const [loteId, trozos] of trozosPorLote) {
+          const revisionLote = revision.porLote.get(loteId);
+          const patch: Record<string, unknown> = { ...(revisionLote?.kg ?? {}) };
+          if (revisionLote?.banderas.length) banderas.push(...revisionLote.banderas);
+          const notaFoto = Array.from(new Set(trozos.map((t) => t.trim()).filter(Boolean))).join(" · ");
+          if (notaFoto) patch.notas = notaFoto;
           if (Object.keys(patch).length === 0) continue;
-          await admin.from("lotes_dia").update(patch).eq("id", (row as any).id);
+          await admin.from("lotes_dia").update(patch).eq("id", loteId);
           aplicados += 1;
         }
       }
@@ -733,6 +767,8 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
         aplicados,
         no_emparejados: noEmparejados,
         dudas: dudasLectura,
+        banderas,
+        sin_referencia: sinReferencia,
         fecha_detectada: fechaDetectada,
         modelo: vision.model,
         modelo_pesos: weightVision.model,
@@ -755,6 +791,18 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
       console.log(`[FOTO] lotes actualizados desde la foto: ${fotoResumen.aplicados}/${fotoResumen.extraidos}; modelo=${fotoResumen.modelo ?? "ninguno"}`);
     }
 
+    // Sin calibres no hay desglose por calibre ni reparto por destino (% de
+    // exportación incluido) en ninguna pantalla: es un fallo mudo que ya costó
+    // tres días de campaña, así que se avisa explícitamente.
+    const nCalibres = Array.isArray(aiData.calibres_detalle) ? aiData.calibres_detalle.length : 0;
+    const nProducto = Array.isArray(aiData.producto_detalle) ? aiData.producto_detalle.length : 0;
+    if (nCalibres === 0) {
+      avisos.push(
+        "No se ha encontrado la tabla de calibres (informe de TAMAÑOS / CLASE Y CALIDAD): " +
+        "este día se queda sin desglose por calibre ni por destino (% exportación).",
+      );
+    }
+
     return json({
       message: aiWarning ? "Server-side OK; IA: " + aiWarning : "OK: " + files.length + " archivo(s)",
       parte_actualizado: true,
@@ -763,11 +811,14 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
         lotes: serverLotes.length,
         palets: Array.isArray(aiData.palets_detalle) ? aiData.palets_detalle.length : serverPalets.length,
         campo: (serverPalets as any[]).filter((p: any) => p.es_campo).length,
+        calibres: nCalibres,
+        producto: nProducto,
         ...(fotoResumen ? { foto_lotes: fotoResumen } : {}),
       },
       server_side: server,
       ai: aiData,
       ai_warning: aiWarning,
+      avisos,
       vision_warning: fotoResumen?.warning ?? null,
     });
   } catch (e) {
@@ -1190,6 +1241,48 @@ No uses fechas, Nº envases, pesos impresos, RESTO BOX, densidad ni cifras de co
 Responde SOLO JSON:
 {"lotes_pesos":[{"lote_codigo":"","kg_industria":0,"kg_prec1":0,"kg_prec2":0,"texto_industria":"","texto_prec1":"","texto_prec2":"","confianza":0.0,"dudas":[]}]}`;
 
+/**
+ * Convierte una lectura de la foto en los trozos de texto de la nota del lote.
+ * Solo texto: los kilos pasan antes por la red aritmética.
+ */
+function construirTrozosNota(item: any): string[] {
+  const trozos: string[] = [];
+  const comentario = String(item?.comentario ?? "").trim();
+  if (comentario) trozos.push(comentario);
+  const incidencias = Array.isArray(item?.incidencias)
+    ? item.incidencias.map((v: unknown) => String(v ?? "").trim()).filter(Boolean)
+    : [];
+  for (const incidencia of incidencias) trozos.push(`Incidencia: ${incidencia}`);
+  const movimientos = Array.isArray(item?.movimientos_box) ? item.movimientos_box : [];
+  for (const movimiento of movimientos) {
+    const textoOriginal = String(movimiento?.texto_original ?? "").trim();
+    if (textoOriginal) {
+      trozos.push(`Box: ${textoOriginal}`);
+      continue;
+    }
+    const boxes = parseVisionKg(movimiento?.boxes);
+    const destino = visionBoxDestination(movimiento?.destino);
+    const kgTotal = parseVisionKg(movimiento?.kg_total);
+    const pesoPorBox = parseVisionDecimal(movimiento?.peso_por_box_kg);
+    const categoria = String(movimiento?.categoria ?? "").trim();
+    const partesMovimiento = [
+      boxes > 0 ? `${boxes} box` : "Movimiento de box",
+      destino ? `a ${destino}` : "",
+      kgTotal > 0 ? `(${kgTotal} kg totales)` : "",
+      pesoPorBox > 0 ? `(${formatVisionNumber(pesoPorBox)} kg/box)` : "",
+      categoria ? `[${categoria}]` : "",
+    ].filter(Boolean);
+    trozos.push(partesMovimiento.join(" "));
+  }
+  // Compatibilidad con respuestas del esquema anterior. Solo se usa cuando el
+  // modelo no ha devuelto movimientos con destino.
+  const boxes = parseVisionKg(item?.boxes_echados);
+  if (movimientos.length === 0 && boxes > 0) trozos.push(`Se echaron ${boxes} box (destino no identificado)`);
+  const juntado = String(item?.juntado_con ?? "").trim();
+  if (juntado) trozos.push(`JUNTADO CON ${juntado}`);
+  return trozos;
+}
+
 function sanitizeVisionCrops(value: unknown): Array<{ mime: string; b64: string }> {
   if (!Array.isArray(value)) return [];
   const result: Array<{ mime: string; b64: string }> = [];
@@ -1218,27 +1311,8 @@ function normalizeVisionDate(value: unknown): string | null {
   return null;
 }
 
-function parseVisionKg(value: unknown): number {
-  if (typeof value === "number") {
-    if (!Number.isFinite(value) || value <= 0) return 0;
-    const rawNumber = String(value);
-    return /^\d{1,3}\.\d{3}$/.test(rawNumber) ? Math.round(value * 1000) : value;
-  }
-  let raw = String(value ?? "").trim().replace(/\s+/g, "");
-  if (!raw) return 0;
-  raw = raw.replace(/kg$/i, "");
-  // En estas hojas el punto suele ser separador de miles: 2.566 = 2566 kg.
-  if (/^\d{1,3}(\.\d{3})+$/.test(raw)) raw = raw.replace(/\./g, "");
-  else raw = raw.replace(",", ".");
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-}
-
-function parseVisionDecimal(value: unknown): number {
-  if (typeof value === "number") return Number.isFinite(value) && value > 0 ? value : 0;
-  const parsed = Number(String(value ?? "").trim().replace(/\s+/g, "").replace(",", "."));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-}
+// parseVisionKg y parseVisionDecimal viven en ../_shared/fotoLotesCoherencia.ts
+// para que los mismos parsers que usa la red aritmética estén bajo test.
 
 function formatVisionNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : String(value).replace(".", ",");
@@ -1321,31 +1395,43 @@ function mergeVisionLotWeights(fullItemsRaw: unknown[], weightItemsRaw: unknown[
   return result;
 }
 
+interface VisionProviders {
+  openRouterKey: string | null;
+  openRouterModel: string;
+}
+
 async function callVisionFotoLotes(
   imagenes: Array<{ mime: string; b64: string }>,
-  openRouterKey: string,
-  preferredModel: string,
+  providers: VisionProviders,
   expectedDate: string,
   mode: "full" | "weights" = "full",
 ): Promise<{ data: any; success: boolean; model: string | null; warning: string | null }> {
   const responseKey = mode === "weights" ? "lotes_pesos" : "lotes_foto";
   const systemPrompt = mode === "weights" ? FOTO_PESOS_PROMPT : FOTO_LOTES_PROMPT;
-  const content: any[] = [{
-    type: "text",
-    text: mode === "weights"
-      ? "Lee exclusivamente las anotaciones I/P1/P2 de estos recortes ampliados."
-      : `Extrae los datos de la(s) hoja(s). La fecha esperada del parte es ${expectedDate || "desconocida"}; aun así, informa la fecha que realmente leas en la imagen.`,
-  }];
+  const userText = mode === "weights"
+    ? "Lee exclusivamente las anotaciones I/P1/P2 de estos recortes ampliados."
+    : `Extrae los datos de la(s) hoja(s). La fecha esperada del parte es ${expectedDate || "desconocida"}; aun así, informa la fecha que realmente leas en la imagen.`;
+  const errors: string[] = [];
+
+  if (!providers.openRouterKey) {
+    return {
+      data: {},
+      success: false,
+      model: null,
+      warning: errors.length ? errors.join(" | ") : "Sin lector de fotos configurado",
+    };
+  }
+  const openRouterKey = providers.openRouterKey;
+  const content: any[] = [{ type: "text", text: userText }];
   for (const img of imagenes) {
     content.push({ type: "image_url", image_url: { url: `data:${img.mime};base64,${img.b64}` } });
   }
   const models = Array.from(new Set([
-    preferredModel,
+    providers.openRouterModel,
     "google/gemma-4-26b-a4b-it:free",
     "google/gemma-4-31b-it:free",
     "openrouter/free",
   ].filter(Boolean)));
-  const errors: string[] = [];
 
   for (const model of models) {
     const controller = new AbortController();
@@ -1405,7 +1491,7 @@ async function callVisionFotoLotes(
     data: {},
     success: false,
     model: null,
-    warning: "No se pudo leer la foto con OpenRouter. " + errors.join(" | "),
+    warning: "No se pudo leer la foto. " + errors.join(" | "),
   };
 }
 
