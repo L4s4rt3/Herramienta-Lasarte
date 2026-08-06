@@ -150,17 +150,51 @@ function buildTrabajadorIndex<T extends { id: string; nombre: string }>(
   return { byId, byName, byTokenKey };
 }
 
+/** Tokens compartidos que debe haber, como minimo, para aceptar una coincidencia por subconjunto. */
+const MIN_TOKENS_SUBCONJUNTO = 2;
+
+/**
+ * Coincidencias por SUBCONJUNTO de tokens: uno de los dos nombres contiene
+ * entero al otro. Es lo que hace falta para casar el nombre legal completo del
+ * fichaje ("CHAPARRO CARMONA, RUBEN", con los dos apellidos) con el nombre
+ * corto de la plantilla ("Rubén Chaparro") — el conjunto de tokens no es
+ * identico, pero uno esta contenido en el otro.
+ *
+ * Exige al menos dos tokens en comun (un solo apellido o un solo nombre de pila
+ * no identifica a nadie) y NO decide cuando hay varios candidatos: en ese caso
+ * devuelve todos y quien llama lo trata como ambiguo, que es lo correcto —
+ * "Sandra" sola no puede elegir entre Sandra León y Sandra Naranjo.
+ */
+function resolverPorSubconjuntoDeTokens<T extends { id: string; nombre: string; activo: boolean }>(
+  name: string,
+  trabajadores: readonly T[],
+): T[] {
+  const inputTokens = new Set(tokensOf(name));
+  if (inputTokens.size < MIN_TOKENS_SUBCONJUNTO) return [];
+
+  return trabajadores.filter((trabajador) => {
+    const candidateTokens = new Set(tokensOf(trabajador.nombre));
+    if (candidateTokens.size < MIN_TOKENS_SUBCONJUNTO) return false;
+    const [pequeno, grande] = inputTokens.size <= candidateTokens.size
+      ? [inputTokens, candidateTokens]
+      : [candidateTokens, inputTokens];
+    for (const token of pequeno) {
+      if (!grande.has(token)) return false;
+    }
+    return true;
+  });
+}
+
 /**
  * Resuelve UN nombre ya aislado (p.ej. una celda de Excel, sin separadores de
  * lista) contra el indice de trabajadores: nombre normalizado exacto, luego
  * conjunto de tokens (soporta "Apellido, Nombre" / orden invertido / comas
- * dentro del propio nombre), y por ultimo alias aprendido.
+ * dentro del propio nombre), luego alias aprendido, y por ultimo subconjunto
+ * de tokens (nombre legal completo del fichaje vs nombre corto de plantilla).
  */
 function resolveUnNombre<T extends { id: string; nombre: string; activo: boolean }>(
   name: string,
-  // El listado completo ya viene indexado en `index`; se mantiene el parametro
-  // por legibilidad de las llamadas pero no se usa directamente.
-  _trabajadores: readonly T[],
+  trabajadores: readonly T[],
   index: TrabajadorIndex<T>,
   aliasPorNombre?: ReadonlyMap<string, string>,
 ): T[] {
@@ -174,11 +208,16 @@ function resolveUnNombre<T extends { id: string; nombre: string; activo: boolean
     workers = index.byTokenKey.get(tokenSetKey(name)) ?? [];
   }
 
-  // Capa de alias aprendido: resuelve por alias antes de rendirse.
+  // Capa de alias aprendido: manda sobre la heuristica de subconjunto, porque
+  // es una decision explicita del dueño.
   if (workers.length === 0 && aliasPorNombre) {
     const aliasId = aliasPorNombre.get(normalized) ?? aliasPorNombre.get(tokenSetKey(name));
     const aliasTrabajador = aliasId ? index.byId.get(aliasId) : undefined;
     if (aliasTrabajador) workers = [aliasTrabajador];
+  }
+
+  if (workers.length === 0) {
+    workers = resolverPorSubconjuntoDeTokens(name, trabajadores);
   }
 
   return workers;

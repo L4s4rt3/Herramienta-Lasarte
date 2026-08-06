@@ -855,7 +855,7 @@ export default function Asistencia() {
         return;
       }
 
-      const records = buildAttendanceRecords(nombresImport, activos, user.id, selectedDate)
+      const records = buildAttendanceRecords(nombresImport, activos, user.id, selectedDate, aliasPorNombre)
         .map((record) => ({ ...record, motivo_ausencia: null }));
 
       await upsertRegistros.mutateAsync(records);
@@ -923,7 +923,7 @@ export default function Asistencia() {
       }
 
       const records = days
-        .flatMap((day) => buildAttendanceRecords(day.names, activos, user.id, day.date))
+        .flatMap((day) => buildAttendanceRecords(day.names, activos, user.id, day.date, aliasPorNombre))
         .map((record) => ({ ...record, motivo_ausencia: null }));
       if (records.length === 0) {
         toast({ title: "No hay registros para importar", variant: "destructive" });

@@ -1,3 +1,5 @@
+import { resolveTrabajadoresPorLista } from "@/lib/asistenciaTrabajadores";
+
 export type AttendanceWorker = {
   id: string;
   nombre: string;
@@ -72,34 +74,10 @@ export function cleanAttendanceName(value: string) {
     .trim();
 }
 
-function wordSet(value: string) {
-  return cleanAttendanceName(value).split(" ").filter((word) => word.length >= 2).sort();
-}
-
-function wordsMatch(a: string, b: string) {
-  if (a === b || a.includes(b) || b.includes(a)) return true;
-  let prefixLen = 0;
-  const minLen = Math.min(a.length, b.length);
-  for (let i = 0; i < minLen; i++) {
-    if (a[i] === b[i]) prefixLen++;
-    else break;
-  }
-  return prefixLen >= 4;
-}
-
-export function matchAttendanceName(excelName: string, dbName: string) {
-  const excelWords = wordSet(excelName);
-  const dbWords = wordSet(dbName);
-  if (!excelWords.length || !dbWords.length) return false;
-
-  let hits = 0;
-  for (const dbWord of dbWords) {
-    if (excelWords.some((excelWord) => wordsMatch(excelWord, dbWord))) hits++;
-  }
-  const score = hits / dbWords.length;
-  const neededFromExcel = Math.min(excelWords.length, 2) / Math.max(excelWords.length, 1);
-  return score >= Math.max(0.5, neededFromExcel);
-}
+// El emparejador difuso que vivía aquí (matchAttendanceName: solape de
+// palabras con umbral 0,5 y prefijos de 4 letras) se eliminó el 06-08-2026: el
+// único consumidor era buildAttendanceRecords, que ahora usa el resolvedor
+// estricto compartido con el panel de nombres sin vincular. Ver su jsdoc.
 
 export function parseAttendanceDate(value: unknown, defaultYear = new Date().getFullYear()) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
@@ -266,16 +244,38 @@ export function extractWeeklyAttendance(rows: unknown[][], defaultYear = new Dat
   return mapToWeeklyDays(dayMap);
 }
 
+/**
+ * Marca presente a cada trabajador cuyo nombre resuelva contra la lista leída
+ * del Excel.
+ *
+ * Usa EXACTAMENTE el mismo resolvedor que el panel de "nombres sin vincular"
+ * (resolveTrabajadoresPorLista): antes había dos emparejadores distintos —
+ * este escribía con una heurística difusa por prefijos de 4 letras y el panel
+ * informaba con el estricto — así que lo guardado y lo informado no
+ * coincidían. La heurística difusa marcaba presente a gente que no estaba en
+ * el fichaje ("CHAPARRO CARMONA, RUBEN" casaba también con "Carmen Carmelia
+ * Oprea" por el prefijo CARM).
+ *
+ * Un nombre ambiguo (casa con varios trabajadores) NO marca a nadie: sale en
+ * el panel para que el dueño lo vincule a mano.
+ */
 export function buildAttendanceRecords(
   names: string[],
   workers: AttendanceWorker[],
   userId: string,
   date: string,
+  aliasPorNombre?: ReadonlyMap<string, string>,
 ): AttendanceImportRecord[] {
+  // Los llamantes ya filtran por activo; aquí solo hace falta la forma que
+  // pide el resolvedor compartido.
+  const candidatos = workers.map((worker) => ({ ...worker, activo: true }));
+  const resolucion = resolveTrabajadoresPorLista(candidatos, names, aliasPorNombre);
+  const presentes = new Set(resolucion.matches.map((match) => match.trabajador.id));
+
   return workers.map((worker) => ({
     user_id: userId,
     date,
     trabajador_id: worker.id,
-    presente: names.some((name) => matchAttendanceName(name, worker.nombre)),
+    presente: presentes.has(worker.id),
   }));
 }

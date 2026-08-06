@@ -82,7 +82,7 @@ export function CardAsistenciaHoras({ archivos }: Props) {
     try {
       const activos = trabajadores.filter((t) => t.activo);
       const records = dias
-        .flatMap((dia) => buildAttendanceRecords(dia.names, activos, user.id, dia.date))
+        .flatMap((dia) => buildAttendanceRecords(dia.names, activos, user.id, dia.date, aliasPorNombre))
         .map((record) => ({ ...record, motivo_ausencia: null }));
 
       if (records.length === 0) {
