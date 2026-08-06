@@ -296,6 +296,28 @@ export function clasificarArchivoBandeja(entrada: EntradaBandeja): ArchivoClasif
   // match real (cabecera de lote válida) — se devuelve ahora.
   if (pendienteLoteVacio) return pendienteLoteVacio;
 
+  // ─── 1i. Catálogo de métodos por NOMBRE, ANTES de Mercadona ────────────────
+  // El catálogo mensual de métodos del ERP ("metodo de confeccion.xlsx") y la
+  // hoja semanal de Mercadona comparten EXACTAMENTE las mismas columnas
+  // (método + descripción + líneas + kilos + base IVA): por contenido son
+  // indistinguibles, y dejar que Mercadona (paso 2) lo reclamara creaba una
+  // semana Mercadona FALSA con las ventas del mes entero y dejaba coja la
+  // tarjeta de ventas mensuales, que exige el catálogo (caso real 05-08-2026).
+  // Cuando el NOMBRE dice "métodos de confección" y el contenido parsea como
+  // catálogo, gana el catálogo: ninguna hoja semanal real se llama así.
+  if (
+    detectVentasMensualFileKind(fileName).kind === "metodos-catalogo" &&
+    intentar(() => detectVentasMensualContentKind(primeraHoja)) === "metodos-catalogo"
+  ) {
+    return {
+      fileName,
+      tipo: "ventas-metodos-catalogo",
+      n: contarFilasNoVacias(primeraHoja),
+      motivo: "Ventas mensuales: catálogo de métodos de confección (por nombre y contenido; mismo formato de columnas que la hoja semanal de Mercadona, el nombre desempata).",
+      payload: primeraHoja,
+    };
+  }
+
   // ─── 2. Mercadona semanal (necesita TODAS las hojas + el año) ──────────────
   const resMercadona = intentar(() => parseMercadonaWorkbook(sheets as Record<string, SheetRows>, anio, fileName));
   if (resMercadona && resMercadona.semanas.length > 0) {

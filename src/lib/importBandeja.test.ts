@@ -270,6 +270,28 @@ describe("clasificarArchivoBandeja — solapamientos", () => {
     expect(r.tipo).toBe("ventas-metodo");
     expect(r.codigoMetodo).toBe("LN211");
   });
+
+  // ── Caso real 05-08-2026: el catálogo mensual de métodos del ERP y la hoja
+  // semanal de Mercadona tienen LAS MISMAS columnas; Mercadona se quedaba el
+  // catálogo y creaba una semana falsa con las ventas del mes. El nombre del
+  // fichero desempata. ────────────────────────────────────────────────────────
+  const GRID_METODOS_ERP: unknown[][] = [
+    ["Método", "Descripción", "Líneas", "KILOS", "UNID", "LITROS", "Base Iva"],
+    ["", "", 77, 456875, 240, 0, 75367.08], // fila TOTAL (método vacío), tal cual la exporta el ERP
+    ["L002", "JUARRANZ EMP 10 KG", 6, 8843, 0, 0, 6774.86],
+    ["MA12KGC", "GENERICA GRANEL 12", 16, 18148, 0, 0, 25588.68],
+  ];
+
+  it("'metodo de confeccion.xlsx' sale ventas-metodos-catalogo, NO mercadona-semanal (mismas columnas, el nombre manda)", () => {
+    const r = clasificarArchivoBandeja(entrada("metodo de confeccion.xlsx", { "Sheet 1": GRID_METODOS_ERP }));
+    expect(r.tipo).toBe("ventas-metodos-catalogo");
+    expect(r.tipo).not.toBe("mercadona-semanal");
+  });
+
+  it("el MISMO grid con nombre de semana ('semana 30.xlsx') sigue saliendo mercadona-semanal", () => {
+    const r = clasificarArchivoBandeja(entrada("semana 30.xlsx", { "Sheet 1": GRID_METODOS_ERP }));
+    expect(r.tipo).toBe("mercadona-semanal");
+  });
 });
 
 describe("clasificarArchivoBandeja — extensiones no soportadas y casos borde", () => {
