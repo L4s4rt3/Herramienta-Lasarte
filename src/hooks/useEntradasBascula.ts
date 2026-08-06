@@ -21,6 +21,10 @@ import { normalizarLoteCodigo } from "@/lib/loteCodigo";
 import { esEntradaCampoCit, esEntradaPrecalibrado, esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
 import { esNotaOperarioLote } from "@/lib/trazabilidadSelector";
 import { agruparAnotacionesPorLoteDia, construirLoteCodigoEfectivo, type PasadaAnotacionRow } from "@/lib/pasadaAnotaciones";
+import { expandirPasadaPorDesglose } from "@/lib/desgloseBox";
+import {
+  agruparLineasBoxPorLoteDia, fetchPasadaBoxLineas, lineaDesdeRow, PASADA_BOX_LINEAS_KEY,
+} from "@/hooks/usePasadaBoxLineas";
 import {
   aplicarCinturonYTirantes,
   construirCicloVidaCampana,
@@ -640,6 +644,21 @@ export function useEntradasBascula() {
     [anotacionesQuery.data],
   );
 
+  // Desglose por box de las pasadas (tabla pasada_box_lineas). MISMA clave de
+  // react-query que usePasadaBoxLineas (la del parte del día): una sola caché
+  // y un solo viaje a red, aunque las dos pantallas estén abiertas. Degrada a
+  // lista vacía si la migración 20260806120000 aún no está aplicada.
+  const lineasBoxQuery = useQuery({
+    queryKey: PASADA_BOX_LINEAS_KEY,
+    queryFn: fetchPasadaBoxLineas,
+    enabled: Boolean(user),
+  });
+
+  const lineasBoxPorLoteDia = useMemo(
+    () => agruparLineasBoxPorLoteDia(lineasBoxQuery.data ?? []),
+    [lineasBoxQuery.data],
+  );
+
   const pasadasConAnotaciones = useMemo((): LoteProcesadoConCalidad[] => {
     const crudas = procesadosQuery.data?.procesados ?? [];
     if (anotacionesPorLoteDia.size === 0) return crudas; // caso normal: 0 coste, mismo array
@@ -649,6 +668,24 @@ export function useEntradasBascula() {
       return { ...p, lote_codigo: construirLoteCodigoEfectivo(p.lote_codigo, filas.map((f) => f.codigo_extra)) };
     });
   }, [procesadosQuery.data, anotacionesPorLoteDia]);
+
+  // ─── Desglose por box: 2ª inyección ANTES del motor (encargo 06-08-2026) ───
+  // Ver src/lib/desgloseBox.ts. Cuando el dueño ha dicho a mano qué lotes se
+  // echaron en una pasada y cuántos box de cada uno, esa pasada se sustituye
+  // por tantas pasadas SINTÉTICAS como lotes atribuidos, ya con sus kg
+  // repartidos: para `conciliarKgProcesados` son pasadas normales de código
+  // simple y el motor sigue sin saber nada de esta tabla. Se aplica DESPUÉS de
+  // las anotaciones (un desglose explícito manda sobre el reparto por
+  // capacidad de los códigos anotados) y solo cuando el desglose ya atribuye
+  // algo — ver el cinturón de expandirPasadaPorDesglose.
+  const pasadasConDesgloseBox = useMemo((): LoteProcesadoConCalidad[] => {
+    if (lineasBoxPorLoteDia.size === 0) return pasadasConAnotaciones; // caso normal: mismo array
+    return pasadasConAnotaciones.flatMap((p) => {
+      const filas = lineasBoxPorLoteDia.get(p.id);
+      if (!filas || filas.length === 0) return [p];
+      return expandirPasadaPorDesglose(p, filas.map(lineaDesdeRow));
+    });
+  }, [pasadasConAnotaciones, lineasBoxPorLoteDia]);
 
   /**
    * Pasadas CRUDAS agrupadas por su PRIMER código (tal cual las escribió el
@@ -690,11 +727,11 @@ export function useEntradasBascula() {
     });
     return conciliarKgProcesados(
       [...entradas.map((e) => aConciliacion(e, false)), ...entradasPrecalibrado.map((e) => aConciliacion(e, true))],
-      pasadasConAnotaciones,
+      pasadasConDesgloseBox,
       procesadosQuery.data?.reciclajePorDia ?? [],
       lotesConfirmadosEnCamara,
     );
-  }, [entradas, entradasPrecalibrado, pasadasConAnotaciones, procesadosQuery.data, lotesConfirmadosEnCamara]);
+  }, [entradas, entradasPrecalibrado, pasadasConDesgloseBox, procesadosQuery.data, lotesConfirmadosEnCamara]);
 
   // ─── Señales de calidad por lote: % industria y notas del operario ─────────
   // (para la ficha, la tabla del selector y la búsqueda por síntoma —

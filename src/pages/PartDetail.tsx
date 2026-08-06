@@ -30,6 +30,7 @@ import {
 } from "@/lib/asistenciaRendimiento";
 import { calcularRendimientoZonasAlmacen } from "@/lib/asistenciaPlantilla";
 import { useLimpiezaJornadaFueraLinea } from "@/hooks/useLimpiezaJornadaFueraLinea";
+import { usePasadaBoxLineas } from "@/hooks/usePasadaBoxLineas";
 import {
   attachmentCountMap, calidadSummary, buildCalidadIncidentRows,
   type CalidadAdjunto, type CalidadEstado, type CalidadLote,
@@ -414,6 +415,11 @@ export default function PartDetail() {
       return (data ?? []) as unknown as import("@/components/PartDetailLotes").LoteDelDia[];
     },
   });
+
+  // Desglose por box de las pasadas del día (encargo del dueño 06-08-2026):
+  // qué lotes se echaron en cada pasada y cuántos box de cada uno. Ver
+  // src/lib/desgloseBox.ts. Degrada solo si la migración no está aplicada.
+  const desgloseBox = usePasadaBoxLineas();
 
   async function saveLoteUpdate(loteId: string, patch: { notas?: string | null; kg_industria?: number; kg_precalibrado_z1?: number; kg_precalibrado_z2?: number }) {
     // kg_precalibrado_z1/z2: columnas de la migración 20260722100000, aún no
@@ -1019,6 +1025,14 @@ export default function PartDetail() {
         loading={lotesLoading}
         readOnly={readOnly}
         onLoteUpdate={saveLoteUpdate}
+        fechaParte={parte.date}
+        desglose={{
+          lineasDe: desgloseBox.lineasDe,
+          reentradasPrec: desgloseBox.reentradasPrec,
+          codigosBascula: desgloseBox.codigosBascula,
+          entradaPorCodigo: desgloseBox.entradaPorCodigo,
+          guardar: desgloseBox.guardarDesglose,
+        }}
       />
 
       {/* ─── Destino de fruta + Rendimiento por zonas ───────────────────── */}

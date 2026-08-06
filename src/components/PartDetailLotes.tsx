@@ -1,12 +1,16 @@
-import { useEffect, useState } from "react";
+import { Fragment, useMemo, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { InfoTooltip } from "@/components/InfoTooltip";
 import { formatKg } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Layers } from "lucide-react";
+import { Boxes, Layers } from "lucide-react";
+import { DesglosarPasadaDialog } from "@/components/DesglosarPasadaDialog";
+import { repartirPasadaPorBox, type LineaDesglose, type ReentradaPrecCandidata } from "@/lib/desgloseBox";
+import type { EntradaParaDesglose } from "@/hooks/usePasadaBoxLineas";
 
 export interface LoteDelDia {
   id: string;
@@ -25,11 +29,31 @@ export interface LoteDelDia {
 
 export type LotePatch = Partial<Pick<LoteDelDia, "notas" | "kg_industria" | "kg_precalibrado_z1" | "kg_precalibrado_z2">>;
 
+/**
+ * Desglose por box de las pasadas (encargo del dueño 06-08-2026): lo que hace
+ * falta para poder abrir una pasada y decir qué lotes se echaron en ella. Es
+ * opcional — sin él, la tabla es exactamente la de siempre.
+ */
+export interface DesgloseBoxProps {
+  /** Líneas ya guardadas de una pasada (usePasadaBoxLineas). */
+  lineasDe: (loteDiaId: string) => LineaDesglose[];
+  reentradasPrec: ReentradaPrecCandidata[];
+  codigosBascula: Set<string>;
+  entradaPorCodigo: Map<string, EntradaParaDesglose>;
+  guardar: {
+    mutateAsync: (v: { loteDiaId: string; lineas: LineaDesglose[] }) => Promise<{ guardadas: number }>;
+    isPending: boolean;
+  };
+}
+
 interface PartDetailLotesProps {
   lotes: LoteDelDia[];
   loading: boolean;
   readOnly: boolean;
   onLoteUpdate: (loteId: string, patch: LotePatch) => void;
+  /** Fecha del parte: da el año a las fechas "22/07" con que se nombra el precalibrado. */
+  fechaParte?: string;
+  desglose?: DesgloseBoxProps;
 }
 
 function tphClass(tph: number | null) {
@@ -101,9 +125,40 @@ function LoteKgField({ loteId, campo, initialValue, readOnly, onSave }: {
   );
 }
 
-export default function PartDetailLotes({ lotes, loading, readOnly, onLoteUpdate }: PartDetailLotesProps) {
+/** Etiqueta de una línea del desglose: el lote, el precalibrado por fecha o el reciclaje. */
+function etiquetaLinea(linea: LineaDesglose): string {
+  // El "reciclaje" cubre todo lo que entra a línea sin ser de un lote nuevo
+  // (reciclaje, descarte, desmontaje, Egipto): la nota dice cuál era.
+  if (linea.tipo === "reciclaje") return linea.nota?.trim() || "Reciclaje";
+  if (linea.lote_codigo) return linea.lote_codigo;
+  if (linea.prec_fecha) return `PREC ${linea.prec_fecha.slice(8, 10)}/${linea.prec_fecha.slice(5, 7)}`;
+  return "—";
+}
+
+export default function PartDetailLotes({
+  lotes, loading, readOnly, onLoteUpdate, fechaParte, desglose,
+}: PartDetailLotesProps) {
   const totalIndustria = lotes.reduce((s, l) => s + (Number(l.kg_industria) || 0), 0);
   const totalPrec = lotes.reduce((s, l) => s + (Number(l.kg_precalibrado_z1) || 0) + (Number(l.kg_precalibrado_z2) || 0), 0);
+
+  const [pasadaADesglosar, setPasadaADesglosar] = useState<LoteDelDia | null>(null);
+
+  // Reparto ya calculado de cada pasada desglosada: lo consumen la tabla, las
+  // tarjetas de móvil y el resumen de la cabecera sin recalcular tres veces.
+  const repartoPorLote = useMemo(() => {
+    const mapa = new Map<string, ReturnType<typeof repartirPasadaPorBox>>();
+    if (!desglose) return mapa;
+    for (const l of lotes) {
+      const lineas = desglose.lineasDe(l.id);
+      if (lineas.length > 0) mapa.set(l.id, repartirPasadaPorBox(Number(l.kg_peso_total) || 0, lineas));
+    }
+    return mapa;
+  }, [lotes, desglose]);
+
+  const puedeDesglosar = Boolean(desglose && fechaParte);
+
+  /** Sub-filas del desglose de una pasada (mismo contenido en tabla y en móvil). */
+  const filasDesglose = (loteId: string) => repartoPorLote.get(loteId)?.lineas ?? [];
 
   return (
     <Card className="glass-accented overflow-hidden">
@@ -157,11 +212,13 @@ export default function PartDetailLotes({ lotes, loading, readOnly, onLoteUpdate
                     <th className="px-4 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">PREC 1</th>
                     <th className="px-4 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">PREC 2</th>
                     <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Nota del lote</th>
+                    {puedeDesglosar && <th className="px-4 py-3" />}
                   </tr>
                 </thead>
                 <tbody>
                   {lotes.map((l) => (
-                    <tr key={l.id}>
+                    <Fragment key={l.id}>
+                    <tr>
                       <td className="px-4 py-3 font-medium whitespace-nowrap">
                         {l.lote_codigo ? (
                           <Link to={`/trazabilidad?lote=${encodeURIComponent(l.lote_codigo)}`} className="hover:text-primary hover:underline">
@@ -202,7 +259,45 @@ export default function PartDetailLotes({ lotes, loading, readOnly, onLoteUpdate
                       <td className="px-4 py-3 min-w-[220px]">
                         <LoteNotaField loteId={l.id} initialValue={l.notas ?? ""} readOnly={readOnly} onSave={onLoteUpdate} />
                       </td>
+                      {puedeDesglosar && (
+                        <td className="px-4 py-3 text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 whitespace-nowrap px-2 text-[11px] text-muted-foreground hover:text-primary"
+                            onClick={() => setPasadaADesglosar(l)}
+                          >
+                            <Boxes className="h-3.5 w-3.5" />
+                            {filasDesglose(l.id).length > 0 ? `${filasDesglose(l.id).length} por box` : "Desglosar"}
+                          </Button>
+                        </td>
+                      )}
                     </tr>
+                    {/* Desglose por box: qué se echó de verdad en esta pasada. */}
+                    {filasDesglose(l.id).map((linea, i) => (
+                      <tr key={`${l.id}-box-${i}`} className="bg-[var(--glass-bg)]/40 text-xs">
+                        <td className="px-4 py-1.5 pl-8 text-muted-foreground">
+                          {linea.codigoAtribuido ? (
+                            <Link to={`/trazabilidad?lote=${encodeURIComponent(linea.codigoAtribuido)}`} className="hover:text-primary hover:underline">
+                              ↳ {etiquetaLinea(linea)}
+                            </Link>
+                          ) : (
+                            <span>↳ {etiquetaLinea(linea)}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-1.5 text-muted-foreground" colSpan={2}>
+                          {linea.box == null
+                            ? "sin box indicados"
+                            : `${linea.box} box ${linea.box_tamano === "grande" ? "grandes" : "pequeños"}`}
+                          {!linea.codigoAtribuido && linea.box != null && " · no suma a ningún lote"}
+                        </td>
+                        <td className="px-4 py-1.5 text-right tabular-nums font-medium">
+                          {linea.box == null ? "—" : formatKg(linea.kg)}
+                        </td>
+                        <td colSpan={puedeDesglosar ? 7 : 6} />
+                      </tr>
+                    ))}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -253,12 +348,60 @@ export default function PartDetailLotes({ lotes, loading, readOnly, onLoteUpdate
                   <div className="mt-2">
                     <LoteNotaField loteId={l.id} initialValue={l.notas ?? ""} readOnly={readOnly} onSave={onLoteUpdate} />
                   </div>
+                  {puedeDesglosar && (
+                    <div className="mt-2 space-y-1">
+                      {filasDesglose(l.id).map((linea, i) => (
+                        <div key={`${l.id}-box-${i}`} className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                          <span className="truncate">
+                            ↳ {etiquetaLinea(linea)}
+                            {linea.box != null && ` · ${linea.box} box`}
+                          </span>
+                          <span className="shrink-0 font-medium tabular-nums text-foreground">
+                            {linea.box == null ? "—" : formatKg(linea.kg)}
+                          </span>
+                        </div>
+                      ))}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-full text-xs"
+                        onClick={() => setPasadaADesglosar(l)}
+                      >
+                        <Boxes className="h-3.5 w-3.5" />
+                        {filasDesglose(l.id).length > 0 ? "Editar desglose por box" : "Desglosar por box"}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           </>
         )}
       </CardContent>
+
+      {desglose && fechaParte && pasadaADesglosar && (
+        <DesglosarPasadaDialog
+          open={Boolean(pasadaADesglosar)}
+          onOpenChange={(next) => { if (!next) setPasadaADesglosar(null); }}
+          pasada={{
+            id: pasadaADesglosar.id,
+            lote_codigo: pasadaADesglosar.lote_codigo,
+            kg_peso_total: Number(pasadaADesglosar.kg_peso_total) || 0,
+            date: fechaParte,
+          }}
+          lineasGuardadas={desglose.lineasDe(pasadaADesglosar.id)}
+          reentradasPrec={desglose.reentradasPrec}
+          codigosBascula={desglose.codigosBascula}
+          entradaPorCodigo={desglose.entradaPorCodigo}
+          guardar={desglose.guardar}
+          // A propósito NO se pasa `readOnly`: el desglose por box no modifica
+          // ni un dato del parte (ni la cascada ni el descuadre) — solo reparte
+          // entre lotes kg que el calibrador ya midió. Exigir "Reabrir" el
+          // parte para anotar box sería cambiar su estado por algo que no le
+          // afecta. Mismo criterio que la anotación de pasada
+          // (AnotarPasadaDialog), que tampoco depende del estado del parte.
+        />
+      )}
     </Card>
   );
 }
