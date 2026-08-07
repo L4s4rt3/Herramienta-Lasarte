@@ -10,6 +10,7 @@ import {
 import { detectarTipoClasificacion as detectarGrupoDestinoLote } from "@/lib/destinoClasificacion";
 import { prefijoNumericoLote } from "@/lib/loteCodigo";
 import { esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
+import { mapClasifDetalleCompacto, type ClasifDetalleFila } from "@/lib/clasificacionDetalleCompacta";
 
 // Cast local: lotes_dia.productor_id aun no esta en el Database generado
 // (migracion 20260714090000_productores_canonicos.sql). Mismo patron que
@@ -345,18 +346,61 @@ export interface AnalisisDiarioData {
 /**
  * Techo de partes para los que se baja el detalle de `lote_clasificacion`.
  *
- * POR QUÉ (06-ago-2026): esa tabla ya va por 256.000 filas (~1.100 por parte)
- * y PostgREST solo devuelve 1.000 por petición, así que "Todo el histórico"
- * encadenaba ~257 llamadas y la página se quedaba cargando minutos. Los KPIs,
- * el reparto por destino y los calibres del periodo NO dependen de este
- * detalle: salen de `calibres_dia` (17.000 filas en toda la campaña). El
+ * DOS COSTES DISTINTOS, y hacen falta las dos soluciones (06-ago-2026):
+ *  - TRANSPORTE: la tabla va por 256.000 filas y PostgREST devuelve 1.000 por
+ *    petición → el SELECT paginado eran ~257 llamadas ENCADENADAS. Lo resuelve
+ *    la RPC `lote_clasificacion_detalle_por_partes` (un escalar jsonb, que el
+ *    max-rows no recorta): 60 partes ≈ 66.000 filas en 945 ms.
+ *  - CLIENTE: aunque lleguen rápido, construir 256.000 objetos más los mapas
+ *    de detalle por lote tarda decenas de segundos en el navegador (medido:
+ *    >38 s con "Todo el histórico" y sin terminar). Eso no lo arregla ningún
+ *    transporte: hay que no traerlas.
+ *
+ * Los KPIs, el reparto por destino y los calibres del periodo NO dependen de
+ * este detalle — salen de `calibres_dia`, 17.000 filas en toda la campaña. El
  * detalle solo hace falta para el desglose de UN lote y para recalcular
  * clases/calibres cuando hay un filtro puesto.
  *
- * 30 partes ≈ mes y medio de campaña ≈ 33.000 filas ≈ 33 peticiones: es lo
- * que aguanta bien. Por encima se omite y se avisa.
+ * 30 partes ≈ 33.000 filas: cubre de sobra "4 semanas" (unos 20 partes) y va
+ * en una sola llamada. Por encima se omite y la página lo AVISA en pantalla.
  */
 const MAX_PARTES_CLASIFICACION = 30;
+
+/** Partes por llamada a la RPC. Medido el 06-ago-2026: 60 partes ≈ 66.000 filas en 945 ms. */
+const PARTES_POR_CHUNK = 60;
+/**
+ * Llamadas a la vez. Medido el 30-jul-2026: con 16 en vuelo la instancia
+ * devolvía statement timeout (57014) en todos los chunks; con 4 va sobrada.
+ */
+const CHUNKS_EN_VUELO = 4;
+
+/**
+ * Detalle de clasificación por RPC, troceado por partes y con concurrencia
+ * acotada. Lanza si la función no existe (el llamante decide el respaldo).
+ */
+async function fetchClasificacionDetalleRpc(partIds: string[]): Promise<ClasifDetalleFila[]> {
+  const chunks: string[][] = [];
+  for (let i = 0; i < partIds.length; i += PARTES_POR_CHUNK) {
+    chunks.push(partIds.slice(i, i + PARTES_POR_CHUNK));
+  }
+
+  // Se guarda por índice para que el resultado no dependa del orden de llegada.
+  const porChunk: ClasifDetalleFila[][] = new Array(chunks.length).fill(null).map(() => []);
+  let siguiente = 0;
+  const trabajador = async () => {
+    for (;;) {
+      const i = siguiente;
+      siguiente += 1;
+      if (i >= chunks.length) return;
+      const { data, error } = await SUPA.rpc("lote_clasificacion_detalle_por_partes", { p_part_ids: chunks[i] });
+      if (error) throw error;
+      porChunk[i] = mapClasifDetalleCompacto(data);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(CHUNKS_EN_VUELO, chunks.length) }, trabajador));
+
+  return porChunk.flat();
+}
 
 const EMPTY_DATA: AnalisisDiarioData = {
   totals: { n_dias: 0, n_lotes: 0, kg_lotes: 0, kg_calibres: 0, kg_produccion_real: 0, kg_industria: 0, avg_tph: null, total_min: 0, total_horas: 0, n_lotes_lentos: 0 },
@@ -603,22 +647,36 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       const detallePorLoteCodigoBase = new Map<string, LoteClasificacionRow[]>();
       const clasificacionRows: LoteClasificacionRow[] = [];
 
-      // Techo de coste: ver MAX_PARTES_CLASIFICACION. Por encima no se baja el
-      // detalle (serían cientos de peticiones encadenadas) y la página lo dice.
+      // El techo es por VOLUMEN EN EL CLIENTE, no por transporte: aunque la
+      // RPC traiga toda la campaña en pocas llamadas, materializar 256.000
+      // filas (objetos + los mapas de detalle por lote) tarda decenas de
+      // segundos en el navegador — medido el 06-ago-2026: >38 s y sin
+      // terminar. Por encima del techo se omite el detalle y la página AVISA.
       const clasificacionOmitidaPartes = partIds.length > MAX_PARTES_CLASIFICACION ? partIds.length : 0;
 
       try {
-        // lote_clasificacion va por 256.000 filas: muy por encima del max-rows
-        // del servidor para un rango amplio de partIds, se pagina con
-        // fetchAllRows en vez de .limit(100000).
-        const clasifRaw = clasificacionOmitidaPartes > 0 ? [] : await fetchAllRows((from, to) =>
-          supabase
-            .from("lote_clasificacion")
-            .select("lote_codigo, lote_codigo_base, productor, producto, calidad, clase, grupo_destino, tamano, piezas, pct_piezas, peso_kg, pct_peso, cartons, pct_cartons, part_id")
-            .in("part_id", partIds)
-            .order("id")
-            .range(from, to),
-        );
+        let clasifRaw: ClasifDetalleFila[] = [];
+        if (clasificacionOmitidaPartes === 0) {
+          try {
+            // Camino normal: RPC con el detalle agregado a un escalar jsonb
+            // (el max-rows del servidor no lo recorta), troceada por partes.
+            clasifRaw = await fetchClasificacionDetalleRpc(partIds);
+          } catch (rpcErr) {
+            if (!esErrorTablaOColumnaInexistente(rpcErr)) throw rpcErr;
+            // Entorno sin la RPC (migración 20260730110000 sin aplicar): el
+            // SELECT paginado da lo mismo, solo que en N peticiones. Aquí ya
+            // sabemos que el rango está por debajo del techo.
+            console.warn("RPC de detalle de clasificación no disponible; se usa el SELECT paginado.");
+            clasifRaw = await fetchAllRows<ClasifDetalleFila>((from, to) =>
+              supabase
+                .from("lote_clasificacion")
+                .select("lote_codigo, lote_codigo_base, productor, producto, calidad, clase, grupo_destino, tamano, piezas, pct_piezas, peso_kg, pct_peso, cartons, pct_cartons, part_id")
+                .in("part_id", partIds)
+                .order("id")
+                .range(from, to),
+            );
+          }
+        }
 
         for (const c of clasifRaw) {
             const kg = Number(c.peso_kg) || 0;
