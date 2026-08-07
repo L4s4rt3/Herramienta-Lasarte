@@ -295,20 +295,29 @@ export default function AnalisisDiario() {
     });
   }, [data.clasificacionRows, hayFiltrosActivos, searchLower, productorFiltroKey, productoFiltro, aliasPorNombreNormalizado]);
 
+  // Con el detalle de clasificación omitido por rango largo (ver
+  // MAX_PARTES_CLASIFICACION) NO se puede recalcular clases/calibres por
+  // filtro: se sigue enseñando el total del periodo desde calibres_dia, con un
+  // aviso encima. Recalcular sobre un array vacío daría ceros que parecerían
+  // reales, que es justo lo que no puede pasar.
+  const detalleOmitido = data.clasificacionOmitidaPartes > 0;
+  const filtrosSinDetalle = hayFiltrosActivos && detalleOmitido;
+  const recalcularPorFiltro = hayFiltrosActivos && !detalleOmitido;
+
   const { clases: clasesMostradas, grupos: gruposMostrados } = useMemo(() => {
-    if (!hayFiltrosActivos) return { clases: data.clases, grupos: data.grupos };
+    if (!recalcularPorFiltro) return { clases: data.clases, grupos: data.grupos };
     return buildClasesYGruposDesdeClasificacion(filteredClasificacionRows);
-  }, [hayFiltrosActivos, data.clases, data.grupos, filteredClasificacionRows]);
+  }, [recalcularPorFiltro, data.clases, data.grupos, filteredClasificacionRows]);
 
   const calibresMostrados = useMemo(() => {
-    if (!hayFiltrosActivos) return data.calibres;
+    if (!recalcularPorFiltro) return data.calibres;
     return buildCalibresDesdeClasificacion(filteredClasificacionRows);
-  }, [hayFiltrosActivos, data.calibres, filteredClasificacionRows]);
+  }, [recalcularPorFiltro, data.calibres, filteredClasificacionRows]);
 
   const kgClasificadosMostrado = useMemo(() => {
-    if (!hayFiltrosActivos) return data.totals.kg_calibres;
+    if (!recalcularPorFiltro) return data.totals.kg_calibres;
     return filteredClasificacionRows.reduce((s, r) => s + r.peso_kg, 0);
-  }, [hayFiltrosActivos, data.totals.kg_calibres, filteredClasificacionRows]);
+  }, [recalcularPorFiltro, data.totals.kg_calibres, filteredClasificacionRows]);
 
   const handleLoteClick = (lote: LoteResumen) => {
     setSelectedLote(lote);
@@ -479,6 +488,35 @@ export default function AnalisisDiario() {
               <MiniKpi label="Días" value={String(nDiasMostrado)} last />
             </div>
           </section>
+
+          {/* Rango demasiado largo para bajar el detalle por lote: se dice en
+              claro qué falta, para que un desglose ausente no se confunda con
+              un cero real. */}
+          {detalleOmitido && (
+            <div className="glass flex items-start gap-2 rounded-xl border border-warning/40 px-3 py-2 text-xs text-muted-foreground">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+              <p>
+                Rango de <strong>{data.clasificacionOmitidaPartes} días</strong>: no se descarga el desglose por lote
+                (son cientos de miles de filas y la página tardaría minutos). Los kg, el destino y los calibres de
+                arriba son correctos — salen del informe de calibres. Lo que no está disponible en este rango es el
+                desglose de un lote concreto y el recálculo de clases/calibres al filtrar.{" "}
+                <button type="button" className="font-medium text-primary underline" onClick={() => handleManualPeriodoChange("ultimas_4")}>
+                  Ver las últimas 4 semanas
+                </button>{" "}
+                para tenerlo todo.
+              </p>
+            </div>
+          )}
+          {filtrosSinDetalle && (
+            <div className="glass flex items-start gap-2 rounded-xl border border-warning/40 px-3 py-2 text-xs text-muted-foreground">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+              <p>
+                Con el filtro puesto, las tarjetas de <strong>Clases</strong> y <strong>Calibres</strong> siguen
+                mostrando el total del periodo, no lo filtrado: en un rango tan largo no se ha descargado el detalle
+                necesario para recalcularlas. Los lotes y los productores sí están filtrados.
+              </p>
+            </div>
+          )}
 
           {/* ─── Asentamiento de la campaña (cobertura de evidencia, TODA
                la campaña — no depende del periodo elegido arriba) ────── */}

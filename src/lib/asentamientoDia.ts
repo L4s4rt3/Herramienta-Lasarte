@@ -11,6 +11,20 @@
  * cada lote de precalibrado SE INDICA en los informes, se usa el que se
  * indique".
  *
+ * ─── COSTE: `diaCompleto` ES PEREZOSO, NO LO HAGAS ANSIOSO (06-ago-2026) ───
+ * De todo lo que produce este módulo, SOLO `LoteAsentado.diaCompleto` necesita
+ * el replay cronológico, y ese replay rehace la conciliación COMPLETA una vez
+ * por cada fecha con pasadas: con la campaña avanzada son ~220 conciliaciones
+ * sobre ~2.000 entradas, más ~450.000 comparaciones en `diaCompletoPorUmbral`.
+ * Eso bloqueaba el hilo principal y dejaba /analisis/diario colgada hasta
+ * crashear la pestaña — su card de cobertura pagaba ese precio y ni siquiera
+ * enseña la fecha. Los contadores de cobertura (kg por clase de evidencia,
+ * nº de lotes) NO dependen del replay.
+ * Por eso `diaCompleto` es un getter memoizado y el replay solo corre si
+ * alguien lo lee de verdad. Si algún día se pinta esa fecha en pantalla, hay
+ * que hacer el replay incremental antes (o sacarlo a un worker), no volver a
+ * calcularlo de golpe al montar la página.
+ *
  * FASE 3c de la refundación (docs/TRAZABILIDAD_REFUNDACION.md, "mismo número
  * ⇒ misma función pura"): la CLASIFICACIÓN de evidencia (dura/derivada/sin
  * rastro) ya NO es un cálculo paralelo de este módulo — sale de
@@ -257,10 +271,18 @@ function replayConciliacionPorFecha(
     new Set(pasadas.filter((p) => p.date && (Number(p.kg_peso_total) || 0) > 0).map((p) => p.date as string)),
   ).sort();
 
+  // Las pasadas se ordenan UNA vez y el prefijo de cada fecha se corta con un
+  // puntero, en vez de recorrer el array entero por cada fecha (antes esto
+  // solo era O(fechas × pasadas) de más, encima de las conciliaciones).
+  const ordenadas = pasadas
+    .filter((p) => Boolean(p.date))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
   const snapshots: SnapshotFecha[] = [];
+  let corte = 0;
   for (const fecha of fechas) {
-    const pasadasHasta = pasadas.filter((p) => p.date && p.date <= fecha);
-    const parcial = conciliarKgProcesados(entradas, pasadasHasta, reciclajePorDia, lotesConfirmadosEnCamara);
+    while (corte < ordenadas.length && String(ordenadas[corte].date) <= fecha) corte += 1;
+    const parcial = conciliarKgProcesados(entradas, ordenadas.slice(0, corte), reciclajePorDia, lotesConfirmadosEnCamara);
     snapshots.push({ fecha, porLote: new Map(parcial.procesados.map((p) => [p.lote_codigo, p.kg_peso_total])) });
   }
   return snapshots;
@@ -331,7 +353,7 @@ function clasificarLotesReales(
   final: ReturnType<typeof conciliarKgProcesados>,
   evidenciaCompuesta: Map<string, EvidenciaLotePasadaCompuesta>,
   fechasNombrado: { primera: Map<string, string>; ultima: Map<string, string> },
-  snapshots: SnapshotFecha[],
+  getSnapshots: () => SnapshotFecha[],
   hoy: string,
   lotesConfirmadosEnCamara: Set<string> | undefined,
   cicloPorLote: Map<string, LoteCiclo>,
@@ -371,12 +393,25 @@ function clasificarLotesReales(
     // replay; si el lote solo cierra por evidencia de compuesta o cierre
     // manual (nunca cruza el umbral por sí solo), se usa la fecha de esa
     // evidencia — nunca se inventa una fecha que no exista en los datos.
-    let diaCompleto: string | null = original ? diaCompletoPorUmbral(aEntradaConciliacion(original, false), kgPreasignado, snapshots) : null;
-    if (!diaCompleto && fila.estado === "procesado") {
-      diaCompleto = fila.procesadoEnCompuesto?.ultimaFecha
-        ?? fila.ultima_fecha_procesado
-        ?? (fila.cerrado_at ? fila.cerrado_at.slice(0, 10) : null);
-    }
+    //
+    // PEREZOSO A PROPÓSITO (06-08-2026, ver la nota de rendimiento en la
+    // cabecera de este archivo): resolverlo obliga al replay de toda la
+    // campaña. Ninguna pantalla lee hoy este campo, así que se calcula solo
+    // cuando alguien pregunta de verdad por él, y se memoiza por lote.
+    let diaCompletoResuelto: { valor: string | null } | null = null;
+    const resolverDiaCompleto = (): string | null => {
+      if (diaCompletoResuelto) return diaCompletoResuelto.valor;
+      let valor = original
+        ? diaCompletoPorUmbral(aEntradaConciliacion(original, false), kgPreasignado, getSnapshots())
+        : null;
+      if (!valor && fila.estado === "procesado") {
+        valor = fila.procesadoEnCompuesto?.ultimaFecha
+          ?? fila.ultima_fecha_procesado
+          ?? (fila.cerrado_at ? fila.cerrado_at.slice(0, 10) : null);
+      }
+      diaCompletoResuelto = { valor };
+      return valor;
+    };
 
     const { kgEvidenciaDura, kgDerivada, kgSinRastro, evidencia } = clasificarEvidenciaDesdeCiclo(cicloPorLote.get(fila.lote), fila.kg_entrada);
 
@@ -391,7 +426,9 @@ function clasificarLotesReales(
       evidencia,
       fechaPrimeraPasada: fechasNombrado.primera.get(fila.lote) ?? null,
       fechaUltimaPasada: fechasNombrado.ultima.get(fila.lote) ?? null,
-      diaCompleto,
+      get diaCompleto(): string | null {
+        return resolverDiaCompleto();
+      },
       estadoFinal: fila.estado,
       diasEnCamara: fila.dias_en_camara,
     };
@@ -490,9 +527,15 @@ export function construirAsentamientoCampana(input: AsentamientoInput): Cobertur
   const final = conciliarKgProcesados(entradasConciliacion, pasadas, reciclajePorDia, lotesConfirmadosEnCamara);
   const evidenciaCompuesta = detectarLotesEnPasadaCompuesta(pasadas);
   const fechasNombrado = fechasNombradoPorLote(pasadas);
-  const snapshots = replayConciliacionPorFecha(entradasConciliacion, pasadas, reciclajePorDia, lotesConfirmadosEnCamara);
+  // El replay NO se ejecuta aquí: solo lo necesita `diaCompleto`, que es
+  // perezoso (ver clasificarLotesReales). Se memoiza para que, si alguien lo
+  // pide, se pague una sola vez por cobertura.
+  let snapshotsCache: SnapshotFecha[] | null = null;
+  const getSnapshots = () => (snapshotsCache ??= replayConciliacionPorFecha(
+    entradasConciliacion, pasadas, reciclajePorDia, lotesConfirmadosEnCamara,
+  ));
 
-  const porLoteReal = clasificarLotesReales(entradas, final, evidenciaCompuesta, fechasNombrado, snapshots, hoy, lotesConfirmadosEnCamara, cicloPorLote);
+  const porLoteReal = clasificarLotesReales(entradas, final, evidenciaCompuesta, fechasNombrado, getSnapshots, hoy, lotesConfirmadosEnCamara, cicloPorLote);
   const porLotePrec = clasificarLotesPrecalibrado(entradasPrecalibrado, final, evidenciaCompuesta, fechasNombrado, hoy, cicloPorLote);
   const porLote = [...porLoteReal, ...porLotePrec];
 

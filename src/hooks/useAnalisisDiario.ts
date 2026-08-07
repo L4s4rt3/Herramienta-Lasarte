@@ -332,7 +332,31 @@ export interface AnalisisDiarioData {
   productores: ProductorResumen[];
   /** Filas crudas de lote_clasificacion del periodo (detalle completo por lote). */
   clasificacionRows: LoteClasificacionRow[];
+  /**
+   * Nº de partes del rango cuyo detalle de lote_clasificacion NO se ha
+   * descargado por superar MAX_PARTES_CLASIFICACION. 0 = está todo.
+   * La página lo AVISA en pantalla: sin este detalle no se puede desglosar
+   * por lote ni recalcular clases/calibres con un filtro puesto, y callarlo
+   * daría cifras a cero que parecerían reales.
+   */
+  clasificacionOmitidaPartes: number;
 }
+
+/**
+ * Techo de partes para los que se baja el detalle de `lote_clasificacion`.
+ *
+ * POR QUÉ (06-ago-2026): esa tabla ya va por 256.000 filas (~1.100 por parte)
+ * y PostgREST solo devuelve 1.000 por petición, así que "Todo el histórico"
+ * encadenaba ~257 llamadas y la página se quedaba cargando minutos. Los KPIs,
+ * el reparto por destino y los calibres del periodo NO dependen de este
+ * detalle: salen de `calibres_dia` (17.000 filas en toda la campaña). El
+ * detalle solo hace falta para el desglose de UN lote y para recalcular
+ * clases/calibres cuando hay un filtro puesto.
+ *
+ * 30 partes ≈ mes y medio de campaña ≈ 33.000 filas ≈ 33 peticiones: es lo
+ * que aguanta bien. Por encima se omite y se avisa.
+ */
+const MAX_PARTES_CLASIFICACION = 30;
 
 const EMPTY_DATA: AnalisisDiarioData = {
   totals: { n_dias: 0, n_lotes: 0, kg_lotes: 0, kg_calibres: 0, kg_produccion_real: 0, kg_industria: 0, avg_tph: null, total_min: 0, total_horas: 0, n_lotes_lentos: 0 },
@@ -343,6 +367,7 @@ const EMPTY_DATA: AnalisisDiarioData = {
   calibres: [],
   productores: [],
   clasificacionRows: [],
+  clasificacionOmitidaPartes: 0,
 };
 
 export function useAnalisisDiario(desde: string, hasta: string) {
@@ -578,11 +603,15 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       const detallePorLoteCodigoBase = new Map<string, LoteClasificacionRow[]>();
       const clasificacionRows: LoteClasificacionRow[] = [];
 
+      // Techo de coste: ver MAX_PARTES_CLASIFICACION. Por encima no se baja el
+      // detalle (serían cientos de peticiones encadenadas) y la página lo dice.
+      const clasificacionOmitidaPartes = partIds.length > MAX_PARTES_CLASIFICACION ? partIds.length : 0;
+
       try {
-        // lote_clasificacion tiene 8.685 filas tras el histórico: muy por
-        // encima del max-rows del servidor para un rango amplio de partIds,
-        // se pagina con fetchAllRows en vez de .limit(100000).
-        const clasifRaw = await fetchAllRows((from, to) =>
+        // lote_clasificacion va por 256.000 filas: muy por encima del max-rows
+        // del servidor para un rango amplio de partIds, se pagina con
+        // fetchAllRows en vez de .limit(100000).
+        const clasifRaw = clasificacionOmitidaPartes > 0 ? [] : await fetchAllRows((from, to) =>
           supabase
             .from("lote_clasificacion")
             .select("lote_codigo, lote_codigo_base, productor, producto, calidad, clase, grupo_destino, tamano, piezas, pct_piezas, peso_kg, pct_peso, cartons, pct_cartons, part_id")
@@ -749,6 +778,7 @@ export function useAnalisisDiario(desde: string, hasta: string) {
         calibres,
         productores,
         clasificacionRows,
+        clasificacionOmitidaPartes,
       });
     } catch (e) {
       console.error("useAnalisisDiario error:", e);
