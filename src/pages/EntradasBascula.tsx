@@ -44,10 +44,12 @@ import {
   DIAS_SIN_ACTIVIDAD_AUTOCIERRE,
   DIAS_SIN_ACTIVIDAD_TERMINADO,
   normalizarLoteCodigo,
+  parseEntradaFrutaRows,
   parseEntradasBasculaRows,
   parseStockLotesRows,
   UMBRAL_PROBABLE_TERMINADO,
   type EntradaBasculaParsed,
+  type EntradaFrutaParsed,
   type StockEstado,
   type StockLoteRow,
 } from "@/lib/entradasBascula";
@@ -641,20 +643,53 @@ function MermasCosteTab() {
   );
 }
 
-interface ImportPreview {
-  fileName: string;
-  /** "bascula" = export de entradas; "stock" = informe de stock (sembrado inicial). */
-  tipo: "bascula" | "stock";
-  entradas: EntradaBasculaParsed[];
-  descartadas: Array<{ fila: number; motivo: string }>;
+/**
+ * Lo mínimo que la vista previa necesita de una fila, venga del export de
+ * báscula o del informe de entrada de fruta del ERP: las dos formas parseadas
+ * (EntradaBasculaParsed / EntradaFrutaParsed) lo cumplen estructuralmente, así
+ * que previewStats puede tratarlas igual sin fabricar filas falsas.
+ */
+interface FilaPreview {
+  fecha: string;
+  lote: string;
+  kg_entrada: number;
+  finca: string | null;
+  agricultor: string | null;
 }
+
+/**
+ * Vista previa del import, discriminada por ORIGEN del archivo — cada uno
+ * escribe con su propia mutación y no son intercambiables:
+ *   - "bascula": export de entradas (upsert completo, `importar`).
+ *   - "stock": informe "APROVECHAMIENTO STOCK LOTES" (sembrado, `importarStock`,
+ *     que respeta los lotes ya existentes).
+ *   - "entrada-fruta": informe del ERP (upsert PARCIAL, `importarEntradaFruta`:
+ *     no trae envases y no debe pisar los que ya haya).
+ * La unión es a propósito: mandar las filas de un origen por la mutación de
+ * otro nullearía columnas que ese archivo no trae.
+ */
+type ImportPreview =
+  | {
+      fileName: string;
+      tipo: "bascula" | "stock";
+      entradas: EntradaBasculaParsed[];
+      descartadas: Array<{ fila: number; motivo: string }>;
+    }
+  | {
+      fileName: string;
+      tipo: "entrada-fruta";
+      entradas: EntradaFrutaParsed[];
+      descartadas: Array<{ fila: number; motivo: string }>;
+      /** "A" trae la pesada escrita; "B" la deduce del orden del nº de entrada (se avisa en la vista previa). */
+      formato: "A" | "B" | null;
+    };
 
 export default function EntradasBascula() {
   const {
     entradas, stock, procesados, conciliacionKg, movimientosPrecalibrado, derivadosCampoCit, isLoading, error,
     candidatosCierreAutomatico, candidatosCierreCompuesto, candidatosCierrePrecalibrado, lotesEnPasadaCompuesta, camaraConfirmadaPorLote,
     pasadasPorLoteDonante, anotacionesPorLoteDia, codigosBascula, discrepanciasCierre, cicloPorLote, stockPrecalibrado,
-    importar, importarStock, eliminar, cerrarLote, reabrirLote, cerrarLotesEnBloque, reabrirLotesEnBloque, actualizarCamaraConfirmada,
+    importar, importarEntradaFruta, importarStock, eliminar, cerrarLote, reabrirLote, cerrarLotesEnBloque, reabrirLotesEnBloque, actualizarCamaraConfirmada,
     agregarAnotacion, quitarAnotacion,
   } = useEntradasBascula();
   const { role } = useAuth();
@@ -832,11 +867,32 @@ export default function EntradasBascula() {
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null }) as unknown[][];
 
-      // Detección automática: primero se intenta como export de entradas; si no
-      // tiene esa cabecera, como informe de stock ("Kgr.Exist.") para el sembrado.
+      // Detección automática, en el MISMO orden que clasificarArchivoBandeja
+      // (src/lib/importBandeja.ts): export de entradas → informe de entrada de
+      // fruta del ERP → informe de stock ("Kgr.Exist.") para el sembrado. El
+      // orden importa: el export de báscula es la fuente completa (trae "Lote"
+      // y los envases) y debe reclamar el archivo antes que el informe del ERP,
+      // que solo aporta fecha/agricultor/finca/kg y reconstruye el código.
       const parsed = parseEntradasBasculaRows(rows);
       if (parsed.entradas.length > 0) {
         setPreview({ fileName: file.name, tipo: "bascula", ...parsed });
+        return;
+      }
+
+      // Informe de entrada de fruta del ERP. Se acepta aquí además de en la
+      // Bandeja (/importar) porque esta página se llama "Entradas de báscula" y
+      // es donde se intenta soltar de forma natural: rechazarlo aquí obligaba a
+      // saberse de memoria que ese informe concreto solo entra por la otra
+      // pantalla (confusión real, 07-08-2026).
+      const frutaParsed = parseEntradaFrutaRows(rows);
+      if (frutaParsed.entradas.length > 0) {
+        setPreview({
+          fileName: file.name,
+          tipo: "entrada-fruta",
+          entradas: frutaParsed.entradas,
+          descartadas: frutaParsed.descartadas,
+          formato: frutaParsed.formato,
+        });
         return;
       }
 
@@ -853,7 +909,7 @@ export default function EntradasBascula() {
 
       toast({
         title: "Archivo no reconocido",
-        description: "No parece un export de entradas de báscula ni un informe de stock de lotes.",
+        description: "No parece un export de entradas de báscula, ni un informe de entrada de fruta del ERP, ni un informe de stock de lotes.",
         variant: "destructive",
       });
       setPreview(null);
@@ -868,37 +924,70 @@ export default function EntradasBascula() {
   const lotesExistentes = useMemo(() => new Set(entradas.map((e) => e.lote)), [entradas]);
   const previewStats = useMemo(() => {
     if (!preview) return null;
-    const fechas = preview.entradas.map((e) => e.fecha).sort();
-    const filasNuevas = preview.entradas.filter((e) => !lotesExistentes.has(e.lote));
+    // Las tres formas parseadas cumplen FilaPreview: se estrechan aquí para no
+    // tener que ramificar por `tipo` en cada cuenta.
+    const filas: FilaPreview[] = preview.entradas;
+    const fechas = filas.map((e) => e.fecha).sort();
+    const filasNuevas = filas.filter((e) => !lotesExistentes.has(e.lote));
     // Cuántas de las nuevas son movimientos internos de precalibrado: se
     // importan pero NO aparecen en stock/listas (regla del dueño) — si no se
     // avisa, el import parece "no hacer nada" (confusión real, 22-jul-2026:
     // un export cuyo único contenido nuevo eran filas PREC).
     const nuevasPrec = filasNuevas.filter((e) => esEntradaPrecalibrado({ finca: e.finca, agricultor: e.agricultor })).length;
     return {
-      kg: preview.entradas.reduce((s, e) => s + e.kg_entrada, 0),
+      kg: filas.reduce((s, e) => s + e.kg_entrada, 0),
       desde: fechas[0],
       hasta: fechas[fechas.length - 1],
       nuevas: filasNuevas.length,
       nuevasPrec,
-      actualizadas: preview.entradas.length - filasNuevas.length,
+      actualizadas: filas.length - filasNuevas.length,
     };
   }, [preview, lotesExistentes]);
 
+  /** Alguna de las TRES mutaciones de import en vuelo: bloquea subir otro archivo y los botones de la vista previa. */
+  const guardando = importar.isPending || importarEntradaFruta.isPending || importarStock.isPending;
+
+  // Cada origen va por SU mutación (ver el jsdoc de ImportPreview): se ramifica
+  // explícitamente en vez de elegir la mutación con un ternario porque las
+  // filas de cada tipo no son intercambiables — mandar las del informe del ERP
+  // por `importar` nullearía los envases sembrados desde el informe de stock.
   const confirmarImport = () => {
     if (!preview) return;
-    const mutation = preview.tipo === "stock" ? importarStock : importar;
-    mutation.mutate(preview.entradas, {
-      onSuccess: () => {
-        toast({
-          title: preview.tipo === "stock" ? "Stock inicial sembrado" : "Entradas importadas",
-          description: preview.tipo === "stock"
-            ? `${previewStats?.nuevas ?? 0} lote(s) nuevo(s) creado(s); los ${previewStats?.actualizadas ?? 0} que ya existían se han respetado.`
-            : `${preview.entradas.length} entrada(s) guardada(s) (${previewStats?.nuevas ?? 0} nueva(s)${(previewStats?.nuevasPrec ?? 0) > 0 ? `, de ellas ${previewStats?.nuevasPrec} de precalibrado que NO aparecen en stock` : ""}).`,
-        });
-        setPreview(null);
-      },
-      onError: (e) => toast({ title: "Error al importar", description: errorMessage(e), variant: "destructive" }),
+    const nuevas = previewStats?.nuevas ?? 0;
+    const nuevasPrec = previewStats?.nuevasPrec ?? 0;
+    const sufijoPrec = nuevasPrec > 0 ? `, de ellas ${nuevasPrec} de precalibrado que NO aparecen en stock` : "";
+    const onError = (e: unknown) => toast({ title: "Error al importar", description: errorMessage(e), variant: "destructive" });
+    const cerrar = (title: string, description: string) => {
+      toast({ title, description });
+      setPreview(null);
+    };
+
+    if (preview.tipo === "entrada-fruta") {
+      importarEntradaFruta.mutate(preview.entradas, {
+        onSuccess: () => cerrar(
+          "Entradas de fruta importadas",
+          `${preview.entradas.length} entrada(s) guardada(s) (${nuevas} nueva(s)${sufijoPrec}). Los envases ya guardados se conservan: este informe no los trae.`,
+        ),
+        onError,
+      });
+      return;
+    }
+    if (preview.tipo === "stock") {
+      importarStock.mutate(preview.entradas, {
+        onSuccess: () => cerrar(
+          "Stock inicial sembrado",
+          `${nuevas} lote(s) nuevo(s) creado(s); los ${previewStats?.actualizadas ?? 0} que ya existían se han respetado.`,
+        ),
+        onError,
+      });
+      return;
+    }
+    importar.mutate(preview.entradas, {
+      onSuccess: () => cerrar(
+        "Entradas importadas",
+        `${preview.entradas.length} entrada(s) guardada(s) (${nuevas} nueva(s)${sufijoPrec}).`,
+      ),
+      onError,
     });
   };
 
@@ -1028,8 +1117,8 @@ export default function EntradasBascula() {
           variant="outline"
           size="sm"
           onClick={() => fileInputRef.current?.click()}
-          disabled={parseando || importar.isPending || importarStock.isPending}
-          title="Acepta el export de entradas de la báscula y el informe de stock de lotes (se detecta solo)"
+          disabled={parseando || guardando}
+          title="Acepta el export de entradas de la báscula, el informe de entrada de fruta del ERP y el informe de stock de lotes (se detecta solo)"
         >
           {parseando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           Importar Excel de báscula
@@ -1099,6 +1188,11 @@ export default function EntradasBascula() {
                   Informe de stock · sembrado inicial
                 </Badge>
               )}
+              {preview.tipo === "entrada-fruta" && (
+                <Badge variant="outline" className="border-info/40 bg-info/10 px-1.5 py-0 text-[11px] text-info">
+                  Informe de entrada de fruta del ERP{preview.formato ? ` · formato ${preview.formato}` : ""}
+                </Badge>
+              )}
             </div>
             <p className="text-sm text-muted-foreground">
               {preview.entradas.length} {preview.tipo === "stock" ? "lote(s)" : "entrada(s)"} · {formatDate(previewStats.desde)}
@@ -1117,6 +1211,18 @@ export default function EntradasBascula() {
                 lote: así el stock calculado coincide con el informe y el procesado futuro descuenta bien.
               </p>
             )}
+            {preview.tipo === "entrada-fruta" && (
+              <p className="w-full text-xs text-muted-foreground">
+                Este informe no trae el código de lote: se compone con la fecha y el nº de pesada
+                {preview.formato === "B" ? ", y aquí la pesada se DEDUCE del orden del nº de entrada, así que comprueba los códigos" : ""}.
+                {" "}Se guardarán como{" "}
+                <span className="font-mono text-foreground">
+                  {preview.entradas.slice(0, 8).map((e) => e.lote).join(", ")}
+                </span>
+                {preview.entradas.length > 8 ? ` y ${preview.entradas.length - 8} más` : ""}.
+                {" "}Tampoco trae los box: los que ya estén guardados (del informe de stock de lotes) se conservan.
+              </p>
+            )}
             {previewStats.nuevasPrec > 0 && (
               <p className="flex w-full items-center gap-1.5 text-xs text-muted-foreground">
                 <HelpCircle className="h-3.5 w-3.5 shrink-0" />
@@ -1132,11 +1238,11 @@ export default function EntradasBascula() {
               </p>
             )}
             <div className="ml-auto flex items-center gap-2">
-              <Button size="sm" onClick={confirmarImport} disabled={importar.isPending || importarStock.isPending}>
-                {importar.isPending || importarStock.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              <Button size="sm" onClick={confirmarImport} disabled={guardando}>
+                {guardando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 Guardar
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => setPreview(null)} disabled={importar.isPending || importarStock.isPending}>
+              <Button size="sm" variant="ghost" onClick={() => setPreview(null)} disabled={guardando}>
                 Cancelar
               </Button>
             </div>
