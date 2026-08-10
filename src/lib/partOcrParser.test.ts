@@ -51,6 +51,40 @@ const OCR_23 = `23/09/26
 - Mdra 4Kg: 8 → 96Kg.
 - Mdra 5Kg: 5 → 50Kg.`;
 
+// Papel NUEVO (ago-2026): hoja IMPRESA con etiquetas fijas y solo los números a
+// mano. Mistral OCR la devuelve como tabla markdown (una fila por concepto).
+const OCR_TABLA = `| FECHA: | 07108126 |
+| :--: | :--: |
+| CITRICA |  |
+| CITRICA PODRIDO | 393 KG. |
+| PODRIDO | 158 KG |
+| MALLA Z.1 | 246 KG x 1 = 246 KG |
+| MALLA Z.2 | 246 KG x 1 = 246 KG |
+| PALETS PUNTA: | 1547 KG |
+| 10 KG | 38c = 380 KG |
+| 15 KG | 47c = 705 KG |
+| MDNA GRANEL | 9c = 103 KG |
+| MDNA 3 KG |  |
+| MDNA 4 KG | 22c = 264 KG |
+| MDNA 5 KG | 9c = 90 KG |
+|  |  |`;
+
+// Mismo papel impreso cuando el OCR NO detecta la rejilla y devuelve texto
+// plano: etiqueta y número en la misma línea, sin ":" ni pipes.
+const OCR_TABLA_PLANA = `FECHA: 07108126
+CITRICA
+CITRICA PODRIDO 393 KG.
+PODRIDO 158 KG
+MALLA Z.1 246 KG x 1 = 246 KG
+MALLA Z.2 246 KG x 1 = 246 KG
+PALETS PUNTA: 1547 KG
+10 KG 38c = 380 KG
+15 KG 47c = 705 KG
+MDNA GRANEL 9c = 103 KG
+MDNA 3 KG
+MDNA 4 KG 22c = 264 KG
+MDNA 5 KG 9c = 90 KG`;
+
 describe("parseParteManualOcr", () => {
   it("22/07: recalcula operaciones y reconcilia palets (2000 escrito → 2094 del desglose)", () => {
     const { raw, dudas } = parseParteManualOcr(OCR_22, { fechaEsperada: "2026-07-22" });
@@ -87,6 +121,28 @@ describe("parseParteManualOcr", () => {
     expect(raw.palets_punta_kg).toBe(2575); // 10kg 300→800 reconciliado
     expect(dudas.some((d) => d.includes("mes distinto"))).toBe(true);
     expect(dudas.some((d) => d.includes("suma"))).toBe(true);
+  });
+
+  it("07/08 papel impreso (tabla markdown): lee las 6 líneas y reconcilia el desglose", () => {
+    const { raw, dudas } = parseParteManualOcr(OCR_TABLA, { fechaEsperada: "2026-08-07" });
+    expect(raw.fecha).toBe("2026-08-07");
+    expect(raw.citrica_kg_brutos).toBeNull(); // fila impresa vacía
+    expect(raw.citrica_podrido_kg_brutos).toBe(393);
+    expect(raw.podrido_kg_brutos).toBe(158);
+    expect(raw.malla_z1_kg_brutos).toBe(246);
+    expect(raw.malla_z1_box).toBe(1);
+    expect(raw.malla_z2_kg_brutos).toBe(246);
+    expect(raw.malla_z2_box).toBe(1);
+    // 380+705+108+264+90 = 1547: el granel "103" es un 108 mal leído y la red
+    // aritmética lo caza sin tocar el gran total escrito.
+    expect(raw.palets_punta_kg).toBe(1547);
+    expect(dudas.some((d) => d.includes("reconciliado"))).toBe(true);
+  });
+
+  it("07/08 papel impreso sin rejilla (texto plano): mismo resultado que la tabla", () => {
+    const tabla = parseParteManualOcr(OCR_TABLA, { fechaEsperada: "2026-08-07" });
+    const plana = parseParteManualOcr(OCR_TABLA_PLANA, { fechaEsperada: "2026-08-07" });
+    expect(plana.raw).toEqual(tabla.raw);
   });
 
   it("no inventa: parte vacío → todo null", () => {

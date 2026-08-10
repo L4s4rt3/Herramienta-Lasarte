@@ -80,6 +80,9 @@ export default function PartDetailManual({
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [visionResult, setVisionResult] = useState<PartManualVisionResult | null>(null);
   const [visionApplied, setVisionApplied] = useState(false);
+  /** Transcripción cruda del OCR: se conserva incluso si el parseo falla, para
+   *  poder ver qué leyó el papel cuando no cuadra algo. */
+  const [ocrText, setOcrText] = useState<string | null>(null);
 
   const analizarFoto = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -89,6 +92,7 @@ export default function PartDetailManual({
     setPhotoLoading(true);
     setVisionResult(null);
     setVisionApplied(false);
+    setOcrText(null);
     try {
       const image = await preparePartManualPhoto(file);
       setPhotoPreview(image.previewUrl);
@@ -100,6 +104,7 @@ export default function PartDetailManual({
 
       const ocrMd = String(data?.ocr_md ?? "");
       if (!ocrMd) throw new Error("El OCR no devolvió texto del papel");
+      setOcrText(ocrMd);
       // Parseo + validación deterministas en cliente (recalcula, checksum,
       // reconcilia). La fecha se ancla al parte abierto (el OCR falla en el mes).
       const envelope = parseParteManualOcr(ocrMd, {
@@ -242,6 +247,17 @@ export default function PartDetailManual({
                 </div>
               </div>
             </div>
+          )}
+
+          {ocrText && (
+            <details className="rounded-xl border border-[var(--glass-border)] bg-background/40 px-3 py-2">
+              <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                Texto que ha leído el OCR del papel
+              </summary>
+              <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-muted-foreground">
+                {ocrText}
+              </pre>
+            </details>
           )}
 
           <div className="grid gap-4 sm:grid-cols-2">

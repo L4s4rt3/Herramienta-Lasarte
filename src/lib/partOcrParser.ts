@@ -1,6 +1,7 @@
 /**
  * partOcrParser — parser + validación deterministas del parte manual diario
- * (papel EMBASUR manuscrito) a partir del TEXTO que devuelve Mistral OCR
+ * (papel EMBASUR manuscrito, y hoja impresa en rejilla desde ago-2026) a partir
+ * del TEXTO que devuelve Mistral OCR
  * (edge function `analizar-parte-ocr`). Produce el mismo envelope `{raw,
  * confianza, dudas}` que consume `normalizePartManualVisionResult`, de modo
  * que reutiliza toda la derivación de netos/tara y la UI de PartDetailManual.
@@ -75,7 +76,7 @@ function kgPorCaja(fmt: string): number | null {
 }
 
 function parseFecha(txt: string): { iso: string; ok: boolean } | null {
-  let m = txt.match(/(\d{1,2})\s*[/.\-]\s*(\d{1,2})\s*[/.\-]\s*(\d{2,4})/);
+  let m = txt.match(/(\d{1,2})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(\d{2,4})/);
   if (!m) m = txt.match(/\b(\d{2})1(\d{2})1(\d{2})\b/);
   if (!m) return null;
   const d = m[1]; const mo = m[2]; let y = m[3];
@@ -119,8 +120,50 @@ function parseDes(raw: string): DesLinea {
   return { fmt: fmt.trim(), cajas, kgc, tot, esp };
 }
 
+/**
+ * Papel IMPRESO (ago-2026): la hoja nueva trae las etiquetas preimpresas en una
+ * rejilla y solo los números a mano, así que el OCR ya no devuelve líneas
+ * "Concepto: valor" sino filas de tabla ("| CITRICA PODRIDO | 393 KG |", o HTML
+ * si la rejilla es compleja). Se aplanan a "ETIQUETA: valor" para que el resto
+ * del parser —escrito para el papel manuscrito libre— siga sirviendo igual.
+ */
+function aplanarTablas(md: string): string {
+  let txt = md;
+  if (/<\/?(?:table|thead|tbody|tr|td|th)\b/i.test(txt)) {
+    txt = txt
+      .replace(/<br\s*\/?>/gi, " ")
+      .replace(/<\/t[dh]>/gi, " | ")
+      .replace(/<\/tr>/gi, "\n")
+      .replace(/<[^>]*>/g, "");
+  }
+  if (!txt.includes("|")) return txt;
+  return txt.split("\n").map((line) => {
+    if (!line.includes("|")) return line;
+    const celdas = line.split("|").map((c) => c.trim());
+    if (celdas[0] === "") celdas.shift();
+    if (celdas[celdas.length - 1] === "") celdas.pop();
+    // Fila separadora ("| :--- | ---: |") y filas del todo vacías: fuera.
+    if (!celdas.length || celdas.every((c) => !c || /^:?-{2,}:?$/.test(c))) return "";
+    const etiqueta = celdas[0].replace(/\s*:\s*$/, "");
+    const valor = celdas.slice(1).filter(Boolean).join(" ");
+    return valor ? `${etiqueta}: ${valor}` : etiqueta;
+  }).join("\n");
+}
+
+/**
+ * Zona de una línea de malla. El OCR del papel manuscrito devolvía Z1/E1/F1 y
+ * sus misreads (2.1, Zn); el papel impreso escribe literalmente "MALLA Z.1", de
+ * ahí el separador opcional entre la letra y el número.
+ */
+function zonaMalla(n: string): 1 | 2 | null {
+  if (!/(mal|mol)/.test(n)) return null;
+  if (/(?:\b[zef]|2)\s*[.,\-·]?\s*1\b/.test(n) || /z\.?\s*n/.test(n)) return 1;
+  if (/(?:\b[zef]|2)\s*[.,\-·]?\s*2\b/.test(n) || /z\.?\s*z/.test(n)) return 2;
+  return null;
+}
+
 function parseParte(md: string): ParteCrudo {
-  let lines = md.split("\n").map((l) => l.replace(/^[\s\-#>*]+/, "").trim()).filter((l) => l && !MEMBRETE.test(l));
+  let lines = aplanarTablas(md).split("\n").map((l) => l.replace(/^[\s\-#>*]+/, "").trim()).filter((l) => l && !MEMBRETE.test(l));
   const merged: string[] = [];
   for (const l of lines) { if (merged.length && /^[+=→]/.test(l)) merged[merged.length - 1] += " " + l; else merged.push(l); }
   lines = merged;
@@ -135,8 +178,8 @@ function parseParte(md: string): ParteCrudo {
     if (!enDes && /cit.*(podr|ped|pact|pod)/.test(n)) { P.conceptos.citrica_podrido = { op: null, total: totalTras(val) ?? firstNum(val), suma: /\+/.test(val) }; continue; }
     if (!enDes && /^(podr|ped|pact|pod)/.test(n)) { P.conceptos.podrido = { op: null, total: totalTras(val) ?? firstNum(val), suma: /\+/.test(val) }; continue; }
     if (!enDes && /cit[ru]/.test(n)) { P.conceptos.citrica = { op: mult(val), total: totalTras(val) }; continue; }
-    if (!enDes && /(mal|mol)/.test(n) && (/\b[zef]\s*1\b/.test(n) || /2\.1/.test(n) || /z\.?\s*n/.test(n))) { const op = mult(val); P.conceptos.malla_z1 = { op, total: totalTras(val) ?? (op ? null : firstNum(val)) }; continue; }
-    if (!enDes && /(mal|mol)/.test(n) && (/\b[zef]\s*2\b/.test(n) || /2\.2/.test(n) || /z\.?\s*z/.test(n))) { const op = mult(val); P.conceptos.malla_z2 = { op, total: totalTras(val) ?? (op ? null : firstNum(val)) }; continue; }
+    const zona = enDes ? null : zonaMalla(n);
+    if (zona) { const op = mult(val); P.conceptos[zona === 1 ? "malla_z1" : "malla_z2"] = { op, total: totalTras(val) ?? (op ? null : firstNum(val)) }; continue; }
     if (enDes) P.desglose.push(parseDes(l));
   }
   return P;
