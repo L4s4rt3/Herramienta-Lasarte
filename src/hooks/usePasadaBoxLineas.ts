@@ -27,12 +27,19 @@ import { toError } from "@/lib/errorMessage";
 import { escribirConReintentos, fetchAllRows } from "@/lib/fetchAllRows";
 import { esEntradaPrecalibrado, esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
 import {
+  agruparLineasBoxPorLoteDia,
+  lineaDesdeRow,
   normalizarBoxTamano,
-  type BoxTamano,
   type LineaDesglose,
+  type PasadaBoxLineaRow,
   type ReentradaPrecCandidata,
-  type TipoLineaDesglose,
 } from "@/lib/desgloseBox";
+
+// Adaptadores puros (PasadaBoxLineaRow/lineaDesdeRow/agruparLineasBoxPorLoteDia)
+// mudados a desgloseBox.ts (_shared) para que la edge function informe-semanal
+// use el mismo camino; se re-exportan para no tocar a los consumidores de este hook.
+export { agruparLineasBoxPorLoteDia, lineaDesdeRow };
+export type { PasadaBoxLineaRow };
 
 // pasada_box_lineas aún no está en el Database generado (migración pendiente
 // de aplicar): cliente sin esquema tipado, mismo patrón que pasada_anotaciones.
@@ -41,35 +48,10 @@ const SUPA = supabase as unknown as SupabaseClient<any>;
 export const MENSAJE_MIGRACION_BOX_LINEAS =
   "La tabla pasada_box_lineas todavía no existe: aplica primero la migración 20260806120000_pasada_box_lineas.sql.";
 
-export interface PasadaBoxLineaRow {
-  id: string;
-  user_id: string;
-  lote_dia_id: string;
-  posicion: number;
-  tipo: TipoLineaDesglose;
-  lote_codigo: string | null;
-  prec_fecha: string | null;
-  box: number | null;
-  box_tamano: BoxTamano;
-  nota: string | null;
-}
-
 /** Fila de báscula que necesita el desglose: validar códigos y contrastar kg/box. */
 export interface EntradaParaDesglose extends ReentradaPrecCandidata {
   agricultor: string | null;
   articulo: string | null;
-}
-
-/** Una fila guardada, en la forma que consume el motor de reparto. */
-export function lineaDesdeRow(row: PasadaBoxLineaRow): LineaDesglose {
-  return {
-    tipo: row.tipo,
-    lote_codigo: row.lote_codigo,
-    prec_fecha: row.prec_fecha,
-    box: row.box == null ? null : Number(row.box),
-    box_tamano: normalizarBoxTamano(row.box_tamano),
-    nota: row.nota,
-  };
 }
 
 /**
@@ -93,18 +75,6 @@ export async function fetchPasadaBoxLineas(): Promise<PasadaBoxLineaRow[]> {
     if (esErrorTablaOColumnaInexistente(e)) return [];
     throw e;
   }
-}
-
-/** lote_dia_id → sus líneas, ordenadas por posición. */
-export function agruparLineasBoxPorLoteDia(filas: PasadaBoxLineaRow[]): Map<string, PasadaBoxLineaRow[]> {
-  const mapa = new Map<string, PasadaBoxLineaRow[]>();
-  for (const fila of filas) {
-    const arr = mapa.get(fila.lote_dia_id) ?? [];
-    arr.push(fila);
-    mapa.set(fila.lote_dia_id, arr);
-  }
-  for (const arr of mapa.values()) arr.sort((a, b) => a.posicion - b.posicion);
-  return mapa;
 }
 
 export function usePasadaBoxLineas() {

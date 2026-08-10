@@ -18,10 +18,16 @@ import {
   type OpcionesInformeSemanal,
 } from "../../supabase/functions/_shared/informeSemanal.ts";
 import {
+  seleccionarMermaSemana,
+  type MermaSemanaInforme,
+  type StockInforme,
+} from "../../supabase/functions/_shared/informeSemanal.ts";
+import {
   computeRentabilidadDia,
   PRECIOS_RENTABILIDAD_DEFECTO,
   type FilaClasifRentabilidad,
 } from "@/lib/rentabilidadDia";
+import type { MermaLote } from "@/lib/mermaLote";
 
 const OPCIONES_SEMANA: OpcionesInformeSemanal = {
   anio: 2026,
@@ -177,6 +183,122 @@ describe("computeInformeSemanal", () => {
     expect(inf.pctPodrido).toBeNull();
     expect(inf.avisos.some((a) => a.includes("Ningún día"))).toBe(true);
     expect(asuntoInformeSemanal(inf)).toContain("sin datos de producción");
+  });
+});
+
+// Solo los campos que consume seleccionarMermaSemana; el resto no interviene.
+function loteMerma(over: Partial<MermaLote>): MermaLote {
+  return {
+    lote: "26080301",
+    estado: "procesado",
+    cerradoSinRegistro: false,
+    kgEntrada: 20000,
+    mermaNaturalKg: 800,
+    pctMermaSobreEntrada: 4,
+    diasEnCamara: 30,
+    calibradorSuperaEntrada: false,
+    ...over,
+  } as MermaLote;
+}
+
+describe("seleccionarMermaSemana", () => {
+  const ultimaFecha = new Map<string, string | null>([
+    ["26080301", "2026-08-05"], // dentro de la semana 32
+    ["26070102", "2026-07-20"], // fuera
+    ["26080303", "2026-08-07"], // dentro
+  ]);
+  const datos = new Map([
+    ["26080301", { agricultor: "AGRO SUR", finca: "LA HOYA" }],
+    ["26080303", { agricultor: "COLOMBO", finca: null }],
+  ]);
+
+  it("solo entran los lotes procesados terminados dentro de la semana", () => {
+    const r = seleccionarMermaSemana(
+      [
+        loteMerma({ lote: "26080301" }),
+        loteMerma({ lote: "26070102" }), // terminó en julio: fuera
+        loteMerma({ lote: "26080303", kgEntrada: 10000, mermaNaturalKg: 900, pctMermaSobreEntrada: 9 }),
+        loteMerma({ lote: "26080304", estado: "parcial", mermaNaturalKg: null, pctMermaSobreEntrada: null }), // sin terminar
+      ],
+      ultimaFecha, "2026-08-03", "2026-08-09", datos,
+    );
+    expect(r.nLotes).toBe(2);
+    expect(r.kgEntrada).toBe(30000);
+    expect(r.kgMerma).toBe(1700);
+    expect(r.pctMerma).toBeCloseTo((1700 / 30000) * 100, 6);
+    // Ordenado de mayor a menor % de merma.
+    expect(r.lotes[0].lote).toBe("26080303");
+    expect(r.lotes[0].agricultor).toBe("COLOMBO");
+    expect(r.lotes[1].finca).toBe("LA HOYA");
+  });
+
+  it("un cierre sin_registro nunca aporta merma (su null no es un 0)", () => {
+    const r = seleccionarMermaSemana(
+      [loteMerma({ cerradoSinRegistro: true, mermaNaturalKg: null, pctMermaSobreEntrada: null })],
+      ultimaFecha, "2026-08-03", "2026-08-09", datos,
+    );
+    expect(r.nLotes).toBe(0);
+  });
+
+  it("cuenta los datos a revisar (calibrador > báscula)", () => {
+    const r = seleccionarMermaSemana(
+      [loteMerma({ mermaNaturalKg: -500, pctMermaSobreEntrada: -2.5, calibradorSuperaEntrada: true })],
+      ultimaFecha, "2026-08-03", "2026-08-09", datos,
+    );
+    expect(r.nConDatoARevisar).toBe(1);
+    expect(r.kgMerma).toBe(-500); // con signo, nunca disfrazado
+  });
+});
+
+describe("merma y stock en el informe", () => {
+  const MERMA: MermaSemanaInforme = {
+    nLotes: 2,
+    kgEntrada: 30000,
+    kgMerma: 1700,
+    pctMerma: 5.67,
+    nConDatoARevisar: 1,
+    lotes: [
+      { lote: "26080303", agricultor: "COLOMBO", finca: null, kgEntrada: 10000, mermaNaturalKg: 900, pctMerma: 9, diasEnCamara: 12, calibradorSuperaEntrada: false },
+      { lote: "26080301", agricultor: "AGRO SUR", finca: "LA HOYA", kgEntrada: 20000, mermaNaturalKg: 800, pctMerma: 4, diasEnCamara: 30, calibradorSuperaEntrada: true },
+    ],
+  };
+  const STOCK: StockInforme = {
+    kgEnCamara: 250000,
+    kgEnCamaraFirme: 180000,
+    kgProbablementeTerminados: 70000,
+    lotesProbablementeTerminados: 4,
+    lotesPendientes: 6,
+    lotesParciales: 3,
+    antiguedadMaxDias: 41,
+  };
+
+  it("los lleva al HTML, al texto y a los avisos", () => {
+    const inf = computeInformeSemanal([diaConProduccion("2026-08-03")], {
+      ...OPCIONES_SEMANA,
+      mermaSemana: MERMA,
+      stock: STOCK,
+    });
+    expect(inf.avisos.some((a) => a.includes("calibrador pesando MÁS"))).toBe(true);
+
+    const html = renderInformeSemanalHtml(inf);
+    expect(html).toContain("Merma de los lotes terminados esta semana");
+    expect(html).toContain("Stock en cámara");
+    expect(html).toContain("250.000 kg");
+    expect(html).toContain("26080303");
+
+    const texto = renderInformeSemanalTexto(inf);
+    expect(texto).toContain("Stock en cámara (hoy): 250.000 kg");
+    expect(texto).toContain("merma 1700 kg");
+  });
+
+  it("sin lotes terminados lo dice, sin inventar merma", () => {
+    const inf = computeInformeSemanal([diaConProduccion("2026-08-03")], {
+      ...OPCIONES_SEMANA,
+      mermaSemana: { nLotes: 0, kgEntrada: 0, kgMerma: 0, pctMerma: null, nConDatoARevisar: 0, lotes: [] },
+      stock: STOCK,
+    });
+    expect(renderInformeSemanalHtml(inf)).toContain("Ningún lote terminó de procesarse esta semana");
+    expect(inf.avisos.some((a) => a.includes("calibrador pesando"))).toBe(false);
   });
 });
 

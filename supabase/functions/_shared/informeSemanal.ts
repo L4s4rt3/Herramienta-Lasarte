@@ -27,6 +27,7 @@ import {
   type DestinoRentabilidad,
   type RentabilidadDia,
 } from "./rentabilidadDia.ts";
+import type { MermaLote } from "./mermaLote.ts";
 
 // ---------------------------------------------------------------------------
 // Semanas ISO (sin date-fns: la edge function no carga dependencias para esto)
@@ -100,6 +101,93 @@ export interface OpcionesInformeSemanal {
   semana: number;
   /** finca de báscula por clave de lote (8 dígitos), para el desglose por productor y finca. */
   fincaPorLote?: Map<string, string | null>;
+  /** Merma de los lotes terminados esta semana (seleccionarMermaSemana). null/ausente = no calculada. */
+  mermaSemana?: MermaSemanaInforme | null;
+  /** Foto del stock en cámara A DÍA DE HOY (buildStockEntradas). null/ausente = no calculado. */
+  stock?: StockInforme | null;
+}
+
+// ---------------------------------------------------------------------------
+// Merma de los lotes terminados en la semana + foto del stock
+// ---------------------------------------------------------------------------
+
+/** Un lote terminado esta semana, con la MISMA merma que la pestaña "Mermas y coste". */
+export interface LoteMermaSemana {
+  lote: string;
+  agricultor: string | null;
+  finca: string | null;
+  kgEntrada: number;
+  /** Merma natural CON SIGNO (báscula − calibrador − ajuste), de mermaLote.ts. */
+  mermaNaturalKg: number | null;
+  pctMerma: number | null;
+  diasEnCamara: number | null;
+  /** true = el calibrador pesó MÁS que la báscula: dato a revisar, no merma. */
+  calibradorSuperaEntrada: boolean;
+}
+
+export interface MermaSemanaInforme {
+  nLotes: number;
+  kgEntrada: number;
+  /** Σ merma natural CON SIGNO de los lotes de la semana. */
+  kgMerma: number;
+  pctMerma: number | null;
+  nConDatoARevisar: number;
+  /** De mayor a menor % de merma. */
+  lotes: LoteMermaSemana[];
+}
+
+/** Resumen del stock del hook de Entradas (buildStockEntradas), lo que enseña el informe. */
+export interface StockInforme {
+  kgEnCamara: number;
+  kgEnCamaraFirme: number;
+  kgProbablementeTerminados: number;
+  lotesProbablementeTerminados: number;
+  lotesPendientes: number;
+  lotesParciales: number;
+  antiguedadMaxDias: number;
+}
+
+/**
+ * Filtra de los MermaLote de TODA la campaña (computeMermaLotes, los mismos
+ * números que la pestaña "Mermas y coste") los lotes TERMINADOS cuya última
+ * fecha de procesado (conciliada) cayó dentro de la semana del informe.
+ * Los cerrados sin_registro nunca entran (su merma es null a propósito).
+ */
+export function seleccionarMermaSemana(
+  lotes: MermaLote[],
+  ultimaFechaPorLote: Map<string, string | null>,
+  fechaInicio: string,
+  fechaFin: string,
+  datosPorLote: Map<string, { agricultor: string | null; finca: string | null }>,
+): MermaSemanaInforme {
+  const delaSemana = lotes.filter((l) => {
+    if (l.estado !== "procesado" || l.cerradoSinRegistro || l.mermaNaturalKg == null) return false;
+    const ultima = ultimaFechaPorLote.get(l.lote) ?? null;
+    return ultima != null && ultima >= fechaInicio && ultima <= fechaFin;
+  });
+
+  const filas: LoteMermaSemana[] = delaSemana.map((l) => ({
+    lote: l.lote,
+    agricultor: datosPorLote.get(l.lote)?.agricultor ?? null,
+    finca: datosPorLote.get(l.lote)?.finca ?? null,
+    kgEntrada: l.kgEntrada,
+    mermaNaturalKg: l.mermaNaturalKg,
+    pctMerma: l.pctMermaSobreEntrada,
+    diasEnCamara: l.diasEnCamara,
+    calibradorSuperaEntrada: l.calibradorSuperaEntrada,
+  }));
+  filas.sort((a, b) => (b.pctMerma ?? -1e12) - (a.pctMerma ?? -1e12));
+
+  const kgEntrada = filas.reduce((s, l) => s + l.kgEntrada, 0);
+  const kgMerma = filas.reduce((s, l) => s + (l.mermaNaturalKg ?? 0), 0);
+  return {
+    nLotes: filas.length,
+    kgEntrada,
+    kgMerma,
+    pctMerma: kgEntrada > 0 ? (kgMerma / kgEntrada) * 100 : null,
+    nConDatoARevisar: filas.filter((l) => l.calibradorSuperaEntrada).length,
+    lotes: filas,
+  };
 }
 
 /** Agregado de podrido/industria por productor y finca (semana completa). */
@@ -139,6 +227,10 @@ export interface InformeSemanal {
   presentesPorZona: Array<{ zona: string; presentesMedios: number }>;
   /** Podrido por productor y finca, ordenado por kg de podrido (de más a menos). */
   podridoPorProductor: ProductorFincaPodrido[];
+  /** Merma de los lotes terminados esta semana. null = no calculada. */
+  mermaSemana: MermaSemanaInforme | null;
+  /** Foto del stock en cámara a la fecha de generación. null = no calculado. */
+  stock: StockInforme | null;
   /** Datos que faltan / calidad del dato — la sección más valiosa del correo. */
   avisos: string[];
 }
@@ -226,6 +318,8 @@ export function computeInformeSemanal(
     kgPorPersonaDia: null,
     presentesPorZona: [],
     podridoPorProductor: [],
+    mermaSemana: opciones.mermaSemana ?? null,
+    stock: opciones.stock ?? null,
     avisos: [],
   };
 
@@ -340,6 +434,12 @@ export function computeInformeSemanal(
   if (diasBasculaSinInforme.length > 0) {
     avisos.push(
       `Día(s) laborable(s) con entradas en báscula pero sin Informe LOTE: ${diasBasculaSinInforme.map(etiquetaDia).join(", ")}. Si ese día se calibró, falta importar el informe.`,
+    );
+  }
+
+  if ((inf.mermaSemana?.nConDatoARevisar ?? 0) > 0) {
+    avisos.push(
+      `${inf.mermaSemana!.nConDatoARevisar} lote(s) terminados esta semana con el calibrador pesando MÁS que la báscula: dato a revisar en Entradas → Mermas y coste, no es merma real.`,
     );
   }
 
@@ -480,6 +580,7 @@ export function renderInformeSemanalHtml(inf: InformeSemanal): string {
               ${kpi("Podrido real", fmtPct(inf.pctPodrido), `${fmtKg(inf.kgPodrido)} · clase (J) del calibrador`)}
               <td style="width:10px;">&nbsp;</td>
               ${kpi("Trabajadores/día", fmtPersonas(inf.presentesMedios), inf.kgPorPersonaDia != null ? `${fmtKg(inf.kgPorPersonaDia)} por persona y día` : "sin asistencia cargada")}
+              ${inf.stock ? `<td style="width:10px;">&nbsp;</td>${kpi("Stock en cámara", fmtKg(inf.stock.kgEnCamara), `${inf.stock.lotesPendientes + inf.stock.lotesParciales} lote(s) con fruta pendiente`)}` : ""}
             </tr>
           </table>
         </td></tr>
@@ -498,6 +599,29 @@ export function renderInformeSemanalHtml(inf: InformeSemanal): string {
         </table>`
           : `<p style="margin:0;font-size:13px;color:#6e7488;">Sin lotes calibrados esta semana.</p>`)}
 
+        ${inf.mermaSemana ? seccion("Merma de los lotes terminados esta semana", inf.mermaSemana.nLotes > 0
+          ? `<p style="margin:0 0 8px;font-size:13px;color:#30354a;">${inf.mermaSemana.nLotes} lote(s) · ${fmtKg(inf.mermaSemana.kgEntrada)} de entrada · merma ${fmtKg(inf.mermaSemana.kgMerma)} (${fmtPct(inf.mermaSemana.pctMerma)}). Misma cuenta que «Entradas → Mermas y coste» (báscula − calibrador − ajuste, con la conciliación de kg).</p>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+          <tr><th ${TH}>Lote</th><th ${TH_NUM}>Entrada</th><th ${TH_NUM}>Días cámara</th><th ${TH_NUM}>Merma kg</th><th ${TH_NUM}>Merma %</th></tr>
+          ${inf.mermaSemana.lotes.map((l) => `<tr>
+            <td ${TD}>${escaparHtml(l.lote)}<br><span style="color:#6e7488;font-size:12px;">${escaparHtml(l.agricultor ?? "—")}${l.finca ? ` · ${escaparHtml(l.finca)}` : ""}</span></td>
+            <td ${TD_NUM}>${fmtKg(l.kgEntrada)}</td>
+            <td ${TD_NUM}>${l.diasEnCamara ?? "—"}</td>
+            <td ${TD_NUM}>${l.mermaNaturalKg != null ? fmtKg(l.mermaNaturalKg) : "—"}${l.calibradorSuperaEntrada ? " ⚠" : ""}</td>
+            <td ${TD_NUM}>${(l.pctMerma ?? 0) > 5 ? `<span style="color:#b4232a;font-weight:700;">${fmtPct(l.pctMerma)}</span>` : fmtPct(l.pctMerma)}</td>
+          </tr>`).join("")}
+        </table>`
+          : `<p style="margin:0;font-size:13px;color:#6e7488;">Ningún lote terminó de procesarse esta semana: sin merma nueva que contar.</p>`) : ""}
+
+        ${inf.stock ? seccion("Stock en cámara (a día de hoy)", `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+          <tr><td ${TD}>En cámara (total)</td><td ${TD_NUM}><strong>${fmtKg(inf.stock.kgEnCamara)}</strong></td></tr>
+          <tr><td ${TD}>· Firme (lotes claramente a medias)</td><td ${TD_NUM}>${fmtKg(inf.stock.kgEnCamaraFirme)}</td></tr>
+          <tr><td ${TD}>· En lotes probablemente terminados (${inf.stock.lotesProbablementeTerminados})</td><td ${TD_NUM}>${fmtKg(inf.stock.kgProbablementeTerminados)}</td></tr>
+          <tr><td ${TD}>Lotes sin empezar / a medias</td><td ${TD_NUM}>${inf.stock.lotesPendientes} / ${inf.stock.lotesParciales}</td></tr>
+          <tr><td ${TD}>Lote sin terminar más antiguo</td><td ${TD_NUM}>${inf.stock.antiguedadMaxDias} día(s)</td></tr>
+        </table>
+        <p style="margin:8px 0 0;font-size:12px;color:#6e7488;">Misma cuenta que la pestaña Stock de Entradas (conciliación de kg, señales de cámara y cierres incluidos).</p>`) : ""}
+
         ${seccion("Dónde fueron los kilos", `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
           <tr><th ${TH}>Destino</th><th ${TH_NUM}>Kilos</th><th ${TH_NUM}>% semana</th></tr>
           ${filasDestinos || `<tr><td ${TD} colspan="3">Sin kilos calibrados.</td></tr>`}
@@ -512,7 +636,6 @@ export function renderInformeSemanalHtml(inf: InformeSemanal): string {
           <p style="margin:0;font-size:11px;color:#858a9b;line-height:1.6;">
             Generado automáticamente desde los datos de la herramienta (Informes LOTE del calibrador, báscula y asistencia), con las mismas funciones de cálculo que las páginas de la herramienta.
             El podrido es el REAL medido por el calibrador (clase J); las muestras cuentan como podrido a efectos de aprovechamiento.
-            La merma natural de cámara y el stock se añadirán a este informe reutilizando el cálculo de «Entradas → Mermas y coste».
             Cuando falta un dato se dice — nunca se estima en silencio.
           </p>
         </td></tr>
@@ -555,6 +678,21 @@ export function renderInformeSemanalTexto(inf: InformeSemanal): string {
     for (const p of inf.podridoPorProductor) {
       lineas.push(`  ${p.productor} · ${p.finca}: ${fmtKg(p.kg)} · ${fmtKg(p.kgPodrido)} · ${fmtPct(p.pctPodrido)} · ${fmtPct(p.pctIndustria)}`);
     }
+    lineas.push("");
+  }
+  if (inf.mermaSemana) {
+    if (inf.mermaSemana.nLotes > 0) {
+      lineas.push(`Merma de los lotes terminados esta semana: ${inf.mermaSemana.nLotes} lote(s) · entrada ${fmtKg(inf.mermaSemana.kgEntrada)} · merma ${fmtKg(inf.mermaSemana.kgMerma)} (${fmtPct(inf.mermaSemana.pctMerma)})`);
+      for (const l of inf.mermaSemana.lotes) {
+        lineas.push(`  ${l.lote} (${l.agricultor ?? "—"}${l.finca ? ` · ${l.finca}` : ""}): entrada ${fmtKg(l.kgEntrada)} · merma ${l.mermaNaturalKg != null ? fmtKg(l.mermaNaturalKg) : "—"} (${fmtPct(l.pctMerma)})${l.calibradorSuperaEntrada ? " [dato a revisar]" : ""}`);
+      }
+    } else {
+      lineas.push("Merma: ningún lote terminó de procesarse esta semana.");
+    }
+    lineas.push("");
+  }
+  if (inf.stock) {
+    lineas.push(`Stock en cámara (hoy): ${fmtKg(inf.stock.kgEnCamara)} (firme ${fmtKg(inf.stock.kgEnCamaraFirme)} · probablemente terminados ${fmtKg(inf.stock.kgProbablementeTerminados)} en ${inf.stock.lotesProbablementeTerminados} lote(s)) · ${inf.stock.lotesPendientes} pendientes / ${inf.stock.lotesParciales} parciales · más antiguo ${inf.stock.antiguedadMaxDias} día(s)`);
     lineas.push("");
   }
   if (inf.presentesPorZona.length > 0) {
