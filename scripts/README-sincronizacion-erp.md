@@ -103,46 +103,50 @@ node scripts/probar-estimacion-recoleccion.mjs
 `crear-parte-diario.mjs` rellena los campos que la máquina ya sabe, para que por
 la mañana solo haya que copiar del papel lo que la máquina no puede saber.
 
-Con esto **el DSJ ya sale solo**: los cuatro números del balance quedan puestos
-sin que nadie suba ningún archivo.
+Se rellenan tres campos:
 
 | Campo | De dónde sale |
 | --- | --- |
 | `kg_produccion_calibrador` | suma de `calibrador_clasificacion` de las pasadas del día |
 | `kg_mujeres_calibrador` | ídem, grupo MUJERES |
-| `kg_palets_brutos` | `SUM(kilos_netos)` de `palets_cab` del ERP — lo que antes había que sacar en un Excel del GSTOCK |
-| `kg_palets_egipto` / `kg_palets_campo` | ídem, por nombre de producto |
 | `kg_inventario_anterior_sin_alta` | el inventario final del parte del día anterior |
 
-Producción y mujeres se comprobaron contra los partes ya cerrados del 3, 4, 5, 6
-y 7 de agosto de 2026: coinciden **al kilo los cinco**.
+Los dos primeros se comprobaron contra los partes ya cerrados del 3, 4, 5, 6 y 7
+de agosto de 2026: coinciden **al kilo los cinco**.
 
-### Los palets: el filtro que lo hacía cuadrar mal
+### Los palets: se GENERA el Excel del GSTOCK y se sube
 
-`kg_palets_brutos` parecía irreconciliable (el parte del 7-ago decía 87.478 kg y
-`erp_palet` daba 64.752). No eran fuentes distintas: era un **filtro**. El
-sincronizador de trazabilidad usa `num_cajas > 0` porque quiere palets de verdad;
-el GSTOCK no filtra, y los palets a granel y los de campo van en box con
-`num_cajas = 0`. Ese día son 8 palets de 225 que valen 22.726 kg.
+`kg_palets_brutos` no se escribe a mano en el parte. Se **genera el mismo Excel**
+que se sacaba de la consulta de palets del GSTOCK (`generar-gstock-erp.mjs`), se
+sube al parte, y `analizar-parte` lo lee con su lógica de siempre. Así no se
+esquiva nada: el detalle de palets (cliente, producto, lote, cajas) que alimenta
+`palets_dia`, los kg de Egipto y de campo, y la protección de campos manuales
+siguen funcionando igual que cuando lo subía una persona.
 
-El número automático **no reproduce exactamente los partes viejos, y está bien**:
-el Excel era una foto del ERP a media tarde, y los palets de granel nacen con 0 kg
-y se valoran después (el palet 398153 del 27-jul valía 0 en el Excel y hoy vale
-18.890). Leído a la mañana siguiente el día ya está cerrado — comprobado del
-20-jul al 11-ago: ningún palet sin valorar en los días cerrados. Medido sobre 51
-partes desde junio: 15 idénticos, 30 con el ERP por encima y 6 por debajo de entre
-1 y 499 kg (palets anulados después). Los kg de "campo" salen idénticos en 50 de
-51. Por eso solo se aplica a los partes nuevos: el histórico se queda como se
-validó en su día.
+Validado contra el Excel real del 7-ago: **225 filas, suma idéntica (87.478 kg) y
+224 de 225 palets iguales** en Netos, Cajas, Cliente, Producto y Lote. La única
+diferencia es un cliente que en el original estaba vacío porque el albarán se hizo
+después.
 
-Se comprueba con:
+Dos detalles que importan y no se ven:
+
+- **No se filtra por `num_cajas`.** El GSTOCK no filtra; los palets a granel y los
+  de campo van en box con `num_cajas = 0` (el 7-ago, 8 de 225 que valen 22.726 kg).
+  `erp_palet` sí los filtra, y por eso daba 64.752 en vez de 87.478.
+- **Los palets DESMONTADOS (`estado = 4`) también van.** Un palet que se desmonta
+  va a industria o vuelve como precalibrado: se queda en `palets_cab` y al día
+  siguiente se quita de stock. El Excel del 7-ago traía 223 normales + 2
+  desmontados. Son los que llegan tarde y descuadran el día, así que el generador
+  **avisa** cuando aparece uno de más de 10.000 kg (un palet físico no llega a eso).
+
+**Lo que se intentó y salió mal, para no repetirlo**: escribir `kg_palets_brutos`
+leyendo el ERP directamente empeora el |DSJ| medio de 4,66% a 13,39%, con días
+imposibles (27-jul a −25,5%, más palets que producción). El Excel es una foto del
+momento del cierre; el ERP sigue moviéndose después.
 
 ```bash
 node scripts/probar-palets-gstock.mjs
 ```
-
-Ese test falla si el ERP se queda corto de más de 1.000 kg, que es lo que
-rompería el DSJ por abajo.
 
 **Lo que NO se rellena, a propósito.** `kg_podrido_calibrador_auto`: nuestra clase
 "Podrido" suma 5.849 kg donde el parte contaba 207 el 3-ago. No entra en el DSJ
