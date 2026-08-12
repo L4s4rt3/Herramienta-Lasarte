@@ -1,4 +1,4 @@
-# Sincronización de entradas de fruta desde el ERP
+﻿# Sincronización de entradas de fruta desde el ERP
 
 `sincronizar-entradas-erp.mjs` trae las entradas de fruta del ERP de LR Informática
 (GSTOCK/GVENTAS) a la tabla `entradas_bascula`, sin pasar por el Excel.
@@ -167,10 +167,43 @@ node scripts/crear-parte-diario.mjs --aplicar
 node scripts/crear-parte-diario.mjs --fecha=2026-08-10 --aplicar   # un día suelto
 ```
 
+## El alta de palets: la hora de cierre y lo que queda sin dar de alta
+
+Dos números que hoy dependen de una persona, y que se pueden deducir de fotos
+horarias del ERP (`erp_palets_foto`, cada hora de 06:00 a 00:00).
+
+**La hora de cierre se deduce, no se pregunta.** Se mueve con el turno: en agosto
+de 2026 terminan de dar de alta sobre las 13:00-13:10, y con horario normal serán
+las 14:00 o las 15:00. Preguntarla obliga a que alguien avise cada vez que cambia;
+la señal en los datos es más simple: a partir del cierre, los kilos del día dejan
+de subir. Eso es lo que mira `detectarCierre` (`lib-cierre-alta.mjs`).
+
+**El inventario sin dar de alta** hoy se pesa y se cuenta a mano. La idea es de
+quienes lo hacen: si se mira el listado de palets al cerrar y otra vez a la mañana
+siguiente, lo que ha crecido el día anterior es justo lo que quedó pendiente.
+
+```
+inventario sin alta (día D) = kg del día D visto al día siguiente
+                            − kg del día D visto al cerrar D
+```
+
+Por eso cada pasada fotografía **ayer además de hoy**: por la mañana, lo que
+interesa medir es cuánto ha crecido la víspera.
+
+**Todavía NO se escribe en el parte.** El correo lo enseña junto al número que se
+apunta a mano para poder compararlos unos días; hasta que no coincidan, el bueno
+es el suyo. Mismo criterio que con la producción y las mujeres, que se validaron
+contra 5 partes cerrados antes de darlas por buenas. Si falta cualquiera de las
+dos fotos, se dice — no se rellena con una estimación.
+
+```bash
+node scripts/probar-cierre-alta.mjs
+```
+
 ## Programarlo
 
 Con el Programador de tareas de Windows, en un equipo de la oficina que esté
-encendido, a una hora muerta (por ejemplo las 6:00) para no cargar el servidor
+encendido, a una hora muerta (las 7:10, cuando ya llevan un rato dando de alta) para no cargar el servidor
 del ERP mientras la gente trabaja.
 
 `tarea-diaria-erp.cmd` encadena los tres pasos en este orden, que importa:

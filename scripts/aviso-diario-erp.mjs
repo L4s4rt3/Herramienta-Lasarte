@@ -1,7 +1,7 @@
-/**
+﻿/**
  * Aviso diario: que paso AYER, y deja el parte listo para rellenar a mano.
  *
- * POR QUE DEL DIA ANTERIOR. La tarea corre a las 6:30, asi que ayer ya esta
+ * POR QUE DEL DIA ANTERIOR. La tarea corre a las 7:10, asi que ayer ya esta
  * cerrado: los numeros no se mueven mientras lo lees.
  *
  * QUE HACE, EN ORDEN
@@ -23,6 +23,7 @@ import { repasarPartes, datosCalibradorDelDia, traerTodo } from "./crear-parte-d
 import { analizarPartesPendientes } from "./analizar-partes-pendientes.mjs";
 import { conectarErp } from "./lib-palets-erp.mjs";
 import { generarYSubir } from "./generar-gstock-erp.mjs";
+import { detectarCierre, inventarioSinAlta } from "./lib-cierre-alta.mjs";
 
 try { process.loadEnvFile(path.resolve(".env")); } catch { /* entorno */ }
 
@@ -104,6 +105,24 @@ function buzonDelDia(fecha) {
   }
   if (!importados.length && !esperando.length && !noReconocidos.length) return null;
   return { importados, esperando, noReconocidos };
+}
+
+/**
+ * A qué hora se cerró el alta y cuánto quedó sin dar de alta, deducido de las
+ * fotos horarias del ERP (ver lib-cierre-alta.mjs).
+ *
+ * TODAVÍA NO SE ESCRIBE EN EL PARTE. El número se enseña al lado del que apuntan
+ * a mano para poder compararlos unos días; hasta que no coincidan, el bueno
+ * sigue siendo el suyo. Mismo criterio que se siguió con la producción y las
+ * mujeres, que se validaron contra 5 partes antes de darlas por buenas.
+ */
+async function cierreEInventario(supabase, dia) {
+  const { data, error } = await supabase.from("erp_palets_foto")
+    .select("tomada_a, kg_netos, palets").eq("dia", dia).order("tomada_a");
+  if (error || !data?.length) return null;
+  const cierre = detectarCierre(data);
+  const inventario = inventarioSinAlta(dia, data);
+  return { fotos: data.length, cierre, inventario };
 }
 
 /** El último dato de cada fuente y cuántos días hace de él. */
@@ -307,6 +326,7 @@ async function main() {
     frescura: await frescuraDeDatos(supabase, comoFecha(hoy)),
     buzon: buzonDelDia(ayer),
     analizados: analizados.filter((a) => a.accion === "analizado"),
+    alta: await cierreEInventario(supabase, ayer),
     receptor: await receptorVivo(), ipEsperada: IP_ESPERADA,
   });
   const asunto = `${hayProblema ? "[REVISAR] " : ""}Lasarte · resumen del ${ayer}`;

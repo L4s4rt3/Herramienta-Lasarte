@@ -146,6 +146,25 @@ comprobar("dice que analizo un parte que estaba sin extraer", /Analizado solo el
 comprobar("y que sigue editable para los manuales", /sigue en borrador para los manuales/.test(analizadoSolo.cuerpo));
 comprobar("analizar solo no es una incidencia", analizadoSolo.hayProblema === false);
 
+// El alta de palets deducida de las fotos: en pruebas, no debe escribir nada.
+const conAlta = componerAviso({ ...BASE, alta: {
+  fotos: 14,
+  cierre: { estado: "cerrado", hora: "13:00", kg: 66000 },
+  inventario: { estado: "calculado", kg: 5500, anulaciones: 0, horaMedida: "07:00", cierre: "13:00" },
+} });
+comprobar("dice a que hora terminaron de dar de alta", /Terminaron de dar de alta.*13:00/.test(conAlta.cuerpo));
+comprobar("y cuanto quedo sin dar de alta", /Quedo sin dar de alta.*5500 kg/.test(conAlta.cuerpo));
+comprobar("dejando claro que aun no se usa", /en pruebas, no se usa todavia/.test(conAlta.cuerpo));
+comprobar("y pidiendo que se contraste", /Comparalo con lo que hayan pesado/.test(conAlta.cuerpo));
+comprobar("estar en pruebas no es una incidencia", conAlta.hayProblema === false);
+
+const altaIncompleta = componerAviso({ ...BASE, alta: {
+  fotos: 3, cierre: { estado: "quiza-abierto", hora: "12:00" },
+  inventario: { estado: "sin-foto-de-la-mañana" },
+} });
+comprobar("si falta la foto de la mañana NO se inventa el numero", /todavia no se puede calcular/.test(altaIncompleta.cuerpo));
+comprobar("y avisa de que el dia quiza no habia cerrado", /o mas tarde: seguia subiendo/.test(altaIncompleta.cuerpo));
+
 // El buzon de correo: lo que llego, lo que entro solo y lo que espera.
 const conBuzon = componerAviso({ ...BASE, buzon: {
   importados: [{ fichero: "guadex.xlsx", etiqueta: "Registro de camara externa", detalle: "12 camion(es) importado(s)" }],

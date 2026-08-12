@@ -1,23 +1,28 @@
 /**
- * Guarda una foto del total de palets del ERP. Se lanza varias veces al día.
+ * Guarda una foto del total de palets del ERP. Se lanza cada hora.
  *
- * PARA QUÉ. `kg_palets_brutos` sale hoy de un Excel del GSTOCK que alguien saca
- * a media tarde. Leer el ERP a la mañana siguiente NO vale: se probó el
- * 12-08-2026 y el |DSJ| medio empeora de 4,66% a 13,39%, porque después del
- * cierre siguen apareciendo palets de regularización con esa misma fecha de lote
- * (el 1-jul hay uno de 67.400 kg, que no es un palet físico). Lo que hay que
- * averiguar es A QUÉ HORA el ERP dice lo mismo que el Excel.
+ * PARA QUÉ SIRVEN LAS FOTOS (idea de las que dan de alta, 12-08-2026):
  *
- * Y DE PROPINA, lo que se buscaba: la diferencia entre el total final del día y
- * la foto del cierre es lo que quedó SIN DAR DE ALTA — el número que hoy se
- * cuenta a mano. No se puede sacar de otra forma: el ERP le pone a cada palet la
- * fecha de su lote de confección, no la de cuándo se teclea, así que en la base
- * no queda ni un rastro del momento del alta.
+ *   1. LA HORA DEL CIERRE. `kg_palets_brutos` sale de un listado de palets que
+ *      alguien saca cuando termina de dar de alta. Esa hora se mueve: ahora
+ *      terminan sobre las 13:00-13:10, y con horario normal serán las 14:00 o
+ *      las 15:00. Con fotos cada hora la hora se DEDUCE de los datos en vez de
+ *      preguntarla (ver detectar-cierre-alta.mjs).
  *
- * ESTO NO ESCRIBE EN NINGÚN PARTE. Solo acumula fotos, para poder elegir la hora
- * con datos y no a ojo. Sobre el ERP, solo SELECT.
+ *   2. EL INVENTARIO SIN DAR DE ALTA, que hoy se pesa y se cuenta a mano. Es la
+ *      diferencia entre la foto del cierre y la foto de la mañana siguiente:
+ *      los palets de ESE día que se dieron de alta después. Por eso se fotografía
+ *      AYER además de HOY — por la mañana, lo que interesa medir es cuánto ha
+ *      crecido el día anterior desde que se cerró.
  *
- *   node scripts/capturar-palets-erp.mjs              # la foto de hoy
+ * Leer el ERP sin más a la mañana siguiente NO vale como sustituto del listado:
+ * se probó el 12-08-2026 y el |DSJ| medio empeora de 4,66% a 13,39%, porque
+ * después del cierre aparecen palets desmontados apuntados con la fecha del lote
+ * (el 1-jul uno de 67.400 kg, que no es un palet físico).
+ *
+ * ESTO NO ESCRIBE EN NINGÚN PARTE. Solo acumula fotos. Sobre el ERP, solo SELECT.
+ *
+ *   node scripts/capturar-palets-erp.mjs              # ayer y hoy
  *   node scripts/capturar-palets-erp.mjs --fecha=2026-08-11
  */
 import path from "node:path";
@@ -54,19 +59,23 @@ async function main() {
   const supabase = createClient(url, key, { auth: { persistSession: false } });
 
   const arg = process.argv.find((a) => a.startsWith("--fecha="))?.split("=")[1];
-  const fecha = arg ?? comoFecha(new Date());
+  const hoy = new Date();
+  const ayer = comoFecha(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - 1));
+  // Ayer TAMBIEN: por la mañana, lo que hay que medir es cuanto ha crecido el
+  // dia anterior desde que se cerro — eso es el inventario que quedo sin alta.
+  const fechas = arg ? [arg] : [ayer, comoFecha(hoy)];
 
   const conn = await conectarErp();
-  let r;
   try {
-    r = await capturarFoto(supabase, conn, fecha);
+    for (const fecha of fechas) {
+      const r = await capturarFoto(supabase, conn, fecha);
+      if (!r.guardada) { console.log(`${fecha}: ${r.motivo}`); continue; }
+      console.log(`Foto del ${fecha}: ${r.palets} palets · ${Math.round(r.netos).toLocaleString("es")} kg` +
+        (r.sinValorar > 0 ? ` · ${r.sinValorar} sin valorar todavia` : ""));
+    }
   } finally {
     await conn.end().catch(() => {});
   }
-
-  if (!r.guardada) return console.log(`${fecha}: ${r.motivo}`);
-  console.log(`Foto del ${fecha}: ${r.palets} palets · ${Math.round(r.netos).toLocaleString("es")} kg` +
-    (r.sinValorar > 0 ? ` · ${r.sinValorar} sin valorar todavia` : ""));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

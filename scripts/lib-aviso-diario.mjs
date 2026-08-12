@@ -1,4 +1,4 @@
-/**
+﻿/**
  * El texto del aviso diario. Puro: se le dan los datos ya recogidos y devuelve
  * el cuerpo y si hay algo que revisar.
  *
@@ -42,7 +42,7 @@ export function componerAviso({
   fecha, entradas, palets, cobertura, correcciones, ip, log,
   receptor = null, informesCalibrador = null, calibrador = null,
   parte = null, productores = null, ipEsperada = "192.168.1.237",
-  frescura = null, buzon = null, analizados = null,
+  frescura = null, buzon = null, analizados = null, alta = null,
 }) {
   const secciones = [];
   const avisos = [];
@@ -181,6 +181,31 @@ export function componerAviso({
     secciones.push(t.join("\n"));
   }
 
+  // ── El alta de palets, deducida de las fotos del ERP ────────────────────
+  // Todavia NO se escribe en el parte: se enseña al lado del que se apunta a
+  // mano para poder compararlos unos dias. Hasta que coincidan, manda el suyo.
+  if (alta) {
+    const a = ["ALTA DE PALETS (en pruebas, no se usa todavia)"];
+    if (alta.cierre?.hora) {
+      a.push(linea("Terminaron de dar de alta", `${alta.cierre.hora}` +
+        (alta.cierre.estado === "quiza-abierto" ? " (o mas tarde: seguia subiendo)" : "")));
+    } else {
+      a.push(linea("Hora de cierre", `no se pudo deducir (${alta.cierre?.estado ?? "sin fotos"})`));
+    }
+    if (alta.inventario?.estado === "calculado") {
+      a.push(linea("Quedo sin dar de alta", `${kg(alta.inventario.kg)} (medido a las ${alta.inventario.horaMedida})`));
+      if (alta.inventario.anulaciones > 0) {
+        a.push(linea("  y se anularon", kg(alta.inventario.anulaciones)));
+      }
+      a.push("  Comparalo con lo que hayan pesado ellas: si cuadra unos dias,");
+      a.push("  se deja de contar a mano.");
+    } else {
+      a.push(linea("Sin dar de alta", `todavia no se puede calcular (${alta.inventario?.estado ?? "sin datos"})`));
+    }
+    a.push(linea("Fotos del dia", `${alta.fotos}`));
+    secciones.push(a.join("\n"));
+  }
+
   // ── Lo que llegó por correo ─────────────────────────────────────────────
   if (buzon) {
     const b = ["BUZON DE CORREO"];
@@ -269,7 +294,7 @@ export function componerAviso({
       ? ["REVISAR", ...avisos.map((a) => (a.startsWith("  ") ? `   ${a.trimStart()}` : `  - ${a}`))].join("\n")
       : "Sin incidencias.",
     ["--",
-      "Aviso automatico de las 06:30. Si algun dia NO lo recibes, es que la tarea",
+      "Aviso automatico de las 07:10. Si algun dia NO lo recibes, es que la tarea",
       "no se ejecuto: portatil apagado, suspendido o sin red.",
     ].join("\n"),
   ].join("\n\n");

@@ -1,14 +1,18 @@
 @echo off
-REM Foto del total de palets del ERP. Se lanza cada hora de 12:00 a 00:00 para
-REM averiguar a que hora el ERP dice lo mismo que el Excel del GSTOCK, y de paso
-REM medir lo que queda sin dar de alta al cierre.
+REM Foto del total de palets del ERP. Cada hora de 06:00 a 00:00.
+REM
+REM Sirve para dos cosas (ver scripts/lib-cierre-alta.mjs):
+REM   1. Deducir a que hora se termina de dar de alta, sin tener que preguntarlo
+REM      cada vez que cambia el turno.
+REM   2. Medir lo que quedo SIN DAR DE ALTA: la diferencia entre la foto del
+REM      cierre y la de la mañana siguiente. Por eso empieza a las 06:00, para
+REM      tener foto temprana, y por eso cada pasada fotografia AYER ademas de HOY.
 REM
 REM No escribe en ningun parte ni toca el ERP: solo SELECT y una fila en
-REM erp_palets_foto. Ver scripts/capturar-palets-erp.mjs.
+REM erp_palets_foto.
 REM
-REM Se programa con:
-REM   schtasks /Create /TN "Lasarte - Foto palets ERP" /TR "<ruta>\foto-palets.cmd" ^
-REM     /SC DAILY /ST 12:00 /RI 60 /DU 0012:00 /F
+REM Se programa con (ver scripts/arreglar-tareas.ps1):
+REM   /SC DAILY /ST 06:00 /RI 60 /DU 0018:00
 
 chcp 65001 > nul
 cd /d "%~dp0.."
