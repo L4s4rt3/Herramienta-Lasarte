@@ -48,6 +48,12 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/produccion",
     parentLabel: "Producción",
   },
+  "/calibrador": {
+    label: "Calibrador",
+    subtitle: "Cuánto aprovecha la fruta de cada productor, según el Compac Sizer",
+    parent: "/produccion",
+    parentLabel: "Producción",
+  },
   "/calidad": {
     label: "Calidad",
     subtitle: "Notas diarias de lotes y control de calidad",

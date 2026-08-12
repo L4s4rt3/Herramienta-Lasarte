@@ -996,6 +996,7 @@ export type Database = {
           cierre_modo: string | null
           comision_kg: number | null
           coste_recoleccion: number | null
+          coste_recoleccion_estimado: number | null
           created_at: string
           envases: number | null
           fecha: string
@@ -1013,7 +1014,9 @@ export type Database = {
           parcela: string | null
           precio_compra_kg: number | null
           productor_id: string | null
+          recol_estimacion_origen: string | null
           recol_kg: number | null
+          recol_kg_estimado: number | null
           tipo_envase: string | null
           user_id: string
         }
@@ -1026,6 +1029,7 @@ export type Database = {
           cierre_modo?: string | null
           comision_kg?: number | null
           coste_recoleccion?: number | null
+          coste_recoleccion_estimado?: number | null
           created_at?: string
           envases?: number | null
           fecha: string
@@ -1043,7 +1047,9 @@ export type Database = {
           parcela?: string | null
           precio_compra_kg?: number | null
           productor_id?: string | null
+          recol_estimacion_origen?: string | null
           recol_kg?: number | null
+          recol_kg_estimado?: number | null
           tipo_envase?: string | null
           user_id: string
         }
@@ -1056,6 +1062,7 @@ export type Database = {
           cierre_modo?: string | null
           comision_kg?: number | null
           coste_recoleccion?: number | null
+          coste_recoleccion_estimado?: number | null
           created_at?: string
           envases?: number | null
           fecha?: string
@@ -1073,7 +1080,9 @@ export type Database = {
           parcela?: string | null
           precio_compra_kg?: number | null
           productor_id?: string | null
+          recol_estimacion_origen?: string | null
           recol_kg?: number | null
+          recol_kg_estimado?: number | null
           tipo_envase?: string | null
           user_id?: string
         }
@@ -1086,6 +1095,96 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      erp_confeccion_origen: {
+        Row: {
+          articulo: string | null
+          kg_atribuidos: number
+          lote_confeccion: string
+          lote_entrada: string
+          sincronizado_at: string
+        }
+        Insert: {
+          articulo?: string | null
+          kg_atribuidos: number
+          lote_confeccion: string
+          lote_entrada: string
+          sincronizado_at?: string
+        }
+        Update: {
+          articulo?: string | null
+          kg_atribuidos?: number
+          lote_confeccion?: string
+          lote_entrada?: string
+          sincronizado_at?: string
+        }
+        Relationships: []
+      }
+      erp_palet: {
+        Row: {
+          articulo: string | null
+          cliente: string | null
+          cliente_codigo: string | null
+          codigo_sscc: string | null
+          fecha: string
+          fecha_factura: string | null
+          fecha_venta: string | null
+          importe_venta: number | null
+          kg_brutos: number | null
+          kg_netos: number | null
+          linea_venta: number | null
+          lote_confeccion: string
+          num_albaran_venta: string | null
+          num_cajas: number | null
+          num_factura: string | null
+          numero: string
+          referencia: string | null
+          serie_albaran_venta: string | null
+          sincronizado_at: string
+        }
+        Insert: {
+          articulo?: string | null
+          cliente?: string | null
+          cliente_codigo?: string | null
+          codigo_sscc?: string | null
+          fecha: string
+          fecha_factura?: string | null
+          fecha_venta?: string | null
+          importe_venta?: number | null
+          kg_brutos?: number | null
+          kg_netos?: number | null
+          linea_venta?: number | null
+          lote_confeccion: string
+          num_albaran_venta?: string | null
+          num_cajas?: number | null
+          num_factura?: string | null
+          numero: string
+          referencia?: string | null
+          serie_albaran_venta?: string | null
+          sincronizado_at?: string
+        }
+        Update: {
+          articulo?: string | null
+          cliente?: string | null
+          cliente_codigo?: string | null
+          codigo_sscc?: string | null
+          fecha?: string
+          fecha_factura?: string | null
+          fecha_venta?: string | null
+          importe_venta?: number | null
+          kg_brutos?: number | null
+          kg_netos?: number | null
+          linea_venta?: number | null
+          lote_confeccion?: string
+          num_albaran_venta?: string | null
+          num_cajas?: number | null
+          num_factura?: string | null
+          numero?: string
+          referencia?: string | null
+          serie_albaran_venta?: string | null
+          sincronizado_at?: string
+        }
+        Relationships: []
       }
       gstock_entries: {
         Row: {
@@ -2728,6 +2827,61 @@ export type Database = {
     Functions: {
       can_access_comunicaciones_campo: { Args: never; Returns: boolean }
       can_access_ventas_categoria: { Args: never; Returns: boolean }
+      calibrador_aprovechamiento_productor: {
+        Args: { desde?: string | null; hasta?: string | null }
+        Returns: {
+          productor_id: string | null
+          productor: string
+          lotes: number
+          kg_total: number
+          kg_exportacion: number
+          kg_no_exportacion: number
+          kg_industria: number
+          kg_mujeres: number
+          kg_otros: number
+          pct_exportacion: number | null
+        }[]
+      }
+      calibrador_desglose_sin_repartir: {
+        Args: { desde?: string | null; hasta?: string | null }
+        Returns: {
+          pasadas: number
+          kg: number
+          pasadas_varios_lotes: number
+        }[]
+      }
+      calibrador_capacidad_lotes: {
+        Args: Record<string, never>
+        Returns: {
+          lote: string
+          kg_entrada: number
+          kg_atribuido_simple: number
+        }[]
+      }
+      calibrador_pasadas_con_desglose: {
+        Args: { desde?: string | null; hasta?: string | null }
+        Returns: {
+          batch_id: number
+          batch_name: string
+          lote: string
+          fecha: string
+          kg_total: number
+          kg_exportacion: number
+          kg_no_exportacion: number
+          kg_industria: number
+          kg_mujeres: number
+          kg_otros: number
+        }[]
+      }
+      productor_por_lote: {
+        Args: { lotes: string[] }
+        Returns: {
+          lote: string
+          productor_id: string | null
+          productor: string | null
+          fraccion: number
+        }[]
+      }
       has_role:
         | {
             Args: {

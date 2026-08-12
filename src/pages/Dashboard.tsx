@@ -37,7 +37,7 @@ import {
   Truck, Package, TrendingDown, BarChart3,
   Gauge, Droplet, Plus, ShoppingCart,
   Recycle, RotateCcw, Trash2, Warehouse, AlertTriangle, ArrowRight, Clock, Info,
-  ClipboardCheck, FileText, Waypoints, Sprout, Brush, History, LayoutDashboard, Send,
+  ClipboardCheck, FileText, Waypoints, Cog, Sprout, Brush, History, LayoutDashboard, Send,
   type LucideIcon,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -415,6 +415,7 @@ export default function Dashboard() {
   const seccionAccesos: SeccionAcceso[] = useMemo(() => [
     { to: "/entradas", label: "Entradas de fruta", icon: Truck, dato: !stockLoading ? `${formatKg(stock.kgEnCamara)} en cámara` : undefined },
     { to: "/trazabilidad", label: "Trazabilidad", icon: Waypoints, dato: "Ficha completa por lote" },
+    { to: "/calibrador", label: "Calibrador", icon: Cog, dato: "Aprovechamiento por productor" },
     { to: "/calidad", label: "Calidad", icon: ClipboardCheck, dato: ultimaCalidadFecha ? `Último informe ${formatDate(ultimaCalidadFecha)}` : "Sin informes todavía" },
     { to: "/partes", label: "Partes", icon: FileText, dato: ultimoDiaConParte ? `Último parte ${formatDate(ultimoDiaConParte)}` : undefined },
     { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3, dato: "Lotes, calibres y destinos por día" },

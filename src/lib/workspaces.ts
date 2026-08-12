@@ -14,6 +14,7 @@ import {
   CalendarOff,
   Citrus,
   ClipboardCheck,
+  Cog,
   Droplet,
   Euro,
   FileSpreadsheet,
@@ -148,6 +149,7 @@ export const NAV_GROUPS: Array<{ label: string; workspace: WorkspaceId; items: N
     items: [
       { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3 },
       { to: "/trazabilidad", label: "Trazabilidad", icon: Waypoints },
+      { to: "/calibrador", label: "Calibrador", icon: Cog },
       { to: "/productores", label: "Productores", icon: Sprout },
       // Variante de produccion: sin facturacion (la completa vive en Comercial).
       { to: "/mercadona", label: "Mercadona (planta)", icon: ShoppingCart },

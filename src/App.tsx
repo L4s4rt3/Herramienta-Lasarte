@@ -44,6 +44,7 @@ const VentasMensualImport = lazy(pageLoaders.ventasMensualImport);
 const EconomicoPanel = lazy(pageLoaders.economicoPanel);
 const EconomicoRentabilidad = lazy(pageLoaders.economicoRentabilidad);
 const EconomicoCmv = lazy(pageLoaders.economicoCmv);
+const EconomicoProductos = lazy(pageLoaders.economicoProductos);
 const EconomicoFacturacion = lazy(pageLoaders.economicoFacturacion);
 const EconomicoCostes = lazy(pageLoaders.economicoCostes);
 const EconomicoFruta = lazy(pageLoaders.economicoFruta);
@@ -51,6 +52,7 @@ const EconomicoPrecios = lazy(pageLoaders.economicoPrecios);
 const MapaHerramienta = lazy(pageLoaders.mapa);
 const EntradasBascula = lazy(pageLoaders.entradas);
 const TrazabilidadLote = lazy(pageLoaders.trazabilidad);
+const Calibrador = lazy(pageLoaders.calibrador);
 const LimpiezaBox = lazy(pageLoaders.limpiezaBox);
 const HistoricoImport = lazy(pageLoaders.historicoImport);
 const ImportarBandeja = lazy(pageLoaders.importarBandeja);
@@ -94,6 +96,7 @@ const App = () => (
                       <Route path="/produccion" element={<Dashboard />} />
                       <Route path="/entradas" element={<EntradasBascula />} />
                       <Route path="/trazabilidad" element={<TrazabilidadLote />} />
+                      <Route path="/calibrador" element={<Calibrador />} />
                       <Route path="/calidad" element={<CalidadJornada />} />
                       <Route path="/partes" element={<PartesList />} />
                       <Route path="/partes/:id" element={<PartDetail />} />
@@ -130,6 +133,7 @@ const App = () => (
                       <Route path="/economico" element={<EconomicoPanel />} />
                       <Route path="/economico/rentabilidad" element={<EconomicoRentabilidad />} />
                       <Route path="/economico/cmv" element={<EconomicoCmv />} />
+                      <Route path="/economico/productos" element={<EconomicoProductos />} />
                       <Route path="/economico/facturacion" element={<EconomicoFacturacion />} />
                       <Route path="/economico/costes" element={<EconomicoCostes />} />
                       <Route path="/economico/fruta" element={<EconomicoFruta />} />
