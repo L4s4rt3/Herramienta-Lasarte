@@ -1,0 +1,128 @@
+<meta charset="utf-8">
+<title>Cómo escribir el lote — calibrador</title>
+<style>
+  /* Cartel A4 para pegar junto al Sizer. Pensado para leerse de pie: negro
+     sobre blanco, sin colores que se pierdan al fotocopiar, y todo en UNA cara.
+     Medido para caber en el area imprimible (704 x 1033 px a 96 dpi con
+     margenes de 12 mm): si se toca algo, comprobar que sigue entrando. */
+  @page { size: A4 portrait; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+    color: #000; background: #fff;
+    line-height: 1.25;
+  }
+  h1 { font-size: 25pt; margin: 0; letter-spacing: -0.3pt; }
+  .sub { font-size: 11pt; color: #444; margin: 0 0 5mm; }
+
+  .regla { border: 3pt solid #000; padding: 5mm 5mm; margin-bottom: 5.5mm; }
+  .regla .txt { font-size: 18pt; font-weight: 700; margin: 0 0 3mm; }
+
+  .cod { font-family: "Consolas", "Courier New", monospace; font-weight: 700; }
+  .regla .cod { font-size: 15.5pt; letter-spacing: 0.2pt; }
+
+  h2 {
+    font-size: 13pt; margin: 0 0 2mm; padding-bottom: 1mm;
+    border-bottom: 1.2pt solid #000;
+  }
+  section { margin-bottom: 4.5mm; }
+  p { margin: 0 0 1.8mm; font-size: 10.5pt; }
+
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  td, th { padding: 1.8mm 2mm; vertical-align: top; text-align: left; }
+  thead th { font-size: 9pt; text-transform: uppercase; letter-spacing: 0.4pt; border-bottom: 1.2pt solid #000; }
+  tbody tr + tr td { border-top: 0.5pt solid #bbb; }
+  td { font-family: "Consolas", "Courier New", monospace; font-size: 10.5pt; word-break: break-word; }
+  td.mal { text-decoration: line-through; color: #555; }
+  td.bien { font-weight: 700; }
+
+  ul { margin: 0; padding-left: 6mm; font-size: 10.5pt; }
+  li { margin-bottom: 1.2mm; }
+
+  .nota { border-left: 3.5pt solid #000; padding: 1.8mm 0 1.8mm 4mm; font-size: 10.5pt; }
+  .pie { margin-top: 4mm; padding-top: 1.8mm; border-top: 0.8pt solid #000; font-size: 8.5pt; color: #444; }
+</style>
+
+<h1>Cómo escribir el lote</h1>
+<p class="sub">Calibrador · Lasarte Cítricos S.L.</p>
+
+<div class="regla">
+  <p class="txt">Cada código lleva sus box detrás.</p>
+  <span class="cod">26013107 40 BOX + 26012608 25 BOX</span>
+</div>
+
+<section>
+  <h2>Lo que hay que cambiar</h2>
+  <table>
+    <thead>
+      <tr><th style="width:46%">Como se escribe hoy</th><th style="width:54%">Como debe escribirse</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="mal">26013107+26012608</td>
+        <td class="bien">26013107 40 BOX + 26012608 25 BOX</td>
+      </tr>
+      <tr>
+        <td class="mal">26012402+26012207</td>
+        <td class="bien">26012402 30 BOX + 26012207 12 BOX</td>
+      </tr>
+      <tr>
+        <td class="mal">26060204+3 BOX DE RECICLAJE</td>
+        <td class="bien">26060204 45 BOX + 3 BOX DE RECICLAJE</td>
+      </tr>
+      <tr>
+        <td class="mal">26052803- 26052807 PREC</td>
+        <td class="bien">26052803 20 BOX + 26052807 8 BOX</td>
+      </tr>
+      <tr>
+        <td class="mal">26051106+PREC</td>
+        <td class="bien">26051106 30 BOX + 26073101 8 BOX</td>
+      </tr>
+      <tr>
+        <td class="mal">26050402 30 BOX + 6 BOX PREC DIA 23/06</td>
+        <td class="bien">26050402 30 BOX + 26062301 6 BOX</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>El precalibrado va con su código, no con la fecha</h2>
+  <p>Tiene su <strong>propio código de 8 dígitos</strong>: se escribe como si fuera un lote
+  más. Con la fecha sola no vale, porque puede haber varias re-entradas ese día
+  entre PREC 1 y PREC 2 y hay que adivinar cuál era.</p>
+</section>
+
+<section>
+  <h2>Da igual cómo lo escribas</h2>
+  <p>Estas formas valen exactamente igual:
+  <span class="cod">40 BOX</span> · <span class="cod">40B</span> ·
+  <span class="cod">40BOX</span> · <span class="cod">40</span> a secas.
+  Con <span class="cod">+</span>, con <span class="cod">-</span>, con coma o con un espacio.
+  Mayúsculas o minúsculas. Y valen tres o más lotes.</p>
+  <p>Lo único que importa: <strong>detrás de cada código, su número de box</strong>.</p>
+</section>
+
+<section>
+  <h2>El reciclaje, igual que ahora</h2>
+  <p>Solo cambia que el lote también lleve sus box. Igual con DESCARTE,
+  DESMONTAJE y EGIPTO: esos kilos no se le apuntan a ningún productor.</p>
+</section>
+
+<section>
+  <h2>Dos cosas que NO hacen falta</h2>
+  <ul>
+    <li><strong>No escribas el tamaño del box.</strong> «5 BOX GRANDE» no se lee:
+    se dan por hecho grandes, que es lo normal.</li>
+    <li><strong>No hace falta que sean exactos.</strong> Solo sirven para repartir
+    en proporción; el peso que se reparte es siempre el que pesó la máquina.
+    Con que sean los box que de verdad se echaron, basta.</li>
+  </ul>
+</section>
+
+<p class="nota">Sin los box, la pasada entera se le apunta al primer lote. Hoy le
+pasa al <strong>8,9 % de los kilos de la campaña</strong>, y eso es lo que se mira para
+saber con qué fincas compensa trabajar.</p>
+
+<p class="pie">Agosto 2026 · Si algo no encaja con lo que hacéis en línea, decidlo y se cambia.</p>
