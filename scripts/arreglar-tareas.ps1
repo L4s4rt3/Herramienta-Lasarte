@@ -37,6 +37,11 @@
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 
+# La VENTANA de cada tarea importa tanto como el resto: el Sizer manda sus
+# informes segun cierra lotes (el 11-ago, entre las 07:47 y las 12:38), y lo que
+# llegue con el receptor parado se pierde y no vuelve. Por eso escucha de 06:00 a
+# 22:00 — cubre el turno de verano (terminan sobre las 13:10) y el normal (14:00
+# o 15:00) sin tener que tocar nada cuando cambie.
 $tareas = @(
   @{ nombre = "Lasarte - Sincronizar ERP";     vbs = "tarea-diaria.vbs";      despierta = $true }
   @{ nombre = "Lasarte - Receptor calibrador"; vbs = "arrancar-receptor.vbs"; despierta = $false }
