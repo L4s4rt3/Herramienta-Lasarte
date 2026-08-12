@@ -180,6 +180,17 @@ interface LoteDetalleRow {
   eurKg: number | null;
   compra: number;
   recoleccion: number;
+  /**
+   * Recolección ESTIMADA, en columna aparte y NUNCA sumada al total.
+   *
+   * El coste real de recolección no se puede leer de la base de datos del ERP
+   * (lo calcula su módulo de reparto de gastos al imprimir el listado), así que
+   * las entradas que llegan por sincronización traen `coste_recoleccion` a NULL
+   * y una estimación al lado. Las entradas importadas del Excel traen el coste
+   * real y esta columna vacía: por eso van separadas, para no comparar peras
+   * con manzanas ni inflar un total con dinero estimado.
+   */
+  recoleccionEstimada: number | null;
   transporte: number;
   comision: number;
   total: number;
@@ -213,6 +224,7 @@ function buildDetalleLotes(
       eurKg: kg > 0 ? total / kg : null,
       compra: entrada.importe_compra ?? 0,
       recoleccion: entrada.coste_recoleccion ?? 0,
+      recoleccionEstimada: entrada.coste_recoleccion_estimado ?? null,
       transporte: entrada.importe_transporte ?? 0,
       comision: entrada.importe_comision ?? 0,
       total,
@@ -286,7 +298,7 @@ function ordenarAgricultores(filas: AgricultorRankingRow[], sortKey: AgricultorS
   });
 }
 
-type LoteSortKey = "fecha" | "lote" | "agricultor" | "finca" | "articulo" | "kg" | "eurKg" | "compra" | "recoleccion" | "transporte" | "comision" | "total";
+type LoteSortKey = "fecha" | "lote" | "agricultor" | "finca" | "articulo" | "kg" | "eurKg" | "compra" | "recoleccion" | "recoleccionEstimada" | "transporte" | "comision" | "total";
 
 function ordenarLotes(filas: LoteDetalleRow[], sortKey: LoteSortKey, sortDir: SortDir): LoteDetalleRow[] {
   const factor = sortDir === "asc" ? 1 : -1;
@@ -294,9 +306,13 @@ function ordenarLotes(filas: LoteDetalleRow[], sortKey: LoteSortKey, sortDir: So
     if (sortKey === "fecha" || sortKey === "lote" || sortKey === "agricultor" || sortKey === "finca" || sortKey === "articulo") {
       return factor * a[sortKey].localeCompare(b[sortKey], "es");
     }
-    const av = sortKey === "eurKg" ? (a.eurKg ?? -1) : a[sortKey];
-    const bv = sortKey === "eurKg" ? (b.eurKg ?? -1) : b[sortKey];
-    return factor * (av - bv);
+    // "Sin dato" baja a -1 para no mezclarlo con un 0 € de verdad.
+    const valor = (fila: LoteDetalleRow): number => {
+      if (sortKey === "eurKg") return fila.eurKg ?? -1;
+      if (sortKey === "recoleccionEstimada") return fila.recoleccionEstimada ?? -1;
+      return fila[sortKey];
+    };
+    return factor * (valor(a) - valor(b));
   });
 }
 
@@ -312,6 +328,7 @@ const DETALLE_COLUMNAS: ColumnaTabla[] = [
   { header: "€/kg", key: "eurKg", tipo: "numero", numFmt: FMT_EUR_KG, width: 14 },
   { header: "Compra", key: "compra", tipo: "numero", numFmt: FMT_EUR, width: 14 },
   { header: "Recolección", key: "recoleccion", tipo: "numero", numFmt: FMT_EUR, width: 14 },
+  { header: "Recolec. estimada", key: "recoleccionEstimada", tipo: "numero", numFmt: FMT_EUR, width: 16 },
   { header: "Transporte", key: "transporte", tipo: "numero", numFmt: FMT_EUR, width: 14 },
   { header: "Comisión", key: "comision", tipo: "numero", numFmt: FMT_EUR, width: 14 },
   { header: "Total", key: "total", tipo: "numero", numFmt: FMT_EUR, width: 14 },
@@ -375,6 +392,8 @@ async function exportarFruta(input: ExportarFrutaInput) {
     });
 
     const detalleOrdenado = [...detalle].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.lote.localeCompare(b.lote));
+    // Va aparte del total a propósito: es dinero estimado (ver LoteDetalleRow).
+    const totalRecoleccionEstimada = detalle.reduce((s, f) => s + (f.recoleccionEstimada ?? 0), 0);
     añadirHojaTabla(ctx, {
       nombreHoja: "Detalle por lote",
       columnas: DETALLE_COLUMNAS,
@@ -389,6 +408,7 @@ async function exportarFruta(input: ExportarFrutaInput) {
         eurKg: kgTotales > 0 ? totalImporte / kgTotales : null,
         compra: desglose.compra,
         recoleccion: desglose.recoleccion,
+        recoleccionEstimada: totalRecoleccionEstimada || null,
         transporte: desglose.transporte,
         comision: desglose.comision,
         total: totalImporte,
@@ -553,13 +573,19 @@ export default function EconomicoFruta() {
   const [loteSortDir, setLoteSortDir] = useState<SortDir>("desc");
   function toggleLoteSort(key: LoteSortKey) {
     toggleSort(key, loteSortKey, loteSortDir, setLoteSortKey, setLoteSortDir, (k) => (
-      k === "fecha" || k === "kg" || k === "eurKg" || k === "compra" || k === "recoleccion" || k === "transporte" || k === "comision" || k === "total"
+      k === "fecha" || k === "kg" || k === "eurKg" || k === "compra" || k === "recoleccion"
+      || k === "recoleccionEstimada" || k === "transporte" || k === "comision" || k === "total"
         ? "desc" : "asc"
     ));
   }
   const detalleLotesOrdenado = useMemo(
     () => ordenarLotes(detalleLotes, loteSortKey, loteSortDir),
     [detalleLotes, loteSortKey, loteSortDir],
+  );
+  // Aparte del total del periodo: es dinero estimado (ver LoteDetalleRow).
+  const totalRecoleccionEstimada = useMemo(
+    () => detalleLotes.reduce((suma, fila) => suma + (fila.recoleccionEstimada ?? 0), 0),
+    [detalleLotes],
   );
 
   // ─── Forfait (coste real por kg aprovechable) — por productor y por finca ─
@@ -1499,6 +1525,7 @@ export default function EconomicoFruta() {
                     <SortableTableHead label="€/kg" sk="eurKg" right sortKey={loteSortKey} sortDir={loteSortDir} onToggle={toggleLoteSort} />
                     <SortableTableHead label="Compra" sk="compra" right sortKey={loteSortKey} sortDir={loteSortDir} onToggle={toggleLoteSort} />
                     <SortableTableHead label="Recolec." sk="recoleccion" right sortKey={loteSortKey} sortDir={loteSortDir} onToggle={toggleLoteSort} />
+                    <SortableTableHead label="Recolec. estim." sk="recoleccionEstimada" right sortKey={loteSortKey} sortDir={loteSortDir} onToggle={toggleLoteSort} />
                     <SortableTableHead label="Transp." sk="transporte" right sortKey={loteSortKey} sortDir={loteSortDir} onToggle={toggleLoteSort} />
                     <SortableTableHead label="Comisión" sk="comision" right sortKey={loteSortKey} sortDir={loteSortDir} onToggle={toggleLoteSort} />
                     <SortableTableHead label="Total" sk="total" right sortKey={loteSortKey} sortDir={loteSortDir} onToggle={toggleLoteSort} />
@@ -1525,6 +1552,9 @@ export default function EconomicoFruta() {
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{formatEuro(fila.compra)}</TableCell>
                       <TableCell className="text-right tabular-nums">{formatEuro(fila.recoleccion)}</TableCell>
+                      <TableCell className="text-right tabular-nums italic text-muted-foreground">
+                        {fila.recoleccionEstimada != null ? formatEuro(fila.recoleccionEstimada) : "—"}
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">{formatEuro(fila.transporte)}</TableCell>
                       <TableCell className="text-right tabular-nums">{formatEuro(fila.comision)}</TableCell>
                       <TableCell className="text-right font-semibold tabular-nums">{formatEuro(fila.total)}</TableCell>
@@ -1533,6 +1563,16 @@ export default function EconomicoFruta() {
                 </TableBody>
               </Table>
             </div>
+          )}
+          {totalRecoleccionEstimada > 0 && (
+            <p className="border-t px-4 py-3 text-xs text-muted-foreground">
+              Recolección estimada en el periodo:{" "}
+              <span className="font-semibold">{formatEuro(totalRecoleccionEstimada)}</span>. Va en columna aparte
+              y <span className="font-semibold">no</span> está sumada en «Total» ni en el resto de la página. El
+              coste real de recolección no se puede leer de la base de datos del ERP —lo calcula su módulo de
+              reparto de gastos al imprimir el listado—, así que las entradas que llegan por sincronización traen
+              una estimación con la tarifa de la misma finca y variedad.
+            </p>
           )}
         </CardContent>
       </Card>
