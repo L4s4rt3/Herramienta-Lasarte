@@ -26,9 +26,14 @@
 #      (venia deshabilitado).
 #   2. Que la tarea tenga permiso para despertar el equipo (WakeToRun).
 #
-# Solo la tarea de las 6:30 despierta el portatil. El receptor y las fotos NO:
-# corren cuando el equipo ya esta despierto, que es el horario de trabajo, y no
-# tiene sentido despertarlo 13 veces al dia para hacer una foto.
+# QUIEN DESPIERTA EL PORTATIL Y QUIEN NO:
+#   - La tarea diaria (7:10): SI. Es la que hace el trabajo del dia.
+#   - El receptor: SI. Lo que llegue con el equipo dormido se pierde y no vuelve,
+#     asi que tiene que estar escuchando durante toda la jornada. Para no
+#     despertarlo cada 10 minutos, el reintento se separa: cada 30 min es de
+#     sobra para relanzarlo si muriera.
+#   - Las fotos: NO. Si el equipo esta dormido no hay nadie dando de alta, asi
+#     que no hay nada nuevo que fotografiar.
 #
 # Es idempotente: se puede volver a lanzar cuando se quiera.
 #
@@ -44,8 +49,9 @@ $repo = Split-Path -Parent $PSScriptRoot
 # o 15:00) sin tener que tocar nada cuando cambie.
 $tareas = @(
   @{ nombre = "Lasarte - Sincronizar ERP";     vbs = "tarea-diaria.vbs";      despierta = $true }
-  @{ nombre = "Lasarte - Receptor calibrador"; vbs = "arrancar-receptor.vbs"; despierta = $false }
+  @{ nombre = "Lasarte - Receptor calibrador"; vbs = "arrancar-receptor.vbs"; despierta = $true }
   @{ nombre = "Lasarte - Foto palets ERP";     vbs = "foto-palets.vbs";       despierta = $false }
+  @{ nombre = "Lasarte - Leer buzon";          vbs = "leer-buzon.vbs";        despierta = $false }
 )
 
 # Temporizadores de reactivacion con corriente alterna: 1 = habilitar. Sin esto,
