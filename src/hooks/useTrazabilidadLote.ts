@@ -25,6 +25,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
 import { normalizarLoteCodigo } from "@/lib/entradasBascula";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import {
   evaluarCoherenciaExpedicion,
   fechaDeCodigoLote,
@@ -35,6 +36,16 @@ import {
   type VolcadoCandidato,
   type VolcadoDelDiaInput,
 } from "@/lib/origenConfeccion";
+import {
+  codigoFormatoPalet,
+  fichaConfeccion,
+  fichaDestinoEntrada,
+  type DuenoEntrada,
+  type FichaConfeccion,
+  type FichaDestinoEntrada,
+  type OrigenConfeccionFila,
+  type PaletErpFila,
+} from "@/lib/trazabilidadErp";
 import {
   esAgricultorMovimientoInterno,
   esEntradaCampoCit,
@@ -176,8 +187,23 @@ export interface TrazabilidadLote {
   calidad: CalidadNotaLote[];
   /** null = columna palets_dia.lote_codigo aún no existe (paso oculto); si existe, siempre un objeto (paletsCount 0 = sin palets para este lote). */
   expedicion: ExpedicionLote | null;
-  /** Solo cuando el cruce palets↔entrada es incoherente (ver OrigenConfeccionLote); null en el caso normal. */
+  /**
+   * ÚLTIMO RECURSO, no autoridad. Candidatos probables por volteo del código
+   * (ver OrigenConfeccionLote). Desde el 10-08-2026 solo se calcula cuando el
+   * ERP no sabe nada de este lote: si `origenErp` o `destinoErp` traen datos,
+   * esto va a null porque el ERP manda.
+   */
   origenConfeccion: OrigenConfeccionLote | null;
+  /**
+   * El código consultado es un lote de CONFECCIÓN y el ERP sabe de qué entradas
+   * salió y a qué clientes fue. Es la verdad, no una suposición.
+   */
+  origenErp: FichaConfeccion | null;
+  /**
+   * El código consultado es un lote de ENTRADA: en qué lotes de confección se
+   * usó y, prorrateado por peso, a qué clientes y por cuántos euros.
+   */
+  destinoErp: FichaDestinoEntrada | null;
   /**
    * true si `entrada` es el movimiento interno de báscula al almacén de
    * precalibrado (esEntradaPrecalibrado, ver la nota de evidencia en
@@ -379,6 +405,75 @@ async function fetchOrigenConfeccion(
   };
 }
 
+const COLUMNAS_PALET = "numero, lote_confeccion, kg_netos, cliente, importe_venta, fecha_venta";
+
+/** Los palets de unos lotes de confección, paginados (pueden pasar de 1.000). */
+function traerPalets(lotes: string[]) {
+  return fetchAllRows<PaletErpFila>((from, to) =>
+    supabase
+      .from("erp_palet")
+      .select(COLUMNAS_PALET)
+      .in("lote_confeccion", lotes)
+      .order("numero")
+      .range(from, to) as unknown as PromiseLike<{ data: PaletErpFila[] | null; error: unknown }>,
+  );
+}
+
+/**
+ * Origen y destino según el ERP. Es la AUTORIDAD: sustituye al volteo del
+ * código, que sobre 1.277 pares reales no acierta ni una vez (ver la cabecera
+ * de src/lib/trazabilidadErp.ts).
+ *
+ * El código se busca en las dos lecturas —canónico de entrada y formato de
+ * palet— porque en la ficha se teclea indistintamente lo que va impreso.
+ */
+async function fetchTrazabilidadErp(codigo: string): Promise<{
+  origenErp: FichaConfeccion | null;
+  destinoErp: FichaDestinoEntrada | null;
+}> {
+  const comoPalet = codigoFormatoPalet(codigo);
+  const candidatos = comoPalet && comoPalet !== codigo ? [codigo, comoPalet] : [codigo];
+
+  const [confRes, entradaRes] = await Promise.all([
+    supabase.from("erp_confeccion_origen").select("*").in("lote_confeccion", candidatos),
+    supabase.from("erp_confeccion_origen").select("lote_confeccion").eq("lote_entrada", codigo),
+  ]);
+
+  let origenErp: FichaConfeccion | null = null;
+  const filasConf = (confRes.data ?? []) as OrigenConfeccionFila[];
+  if (filasConf.length > 0) {
+    const loteConfeccion = filasConf[0].lote_confeccion;
+    const [palets, duenosRes] = await Promise.all([
+      traerPalets([loteConfeccion]),
+      supabase
+        .from("entradas_bascula")
+        .select("lote, agricultor, finca")
+        .in("lote", filasConf.map((o) => o.lote_entrada)),
+    ]);
+    const duenos = new Map<string, DuenoEntrada>(
+      (duenosRes.data ?? []).map((d) => [
+        d.lote as string,
+        { agricultor: d.agricultor ?? null, finca: d.finca ?? null },
+      ]),
+    );
+    origenErp = fichaConfeccion(loteConfeccion, filasConf, palets, duenos);
+  }
+
+  let destinoErp: FichaDestinoEntrada | null = null;
+  const lotesConf = [...new Set((entradaRes.data ?? []).map((r) => r.lote_confeccion as string))];
+  if (lotesConf.length > 0) {
+    // Se traen TODOS los orígenes de esos lotes de confección, no solo los de
+    // este lote: el reparto por peso necesita el denominador completo.
+    const [todosRes, palets] = await Promise.all([
+      supabase.from("erp_confeccion_origen").select("*").in("lote_confeccion", lotesConf),
+      traerPalets(lotesConf),
+    ]);
+    destinoErp = fichaDestinoEntrada(codigo, (todosRes.data ?? []) as OrigenConfeccionFila[], palets);
+  }
+
+  return { origenErp, destinoErp };
+}
+
 export function useTrazabilidadLote(loteInput: string | null) {
   // Acepta también el código tal cual va impreso en el palet/malla
   // (NN+AAMMDD): interpretarCodigoLote lo voltea al canónico y deja
@@ -470,8 +565,14 @@ export function useTrazabilidadLote(loteInput: string | null) {
       // busca el origen probable en los volcados del día de confección (ver
       // src/lib/origenConfeccion.ts — caso real: mallas Mercadona jul-2026
       // con fruta de cámara de abril).
+      // EL ERP MANDA. Se pregunta primero: si sabe de qué entradas salió este
+      // lote de confección (o a dónde fue esta entrada), los "candidatos
+      // probables" por volteo del código ni se calculan.
+      const { origenErp, destinoErp } = await fetchTrazabilidadErp(codigo);
+      const erpSabe = Boolean(origenErp) || Boolean(destinoErp?.confecciones.length);
+
       let origenConfeccion: OrigenConfeccionLote | null = null;
-      if (expedicion) {
+      if (!erpSabe && expedicion) {
         const motivo = evaluarCoherenciaExpedicion({
           entradaExiste: Boolean(entrada),
           entradaEsPrecalibrado: entrada ? esEntradaPrecalibrado(entrada) : false,
@@ -487,7 +588,7 @@ export function useTrazabilidadLote(loteInput: string | null) {
       // pasadas propias y sin palets vinculados, la ficha quedaba en blanco
       // aunque sí sabemos qué se procesó ese día. Si el código lleva una
       // fecha válida, se ofrecen los volcados de esa fecha igualmente.
-      if (!origenConfeccion && !entrada && procesado.length === 0 && fechaDeCodigoLote(codigo)) {
+      if (!erpSabe && !origenConfeccion && !entrada && procesado.length === 0 && fechaDeCodigoLote(codigo)) {
         const candidato = await fetchOrigenConfeccion(codigo, "sin_entrada", expedicionRes.partIds);
         if (candidato.volcados.length > 0) origenConfeccion = candidato;
       }
@@ -524,6 +625,8 @@ export function useTrazabilidadLote(loteInput: string | null) {
         })),
         expedicion,
         origenConfeccion,
+        origenErp,
+        destinoErp,
       };
     },
   });

@@ -33,6 +33,7 @@ import { CicloVidaEvidenciaSection } from "@/components/CicloVidaEvidenciaSectio
 import { FuenteBadge, fuentePodridoAVariant } from "@/components/FuenteBadge";
 import { InfoTooltip } from "@/components/InfoTooltip";
 import { InspeccionesPodridoCard } from "@/components/InspeccionesPodridoCard";
+import { DestinoEntradaErp, OrigenConfeccionErp } from "@/components/TrazabilidadErpCard";
 import { columnasComunesLotes, TablaLotesStock } from "@/components/TablaLotesStock";
 import { ProgressBarRow } from "@/components/ProgressBarRow";
 import { toggleSort, type SortDir } from "@/components/SortableColumn";
@@ -637,6 +638,7 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
 
   const {
     entrada, procesado, kgProcesado, clasificacion, calidad, expedicion, origenConfeccion,
+    origenErp, destinoErp,
     entradaEsPrecalibrado, entradaEsCampoCit, entradaEsMovimientoInterno,
   } = data;
   const kgEntrada = entrada ? Number(entrada.kg_entrada) || 0 : 0;
@@ -1304,6 +1306,13 @@ function FichaLote({ lote, onBack, onSelect }: { lote: string; onBack: () => voi
           </TimelinePaso>
         )}
       </div>
+
+      {/* Origen y destino SEGÚN EL ERP. Es la autoridad: sustituye al volteo del
+          código, que no identifica la fruta (0 aciertos en 1.277 pares reales —
+          ver src/lib/trazabilidadErp.ts). Si el código consultado es un lote de
+          confección sale de dónde vino; si es una entrada, a qué clientes fue. */}
+      {origenErp && <OrigenConfeccionErp ficha={origenErp} />}
+      {destinoErp && <DestinoEntradaErp ficha={destinoErp} />}
 
       {/* Mermas y pérdidas: merma natural (medida + desglose natural/sin justificar) + podrido (real/estimado), en kg/%; el detalle en € vive solo en Económico */}
       {entrada && <MermasYPerdidasCard lote={data.lote} />}

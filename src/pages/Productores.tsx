@@ -42,6 +42,7 @@ import { buildInformeProductoresFincas, type FincaInforme } from "@/lib/informeP
 import { exportInformeProductoresFincasExcel, type DetalleEntradaExport } from "@/lib/exportInformeProductoresFincas";
 import type { CalidadEstado } from "@/lib/calidad";
 import { CalidadInformeDialog } from "@/components/CalidadInformeDialog";
+import { DestinoFrutaProductorCard } from "@/components/DestinoFrutaProductorCard";
 import { ConciliarProductoresDialog } from "@/components/ConciliarProductoresDialog";
 import { FusionarProductoresDialog } from "@/components/FusionarProductoresDialog";
 import { formatKgCompact as formatKg, formatDate, formatPct, today, toISODateLocal, normalizarTexto } from "@/lib/format";
@@ -693,6 +694,13 @@ export default function Productores() {
               fincas={informeFincas.productores.find((p) => p.key === selectedDossier.productorKey)?.fincas ?? []}
               onVerEconomico={isAdmin ? () => navigate("/economico/fruta") : undefined}
             />
+          )}
+          {/* A qué clientes fue su fruta, según el ERP. La identidad se casa por
+              productor_id y por código de lote, nunca por nombre — comprobado
+              contra las dos bases: biyección 43↔43 sin partir ni juntar a nadie
+              (ver docs/ERP_LR_INFORMATICA.md). */}
+          {selected && selectedDossier && (
+            <DestinoFrutaProductorCard productorKey={selectedDossier.productorKey} />
           )}
         </>
       )}
