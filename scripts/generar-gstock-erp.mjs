@@ -20,11 +20,17 @@
  * 22.726 kg. (`erp_palet` sí los filtra, por eso daba menos: ver
  * sincronizar-trazabilidad-palet-erp.mjs.)
  *
+ * LOS PALETS DESMONTADOS SÍ VAN (regla del dueño, 12-08-2026). Un palet que se
+ * desmonta va a industria o se vuelve a echar como precalibrado: se queda en
+ * `palets_cab` con `estado = 4` y al día siguiente se quita de stock. El GSTOCK
+ * los incluye, así que aquí tampoco se filtran — el Excel del 7-ago traía 225
+ * palets (223 de estado 0 y 2 desmontados) y 87.478 kg, que es justo lo que sale.
+ *
  * OJO CON LA HORA. El Excel de la persona era una foto de media tarde; leído a
- * la mañana siguiente el ERP puede traer además algún palet de regularización
- * con esa fecha de lote (el 1-jul hay uno de 67.400 kg, que no es un palet
- * físico). Por eso se avisa cuando aparece uno anormalmente grande, en vez de
- * colarlo en el parte como si tal cosa.
+ * la mañana siguiente el ERP puede traer además algún desmontado grande apuntado
+ * DÍAS después con la fecha del lote (el 1-jul hay uno de 67.400 kg, que no es
+ * un palet físico). Por eso se avisa cuando aparece uno anormalmente grande, en
+ * vez de colarlo en el parte como si tal cosa.
  *
  * Contra el ERP solo SELECT, y siempre por `fecha_creacion` (índice
  * `elaboracion`), nunca por num_dcmto suelto.
@@ -49,7 +55,7 @@ const num = (v) => Number(v) || 0;
 
 const SQL_PALETS = `
   SELECT p.numero, DATE(p.fecha_creacion) AS fecha, p.lote,
-         p.num_cajas, p.kilos_netos, p.kilos_facturar,
+         p.num_cajas, p.kilos_netos, p.kilos_facturar, p.estado,
          p.tipo_documento_vta, p.serie_dcmto_vta, p.num_dcmto_vta, p.num_linea_vta,
          ag.denominacion  AS producto,
          apal.denominacion AS tipo_palet,
@@ -113,16 +119,22 @@ export async function filasGstock(conn, fecha) {
       // Verificado contra el Excel real del 7-ago (211 F con cliente, 12 S sin
       // el). La edge function no la lee, pero el archivo debe ser fiel.
       Sit: venta ? "F" : "S",
+      _desmontado: Number(p.estado) === 4,
     };
   });
 
   const sospechosos = filas.filter((f) => f.Netos > KG_PALET_SOSPECHOSO)
-    .map((f) => ({ palet: f["NºPalet"], kg: Math.round(f.Netos), producto: f["Denominación Producto"] }));
+    .map((f) => ({
+      palet: f["NºPalet"], kg: Math.round(f.Netos), producto: f["Denominación Producto"],
+      desmontado: f._desmontado,
+    }));
   return { filas, sospechosos };
 }
 
 /** El Excel, con las columnas EXACTAS que espera la edge function. */
 export function construirLibro(filas) {
+  // `_desmontado` es de uso interno (avisos): NO va al Excel, que debe tener las
+  // mismas columnas que el que sacaba la persona.
   const cabecera = ["TipoPalet", "NºPalet", "Fecha", "Denominación Producto", "Lote",
     "DcmtoVta", "Fecha ", "Cliente", "Cajas", "TipoCaja", "Netos", "Fact.", "Sit"];
   const ws = XLSX.utils.json_to_sheet(filas, { header: cabecera });
@@ -196,8 +208,9 @@ async function main() {
   console.log(`GSTOCK del ${r.fecha}: ${r.accion}${r.motivo ? ` (${r.motivo})` : ""}` +
     (r.palets ? ` · ${r.palets} palets · ${Math.round(r.kg).toLocaleString("es")} kg` : ""));
   for (const s of r.sospechosos ?? []) {
-    console.log(`  AVISO: el palet ${s.palet} tiene ${s.kg.toLocaleString("es")} kg ("${s.producto}").` +
-      " Un palet fisico no llega a eso: parece una regularizacion.");
+    console.log(`  AVISO: el palet ${s.palet} tiene ${s.kg.toLocaleString("es")} kg ("${s.producto}")` +
+      `${s.desmontado ? ", y es un DESMONTADO (industria o precalibrado)" : ""}.` +
+      " Un palet fisico no llega a eso: se apunto despues con la fecha del lote.");
   }
   if (!aplicar && r.accion === "subiria") console.log("  (simulacion: repite con --aplicar)");
 }

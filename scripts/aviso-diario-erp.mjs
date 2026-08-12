@@ -158,7 +158,9 @@ async function main() {
     }
     for (const s of gstock.sospechosos ?? []) {
       incidencias.push(`ERROR: el palet ${s.palet} del GSTOCK tiene ${Math.round(s.kg).toLocaleString("es")} kg` +
-        ` ("${s.producto}"). Un palet fisico no llega a eso: parece una regularizacion metida como palet.`);
+        ` ("${s.producto}")${s.desmontado ? ", y es un DESMONTADO (industria o precalibrado)" : ""}.` +
+        " Un palet fisico no llega a eso: se apunto despues con la fecha del lote, asi que ese dia" +
+        " sale con mas palets de los que se hicieron.");
     }
   } catch (e) {
     incidencias.push(`ERROR: no se pudo generar el GSTOCK del dia: ${e.message}`);
