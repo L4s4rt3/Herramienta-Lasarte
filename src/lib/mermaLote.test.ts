@@ -8,6 +8,9 @@ import {
   mermaLotesProcesadosEnPeriodo,
   pctPerdidaTotalDeAgregado,
   TASA_MERMA_NATURAL_DIA,
+  TASA_PODRIDO_PRE_CALIBRADOR_DEFECTO,
+  TASA_PODRIDO_PRE_CALIBRADOR_MES,
+  tasaPodridoPreCalibradorMes,
   type ClasificacionLoteInput,
   type EntradaLoteInput,
   type ItemPerdidaProductor,
@@ -1175,5 +1178,141 @@ describe("mermaLotesProcesadosEnPeriodo — vistas de 'semana de línea' (Mercad
     const lotes = computeMermaLotes(entradas, lotesDia, [], partes);
     expect(lotes[0].estado).toBe("procesado");
     expect(mermaLotesProcesadosEnPeriodo(lotes, "2020-01-01", "2030-01-01")).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tasa de podrido pre-calibrador por MES DE PROCESO (10-ago-2026).
+// La resta se queda ciega a final de campaña; esta referencia lo señala SIN
+// tocar ninguna pérdida ni ningún total ya existente.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("tasaPodridoPreCalibradorMes", () => {
+  it("devuelve la tasa del mes de la fecha de proceso", () => {
+    expect(tasaPodridoPreCalibradorMes("2026-07-28")).toBe(TASA_PODRIDO_PRE_CALIBRADOR_MES["07"]);
+    expect(tasaPodridoPreCalibradorMes("2025-10-16")).toBe(TASA_PODRIDO_PRE_CALIBRADOR_MES["10"]);
+  });
+
+  it("sin fecha o con fecha no parseable cae al valor por defecto, nunca a 0 (un 0 afirmaría que no hubo tría)", () => {
+    expect(tasaPodridoPreCalibradorMes(null)).toBe(TASA_PODRIDO_PRE_CALIBRADOR_DEFECTO);
+    expect(tasaPodridoPreCalibradorMes("")).toBe(TASA_PODRIDO_PRE_CALIBRADOR_DEFECTO);
+    expect(tasaPodridoPreCalibradorMes("julio")).toBe(TASA_PODRIDO_PRE_CALIBRADOR_DEFECTO);
+  });
+
+  it("la tasa CRECE a final de campaña (coherente con la degradación de la fruta)", () => {
+    expect(TASA_PODRIDO_PRE_CALIBRADOR_MES["07"]).toBeGreaterThan(TASA_PODRIDO_PRE_CALIBRADOR_MES["05"]);
+    expect(TASA_PODRIDO_PRE_CALIBRADOR_MES["06"]).toBeGreaterThan(TASA_PODRIDO_PRE_CALIBRADOR_MES["05"]);
+    expect(TASA_PODRIDO_PRE_CALIBRADOR_MES["06"]).toBeLessThan(TASA_PODRIDO_PRE_CALIBRADOR_MES["07"]);
+  });
+});
+
+describe("computeMermaLotes — lote SIN MARGEN al podrido pre-calibrador", () => {
+  // Procesado = entrada entera (lo que hace la conciliación al completar un
+  // lote): la resta se queda sin hueco y el residuo sale 0 aunque en julio la
+  // tría saque un 4,73 %.
+  const cieguito = () => computeMermaLotes(
+    [entrada({ lote: "26070101", kg_entrada: 1000, fecha: "2026-07-01" })],
+    [{ lote_codigo: "26070101", kg_peso_total: 1000, part_id: "p1" }],
+    [],
+    [{ part_id: "p1", date: "2026-07-20", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0 }],
+  )[0];
+
+  it("el residuo colapsa a 0 pero se marca sin margen y se expone lo que cabría esperar", () => {
+    const r = cieguito();
+    expect(r.estado).toBe("procesado");
+    expect(r.podridoPreCalibradorKg).toBe(0);
+    expect(r.podridoPreCalibradorSinMargen).toBe(true);
+    expect(r.podridoPreCalibradorEsperadoKg).toBeCloseTo(1000 * TASA_PODRIDO_PRE_CALIBRADOR_MES["07"], 6);
+    expect(r.podridoPreCalibradorNoVistoKg).toBeCloseTo(1000 * TASA_PODRIDO_PRE_CALIBRADOR_MES["07"], 6);
+  });
+
+  it("la referencia NO se cuela en ninguna pérdida: la invariante de conservación sigue exacta", () => {
+    const r = cieguito();
+    expect((r.mermaNaturalEstimadaKg ?? 0) + (r.podridoPreCalibradorKg ?? 0)).toBe(Math.max(0, r.mermaNaturalKg ?? 0));
+    expect(r.perdidaMermaEur).toBeNull(); // sin coste: sigue null, la tasa no lo cambia
+  });
+});
+
+describe("computeMermaLotes — lote con hueco real (con margen)", () => {
+  const sano = () => computeMermaLotes(
+    [entrada({ lote: "25100101", kg_entrada: 1000, fecha: "2025-10-01" })],
+    [{ lote_codigo: "25100101", kg_peso_total: 970, part_id: "p1" }],
+    [],
+    [{ part_id: "p1", date: "2025-10-11", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0 }],
+  )[0];
+
+  it("con residuo por encima del umbral no se marca sin margen", () => {
+    const r = sano();
+    expect(r.mermaNaturalKg).toBe(30);
+    expect(r.podridoPreCalibradorKg).toBeGreaterThan(1); // > 0,1 % de 1000
+    expect(r.podridoPreCalibradorSinMargen).toBe(false);
+  });
+
+  it("noVisto es solo la diferencia contra lo esperado, y nunca negativa", () => {
+    const r = sano();
+    const esperado = 970 * TASA_PODRIDO_PRE_CALIBRADOR_MES["10"];
+    expect(r.podridoPreCalibradorEsperadoKg).toBeCloseTo(esperado, 6);
+    expect(r.podridoPreCalibradorNoVistoKg).toBeCloseTo(Math.max(0, esperado - (r.podridoPreCalibradorKg ?? 0)), 6);
+    expect(r.podridoPreCalibradorNoVistoKg).toBeGreaterThanOrEqual(0);
+  });
+
+  it("sin fecha de procesado conocida no se inventa un mes: esperado y noVisto son null", () => {
+    const [r] = computeMermaLotes(
+      [entrada({ lote: "25100101", kg_entrada: 1000, fecha: "2025-10-01" })],
+      [{ lote_codigo: "25100101", kg_peso_total: 970, part_id: "p1" }],
+      [],
+      [{ part_id: "p1", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0 }], // parte sin date
+    );
+    expect(r.podridoPreCalibradorEsperadoKg).toBeNull();
+    expect(r.podridoPreCalibradorNoVistoKg).toBeNull();
+    expect(r.podridoPreCalibradorSinMargen).toBe(false);
+  });
+
+  it("un lote cerrado SIN REGISTRO queda fuera también de esta referencia", () => {
+    const [r] = computeMermaLotes(
+      [entrada({ lote: "25100101", kg_entrada: 1000, fecha: "2025-10-01", cerrado_at: "2026-01-01", cierre_modo: "sin_registro" })],
+      [{ lote_codigo: "25100101", kg_peso_total: 970, part_id: "p1" }],
+      [],
+      [{ part_id: "p1", date: "2025-10-11", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0 }],
+    );
+    expect(r.podridoPreCalibradorEsperadoKg).toBeNull();
+    expect(r.podridoPreCalibradorNoVistoKg).toBeNull();
+    expect(r.podridoPreCalibradorSinMargen).toBe(false);
+  });
+});
+
+describe("agregarMermaLotes — referencia por mes de proceso", () => {
+  const lotes = computeMermaLotes(
+    [
+      entrada({ lote: "26070101", kg_entrada: 1000, fecha: "2026-07-01" }), // sin margen
+      entrada({ lote: "25100101", kg_entrada: 1000, fecha: "2025-10-01" }), // con hueco
+    ],
+    [
+      { lote_codigo: "26070101", kg_peso_total: 1000, part_id: "p1" },
+      { lote_codigo: "25100101", kg_peso_total: 970, part_id: "p2" },
+    ],
+    [],
+    [
+      { part_id: "p1", date: "2026-07-20", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0 },
+      { part_id: "p2", date: "2025-10-11", kg_podrido_calibrador_auto: 0, kg_podrido_bolsa_basura: 0 },
+    ],
+  );
+
+  it("cuenta los lotes sin margen y sus kg de calibrador aparte", () => {
+    const a = agregarMermaLotes(lotes);
+    expect(a.nLotesSinMargenPodrido).toBe(1);
+    expect(a.kgProcesadoSinMargen).toBe(1000);
+  });
+
+  it("suma esperado y noVisto sin tocar el total del residuo (que es lo que sí entra en pérdidas)", () => {
+    const a = agregarMermaLotes(lotes);
+    const esperado = 1000 * TASA_PODRIDO_PRE_CALIBRADOR_MES["07"] + 970 * TASA_PODRIDO_PRE_CALIBRADOR_MES["10"];
+    expect(a.kgPodridoPreCalibradorEsperado).toBeCloseTo(esperado, 6);
+    expect(a.kgPodridoPreCalibradorNoVisto).toBeGreaterThan(0);
+    // El residuo (lo que de verdad se contabiliza) sigue siendo SOLO el del
+    // lote con hueco: la referencia no se suma a los totales de pérdida.
+    const residuo = lotes.reduce((s, l) => s + (l.podridoPreCalibradorKg ?? 0), 0);
+    expect(a.kgPodridoPreCalibradorTotal).toBeCloseTo(residuo, 6);
+    expect(a.kgPodridoPreCalibradorTotal).toBeLessThan(a.kgPodridoPreCalibradorEsperado);
   });
 });
