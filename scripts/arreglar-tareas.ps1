@@ -13,6 +13,23 @@
 # Ademas, las tareas que llaman a un .cmd abren una ventana de consola encima de
 # lo que estes haciendo. Se lanzan con su .vbs para que vayan invisibles.
 #
+# Y LO QUE DE VERDAD IMPEDIA QUE CORRIERA (diagnosticado el 12-08-2026): este
+# portatil solo tiene SUSPENSION MODERNA (S0 Low Power Idle); no existe el modo
+# de espera clasico. Con eso, aunque la configuracion de energia diga "tapa
+# cerrada: no hacer nada" y "suspender: nunca", el equipo entra igual en reposo
+# cuando se apaga la pantalla — parece encendido pero esta dormido. El 12-08 no
+# hubo NI UN evento del sistema entre las 00:30 y las 07:01, y por eso la tarea
+# de las 6:30 no se ejecuto.
+#
+# Para que se ejecute hacen falta las DOS cosas a la vez:
+#   1. Que el sistema permita temporizadores de reactivacion con corriente
+#      (venia deshabilitado).
+#   2. Que la tarea tenga permiso para despertar el equipo (WakeToRun).
+#
+# Solo la tarea de las 6:30 despierta el portatil. El receptor y las fotos NO:
+# corren cuando el equipo ya esta despierto, que es el horario de trabajo, y no
+# tiene sentido despertarlo 13 veces al dia para hacer una foto.
+#
 # Es idempotente: se puede volver a lanzar cuando se quiera.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\arreglar-tareas.ps1
@@ -21,10 +38,19 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 
 $tareas = @(
-  @{ nombre = "Lasarte - Sincronizar ERP";     vbs = "tarea-diaria.vbs" }
-  @{ nombre = "Lasarte - Receptor calibrador"; vbs = "arrancar-receptor.vbs" }
-  @{ nombre = "Lasarte - Foto palets ERP";     vbs = "foto-palets.vbs" }
+  @{ nombre = "Lasarte - Sincronizar ERP";     vbs = "tarea-diaria.vbs";      despierta = $true }
+  @{ nombre = "Lasarte - Receptor calibrador"; vbs = "arrancar-receptor.vbs"; despierta = $false }
+  @{ nombre = "Lasarte - Foto palets ERP";     vbs = "foto-palets.vbs";       despierta = $false }
 )
+
+# Temporizadores de reactivacion con corriente alterna: 1 = habilitar. Sin esto,
+# WakeToRun en la tarea no sirve de nada.
+$GUID_WAKE = "bd3b718a-0680-4d9d-8ab2-e1d2b4ac806d"
+powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP $GUID_WAKE 1 2>&1 | Out-Null
+powercfg /setactive SCHEME_CURRENT 2>&1 | Out-Null
+$estado = (powercfg /q SCHEME_CURRENT SUB_SLEEP $GUID_WAKE | Select-String 'corriente alterna|AC Power Setting')
+Write-Host "  temporizadores de reactivacion (enchufado): $(if ($estado -match '0x0*1') { 'HABILITADOS' } else { 'NO se pudieron habilitar (hace falta admin)' })"
+Write-Host ""
 
 foreach ($t in $tareas) {
   $tarea = Get-ScheduledTask -TaskName $t.nombre -ErrorAction SilentlyContinue
@@ -37,6 +63,7 @@ foreach ($t in $tareas) {
   $set.StartWhenAvailable         = $true
   $set.RunOnlyIfIdle              = $false
   $set.ExecutionTimeLimit         = "PT2H"   # que una cuelgue no la deje viva 72 h
+  $set.WakeToRun                  = $t.despierta
 
   # Sin ventana: siempre a traves del .vbs.
   $ruta = Join-Path $repo "scripts\$($t.vbs)"
@@ -54,7 +81,8 @@ foreach ($t in $tareas) {
   if (-not $x) { continue }
   $s = $x.Settings
   $ventana = if ($x.Actions[0].Execute -match "wscript") { "oculta" } else { "ABRE VENTANA" }
-  $bateria = if (-not $s.DisallowStartIfOnBatteries -and -not $s.StopIfGoingOnBatteries) { "sigue con bateria" } else { "SE PARA CON BATERIA" }
-  $perdida = if ($s.StartWhenAvailable) { "recupera la perdida" } else { "NO RECUPERA" }
-  Write-Host ("  {0,-32} {1,-14} {2,-20} {3}" -f $t.nombre.Replace("Lasarte - ", ""), $ventana, $bateria, $perdida)
+  $bateria = if (-not $s.DisallowStartIfOnBatteries -and -not $s.StopIfGoingOnBatteries) { "con bateria: sigue" } else { "CON BATERIA: SE PARA" }
+  $perdida = if ($s.StartWhenAvailable) { "recupera" } else { "NO RECUPERA" }
+  $wake    = if ($s.WakeToRun) { "DESPIERTA el equipo" } else { "no despierta" }
+  Write-Host ("  {0,-24} {1,-14} {2,-22} {3,-12} {4}" -f $t.nombre.Replace("Lasarte - ", ""), $ventana, $bateria, $perdida, $wake)
 }
