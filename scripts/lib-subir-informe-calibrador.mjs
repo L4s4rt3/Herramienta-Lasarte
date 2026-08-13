@@ -27,13 +27,17 @@ import { fechaDeComienzo } from "./lib-informe-calibrador.mjs";
 const TANDA = 500;
 
 /**
- * Un id estable y negativo para el lote. Determinista: el mismo lote da siempre
- * el mismo, asi que reenviar su informe sobreescribe en vez de duplicar.
- * Se acota a 30 bits para que quepa de sobra en un integer de Postgres.
+ * Un id estable y negativo para la PASADA (lote + comienzo). Determinista: el
+ * mismo informe da siempre el mismo, asi que reenviarlo sobreescribe en vez de
+ * duplicar. Se acota a 30 bits para que quepa de sobra en un integer.
+ *
+ * LLEVA EL COMIENZO, no solo el lote: un lote puede entrar en linea varios dias
+ * (el 26051506 se paso el 11 y el 12) y con un id por lote el segundo informe
+ * borraba las lineas del primero — 8.589 kg perdidos en silencio.
  */
-export function batchIdDeDocx(lote) {
+export function batchIdDeDocx(lote, comienzo = "") {
   let h = 0;
-  for (const ch of String(lote)) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0;
+  for (const ch of `${lote}|${comienzo}`) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0;
   return -(Math.abs(h) % 1_000_000_000) - 1;   // siempre <= -1, nunca 0
 }
 
@@ -69,14 +73,14 @@ export async function subirInforme(supabase, informe, fichero = null) {
   };
 
   const { error: errCab } = await supabase
-    .from("calibrador_informe").upsert(cabecera, { onConflict: "lote" });
+    .from("calibrador_informe").upsert(cabecera, { onConflict: "lote,comienzo" });
   if (errCab) throw new Error(`calibrador_informe: ${errCab.message}`);
 
   // Borrar y reescribir SOLO lo provisional de ESTE lote (su batch_id negativo).
   // Las filas con batch_id>0 vienen del volcado SQL del Sizer y cubren TODAS
   // las pasadas del lote (un 26% de los lotes tiene varias); el DOCX solo ve la
   // ultima, asi que jamas debe pisarlas.
-  const batchId = batchIdDeDocx(c.lote);
+  const batchId = batchIdDeDocx(c.lote, c.comienzo);
   const { error: errDel } = await supabase
     .from("calibrador_clasificacion").delete().eq("batch_id", batchId);
   if (errDel) throw new Error(`borrando clasificacion: ${errDel.message}`);

@@ -72,7 +72,6 @@ import {
   type PodridoAggRow,
 } from "../src/lib/mermaLote";
 import {
-  capacidadFraccionEstimada,
   conciliarKgProcesados,
   type EntradaConciliacion,
   type ReciclajeDiaInput,
@@ -83,7 +82,6 @@ import {
   esEntradaPrecalibrado,
   esErrorTablaOColumnaInexistente,
   esProductorPrecalibrado,
-  normalizeProductorName,
   resolveProductorGroupKey,
 } from "../src/lib/productoresCanonicos";
 import {
@@ -415,7 +413,7 @@ function calcularMerma(datos: Awaited<ReturnType<typeof cargar>>, hoy: string) {
     conciliadoPorLote.size > 0 ? conciliadoPorLote : undefined,
   );
 
-  return { mermaLotes, externas, precalibrado, campoCit, conciliacion, agregado: agregarMermaLotes(mermaLotes) };
+  return { mermaLotes, externas, precalibrado, campoCit, conciliacion };
 }
 
 // ─── Fila por lote (merma + identidad + mix de clasificación) ────────────────
