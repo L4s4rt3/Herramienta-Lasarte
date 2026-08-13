@@ -23,7 +23,7 @@ import { repasarPartes, datosCalibradorDelDia, traerTodo } from "./crear-parte-d
 import { analizarPartesPendientes } from "./analizar-partes-pendientes.mjs";
 import { conectarErp } from "./lib-palets-erp.mjs";
 import { generarYSubir } from "./generar-gstock-erp.mjs";
-import { detectarCierre, inventarioSinAlta } from "./lib-cierre-alta.mjs";
+import { detectarCierre, inventarioSinAlta, diaLocal } from "./lib-cierre-alta.mjs";
 
 try { process.loadEnvFile(path.resolve(".env")); } catch { /* entorno */ }
 
@@ -120,9 +120,13 @@ async function cierreEInventario(supabase, dia) {
   const { data, error } = await supabase.from("erp_palets_foto")
     .select("tomada_a, kg_netos, palets").eq("dia", dia).order("tomada_a");
   if (error || !data?.length) return null;
-  const cierre = detectarCierre(data);
+  // La hora de cierre se busca SOLO entre las fotos del propio dia: las de la
+  // mañana siguiente son siempre las mas altas (ya esta todo dado de alta) y
+  // harian creer que el dia se cerro a las 07:00.
+  const delDia = data.filter((f) => diaLocal(f.tomada_a) <= dia);
+  const cierre = detectarCierre(delDia);
   const inventario = inventarioSinAlta(dia, data);
-  return { fotos: data.length, cierre, inventario };
+  return { fotos: data.length, fotosDelDia: delDia.length, cierre, inventario };
 }
 
 /** El último dato de cada fuente y cuántos días hace de él. */

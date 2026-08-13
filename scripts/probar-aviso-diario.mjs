@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Comprobación del texto del aviso diario.
  *
  * Lo que protege: los avisos de "la IP ha cambiado", "el receptor está caído" o
@@ -148,7 +148,7 @@ comprobar("analizar solo no es una incidencia", analizadoSolo.hayProblema === fa
 
 // El alta de palets deducida de las fotos: en pruebas, no debe escribir nada.
 const conAlta = componerAviso({ ...BASE, alta: {
-  fotos: 14,
+  fotos: 14, fotosDelDia: 12,
   cierre: { estado: "cerrado", hora: "13:00", kg: 66000 },
   inventario: { estado: "calculado", kg: 5500, anulaciones: 0, horaMedida: "07:00", cierre: "13:00" },
 } });
@@ -159,7 +159,7 @@ comprobar("y pidiendo que se contraste", /Comparalo con lo que hayan pesado/.tes
 comprobar("estar en pruebas no es una incidencia", conAlta.hayProblema === false);
 
 const altaIncompleta = componerAviso({ ...BASE, alta: {
-  fotos: 3, cierre: { estado: "quiza-abierto", hora: "12:00" },
+  fotos: 3, fotosDelDia: 3, cierre: { estado: "quiza-abierto", hora: "12:00" },
   inventario: { estado: "sin-foto-de-la-mañana" },
 } });
 comprobar("si falta la foto de la mañana NO se inventa el numero", /todavia no se puede calcular/.test(altaIncompleta.cuerpo));

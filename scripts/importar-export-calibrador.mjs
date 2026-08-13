@@ -135,10 +135,13 @@ export async function importarExportSizer(supabase, { lotesCsv, clasifCsv }) {
       .delete().in("batch_id", batchIds.slice(i, i + 200));
     if (error) throw new Error(`delete pasadas: ${error.message}`);
   }
-  // …y limpieza de las provisionales (DOCX) de los lotes cubiertos.
+  // …y limpieza de las provisionales de los lotes cubiertos. Provisional = batch
+  // NEGATIVO: cada DOCX tiene el suyo (ver batchIdDeDocx en
+  // lib-subir-informe-calibrador.mjs). Se incluye el 0 por los que se cargaron
+  // antes de que cada lote tuviera id propio.
   for (let i = 0; i < lotes.length; i += 200) {
     const { error } = await supabase.from("calibrador_clasificacion")
-      .delete().eq("batch_id", 0).in("lote", lotes.slice(i, i + 200));
+      .delete().lte("batch_id", 0).in("lote", lotes.slice(i, i + 200));
     if (error) throw new Error(`delete provisionales: ${error.message}`);
   }
   for (let i = 0; i < filas.length; i += 2000) {

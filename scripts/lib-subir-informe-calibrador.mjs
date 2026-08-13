@@ -10,10 +10,32 @@
  * IDEMPOTENTE: reenviar un informe deja la base igual. La cabecera se actualiza
  * y el detalle se borra y se vuelve a escribir, para que un reenvio con menos
  * lineas no deje filas viejas colgando.
+ *
+ * CADA LOTE TIENE SU PROPIO batch_id NEGATIVO. La clave primaria de
+ * `calibrador_clasificacion` es (batch_id, producto, calidad, clase, tamano) —
+ * SIN el lote, porque el grano real es la pasada. Si todos los DOCX se guardaran
+ * con batch_id = 0, dos lotes distintos con el mismo producto y calibre
+ * chocarian: el 13-08-2026 llegaron 8 informes y solo entro el primero, los
+ * otros 7 se rechazaron por clave duplicada. Con un id propio por lote no hay
+ * colision posible, y el signo sigue diciendo de donde viene el dato:
+ *
+ *     batch_id > 0   pasada real del volcado SQL (la verdad completa)
+ *     batch_id < 0   provisional de un DOCX (solo la ultima pasada del lote)
  */
 import { fechaDeComienzo } from "./lib-informe-calibrador.mjs";
 
 const TANDA = 500;
+
+/**
+ * Un id estable y negativo para el lote. Determinista: el mismo lote da siempre
+ * el mismo, asi que reenviar su informe sobreescribe en vez de duplicar.
+ * Se acota a 30 bits para que quepa de sobra en un integer de Postgres.
+ */
+export function batchIdDeDocx(lote) {
+  let h = 0;
+  for (const ch of String(lote)) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0;
+  return -(Math.abs(h) % 1_000_000_000) - 1;   // siempre <= -1, nunca 0
+}
 
 /**
  * @param supabase cliente con clave de servicio
@@ -50,17 +72,18 @@ export async function subirInforme(supabase, informe, fichero = null) {
     .from("calibrador_informe").upsert(cabecera, { onConflict: "lote" });
   if (errCab) throw new Error(`calibrador_informe: ${errCab.message}`);
 
-  // Borrar y reescribir SOLO las filas batch_id=0 (las provisionales de DOCX).
+  // Borrar y reescribir SOLO lo provisional de ESTE lote (su batch_id negativo).
   // Las filas con batch_id>0 vienen del volcado SQL del Sizer y cubren TODAS
   // las pasadas del lote (un 26% de los lotes tiene varias); el DOCX solo ve la
   // ultima, asi que jamas debe pisarlas.
+  const batchId = batchIdDeDocx(c.lote);
   const { error: errDel } = await supabase
-    .from("calibrador_clasificacion").delete().eq("lote", c.lote).eq("batch_id", 0);
+    .from("calibrador_clasificacion").delete().eq("batch_id", batchId);
   if (errDel) throw new Error(`borrando clasificacion: ${errDel.message}`);
 
   const filas = informe.lineas.map((l) => ({
     lote: c.lote,
-    batch_id: 0,
+    batch_id: batchId,
     producto: l.producto ?? "",
     calidad: l.calidad ?? "",
     clase: l.clase ?? "",

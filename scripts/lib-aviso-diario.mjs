@@ -202,7 +202,8 @@ export function componerAviso({
     } else {
       a.push(linea("Sin dar de alta", `todavia no se puede calcular (${alta.inventario?.estado ?? "sin datos"})`));
     }
-    a.push(linea("Fotos del dia", `${alta.fotos}`));
+    a.push(linea("Fotos", `${alta.fotosDelDia ?? alta.fotos} del dia` +
+      (alta.fotos > (alta.fotosDelDia ?? alta.fotos) ? ` + ${alta.fotos - alta.fotosDelDia} del dia siguiente` : "")));
     secciones.push(a.join("\n"));
   }
 
