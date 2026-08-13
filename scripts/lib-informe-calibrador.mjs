@@ -252,8 +252,16 @@ export function parsearInformeCalibrador(bytes) {
  * Comprueba que la suma de cada bloque cuadre con el total que declara el
  * informe. Si algo no cuadra es que el formato ha cambiado: mejor saberlo antes
  * de meter los numeros en la Herramienta.
+ *
+ * LA TOLERANCIA ES DE MEDIO KILO, no de 20 gramos. El informe imprime cada
+ * linea con uno o dos decimales, asi que un bloque con varias lineas acumula
+ * error de redondeo por su cuenta: el 13-08-2026 se rechazo un informe entero
+ * de 23.732 kg porque un bloque de podrido declaraba 19,23 kg y sus lineas
+ * sumaban 19,2 — treinta gramos. Medio kilo deja pasar el redondeo y sigue
+ * cazando lo que esta validacion busca de verdad, que es un bloque mal leido:
+ * eso desvia kilos o decenas de kilos, nunca gramos.
  */
-export function validarBloques(bloques, tolerancia = 0.02) {
+export function validarBloques(bloques, tolerancia = 0.5) {
   const fallos = [];
   for (const b of bloques) {
     if (!b.totalDeclarado) continue;
