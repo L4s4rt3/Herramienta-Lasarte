@@ -41,9 +41,37 @@ const comprobar = (titulo, cond) => {
 const normal = componerAviso(BASE);
 comprobar("un dia normal no da problema", normal.hayProblema === false);
 comprobar("trae la produccion del calibrador", normal.cuerpo.includes("79.164 kg en 4 pasadas"));
-comprobar("y el reparto por destino con su %", /a exportacion.*50\.000 kg \(63,2%\)/.test(normal.cuerpo));
+comprobar("y el reparto por destino con su %", /a exportacion.*50\.000 kg  63,2%/.test(normal.cuerpo));
+
+// El titular: lo primero que se lee tiene que decir si el dia fue normal o no.
+const conContexto = componerAviso({ ...BASE, contexto: {
+  media: { dias: 7, kg: 70000, mujeres: 6000, pctExp: 70 },
+  serie: [
+    { fecha: "2026-08-04", kg: 62000, exportacion: 43000, pctExp: 69.4 },
+    { fecha: "2026-08-05", kg: 78000, exportacion: 41000, pctExp: 52.4 },
+    { fecha: "2026-08-06", kg: 68000, exportacion: 44000, pctExp: 64.7 },
+    { fecha: "2026-08-10", kg: 79164, exportacion: 50000, pctExp: 63.2 },
+  ],
+} });
+comprobar("empieza diciendo de que dia habla", /^Produccion del lunes 10 de agosto/.test(conContexto.cuerpo));
+comprobar("y resume el dia en una frase", /Se calibraron 79\.164 kg en 4 pasadas/.test(conContexto.cuerpo));
+comprobar("comparando con la media", /13% por encima de la media de los ultimos 7 dias/.test(conContexto.cuerpo));
+comprobar("y diciendo si el aprovechamiento fue bueno", /7 puntos por debajo de lo habitual \(70%\)/.test(conContexto.cuerpo));
+comprobar("una diferencia pequeña se llama 'lo normal'",
+  /fue a exportacion, lo normal/.test(componerAviso({ ...BASE, contexto: {
+    media: { dias: 7, kg: 70000, mujeres: 6000, pctExp: 64 }, serie: [],
+  } }).cuerpo));
+comprobar("la produccion se compara con la media", /Calibrado.*▲ \+13% sobre la media/.test(conContexto.cuerpo));
+comprobar("hay una vista de la semana", /COMO VIENE LA SEMANA/.test(conContexto.cuerpo));
+comprobar("con barras para ver la forma", /█/.test(conContexto.cuerpo));
+comprobar("marcando el dia del que se informa", /→ lunes 10/.test(conContexto.cuerpo));
+comprobar("y el total de la serie", /Total 4 dias.*287\.164 kg/.test(conContexto.cuerpo));
+comprobar("tener contexto no es una incidencia", conContexto.hayProblema === false);
+
+comprobar("sin contexto no se inventan comparaciones",
+  !/sobre la media|COMO VIENE/.test(componerAviso(BASE).cuerpo));
 comprobar("trae los palets y el facturado", normal.cuerpo.includes("72.709 kg") && normal.cuerpo.includes("61.234 EUR"));
-comprobar("calcula el precio medio", normal.cuerpo.includes("0.842 EUR/kg"));
+comprobar("calcula el precio medio con coma decimal", normal.cuerpo.includes("0,84 EUR/kg"));
 comprobar("nombra a los clientes principales", normal.cuerpo.includes("MERCADONA"));
 comprobar("lista productores con su % de exportacion", /ECILIMP.*40\.000 kg · 77%/.test(normal.cuerpo));
 comprobar("dice que el parte quedo creado", /creado en borrador/.test(normal.cuerpo));
@@ -136,7 +164,7 @@ comprobar("sin facturar no se muestra como 0 EUR",
 // Facturado a medias: el precio medio va sobre lo facturado, no sobre el total.
 const aMedias = componerAviso({ ...BASE,
   palets: { n: 146, kg: 72709, euros: 30000, kgFacturados: 36000, clientes: [] } });
-comprobar("el precio medio se divide entre lo facturado", aMedias.cuerpo.includes("0.833 EUR/kg"));
+comprobar("el precio medio se divide entre lo facturado", aMedias.cuerpo.includes("0,83 EUR/kg"));
 comprobar("y dice sobre cuantos kilos va", /sobre.*36\.000 kg de 72\.709 kg/.test(aMedias.cuerpo));
 comprobar("si esta todo facturado no sobra la aclaracion", !/ya facturados/.test(normal.cuerpo));
 

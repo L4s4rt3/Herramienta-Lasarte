@@ -129,6 +129,66 @@ async function cierreEInventario(supabase, dia) {
   return { fotos: data.length, fotosDelDia: delDia.length, cierre, inventario };
 }
 
+/**
+ * Los últimos días de producción, para poder decir si el de ayer fue bueno o
+ * malo. Un número suelto ("78.689 kg") no dice nada; el mismo número al lado de
+ * la media de la semana sí.
+ *
+ * El % de exportación es el que más se mueve —del 48% al 73% en dos semanas— y
+ * es lo que de verdad marca si la fruta salió bien.
+ */
+async function contextoSemana(supabase, hasta, dias = 14) {
+  const desde = comoFecha(new Date(
+    new Date(`${hasta}T12:00:00`).getFullYear(),
+    new Date(`${hasta}T12:00:00`).getMonth(),
+    new Date(`${hasta}T12:00:00`).getDate() - dias,
+  ));
+
+  const { data: batches, error } = await supabase.from("calibrador_batch")
+    .select("batch_id, inicio").gte("inicio", `${desde}T00:00:00`).lte("inicio", `${hasta}T23:59:59`);
+  if (error || !batches?.length) return null;
+
+  const diaDe = new Map(batches.map((b) => [b.batch_id, String(b.inicio).slice(0, 10)]));
+  const ids = batches.map((b) => b.batch_id);
+  const filas = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const trozo = ids.slice(i, i + 100);
+    filas.push(...await traerTodo(() => supabase.from("calibrador_clasificacion")
+      .select("batch_id, peso_kg, grupo_destino").in("batch_id", trozo)
+      .order("batch_id").order("producto").order("calidad").order("clase").order("tamano")));
+  }
+
+  const porDia = new Map();
+  for (const f of filas) {
+    const d = diaDe.get(f.batch_id);
+    if (!d) continue;
+    const acc = porDia.get(d) ?? { fecha: d, kg: 0, exportacion: 0, mujeres: 0, pasadas: new Set() };
+    const kg = Number(f.peso_kg) || 0;
+    acc.kg += kg;
+    const g = sinTildes(f.grupo_destino);
+    if (g === "EXPORTACION") acc.exportacion += kg;
+    if (g === "MUJERES") acc.mujeres += kg;
+    acc.pasadas.add(f.batch_id);
+    porDia.set(d, acc);
+  }
+
+  const serie = [...porDia.values()]
+    .map((d) => ({ ...d, pasadas: d.pasadas.size, pctExp: d.kg > 0 ? (d.exportacion / d.kg) * 100 : 0 }))
+    .sort((a, b) => a.fecha.localeCompare(b.fecha));
+  if (serie.length === 0) return null;
+
+  // La media EXCLUYE el día del que se informa: comparar un día consigo mismo
+  // dentro de la media lo acerca artificialmente a ella.
+  const previos = serie.filter((d) => d.fecha < hasta);
+  const media = previos.length === 0 ? null : {
+    dias: previos.length,
+    kg: previos.reduce((s, d) => s + d.kg, 0) / previos.length,
+    mujeres: previos.reduce((s, d) => s + d.mujeres, 0) / previos.length,
+    pctExp: 100 * previos.reduce((s, d) => s + d.exportacion, 0) / previos.reduce((s, d) => s + d.kg, 0),
+  };
+  return { serie: serie.slice(-8), media, hoy: serie.find((d) => d.fecha === hasta) ?? null };
+}
+
 /** El último dato de cada fuente y cuántos días hace de él. */
 async function frescuraDeDatos(supabase, hoy) {
   const out = [];
@@ -152,7 +212,10 @@ async function main() {
   const supabase = createClient(url, key, { auth: { persistSession: false } });
 
   const hoy = new Date();
-  const ayer = comoFecha(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - 1));
+  // --fecha= sirve para rehacer el informe de un dia concreto (p. ej. cuando el
+  // volcado del calibrador llega tarde y el correo salio sin produccion).
+  const ayer = process.argv.find((a) => a.startsWith("--fecha="))?.split("=")[1]
+    ?? comoFecha(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - 1));
 
   // 1. Los partes, antes de contar nada: asi el correo puede decir como quedaron.
   //    Se repasa una semana para tapar los dias en que la tarea no llego a correr.
@@ -331,9 +394,16 @@ async function main() {
     buzon: buzonDelDia(ayer),
     analizados: analizados.filter((a) => a.accion === "analizado"),
     alta: await cierreEInventario(supabase, ayer),
+    contexto: await contextoSemana(supabase, ayer),
     receptor: await receptorVivo(), ipEsperada: IP_ESPERADA,
   });
-  const asunto = `${hayProblema ? "[REVISAR] " : ""}Lasarte · resumen del ${ayer}`;
+  // El asunto lleva ya lo esencial: en la bandeja se ve el dia sin abrirlo, y
+  // dos meses de correos se pueden repasar en diagonal.
+  const dm = `${Number(ayer.slice(8, 10))} ${["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"][Number(ayer.slice(5, 7)) - 1]}`;
+  const resumen = calibrador?.kgTotal > 0
+    ? `${Math.round(calibrador.kgTotal).toLocaleString("es-ES")} kg · ${Math.round(100 * calibrador.kgExportacion / calibrador.kgTotal)}% export.`
+    : "sin datos del calibrador";
+  const asunto = `${hayProblema ? "[REVISAR] " : ""}Lasarte ${dm} · ${resumen}`;
 
   fs.mkdirSync(path.resolve("outputs"), { recursive: true });
   fs.writeFileSync(path.resolve("outputs/aviso-diario.txt"), `${asunto}\n\n${cuerpo}\n`, "utf8");

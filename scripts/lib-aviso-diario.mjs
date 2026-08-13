@@ -29,6 +29,49 @@ const lineaLarga = (etiqueta, valor, ancho = 42) =>
 
 const APP = "https://controlproduccion.vercel.app";
 
+const DIAS = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+/** "martes 11 de agosto" — que se lea como una fecha, no como un código. */
+function fechaLarga(iso) {
+  const d = new Date(`${iso}T12:00:00`);
+  return `${DIAS[d.getDay()]} ${d.getDate()} de ${MESES[d.getMonth()]}`;
+}
+
+/** "+4%" / "−12%". El signo importa más que el decimal. */
+const variacion = (valor, referencia) => {
+  if (!(referencia > 0)) return null;
+  const p = ((valor - referencia) / referencia) * 100;
+  return { pct: p, texto: `${p >= 0 ? "+" : "−"}${Math.abs(Math.round(p))}%` };
+};
+
+/**
+ * Comparación contra la media, con su flecha.
+ *
+ * Un porcentaje se compara en PUNTOS, no en tanto por ciento: decir que el 53,2%
+ * está "un 12% por debajo" del 60,4% es correcto pero se lee fatal — lo que se
+ * entiende es "7 puntos por debajo".
+ */
+function contra(valor, media, { unidad = "kg", nombre = "la media" } = {}) {
+  if (!(media > 0)) return "";
+  if (unidad === "%") {
+    const d = valor - media;
+    const flecha = Math.abs(d) < 2 ? "=" : d > 0 ? "▲" : "▼";
+    const p = Math.abs(Math.round(d * 10) / 10).toLocaleString("es-ES");
+    return `${flecha} ${d >= 0 ? "+" : "−"}${p} pt sobre ${nombre} (${pct(media)})`;
+  }
+  const v = variacion(valor, media);
+  const flecha = Math.abs(v.pct) < 3 ? "=" : v.pct > 0 ? "▲" : "▼";
+  return `${flecha} ${v.texto} sobre ${nombre} (${kg(media)})`;
+}
+
+/** Una barra proporcional al máximo, para ver la forma de la semana de un vistazo. */
+const barra = (valor, maximo, ancho = 14) => {
+  const n = maximo > 0 ? Math.max(1, Math.round((valor / maximo) * ancho)) : 0;
+  return "█".repeat(n) + "·".repeat(Math.max(0, ancho - n));
+};
+
 /** Lo que el operario copia del papel. Espejo de PART_DETAIL_MANUAL_FIELDS. */
 const DEL_PAPEL = [
   "industria (citrica)",
@@ -42,23 +85,65 @@ export function componerAviso({
   fecha, entradas, palets, cobertura, correcciones, ip, log,
   receptor = null, informesCalibrador = null, calibrador = null,
   parte = null, productores = null, ipEsperada = "192.168.1.237",
-  frescura = null, buzon = null, analizados = null, alta = null,
+  frescura = null, buzon = null, analizados = null, alta = null, contexto = null,
 }) {
   const secciones = [];
   const avisos = [];
 
-  // ── Produccion del dia ──────────────────────────────────────────────────
+  // ── El titular: el dia en dos frases ────────────────────────────────────
+  // Un correo que empieza con una tabla obliga a interpretarlo entero. Esto
+  // dice de entrada si el dia fue normal o no, y por que.
   const hayActividad = entradas.n > 0 || palets.n > 0 || (calibrador?.pasadas ?? 0) > 0;
+  const titular = [];
+  if (hayActividad && calibrador?.kgTotal > 0) {
+    const m = contexto?.media;
+    const vKg = m ? variacion(calibrador.kgTotal, m.kg) : null;
+    const pctExp = 100 * calibrador.kgExportacion / calibrador.kgTotal;
+    const vExp = m ? pctExp - m.pctExp : null;
+
+    let f1 = `Se calibraron ${kg(calibrador.kgTotal)} en ${calibrador.pasadas} pasada${calibrador.pasadas === 1 ? "" : "s"}`;
+    if (vKg) {
+      f1 += Math.abs(vKg.pct) < 5
+        ? ", en linea con la media de los ultimos dias."
+        : `, un ${Math.abs(Math.round(vKg.pct))}% ${vKg.pct > 0 ? "por encima" : "por debajo"} de la media de los ultimos ${m.dias} dias.`;
+    } else f1 += ".";
+    titular.push(f1);
+
+    let f2 = `El ${pct(pctExp)} fue a exportacion`;
+    if (vExp != null) {
+      const p = Math.abs(Math.round(vExp));
+      f2 += Math.abs(vExp) < 2
+        ? ", lo normal."
+        : `, ${p} punto${p === 1 ? "" : "s"} ${vExp > 0 ? "por encima" : "por debajo"} de lo habitual (${pct(m.pctExp)}).`;
+    } else f2 += ".";
+    // Lo peor/mejor de la serie merece decirse: es lo que se recuerda.
+    const serie = contexto?.serie ?? [];
+    if (serie.length >= 4) {
+      const peor = serie.every((d) => d.fecha === fecha || pctExp <= d.pctExp);
+      const mejor = serie.every((d) => d.fecha === fecha || pctExp >= d.pctExp);
+      if (peor) f2 += " Es el aprovechamiento mas bajo de la serie.";
+      else if (mejor) f2 += " Es el mejor aprovechamiento de la serie.";
+    }
+    titular.push(f2);
+  }
+  if (titular.length) secciones.push(titular.map((t) => `  ${t}`).join("\n"));
+
+  // ── Produccion del dia ──────────────────────────────────────────────────
   if (!hayActividad) {
     secciones.push("Sin actividad registrada (festivo, fin de semana o linea parada).");
   } else {
     const prod = ["PRODUCCION"];
     if (calibrador?.pasadas) {
-      prod.push(linea("Calibrado", `${kg(calibrador.kgTotal)} en ${calibrador.pasadas} pasadas`));
+      const m = contexto?.media;
+      prod.push(linea("Calibrado", `${kg(calibrador.kgTotal)} en ${calibrador.pasadas} pasadas` +
+        (m ? `   ${contra(calibrador.kgTotal, m.kg)}` : "")));
       if (calibrador.kgTotal > 0) {
-        prod.push(linea("  a exportacion", `${kg(calibrador.kgExportacion)} (${pct(100 * calibrador.kgExportacion / calibrador.kgTotal)})`));
-        prod.push(linea("  a industria", kg(calibrador.kgIndustria)));
-        prod.push(linea("  a mujeres", kg(calibrador.kgMujeres)));
+        const p = (n) => pct(100 * n / calibrador.kgTotal);
+        prod.push(linea("  a exportacion", `${kg(calibrador.kgExportacion)}  ${p(calibrador.kgExportacion)}` +
+          (m ? `   ${contra(100 * calibrador.kgExportacion / calibrador.kgTotal, m.pctExp, { unidad: "%" })}` : "")));
+        prod.push(linea("  a industria", `${kg(calibrador.kgIndustria)}  ${p(calibrador.kgIndustria)}`));
+        prod.push(linea("  a mujeres", `${kg(calibrador.kgMujeres)}  ${p(calibrador.kgMujeres)}` +
+          (m ? `   ${contra(calibrador.kgMujeres, m.mujeres)}` : "")));
       }
     }
     prod.push(linea("Palets confeccionados", `${palets.n} · ${kg(palets.kg)}`));
@@ -79,7 +164,11 @@ export function componerAviso({
     // dia, dividir entre el total daria un precio barato que no es real.
     const kgConPrecio = palets.kgFacturados ?? palets.kg;
     if (palets.euros > 0 && kgConPrecio > 0) {
-      dinero.push(linea("  precio medio", `${(palets.euros / kgConPrecio).toFixed(3)} EUR/kg`));
+      // Con coma decimal: "1.130 EUR/kg" se lee como mil ciento treinta.
+      const precio = (palets.euros / kgConPrecio).toLocaleString("es-ES", {
+        minimumFractionDigits: 2, maximumFractionDigits: 2,
+      });
+      dinero.push(linea("  precio medio", `${precio} EUR/kg`));
       if (kgConPrecio < palets.kg) {
         dinero.push(linea("  sobre", `${kg(kgConPrecio)} de ${kg(palets.kg)} ya facturados`));
       }
@@ -91,13 +180,43 @@ export function componerAviso({
     secciones.push(dinero.join("\n"));
   }
 
+  // ── Como viene la semana ────────────────────────────────────────────────
+  // La forma de la serie dice cosas que ningun numero suelto puede: si el dia
+  // flojo es un bache o una tendencia.
+  if (contexto?.serie?.length >= 3) {
+    const s = contexto.serie;
+    const maximo = Math.max(...s.map((d) => d.kg));
+    const filas = ["COMO VIENE LA SEMANA"];
+    for (const d of s) {
+      const marca = d.fecha === fecha ? "→" : " ";
+      const dia = fechaLarga(d.fecha).split(" ").slice(0, 2).join(" ").padEnd(12);
+      filas.push(`  ${marca} ${dia} ${barra(d.kg, maximo)} ${kg(d.kg).padStart(10)}` +
+        `  ${pct(d.pctExp).padStart(6)} export.`);
+    }
+    const total = s.reduce((a, d) => a + d.kg, 0);
+    const totalExp = s.reduce((a, d) => a + d.exportacion, 0);
+    filas.push("");
+    filas.push(linea(`  Total ${s.length} dias`, `${kg(total)} · ${pct(100 * totalExp / total)} a exportacion`));
+    secciones.push(filas.join("\n"));
+  }
+
   // ── Productores del dia ─────────────────────────────────────────────────
   if (productores?.length) {
-    const filas = productores.slice(0, 5).map((p) =>
-      lineaLarga(p.productor, `${kg(p.kg)} · ${pct(p.pctExportacion)} a exportacion`));
-    const resto = productores.length - 5;
+    // Con la media del dia al lado se ve de un golpe quien tira del % hacia
+    // arriba y quien lo hunde, que es para lo que sirve esta lista.
+    const mediaDia = calibrador?.kgTotal > 0
+      ? 100 * calibrador.kgExportacion / calibrador.kgTotal : null;
+    const filas = productores.slice(0, 6).map((p) => {
+      let marca = "";
+      if (mediaDia != null && p.kg > 1000) {
+        const d = p.pctExportacion - mediaDia;
+        marca = Math.abs(d) < 3 ? "" : d > 0 ? "  ▲ tira del dia" : "  ▼ lastra el dia";
+      }
+      return lineaLarga(p.productor, `${kg(p.kg)} · ${pct(p.pctExportacion)} export.${marca}`);
+    });
+    const resto = productores.length - 6;
     if (resto > 0) filas.push(`  (y ${resto} productor(es) mas)`);
-    secciones.push(["PRODUCTORES CALIBRADOS", ...filas].join("\n"));
+    secciones.push(["QUIEN ENTRO EN LINEA", ...filas].join("\n"));
   }
 
   // ── El parte ────────────────────────────────────────────────────────────
@@ -288,6 +407,7 @@ export function componerAviso({
   if (errores.length) avisos.push("Errores de esta noche:", ...errores.map((e) => `  ${e}`));
 
   const cuerpo = [
+    `Produccion del ${fechaLarga(fecha)}`,
     ...secciones,
     // Un aviso que ya viene indentado es el detalle del de arriba: se sangra,
     // no se le pone otro guion (quedaba "-   Registro de camaras...").
