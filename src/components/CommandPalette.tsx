@@ -40,98 +40,109 @@ import { useAuth } from "@/contexts/AuthProvider";
 import { useVentasCategoriaAccess } from "@/hooks/useVentasCategoria";
 import { useComunicacionesCampoAccess } from "@/hooks/useComunicacionesCampo";
 
+/**
+ * Los permisos comparan la RUTA, no el enlace entero.
+ *
+ * Tras el rediseño del 13-08-2026 muchos enlaces llevan pestaña
+ * (/economico/costes?vista=cmv), y comparar la cadena completa dejaba fuera
+ * del muro justo a las páginas absorbidas: buscar "CMV" se lo habría enseñado
+ * a un operario. Se compara `rutaDe(to)`, que es lo que mira RoleRoute.
+ */
+const rutaDe = (to: string) => to.split("?")[0];
+
 // Rutas del espacio Comercial: solo visibles para "ventas" y "admin".
-const VENTAS_Y_ADMIN_ONLY = new Set(["/comercial", "/comercial/ventas-mes", "/ventas/categoria-primera", "/comercial/mercadona", "/cmr"]);
+const VENTAS_Y_ADMIN_ONLY = new Set(["/comercial", "/ventas/categoria-segunda", "/cmr"]);
 
 // Las 6 secciones que puede ver el rol "ventas" (ver RoleRoute.tsx). Para ese
 // rol la paleta solo debe ofrecer estas, ni el resto de la operativa interna.
 const VENTAS_ALLOWED = new Set([
   "/comercial",
-  "/comercial/ventas-mes",
   "/ventas/categoria-segunda",
-  "/ventas/categoria-primera",
   "/comercial/mercadona",
   "/cmr",
+  "/mapa",
 ]);
 
 const PAGES = [
   { to: "/mapa", label: "Mapa de la herramienta", icon: LayoutDashboard, keywords: "mapa secciones paginas indice directorio orientacion donde esta" },
-  { to: "/produccion", label: "Panel de producción", icon: LayoutDashboard, keywords: "panel inicio dashboard produccion" },
-  { to: "/entradas", label: "Entradas de fruta", icon: Truck, keywords: "entradas bascula camion stock camara lote finca" },
-  { to: "/trazabilidad", label: "Trazabilidad", icon: Waypoints, keywords: "trazabilidad lote finca origen destino cadena seguimiento" },
-  { to: "/calibrador", label: "Calibrador", icon: Cog, keywords: "calibrador sizer compac aprovechamiento productor exportacion industria clasificacion maquina" },
+  { to: "/produccion", label: "Panel de planta", icon: LayoutDashboard, keywords: "panel inicio dashboard produccion" },
+  { to: "/entradas", label: "Entradas y stock", icon: Truck, keywords: "entradas bascula camion stock camara lote finca" },
+  { to: "/trazabilidad", label: "Análisis por lote", icon: Waypoints, keywords: "trazabilidad lote finca origen destino cadena seguimiento" },
+  { to: "/productores?vista=calibrador", label: "Aprovechamiento (calibrador)", icon: Cog, keywords: "calibrador sizer compac aprovechamiento productor exportacion industria clasificacion maquina" },
   { to: "/calidad", label: "Calidad", icon: ClipboardCheck, keywords: "calidad lotes notas aerobotics finca productor jornada" },
-  { to: "/partes", label: "Partes", icon: FileText, keywords: "partes produccion diario diarios" },
-  { to: "/analisis/diario", label: "Análisis diario", icon: BarChart3, keywords: "analisis diario lotes calibres" },
-  { to: "/productores", label: "Productores", icon: Sprout, keywords: "productores proveedores origen eficiencia" },
+  { to: "/partes", label: "Parte del día", icon: FileText, keywords: "partes produccion diario diarios" },
+  { to: "/analisis/diario", label: "Análisis por día", icon: BarChart3, keywords: "analisis diario lotes calibres" },
+  { to: "/productores", label: "Análisis por productor", icon: Sprout, keywords: "productores proveedores origen eficiencia" },
   { to: "/direccion", label: "Panel de dirección", icon: LayoutDashboard, keywords: "direccion jefe global resumen produccion comercial rrhh economico" },
-  { to: "/importar", label: "Bandeja de importación", icon: Upload, keywords: "importar bandeja excel lote produccion palets bascula mercadona ventas merma camara productor direccion" },
+  { to: "/importar", label: "Importar (bandeja)", icon: Upload, keywords: "importar bandeja excel lote produccion palets bascula mercadona ventas merma camara productor direccion" },
   { to: "/comercial", label: "Panel comercial", icon: ShoppingCart, keywords: "comercial panel dashboard ventas resumen" },
   { to: "/mercadona", label: "Mercadona (planta)", icon: ShoppingCart, keywords: "mercadona produccion planta aprovechamiento cliente principal" },
   { to: "/comercial/mercadona", label: "Mercadona (ventas)", icon: ShoppingCart, keywords: "mercadona ventas comercial facturacion cliente principal" },
-  { to: "/comercial/ventas-mes", label: "Ventas del mes", icon: Upload, keywords: "ventas mes importar excel categoria primera segunda reparto" },
-  { to: "/ventas/categoria-segunda", label: "Categoría segunda", icon: FileSpreadsheet, keywords: "ventas comercial categoria segunda clientes productos precios" },
-  { to: "/ventas/categoria-primera", label: "Categoría primera", icon: FileSpreadsheet, keywords: "ventas comercial categoria primera clientes productos precios" },
+  { to: "/ventas/categoria-segunda?categoria=importar", label: "Importar ventas del mes", icon: Upload, keywords: "ventas mes importar excel categoria primera segunda reparto" },
+  { to: "/ventas/categoria-segunda", label: "Ventas por categoría", icon: FileSpreadsheet, keywords: "ventas comercial categoria segunda clientes productos precios" },
+  { to: "/ventas/categoria-segunda?categoria=primera", label: "Categoría primera", icon: FileSpreadsheet, keywords: "ventas comercial categoria primera clientes productos precios" },
   { to: "/cmr", label: "CMR y Hojas de ruta", icon: Truck, keywords: "cmr hojas de ruta transporte logistica" },
   { to: "/campo/comunicaciones", label: "Comunicaciones de campaña", icon: Send, keywords: "campo campaña comunicaciones comunicados agricultores proveedores correos emails jesus" },
-  { to: "/costes/consumos", label: "Consumos", icon: Droplet, keywords: "consumos costes agua energia gasoil" },
+  { to: "/economico/costes?vista=consumos", label: "Consumos", icon: Droplet, keywords: "consumos costes agua energia gasoil" },
   { to: "/limpieza", label: "Limpieza de box", icon: Brush, keywords: "limpieza box pies escaleras turnos trabajadores horas partes" },
-  { to: "/historico", label: "Importar histórico", icon: History, keywords: "historico produccion campaña import excel calibrador informe" },
-  { to: "/costes/asistencia", label: "Asistencia diaria", icon: Users, keywords: "rrhh asistencia pasar lista trabajadores turnos" },
+  { to: "/importar?modo=historico", label: "Importar histórico", icon: History, keywords: "historico produccion campaña import excel calibrador informe" },
+  { to: "/costes/asistencia", label: "Asistencia", icon: Users, keywords: "rrhh asistencia pasar lista trabajadores turnos" },
   { to: "/rrhh", label: "Panel de RRHH", icon: UserRound, keywords: "rrhh panel dashboard resumen asistencia rendimiento comparativa" },
   { to: "/rrhh/personas", label: "Plantilla", icon: UserRound, keywords: "rrhh plantilla trabajadores fichas categoria antiguedad" },
-  { to: "/rrhh/ausencias", label: "Ausencias y bajas", icon: CalendarOff, keywords: "rrhh ausencias faltas bajas justificantes" },
-  { to: "/rrhh/amonestaciones", label: "Amonestaciones", icon: AlertTriangle, keywords: "rrhh amonestaciones sanciones documento firmado" },
-  { to: "/rrhh/vacaciones", label: "Vacaciones y horas", icon: Plane, keywords: "rrhh vacaciones dias horas bolsa saldo" },
+  { to: "/rrhh/personas?vista=ausencias", label: "Ausencias y bajas", icon: CalendarOff, keywords: "rrhh ausencias faltas bajas justificantes" },
+  { to: "/rrhh/personas?vista=amonestaciones", label: "Amonestaciones", icon: AlertTriangle, keywords: "rrhh amonestaciones sanciones documento firmado" },
+  { to: "/rrhh/personas?vista=vacaciones", label: "Vacaciones y horas", icon: Plane, keywords: "rrhh vacaciones dias horas bolsa saldo" },
   { to: "/rrhh/nominas", label: "Nóminas", icon: Banknote, keywords: "rrhh nominas salario mensual" },
-  { to: "/rrhh/comunicaciones", label: "Comunicaciones", icon: Mail, keywords: "rrhh comunicaciones correos emails avisos horas vacaciones" },
-  { to: "/rrhh/mercadona", label: "Mercadona (facturas)", icon: ShoppingCart, keywords: "rrhh mercadona facturas precios kg" },
+  { to: "/rrhh/personas?vista=comunicaciones", label: "Comunicaciones de RRHH", icon: Mail, keywords: "rrhh comunicaciones correos emails avisos horas vacaciones" },
+  { to: "/comercial/mercadona", label: "Mercadona (facturas)", icon: ShoppingCart, keywords: "rrhh mercadona facturas precios kg" },
   { to: "/economico", label: "Panel económico", icon: Banknote, keywords: "economico euros facturacion costes margen admin direccion" },
   { to: "/economico/rentabilidad", label: "Rentabilidad del día", icon: Banknote, keywords: "economico rentabilidad dia beneficio margen lote fruta direccion" },
-  { to: "/economico/cmv", label: "CMV", icon: Banknote, keywords: "economico cmv coste medio venta kg vendido escandallo margen direccion" },
+  { to: "/economico/costes?vista=cmv", label: "CMV", icon: Banknote, keywords: "economico cmv coste medio venta kg vendido escandallo margen direccion" },
   { to: "/economico/facturacion", label: "Facturación", icon: Banknote, keywords: "economico facturacion base iva mercadona euros direccion" },
   { to: "/economico/costes", label: "Costes", icon: Banknote, keywords: "economico costes consumos coste por kg euros direccion" },
-  { to: "/economico/fruta", label: "Compra de fruta", icon: Banknote, keywords: "economico fruta bascula compra agricultor productor variedad lote euros direccion" },
-  { to: "/economico/precios", label: "Precios", icon: Banknote, keywords: "economico precios tarifas agua luz gasoil direccion" },
+  { to: "/economico/costes?vista=fruta", label: "Compra de fruta", icon: Banknote, keywords: "economico fruta bascula compra agricultor productor variedad lote euros direccion" },
+  { to: "/datos/fuentes", label: "Estado de las fuentes", icon: AlertTriangle, keywords: "fuentes datos estado erp calibrador sincronizacion retraso parada frescura camaras" },
+  { to: "/economico/costes?vista=productos", label: "Coste por producto", icon: Banknote, keywords: "economico cmv producto margen coste kg vendido escandallo" },
+  { to: "/economico/precios", label: "Tarifas", icon: Banknote, keywords: "economico precios tarifas agua luz gasoil direccion" },
 ];
 
 // Páginas económicas (jul 2026: fundidas en el espacio Dirección, sin
 // workspace/conmutador propio) — el acceso sigue siendo exclusivo de admins.
 // La Bandeja de importación (/importar) es otro ítem admin-only del mismo
 // espacio Dirección, aunque su ruta no cuelgue del prefijo "/economico".
+// Se añade Datos (/datos/fuentes) y desaparecen las rutas que hoy son
+// pestaña de /economico/costes: basta con listar la ruta superviviente.
 const ECONOMICO_ADMIN_ONLY = new Set([
   "/direccion",
   "/economico",
   "/economico/rentabilidad",
-  "/economico/cmv",
   "/economico/facturacion",
   "/economico/costes",
-  "/economico/fruta",
   "/economico/precios",
   "/importar",
+  "/datos/fuentes",
 ]);
 
 // Rutas de Producción reservadas al admin (decisión del dueño, 2026-07-17):
 // espejo de ADMIN_ONLY_PATHS en RoleRoute.tsx y de los items adminOnly de
 // NAV_GROUPS (src/lib/workspaces.ts).
+// Consumos e histórico ya no están aquí: son pestaña de Costes y de
+// Importar, que ya son admin por su propia ruta.
 const PRODUCCION_ADMIN_ONLY = new Set([
-  "/costes/consumos",
   "/limpieza",
-  "/historico",
 ]);
 
 // Secciones de RRHH (datos personales): solo roles rrhh y admin. La
 // asistencia diaria pertenece a RRHH desde jul 2026.
+// Ausencias, amonestaciones, vacaciones y comunicaciones son hoy pestañas de
+// Plantilla, así que comparten ruta. Mercadona entra porque rrhh la tenía en
+// /rrhh/mercadona antes de la fusión.
 const RRHH_Y_ADMIN_ONLY = new Set([
   "/rrhh",
   "/costes/asistencia",
   "/rrhh/personas",
-  "/rrhh/ausencias",
-  "/rrhh/amonestaciones",
-  "/rrhh/vacaciones",
   "/rrhh/nominas",
-  "/rrhh/comunicaciones",
-  "/rrhh/mercadona",
+  "/comercial/mercadona",
 ]);
 
 const ACTIONS = [
@@ -158,17 +169,17 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     // El mapa de la herramienta es de todos los roles.
     if (page.to === "/mapa") return true;
     // El rol "ventas" solo debe ver sus 6 secciones comerciales en la paleta.
-    if (isVentas) return VENTAS_ALLOWED.has(page.to);
-    if (isRrhh) return RRHH_Y_ADMIN_ONLY.has(page.to);
+    if (isVentas) return VENTAS_ALLOWED.has(rutaDe(page.to));
+    if (isRrhh) return RRHH_Y_ADMIN_ONLY.has(rutaDe(page.to));
     if (page.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
     // Comunicaciones de campaña: exclusiva de Jesús y admin (RPC de acceso).
     if (page.to === "/campo/comunicaciones") return comunicacionesCampoAccess.hasAccess;
     // Categoria primera, Edeka y CMR son solo para admin y ventas.
-    if (VENTAS_Y_ADMIN_ONLY.has(page.to)) return role === "admin";
+    if (VENTAS_Y_ADMIN_ONLY.has(rutaDe(page.to))) return role === "admin";
     // El caso rrhh ya retorno arriba; aqui solo puede quedar admin/operario.
-    if (RRHH_Y_ADMIN_ONLY.has(page.to)) return role === "admin";
-    if (ECONOMICO_ADMIN_ONLY.has(page.to)) return role === "admin";
-    if (PRODUCCION_ADMIN_ONLY.has(page.to)) return role === "admin";
+    if (RRHH_Y_ADMIN_ONLY.has(rutaDe(page.to))) return role === "admin";
+    if (ECONOMICO_ADMIN_ONLY.has(rutaDe(page.to))) return role === "admin";
+    if (PRODUCCION_ADMIN_ONLY.has(rutaDe(page.to))) return role === "admin";
     return true;
   });
   // "Crear notas de calidad" / "Crear nuevo parte" llevan a secciones fuera

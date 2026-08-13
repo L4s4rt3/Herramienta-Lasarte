@@ -20,44 +20,37 @@ const Dashboard = lazy(pageLoaders.dashboard);
 const CalidadJornada = lazy(pageLoaders.calidad);
 const PartesList = lazy(pageLoaders.partesList);
 const PartDetail = lazy(pageLoaders.partDetail);
-const ConsumoCostes = lazy(pageLoaders.consumoCostes);
-const Asistencia = lazy(pageLoaders.asistencia);
-const AsistenciaComparativa = lazy(pageLoaders.asistenciaComparativa);
 const NotFound = lazy(pageLoaders.notFound);
-const Productores = lazy(pageLoaders.productores);
 const AnalisisDiario = lazy(pageLoaders.analisisDiario);
-const VentasCategoriaSegunda = lazy(pageLoaders.ventasCategoriaSegunda);
-const VentasCategoriaPrimera = lazy(pageLoaders.ventasCategoriaPrimera);
 const Mercadona = lazy(pageLoaders.mercadona);
 const Cmr = lazy(pageLoaders.cmr);
 const RrhhDashboard = lazy(pageLoaders.rrhhDashboard);
-const RrhhPersonas = lazy(pageLoaders.rrhhPersonas);
-const RrhhAusencias = lazy(pageLoaders.rrhhAusencias);
-const RrhhAmonestaciones = lazy(pageLoaders.rrhhAmonestaciones);
-const RrhhVacaciones = lazy(pageLoaders.rrhhVacaciones);
 const RrhhNominas = lazy(pageLoaders.rrhhNominas);
-const RrhhComunicaciones = lazy(pageLoaders.rrhhComunicaciones);
 const ComercialDashboard = lazy(pageLoaders.comercialDashboard);
 const DireccionDashboard = lazy(pageLoaders.direccionDashboard);
 const MercadonaProduccion = lazy(pageLoaders.mercadonaProduccion);
-const VentasMensualImport = lazy(pageLoaders.ventasMensualImport);
 const EconomicoPanel = lazy(pageLoaders.economicoPanel);
 const EconomicoRentabilidad = lazy(pageLoaders.economicoRentabilidad);
-const EconomicoCmv = lazy(pageLoaders.economicoCmv);
-const EconomicoProductos = lazy(pageLoaders.economicoProductos);
 const EconomicoFacturacion = lazy(pageLoaders.economicoFacturacion);
-const EconomicoCostes = lazy(pageLoaders.economicoCostes);
-const EconomicoFruta = lazy(pageLoaders.economicoFruta);
 const EconomicoPrecios = lazy(pageLoaders.economicoPrecios);
 const MapaHerramienta = lazy(pageLoaders.mapa);
 const EntradasBascula = lazy(pageLoaders.entradas);
 const TrazabilidadLote = lazy(pageLoaders.trazabilidad);
-const Calibrador = lazy(pageLoaders.calibrador);
 const LimpiezaBox = lazy(pageLoaders.limpiezaBox);
-const HistoricoImport = lazy(pageLoaders.historicoImport);
-const ImportarBandeja = lazy(pageLoaders.importarBandeja);
 const ComunicacionesCampo = lazy(pageLoaders.comunicacionesCampo);
 const ExcelViewerPage = lazy(() => import("@/pages/ExcelViewerPage"));
+
+// ─── Rediseño 13-08-2026: páginas que alojan varias vistas en pestañas ──────
+// Lo que antes eran 38 entradas de menú son 25. Cada fusión junta páginas que
+// contestaban a la MISMA pregunta por ejes distintos; ninguna función se ha
+// eliminado, todas viven como pestaña de la superviviente.
+const AnalisisPorProductor = lazy(pageLoaders.analisisPorProductor);
+const EconomicoCostesPanel = lazy(pageLoaders.economicoCostesPanel);
+const RrhhPlantilla = lazy(pageLoaders.rrhhPlantilla);
+const RrhhAsistencia = lazy(pageLoaders.rrhhAsistencia);
+const ComercialVentasCategoria = lazy(pageLoaders.comercialVentasCategoria);
+const DatosImportar = lazy(pageLoaders.datosImportar);
+const DatosFuentes = lazy(pageLoaders.datosFuentes);
 
 const LoadingFallback = () => (
   <div className="flex min-h-screen items-center justify-center">
@@ -96,48 +89,58 @@ const App = () => (
                       <Route path="/produccion" element={<Dashboard />} />
                       <Route path="/entradas" element={<EntradasBascula />} />
                       <Route path="/trazabilidad" element={<TrazabilidadLote />} />
-                      <Route path="/calibrador" element={<Calibrador />} />
                       <Route path="/calidad" element={<CalidadJornada />} />
                       <Route path="/partes" element={<PartesList />} />
                       <Route path="/partes/:id" element={<PartDetail />} />
-                      <Route path="/costes/consumos" element={<ConsumoCostes />} />
                       <Route path="/limpieza" element={<LimpiezaBox />} />
-                      <Route path="/historico" element={<HistoricoImport />} />
-                      <Route path="/importar" element={<ImportarBandeja />} />
-                      <Route path="/costes/asistencia" element={<Asistencia />} />
-                      <Route path="/costes/asistencia/comparativa" element={<AsistenciaComparativa />} />
-                      <Route path="/productores" element={<Productores />} />
+                      <Route path="/datos/fuentes" element={<DatosFuentes />} />
+                      <Route path="/importar" element={<DatosImportar />} />
+                      <Route path="/costes/asistencia" element={<RrhhAsistencia />} />
+                      <Route path="/productores" element={<AnalisisPorProductor />} />
                       {/* Comunicaciones de campaña: exclusiva de Jesús (jesus@lasartesat.es)
                           y admin — el gate real es la RPC can_access_comunicaciones_campo
                           dentro de la propia página/hook (patrón Categoría segunda). */}
                       <Route path="/campo/comunicaciones" element={<ComunicacionesCampo />} />
                       <Route path="/analisis/diario" element={<AnalisisDiario />} />
-                      <Route path="/ventas/categoria-segunda" element={<VentasCategoriaSegunda />} />
-                      <Route path="/ventas/categoria-primera" element={<VentasCategoriaPrimera />} />
+                      <Route path="/ventas/categoria-segunda" element={<ComercialVentasCategoria />} />
                       <Route path="/direccion" element={<DireccionDashboard />} />
                       <Route path="/comercial" element={<ComercialDashboard />} />
-                      <Route path="/comercial/ventas-mes" element={<VentasMensualImport />} />
                       {/* Producción: Mercadona enfocada a fruta (productores, lotes, calidad, aprovechamiento). */}
                       <Route path="/mercadona" element={<MercadonaProduccion />} />
                       <Route path="/comercial/mercadona" element={<Mercadona />} />
-                      {/* Mercadona en RRHH: completa (kg, facturas y precios), para rrhh+admin. */}
-                      <Route path="/rrhh/mercadona" element={<Mercadona />} />
                       <Route path="/cmr" element={<Cmr />} />
                       <Route path="/rrhh" element={<RrhhDashboard />} />
-                      <Route path="/rrhh/personas" element={<RrhhPersonas />} />
-                      <Route path="/rrhh/ausencias" element={<RrhhAusencias />} />
-                      <Route path="/rrhh/amonestaciones" element={<RrhhAmonestaciones />} />
-                      <Route path="/rrhh/vacaciones" element={<RrhhVacaciones />} />
+                      <Route path="/rrhh/personas" element={<RrhhPlantilla />} />
                       <Route path="/rrhh/nominas" element={<RrhhNominas />} />
-                      <Route path="/rrhh/comunicaciones" element={<RrhhComunicaciones />} />
                       <Route path="/economico" element={<EconomicoPanel />} />
                       <Route path="/economico/rentabilidad" element={<EconomicoRentabilidad />} />
-                      <Route path="/economico/cmv" element={<EconomicoCmv />} />
-                      <Route path="/economico/productos" element={<EconomicoProductos />} />
                       <Route path="/economico/facturacion" element={<EconomicoFacturacion />} />
-                      <Route path="/economico/costes" element={<EconomicoCostes />} />
-                      <Route path="/economico/fruta" element={<EconomicoFruta />} />
+                      <Route path="/economico/costes" element={<EconomicoCostesPanel />} />
                       <Route path="/economico/precios" element={<EconomicoPrecios />} />
+
+                      {/* ─── Páginas absorbidas por el rediseño 13-08-2026 ───
+                          Ninguna se ha borrado: cada una es hoy una PESTAÑA de
+                          la superviviente. Estas redirecciones existen porque
+                          hay ~120 enlaces internos cableados a estas rutas (23
+                          solo a /trazabilidad) más los enlaces que la gente
+                          tenga guardados. `replace` para que el botón de atrás
+                          no rebote entre la ruta vieja y la nueva. */}
+                      <Route path="/calibrador" element={<Navigate to="/productores?vista=calibrador" replace />} />
+                      <Route path="/historico" element={<Navigate to="/importar?modo=historico" replace />} />
+                      <Route path="/costes/consumos" element={<Navigate to="/economico/costes?vista=consumos" replace />} />
+                      <Route path="/economico/cmv" element={<Navigate to="/economico/costes?vista=cmv" replace />} />
+                      <Route path="/economico/productos" element={<Navigate to="/economico/costes?vista=productos" replace />} />
+                      <Route path="/economico/fruta" element={<Navigate to="/economico/costes?vista=fruta" replace />} />
+                      <Route path="/costes/asistencia/comparativa" element={<Navigate to="/costes/asistencia?vista=comparativa" replace />} />
+                      <Route path="/rrhh/ausencias" element={<Navigate to="/rrhh/personas?vista=ausencias" replace />} />
+                      <Route path="/rrhh/amonestaciones" element={<Navigate to="/rrhh/personas?vista=amonestaciones" replace />} />
+                      <Route path="/rrhh/vacaciones" element={<Navigate to="/rrhh/personas?vista=vacaciones" replace />} />
+                      <Route path="/rrhh/comunicaciones" element={<Navigate to="/rrhh/personas?vista=comunicaciones" replace />} />
+                      <Route path="/ventas/categoria-primera" element={<Navigate to="/ventas/categoria-segunda?categoria=primera" replace />} />
+                      <Route path="/comercial/ventas-mes" element={<Navigate to="/ventas/categoria-segunda?categoria=importar" replace />} />
+                      {/* /rrhh/mercadona servía el MISMO componente que
+                          /comercial/mercadona: dos URLs para una página. */}
+                      <Route path="/rrhh/mercadona" element={<Navigate to="/comercial/mercadona" replace />} />
                     </Route>
                   </Route>
                   <Route

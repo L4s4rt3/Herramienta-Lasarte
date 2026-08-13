@@ -14,6 +14,10 @@ export const RRHH_HOME = "/rrhh";
 export const VENTAS_ALLOWED_PATHS = [
   VENTAS_HOME,
   "/ventas/categoria-segunda",
+  // Rutas absorbidas por el rediseño 13-08-2026: siguen aquí porque redirigen
+  // a su pestaña y el rol tiene que poder ATRAVESARLAS. Si se quitan, un
+  // enlace guardado a /ventas/categoria-primera manda a "ventas" a su home en
+  // vez de a la pestaña que pedía.
   "/ventas/categoria-primera",
   "/comercial/mercadona",
   "/comercial/ventas-mes",
@@ -21,12 +25,20 @@ export const VENTAS_ALLOWED_PATHS = [
   "/mapa",
 ] as const;
 
-// Rutas de Producción reservadas al admin (decisión del dueño, 2026-07-17):
-// consumos, limpieza de box e importar histórico dejan de ser del rol básico.
-// Espejo de los items adminOnly de NAV_GROUPS (src/lib/workspaces.ts).
-// "/importar" (Bandeja de importación) se añade aquí en vez de bajo el
-// prefijo "/direccion" porque su ruta no cuelga de ese prefijo.
-export const ADMIN_ONLY_PATHS = ["/costes/consumos", "/limpieza", "/historico", "/importar"] as const;
+// Rutas reservadas al admin. Espejo de los items adminOnly de NAV_GROUPS
+// (src/lib/workspaces.ts) más las rutas de la sección Datos, que no cuelgan de
+// un prefijo común.
+// "/costes/consumos" y "/historico" ya no son páginas: redirigen a su pestaña
+// dentro de /economico/costes y /importar. Se quedan listadas para que un
+// enlace viejo de un operario siga topando con el mismo muro que antes, en vez
+// de colarse por la redirección.
+export const ADMIN_ONLY_PATHS = [
+  "/costes/consumos",
+  "/limpieza",
+  "/historico",
+  "/importar",
+  "/datos",
+] as const;
 
 /** Home de cada rol: su dashboard. "/" redirige aquí (ver RoleHome). */
 export function homeForRole(role: Role): string {
@@ -75,10 +87,17 @@ export default function RoleRoute() {
     return <Navigate to="/" replace />;
   }
 
-  // El rol rrhh vive SOLO en su espacio (Produccion es del rol basico): fuera
-  // de sus rutas se le devuelve a su home, igual que al rol ventas. El mapa
-  // de la herramienta es de todos los roles.
-  if (role === "rrhh" && !esRutaRrhh && location.pathname !== "/mapa") {
+  // El rol rrhh vive SOLO en su espacio (Planta es del rol basico): fuera de
+  // sus rutas se le devuelve a su home, igual que al rol ventas. El mapa de la
+  // herramienta es de todos los roles.
+  //
+  // Mercadona es la excepcion desde el rediseño 13-08-2026: /rrhh/mercadona y
+  // /comercial/mercadona servian el MISMO componente en dos URLs, y al fundirse
+  // en /comercial/mercadona rrhh se habria quedado sin una pagina que SI tenia.
+  // La variante completa (kg, facturas y precios) es justo la que rrhh usaba.
+  const esMercadona = location.pathname.startsWith("/comercial/mercadona")
+    || location.pathname.startsWith("/rrhh/mercadona");
+  if (role === "rrhh" && !esRutaRrhh && !esMercadona && location.pathname !== "/mapa") {
     return <Navigate to={RRHH_HOME} replace />;
   }
 
@@ -100,14 +119,22 @@ export default function RoleRoute() {
     return <Navigate to="/" replace />;
   }
 
-  // El espacio Comercial (Mercadona completa con facturacion, categorias,
-  // Edeka, CMR) es de admin y ventas; operario/rrhh usan la Mercadona de
-  // produccion (/mercadona, sin facturacion).
+  // El espacio Comercial (categorias, CMR, panel) es de admin y ventas; el
+  // operario usa la Mercadona de planta (/mercadona, sin facturacion).
+  //
+  // Mercadona queda FUERA de este muro para el rol rrhh: al fundirse las tres
+  // rutas en una, /comercial/mercadona es la unica puerta a la variante
+  // completa (kg, facturas y precios) que rrhh ya tenia en /rrhh/mercadona.
+  // Sin esta excepcion, la fusion le habria quitado una pagina en silencio.
   const esRutaComercial =
     location.pathname.startsWith("/comercial") ||
     location.pathname.startsWith("/ventas") ||
     location.pathname.startsWith("/cmr");
-  if (esRutaComercial && role !== "admin" && role !== "ventas") {
+  // Se dice quién PUEDE, no quién no: con la excepción metida en la condición
+  // de la ruta, el operario se colaba también en la Mercadona con euros.
+  const puedeComercial =
+    role === "admin" || role === "ventas" || (role === "rrhh" && esMercadona);
+  if (esRutaComercial && !puedeComercial) {
     return <Navigate to="/" replace />;
   }
 

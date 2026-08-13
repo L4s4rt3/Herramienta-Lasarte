@@ -30,7 +30,12 @@ import {
  * de src/components/AppLayout.tsx. No se importa desde allí para evitar un
  * ciclo de imports (AppLayout importa este archivo).
  */
-export type TourWorkspaceId = "direccion" | "produccion" | "comercial" | "rrhh";
+// Rediseño 13-08-2026: mismas siete secciones que WorkspaceId en
+// src/lib/workspaces.ts. Si allí se añade una, aquí también — y a cada paso
+// se le asigna la suya, porque el tour es UNO POR SECCIÓN y un paso mal
+// asignado sale en el tour equivocado.
+export type TourWorkspaceId =
+  | "direccion" | "planta" | "analisis" | "comercial" | "economico" | "rrhh" | "datos";
 
 export interface TourStep {
   /** Identificador estable del paso (independiente de la ruta, por si se repite). */
@@ -68,7 +73,7 @@ export const TOUR_STEPS: TourStep[] = [
   // ─── Producción ────────────────────────────────────────────────────────
   {
     id: "dashboard",
-    workspace: "produccion",
+    workspace: "planta",
     to: "/produccion",
     icon: LayoutDashboard,
     title: "Panel de producción",
@@ -77,7 +82,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "entradas",
-    workspace: "produccion",
+    workspace: "planta",
     to: "/entradas",
     icon: Truck,
     title: "Entradas de fruta",
@@ -86,7 +91,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "calidad",
-    workspace: "produccion",
+    workspace: "planta",
     to: "/calidad",
     icon: ClipboardCheck,
     title: "Calidad",
@@ -95,7 +100,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "partes",
-    workspace: "produccion",
+    workspace: "planta",
     to: "/partes",
     icon: FileText,
     title: "Partes",
@@ -104,7 +109,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "analisis-diario",
-    workspace: "produccion",
+    workspace: "analisis",
     to: "/analisis/diario",
     icon: BarChart3,
     title: "Análisis diario",
@@ -113,7 +118,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "trazabilidad",
-    workspace: "produccion",
+    workspace: "analisis",
     to: "/trazabilidad",
     icon: Waypoints,
     title: "Trazabilidad",
@@ -122,7 +127,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "productores",
-    workspace: "produccion",
+    workspace: "analisis",
     to: "/productores",
     icon: Sprout,
     title: "Productores",
@@ -131,7 +136,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "mercadona-produccion",
-    workspace: "produccion",
+    workspace: "analisis",
     to: "/mercadona",
     icon: ShoppingCart,
     title: "Mercadona (planta)",
@@ -140,8 +145,8 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "consumos",
-    workspace: "produccion",
-    to: "/costes/consumos",
+    workspace: "economico",
+    to: "/economico/costes?vista=consumos",
     icon: Droplet,
     title: "Consumos",
     adminOnly: true,
@@ -150,7 +155,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "limpieza",
-    workspace: "produccion",
+    workspace: "planta",
     to: "/limpieza",
     icon: Brush,
     title: "Limpieza de box",
@@ -160,8 +165,8 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "historico",
-    workspace: "produccion",
-    to: "/historico",
+    workspace: "datos",
+    to: "/importar?modo=historico",
     icon: History,
     title: "Importar histórico",
     adminOnly: true,
@@ -170,7 +175,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "campo-comunicaciones",
-    workspace: "produccion",
+    workspace: "planta",
     to: "/campo/comunicaciones",
     icon: Send,
     title: "Comunicaciones de campaña",
@@ -185,7 +190,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "trucos-produccion",
-    workspace: "produccion",
+    workspace: "planta",
     to: "/produccion",
     icon: Sparkles,
     title: "Trucos rápidos",
@@ -216,7 +221,7 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: "categoria-primera",
     workspace: "comercial",
-    to: "/ventas/categoria-primera",
+    to: "/ventas/categoria-segunda?categoria=primera",
     icon: FileSpreadsheet,
     title: "Categoría primera",
     description:
@@ -254,7 +259,7 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: "ausencias",
     workspace: "rrhh",
-    to: "/rrhh/ausencias",
+    to: "/rrhh/personas?vista=ausencias",
     icon: CalendarOff,
     title: "Ausencias y bajas",
     description:
@@ -263,7 +268,7 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: "amonestaciones",
     workspace: "rrhh",
-    to: "/rrhh/amonestaciones",
+    to: "/rrhh/personas?vista=amonestaciones",
     icon: AlertTriangle,
     title: "Amonestaciones",
     description:
@@ -272,7 +277,7 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: "vacaciones",
     workspace: "rrhh",
-    to: "/rrhh/vacaciones",
+    to: "/rrhh/personas?vista=vacaciones",
     icon: Plane,
     title: "Vacaciones y horas",
     description:
@@ -300,7 +305,7 @@ export const TOUR_STEPS: TourStep[] = [
   // ─── Económico (fundido en Dirección, jul 2026) ───────────────────────
   {
     id: "panel-economico",
-    workspace: "direccion",
+    workspace: "economico",
     to: "/economico",
     icon: Euro,
     title: "Panel económico",
@@ -309,7 +314,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "facturacion",
-    workspace: "direccion",
+    workspace: "economico",
     to: "/economico/facturacion",
     icon: Receipt,
     title: "Facturación",
@@ -318,7 +323,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "costes-economico",
-    workspace: "direccion",
+    workspace: "economico",
     to: "/economico/costes",
     icon: Droplet,
     title: "Costes",
@@ -327,7 +332,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "precios",
-    workspace: "direccion",
+    workspace: "economico",
     to: "/economico/precios",
     icon: Tags,
     title: "Precios",
@@ -336,7 +341,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "trucos-economico",
-    workspace: "direccion",
+    workspace: "economico",
     to: "/economico",
     icon: Sparkles,
     title: "Trucos rápidos",
