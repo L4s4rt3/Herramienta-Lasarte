@@ -18,7 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-import { componerAviso, comoFecha } from "./lib-aviso-diario.mjs";
+import { componerAviso, comoFecha, informesSinSubir } from "./lib-aviso-diario.mjs";
 import { repasarPartes, datosCalibradorDelDia, traerTodo } from "./crear-parte-diario.mjs";
 import { analizarPartesPendientes } from "./analizar-partes-pendientes.mjs";
 import { conectarErp } from "./lib-palets-erp.mjs";
@@ -105,6 +105,47 @@ function buzonDelDia(fecha) {
   }
   if (!importados.length && !esperando.length && !noReconocidos.length) return null;
   return { importados, esperando, noReconocidos };
+}
+
+/**
+ * Informes que el receptor guardó en disco y que no están en la base.
+ *
+ * El registro dice si la subida falló, pero NO se usa como verdad: lo que manda
+ * es si la pasada está hoy en `calibrador_informe`. Así, en cuanto se reintenta,
+ * el aviso desaparece solo. Ver informesSinSubir en lib-aviso-diario.mjs.
+ */
+async function calibradorSinSubir(supabase) {
+  const registro = path.resolve("outputs/calibrador/registro.jsonl");
+  let lineas;
+  try { lineas = fs.readFileSync(registro, "utf8").trimEnd().split(/\r?\n/); } catch { return null; }
+
+  const entradas = [];
+  for (const l of lineas) {
+    let ev;
+    try { ev = JSON.parse(l); } catch { continue; }
+    for (const a of ev.adjuntos ?? []) {
+      if (!a.informe?.lote || a.subida?.subido !== false) continue;
+      entradas.push({
+        recibido: ev.recibido, lote: a.informe.lote,
+        comienzo: a.informe.comienzo ?? null, motivo: a.subida.motivo,
+      });
+    }
+  }
+  if (!entradas.length) return [];
+
+  // Solo los lotes implicados: son un puñado y evita traerse la tabla entera.
+  const lotes = [...new Set(entradas.map((e) => e.lote))];
+  const filas = [];
+  for (let i = 0; i < lotes.length; i += 100) {
+    const { data } = await supabase.from("calibrador_informe")
+      .select("lote, comienzo").in("lote", lotes.slice(i, i + 100));
+    filas.push(...(data ?? []));
+  }
+  return informesSinSubir(
+    entradas,
+    new Set(filas.map((f) => `${f.lote}|${f.comienzo}`)),
+    new Set(filas.map((f) => f.lote)),
+  );
 }
 
 /**
@@ -396,6 +437,7 @@ async function main() {
     alta: await cierreEInventario(supabase, ayer),
     contexto: await contextoSemana(supabase, ayer),
     receptor: await receptorVivo(), ipEsperada: IP_ESPERADA,
+    sinSubir: await calibradorSinSubir(supabase),
   });
   // El asunto lleva ya lo esencial: en la bandeja se ve el dia sin abrirlo, y
   // dos meses de correos se pueden repasar en diagonal.

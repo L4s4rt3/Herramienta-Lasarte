@@ -81,9 +81,55 @@ const DEL_PAPEL = [
   "podrido de bateas, si se han vaciado hoy",
 ];
 
+/**
+ * Informes que el Sizer entregó y que NO acabaron en la Herramienta.
+ *
+ * POR QUÉ EXISTE (13-08-2026). El receptor guarda el .docx en disco ANTES de
+ * intentar subirlo, a proposito: si la subida falla, el dato no se pierde. Pero
+ * ese fallo solo se apuntaba en `registro.jsonl`, que no lee nadie. El receptor
+ * llevaba desde el dia anterior con el codigo viejo en memoria —un proceso Node
+ * no se entera de que has editado sus ficheros— y estuvo diez horas recibiendo
+ * informes y descartandolos en silencio. Trece informes en disco, cero en la
+ * base, y ni un aviso.
+ *
+ * SE LIMPIA SOLO. No mira si la subida fallo en su dia, sino si la pasada esta
+ * AHORA en la base: en cuanto se reintenta con subir-informes-calibrador.mjs,
+ * deja de avisar sin que nadie tenga que marcar nada. Estado derivado, no
+ * guardado — por eso tampoco hace falta ventana de dias.
+ *
+ * @param entradas      del registro: { recibido, lote, comienzo, motivo }
+ * @param clavesEnBase  Set de `lote|comienzo` que SI estan en calibrador_informe
+ * @param lotesEnBase   Set de lotes, para las anotaciones viejas sin comienzo
+ */
+export function informesSinSubir(entradas, clavesEnBase, lotesEnBase = new Set()) {
+  const vistos = new Set();
+  const pendientes = [];
+  for (const e of entradas ?? []) {
+    if (!e?.lote) continue;
+    // Sin comienzo (anotaciones anteriores a que el receptor lo guardara) solo
+    // se puede comparar por lote. Se prefiere callar de mas a chillar de mas:
+    // un aviso que no se puede resolver acaba ignorandose, y con el los demas.
+    const dentro = e.comienzo
+      ? clavesEnBase.has(`${e.lote}|${e.comienzo}`)
+      : lotesEnBase.has(e.lote);
+    if (dentro) continue;
+    const clave = `${e.lote}|${e.comienzo ?? ""}`;
+    if (vistos.has(clave)) continue;   // el mismo informe reenviado tres veces
+    vistos.add(clave);
+    pendientes.push({
+      lote: e.lote,
+      comienzo: e.comienzo ?? null,
+      motivo: e.motivo ?? "sin motivo anotado",
+      recibido: e.recibido ?? null,
+    });
+  }
+  return pendientes;
+}
+
 export function componerAviso({
   fecha, entradas, palets, cobertura, correcciones, ip, log,
   receptor = null, informesCalibrador = null, calibrador = null,
+  sinSubir = null,
   parte = null, productores = null, ipEsperada = "192.168.1.237",
   frescura = null, buzon = null, analizados = null, alta = null, contexto = null,
 }) {
@@ -348,6 +394,18 @@ export function componerAviso({
   if (receptor === false) {
     avisos.push("El receptor de informes del calibrador NO esta escuchando: los informes que" +
       ' mande el Sizer se perderan. Deberia levantarlo la tarea "Lasarte - Receptor calibrador".');
+  }
+  // Recibido no es lo mismo que guardado: el .docx puede estar en disco y no
+  // haber entrado en la base. Se nombran los lotes para poder buscarlos.
+  if (sinSubir?.length) {
+    const n = sinSubir.length;
+    avisos.push(`${n} informe(s) del calibrador llegaron al receptor pero NO estan en la` +
+      " Herramienta. El .docx esta a salvo en outputs/calibrador: se recuperan con" +
+      " node scripts/subir-informes-calibrador.mjs --aplicar");
+    for (const p of sinSubir.slice(0, 6)) {
+      avisos.push(`  lote ${p.lote}${p.comienzo ? ` (${p.comienzo})` : ""}: ${p.motivo}`);
+    }
+    if (n > 6) avisos.push(`  y ${n - 6} mas.`);
   }
   if (parte?.accion === "error") {
     avisos.push(`No se pudo dejar listo el parte de ayer: ${parte.motivo}. Habra que crearlo a mano.`);

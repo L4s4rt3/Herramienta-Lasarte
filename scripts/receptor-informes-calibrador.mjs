@@ -115,6 +115,10 @@ function resumirInforme(contenido, nombre) {
     return {
       informe: r,
       lote: r.cabecera.lote,
+      // El COMIENZO va al registro aunque no se enseñe: es la otra mitad de la
+      // clave de `calibrador_informe` y sin el no se puede saber si una pasada
+      // concreta acabo entrando o se quedo por el camino. Ver informesSinSubir.
+      comienzo: r.cabecera.comienzo,
       commodity: r.cabecera.commodity,
       productor: r.cabecera.productorNombre,
       productorCodigo: r.cabecera.productorCodigo,

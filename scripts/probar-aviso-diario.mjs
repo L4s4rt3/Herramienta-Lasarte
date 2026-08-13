@@ -8,7 +8,7 @@
  *
  *   node scripts/probar-aviso-diario.mjs
  */
-import { componerAviso } from "./lib-aviso-diario.mjs";
+import { componerAviso, informesSinSubir } from "./lib-aviso-diario.mjs";
 
 const BASE = {
   fecha: "2026-08-10",
@@ -134,6 +134,41 @@ comprobar("no poder leer la IP tambien es problema", componerAviso({ ...BASE, ip
 const caido = componerAviso({ ...BASE, receptor: false });
 comprobar("el receptor caido SI da problema", caido.hayProblema === true && /se perderan/.test(caido.cuerpo));
 comprobar("si no se comprueba (null) no se inventa alarma", componerAviso({ ...BASE, receptor: null }).hayProblema === false);
+
+// ── Informes recibidos que no llegaron a la base ────────────────────────────
+// La averia real del 13-08-2026: el receptor guardaba los .docx y las subidas
+// fallaban en silencio. Se comprueba que se avise, que se nombren los lotes y,
+// sobre todo, que el aviso se apague solo cuando la pasada ya esta en la base.
+const REG = [
+  { recibido: "2026-08-13T10:36:23Z", lote: "26051905", comienzo: "13-Aug-26 07:12 AM", motivo: "no unique constraint" },
+  { recibido: "2026-08-13T10:36:35Z", lote: "26052004", comienzo: "13-Aug-26 09:40 AM", motivo: "no unique constraint" },
+];
+
+const nada = informesSinSubir(REG, new Set(), new Set());
+comprobar("dos subidas fallidas dan dos pendientes", nada.length === 2);
+
+const unaDentro = informesSinSubir(REG, new Set(["26051905|13-Aug-26 07:12 AM"]), new Set(["26051905"]));
+comprobar("la que ya esta en la base deja de contar", unaDentro.length === 1 && unaDentro[0].lote === "26052004");
+
+const reenviado = informesSinSubir([...REG, { ...REG[0] }, { ...REG[0] }], new Set(), new Set());
+comprobar("el mismo informe reenviado 3 veces cuenta una", reenviado.length === 2);
+
+const otraPasada = informesSinSubir(
+  [{ lote: "26051506", comienzo: "12-Aug-26 10:01 AM", motivo: "x" }],
+  new Set(["26051506|11-Aug-26 12:03 PM"]), new Set(["26051506"]));
+comprobar("otra pasada del mismo lote NO se da por subida", otraPasada.length === 1);
+
+const vieja = informesSinSubir(
+  [{ lote: "26051506", comienzo: null, motivo: "x" }], new Set(), new Set(["26051506"]));
+comprobar("anotacion vieja sin comienzo: se resuelve por lote", vieja.length === 0);
+
+comprobar("sin registro no se inventa nada", informesSinSubir(null, new Set()).length === 0);
+
+const pend = componerAviso({ ...BASE, sinSubir: nada });
+comprobar("informes sin subir SI dan problema", pend.hayProblema === true);
+comprobar("y dicen el lote y como recuperarlos",
+  /26051905/.test(pend.cuerpo) && /subir-informes-calibrador\.mjs --aplicar/.test(pend.cuerpo));
+comprobar("sin pendientes no hay alarma", componerAviso({ ...BASE, sinSubir: [] }).hayProblema === false);
 
 const viejo = componerAviso({ ...BASE, calibrador: { ...BASE.calibrador, desfaseExport: 5 } });
 comprobar("datos del calibrador viejos: alarma con instrucciones", viejo.hayProblema === true && /export-sizer\.ps1/.test(viejo.cuerpo));
