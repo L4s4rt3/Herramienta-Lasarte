@@ -289,8 +289,9 @@ interface PaletDiaExpedicionRawRow {
  */
 async function fetchExpedicionLote(codigo: string): Promise<{ expedicion: ExpedicionLote | null; partIds: string[] }> {
   const { data, error } = await SUPA
-    .from("palets_dia")
+    .from("palets")
     .select("cliente, kg_neto, n_cajas, producto, part_id")
+    .eq("comercial", true)
     .eq("lote_codigo", codigo)
     .limit(5000);
   if (error) {
@@ -489,7 +490,7 @@ export function useTrazabilidadLote(loteInput: string | null) {
       const [entradaRes, lotesRes, clasifRes, calidadRes, expedicionRes] = await Promise.all([
         supabase.from("entradas_bascula").select("*").eq("lote", codigo).maybeSingle(),
         fetchLotesDiaConProductorId(codigo),
-        supabase.from("lote_clasificacion").select("clase, grupo_destino, tamano, peso_kg, lote_codigo, lote_codigo_base").or(`lote_codigo_base.eq.${codigo},lote_codigo.ilike.%${codigo}%`).limit(5000),
+        SUPA.from("clasificacion_lote").select("clase, grupo_destino, tamano, peso_kg, lote_codigo, lote_codigo_base").or(`lote_codigo_base.eq.${codigo},lote_codigo.ilike.%${codigo}%`).limit(5000),
         supabase.from("calidad_lotes").select("numero_lote, fecha, hora, calidad, defectos, observacion, productor_finca_nombre, variedad, cantidad").ilike("numero_lote", `%${codigo}%`).order("fecha", { ascending: false }).limit(50),
         fetchExpedicionLote(codigo),
       ]);

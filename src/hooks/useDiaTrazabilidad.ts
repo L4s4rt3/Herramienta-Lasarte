@@ -76,8 +76,9 @@ export function useDiaTrazabilidad(fecha: string | null) {
           .select("lote_codigo, productor, producto, kg_peso_total, hora_inicio, created_at, kg_industria, notas")
           .in("part_id", partIds)
           .limit(500),
-        SUPA.from("palets_dia")
+        SUPA.from("palets")
           .select("lote_codigo, cliente, kg_neto, n_cajas, producto")
+          .eq("comercial", true)
           .in("part_id", partIds)
           .limit(5000),
       ]);

@@ -16,11 +16,16 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthProvider";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { toISODateLocal, today } from "@/lib/format";
 import { useMercadonaVentas, type MercadonaSemanaConMetodos } from "@/hooks/useMercadonaVentas";
 import { useVentasCategoria } from "@/hooks/useVentasCategoria";
+
+// Cast local: la vista `palets` (migración 20260813070342) no está en el
+// Database generado — mismo patrón que useProductores.ts/useMermaLote.ts.
+const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const IN_CHUNK_SIZE = 200;
 /** Ventana rodante del "último mes" para el ranking de clientes por kg. */
@@ -86,7 +91,7 @@ async function fetchPaletsEnChunks(partIds: string[]): Promise<PaletClienteRow[]
   for (let i = 0; i < partIds.length; i += IN_CHUNK_SIZE) {
     const chunk = partIds.slice(i, i + IN_CHUNK_SIZE);
     const chunkRows = await fetchAllRows<PaletClienteRow>((from, to) =>
-      supabase.from("palets_dia").select("part_id, cliente, kg_neto, n_cajas").in("part_id", chunk).order("id").range(from, to),
+      SUPA.from("palets").select("part_id, cliente, kg_neto, n_cajas").eq("comercial", true).in("part_id", chunk).order("palet_id").range(from, to),
     );
     rows.push(...chunkRows);
   }

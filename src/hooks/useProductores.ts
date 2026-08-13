@@ -468,8 +468,8 @@ export function useProductores(desde: string, hasta: string) {
             aggErr,
           );
           clasifRows = await fetchAllRows<ClasificacionRow>((from, to) =>
-            supabase
-              .from("lote_clasificacion")
+            SUPA
+              .from("clasificacion_lote")
               .select("productor, grupo_destino, clase, peso_kg, tamano, piezas, cartons")
               .gte("fecha", desde)
               .lte("fecha", hasta)

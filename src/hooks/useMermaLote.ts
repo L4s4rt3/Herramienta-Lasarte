@@ -8,8 +8,10 @@
  *   - lotes_dia: TODOS los kg de TODOS los lotes de cada parte (hace falta el
  *     total del parte, no solo el de un lote, para el denominador del
  *     prorrateo de podrido).
- *   - lote_clasificacion: para saber qué lotes tienen Informe LOTE (cualquier
- *     clase) y sumar la(s) clase(s) "Podrido" reales.
+ *   - clasificacion_lote: para saber qué lotes pasaron por la máquina (cualquier
+ *     clase) y sumar la(s) clase(s) "Podrido" reales. Desde 13-08-2026 los kilos
+ *     salen del calibrador, no del Word: el prorrateo de podrido se hacía sobre
+ *     kilos cortos en los 263 lotes multipasada.
  *   - partes_diarios: solo los dos contadores de podrido del DSJ.
  *
  * Un único hook "bulk" (`useMermaLotes`) sirve tanto a la tabla "Mermas y
@@ -114,11 +116,11 @@ export function useMermaLotes() {
         // fetch completo de siempre, para no romper la app a mitad del
         // import de hoy. Mismo resultado final que antes de este cambio.
         console.warn(
-          "useMermaLotes: lote_clasificacion_podrido_agg aún no existe (migración 20260717120000 pendiente de aplicar); usando el fetch completo de lote_clasificacion.",
+          "useMermaLotes: lote_clasificacion_podrido_agg aún no existe (migración 20260717120000 pendiente de aplicar); usando el fetch completo de clasificacion_lote.",
           err,
         );
         const rows = await fetchAllRows<{ lote_codigo: string | null; clase: string | null; peso_kg: number }>(
-          (from, to) => supabase.from("lote_clasificacion").select("lote_codigo, clase, peso_kg").order("id").range(from, to),
+          (from, to) => SUPA.from("clasificacion_lote").select("lote_codigo, clase, peso_kg").order("id").range(from, to),
         );
         return rows.map((c) => ({
           lote_codigo: c.lote_codigo ?? null,

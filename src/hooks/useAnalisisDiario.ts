@@ -668,8 +668,8 @@ export function useAnalisisDiario(desde: string, hasta: string) {
             // sabemos que el rango está por debajo del techo.
             console.warn("RPC de detalle de clasificación no disponible; se usa el SELECT paginado.");
             clasifRaw = await fetchAllRows<ClasifDetalleFila>((from, to) =>
-              supabase
-                .from("lote_clasificacion")
+              SUPA
+                .from("clasificacion_lote")
                 .select("lote_codigo, lote_codigo_base, productor, producto, calidad, clase, grupo_destino, tamano, piezas, pct_piezas, peso_kg, pct_peso, cartons, pct_cartons, part_id")
                 .in("part_id", partIds)
                 .order("id")

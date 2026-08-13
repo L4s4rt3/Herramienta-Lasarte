@@ -312,8 +312,8 @@ export function useDatosRangoProducto(desde: string | null, hasta: string | null
       // Una semana ronda las 7.000 filas de clasificación: fetchAllRows
       // obligatorio (PostgREST recorta a 1.000 en silencio, regla del repo).
       const filasRaw = await fetchAllRows<FilaClasifProducto & { fecha: string | null }>((from, to) =>
-        supabase
-          .from("lote_clasificacion")
+        SUPA
+          .from("clasificacion_lote")
           .select("lote_codigo, producto, clase, peso_kg, fecha")
           .gte("fecha", desde!)
           .lte("fecha", hasta!)

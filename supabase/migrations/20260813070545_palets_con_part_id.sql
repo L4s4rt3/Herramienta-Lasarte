@@ -1,0 +1,15 @@
+-- `part_id` en la vista de palets.
+--
+-- Todos los consumidores de `palets_dia` filtran por parte (`.in("part_id", …)`)
+-- porque esa tabla no tiene fecha propia: cuelga del parte. `erp_palet` sí trae
+-- fecha, así que el puente se hace aquí una vez y los hooks solo cambian el
+-- nombre de la tabla — nada de reescribir siete filtros, cada uno con su
+-- oportunidad de equivocarse.
+--
+-- Un palet de un día SIN parte se queda con part_id NULL y NO desaparece: los
+-- kilos son reales aunque nadie haya abierto el parte de ese día (hoy: 135
+-- palets, 50.015 kg, los dos días todavía abiertos).
+--
+-- Sustituida en la migración siguiente, que añade `situacion`. Se deja el
+-- rastro para que la historia del esquema se pueda releer.
+-- (ver 20260813070720_palets_situacion_derivada.sql para la versión vigente)

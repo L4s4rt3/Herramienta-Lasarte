@@ -250,7 +250,7 @@ async function fetchClasificacionMes(monthStart: string): Promise<ClasifMesRow[]
       err,
     );
     return fetchAllRows<ClasifMesRow>((from, to) =>
-      supabase.from("lote_clasificacion").select("productor, grupo_destino, peso_kg").gte("fecha", monthStart).order("id").range(from, to),
+      SUPA.from("clasificacion_lote").select("productor, grupo_destino, peso_kg").gte("fecha", monthStart).order("id").range(from, to),
     );
   }
 }

@@ -1,0 +1,5 @@
+-- Versión intermedia, sustituida por
+-- 20260813073109_productores_sin_casar_sobre_la_tabla_base.sql: agrupaba sobre
+-- la vista clasificacion_lote, cuyas ventanas de porcentaje sobre 300.317 filas
+-- se pasaban del statement timeout. Se deja el rastro para que la historia del
+-- esquema se pueda releer sin huecos.

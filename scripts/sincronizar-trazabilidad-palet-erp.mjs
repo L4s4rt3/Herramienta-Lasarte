@@ -66,16 +66,31 @@ const txt = (v) => {
 };
 const num = (v) => (v === null || v === undefined || v === "" ? null : Number(v));
 
-/** Palets de verdad (num_cajas > 0). Filtro por fecha_creacion: índice `elaboracion`. */
+/**
+ * TODOS los palets del día, marcando cuáles son comerciales.
+ *
+ * Antes esto filtraba `num_cajas > 0 AND lote <> ''` y dejaba fuera 1.570
+ * palets con 1.656.698 kg (campaña 25/26). Ese filtro es correcto para la
+ * trazabilidad de VENTA, pero esos 1.570 son fruta a granel y a precalibrado
+ * (sin cliente, productos PRE1/PRE2/ALM-LAS/CAMPO, 900-4.100 kg por "palet"
+ * frente a los 433 de uno real) que SÍ salió de la línea. Quitarlos del
+ * balance del día sube el DSJ del 3,43% al 8,60% sin que falte un kilo de
+ * verdad — el descuadre lo crea el filtro, no la fruta.
+ *
+ * Así que se traen todos y se marca cuál es cuál: el balance de masa los usa
+ * todos, las pantallas de venta filtran por `comercial`.
+ *
+ * Filtro por fecha_creacion: índice `elaboracion`.
+ */
 const SQL_PALETS = `
   SELECT p.numero, p.lote AS lote_confeccion, DATE(p.fecha_creacion) AS fecha,
          p.referencia, ag.denominacion AS articulo,
          p.num_cajas, p.kilos_netos, p.kilos_brutos, p.codigo_sscc,
+         (p.num_cajas > 0 AND p.lote <> '') AS comercial,
          p.tipo_documento_vta, p.serie_dcmto_vta, p.num_dcmto_vta, p.num_linea_vta
     FROM ${EMPRESA}.palets_cab p
     LEFT JOIN ${EMPRESA}.articulo_general ag ON ag.codigo = p.articulo
-   WHERE p.num_cajas > 0 AND p.lote <> ''
-     AND p.fecha_creacion >= ? AND p.fecha_creacion <= ?`;
+   WHERE p.fecha_creacion >= ? AND p.fecha_creacion <= ?`;
 
 async function main() {
   const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
@@ -171,6 +186,7 @@ async function main() {
         kg_netos: num(p.kilos_netos),
         kg_brutos: num(p.kilos_brutos),
         codigo_sscc: txt(p.codigo_sscc),
+        comercial: Number(p.comercial) === 1,
         num_albaran_venta: venta ? String(p.num_dcmto_vta) : null,
         serie_albaran_venta: venta ? txt(p.serie_dcmto_vta) : null,
         linea_venta: venta ? num(p.num_linea_vta) : null,
