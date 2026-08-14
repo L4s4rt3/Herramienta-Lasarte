@@ -345,6 +345,13 @@ export function componerAviso({
     if (parte.gstockRecuperados?.length) {
       p.push(`  Y se les ha subido el GSTOCK que les faltaba: ${parte.gstockRecuperados.join(", ")}.`);
     }
+    // Palets que se dieron de alta despues de generar el Excel. Se dice el dia y
+    // los kilos: es la unica forma de que alguien note que un parte que ya habia
+    // mirado ha cambiado de numero.
+    for (const r of parte.gstockRehechos ?? []) {
+      p.push(`  El parte del ${r.fecha} se ha rehecho: el ERP tenia ${kg(r.faltaban)}`);
+      p.push("  de palets que no estaban cuando se genero su Excel.");
+    }
     // Partes que tenian sus informes subidos y nadie habia analizado.
     for (const a of analizados ?? []) {
       p.push(`  Analizado solo el parte del ${a.fecha} (${a.archivos} informes que estaban sin extraer` +

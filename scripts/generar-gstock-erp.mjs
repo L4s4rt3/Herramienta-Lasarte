@@ -146,25 +146,92 @@ export function construirLibro(filas) {
   return XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
 }
 
-export async function generarYSubir(supabase, conn, fecha, { aplicar = false } = {}) {
+/**
+ * El nombre que le pone ESTE generador. Es lo que distingue un GSTOCK suyo de
+ * uno que subió una persona, que siempre lleva nombre libre ("palets 4 ago.xlsx",
+ * "29 julio.xlsx", "PALETS 31 JUL.xlsx"). Un archivo de una persona no se borra
+ * jamás, aunque el ERP diga otra cosa.
+ */
+export const nombreGenerado = (fecha) => `GSTOCK ${fecha}.xlsx`;
+
+/**
+ * ¿Se puede rehacer el GSTOCK que ya tiene el parte? Devuelve el motivo por el
+ * que NO, o null si se puede.
+ */
+function motivoParaNoRehacer(parte, archivos, fecha, refrescarSiFaltanKg) {
+  if (!refrescarSiFaltanKg) return "el parte ya tiene un GSTOCK subido";
+  if (parte.estado !== "Borrador") return `el parte ya no esta en Borrador (${parte.estado})`;
+  if (archivos.some((a) => a.file_name !== nombreGenerado(fecha))) {
+    return "el GSTOCK del parte lo subio una persona";
+  }
+  return null;
+}
+
+/**
+ * @param refrescarSiFaltanKg  si el parte YA tiene un GSTOCK generado por aqui y
+ *   el ERP tiene mas kilos que los que el parte guarda, se rehace — pero solo si
+ *   la diferencia pasa de estos kilos. A 0 (por defecto) nunca se rehace nada.
+ *
+ *   POR QUE HACE FALTA (medido el 14-08-2026 sobre 55 partes): el Excel se
+ *   genera a las 07:10 del dia siguiente y a esa hora TODAVIA no han terminado
+ *   de dar de alta. 31 de esos 55 dias tienen menos palets en el parte que en el
+ *   ERP, y casi siempre porque faltan, no porque sobren. El 11-08 faltaban
+ *   11.662 kg y el descuadre del dia era del 22%; con los del ERP baja al 5,1%.
+ *
+ *   SOLO SE REHACE SI EL ERP TIENE MAS, nunca al reves. Reemplazar a ciegas
+ *   empeora los dias con descuadre negativo (mas palets que produccion): sobre
+ *   los 55 partes, el |DSJ| medio solo baja de 13,80% a 12,95% porque 18 dias
+ *   mejoran y 12 empeoran. La regla no es "el ERP manda", es "el ERP manda
+ *   cuando al parte le faltan palets".
+ */
+export async function generarYSubir(supabase, conn, fecha, { aplicar = false, refrescarSiFaltanKg = 0 } = {}) {
   const { data: parte, error: errP } = await supabase.from("partes_diarios")
-    .select("id, user_id, estado").eq("date", fecha).maybeSingle();
+    .select("id, user_id, estado, kg_palets_brutos").eq("date", fecha).maybeSingle();
   if (errP) throw new Error(`parte: ${errP.message}`);
   if (!parte) return { fecha, accion: "sin-parte" };
 
   const { data: yaHay, error: errA } = await supabase.from("partes_archivos")
-    .select("id").eq("part_id", parte.id).eq("file_type", "GSTOCK").limit(1);
+    .select("id, file_name, file_path").eq("part_id", parte.id).eq("file_type", "GSTOCK");
   if (errA) throw new Error(`archivos: ${errA.message}`);
-  if (yaHay?.length) return { fecha, accion: "ya-tenia", motivo: "el parte ya tiene un GSTOCK subido" };
+
+  let viejos = null;
+  if (yaHay?.length) {
+    const motivo = motivoParaNoRehacer(parte, yaHay, fecha, refrescarSiFaltanKg);
+    if (motivo) return { fecha, accion: "ya-tenia", motivo };
+    viejos = yaHay;
+  }
 
   const { filas, sospechosos } = await filasGstock(conn, fecha);
   if (filas.length === 0) return { fecha, accion: "sin-palets" };
 
   const kg = filas.reduce((s, f) => s + f.Netos, 0);
+
+  if (viejos) {
+    const faltan = kg - num(parte.kg_palets_brutos);
+    if (!(faltan > refrescarSiFaltanKg)) {
+      return { fecha, accion: "ya-tenia", motivo: "el ERP no aporta palets que el parte no tenga" };
+    }
+    if (!aplicar) {
+      return { fecha, accion: "reharia", palets: filas.length, kg, faltan,
+        teniaKg: num(parte.kg_palets_brutos), sospechosos };
+    }
+    // BORRAR ANTES DE SUBIR, a proposito. Si se subiera primero y algo fallara
+    // en medio, el parte se quedaria con DOS GSTOCK y el analisis sumaria los
+    // palets dos veces, en silencio. Al reves, lo peor que pasa es que el parte
+    // se quede un rato sin GSTOCK: el correo lo dice y la siguiente pasada lo
+    // vuelve a generar.
+    const { error: errBorra } = await supabase.storage.from("partes-archivos")
+      .remove(viejos.map((a) => a.file_path));
+    if (errBorra) throw new Error(`borrando el GSTOCK viejo: ${errBorra.message}`);
+    const { error: errFila } = await supabase.from("partes_archivos")
+      .delete().in("id", viejos.map((a) => a.id));
+    if (errFila) throw new Error(`borrando la fila del GSTOCK viejo: ${errFila.message}`);
+  }
+
   if (!aplicar) return { fecha, accion: "subiria", palets: filas.length, kg, sospechosos };
 
   const buffer = construirLibro(filas);
-  const nombre = `GSTOCK ${fecha}.xlsx`;
+  const nombre = nombreGenerado(fecha);
   const ruta = `${parte.user_id}/${parte.id}/GSTOCK/${crypto.randomUUID()}-${nombre.replace(/\s/g, "_")}`;
 
   const { error: errU } = await supabase.storage.from("partes-archivos")
@@ -182,6 +249,13 @@ export async function generarYSubir(supabase, conn, fecha, { aplicar = false } =
   });
   if (errI) throw new Error(`partes_archivos: ${errI.message}`);
 
+  // "rehecho" no es lo mismo que "subido": el parte ya tenia unos kilos y ahora
+  // tiene otros, asi que hay que volver a analizarlo para que los lea. Quien
+  // llama lo distingue por esto.
+  if (viejos) {
+    return { fecha, accion: "rehecho", palets: filas.length, kg,
+      teniaKg: num(parte.kg_palets_brutos), faltaban: kg - num(parte.kg_palets_brutos), sospechosos };
+  }
   return { fecha, accion: "subido", palets: filas.length, kg, sospechosos };
 }
 
@@ -197,22 +271,34 @@ async function main() {
     process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
+  // --refrescar=N rehace el GSTOCK de un parte en Borrador cuando el ERP tiene
+  // mas de N kilos que el parte no recogio. Sin el, un parte que ya tiene GSTOCK
+  // no se toca.
+  const refrescarSiFaltanKg = Number(args.find((a) => a.startsWith("--refrescar="))?.split("=")[1]) || 0;
+
   const conn = await conectarErp();
   let r;
   try {
-    r = await generarYSubir(supabase, conn, fecha, { aplicar });
+    r = await generarYSubir(supabase, conn, fecha, { aplicar, refrescarSiFaltanKg });
   } finally {
     await conn.end().catch(() => {});
   }
 
   console.log(`GSTOCK del ${r.fecha}: ${r.accion}${r.motivo ? ` (${r.motivo})` : ""}` +
     (r.palets ? ` · ${r.palets} palets · ${Math.round(r.kg).toLocaleString("es")} kg` : ""));
+  if (r.teniaKg != null) {
+    console.log(`  el parte tenia ${Math.round(r.teniaKg).toLocaleString("es")} kg:` +
+      ` le faltaban ${Math.round(r.faltaban ?? r.faltan).toLocaleString("es")} kg de palets.`);
+    console.log("  HAY QUE VOLVER A ANALIZAR el parte para que lea los nuevos.");
+  }
   for (const s of r.sospechosos ?? []) {
     console.log(`  AVISO: el palet ${s.palet} tiene ${s.kg.toLocaleString("es")} kg ("${s.producto}")` +
       `${s.desmontado ? ", y es un DESMONTADO (industria o precalibrado)" : ""}.` +
       " Un palet fisico no llega a eso: se apunto despues con la fecha del lote.");
   }
-  if (!aplicar && r.accion === "subiria") console.log("  (simulacion: repite con --aplicar)");
+  if (!aplicar && ["subiria", "reharia"].includes(r.accion)) {
+    console.log("  (simulacion: repite con --aplicar)");
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

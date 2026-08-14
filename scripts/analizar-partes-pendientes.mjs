@@ -50,7 +50,16 @@ const MANUALES = [
 const dd = (n) => String(n).padStart(2, "0");
 const comoFecha = (d) => `${d.getFullYear()}-${dd(d.getMonth() + 1)}-${dd(d.getDate())}`;
 
-export async function analizarPartesPendientes(supabase, { url, key, desde, aplicar = false } = {}) {
+/**
+ * @param forzar  fechas que hay que reanalizar SI O SI (siempre que el parte
+ *   siga en Borrador). Se usa cuando un archivo del parte ha cambiado por
+ *   detras — hoy, cuando se rehace el GSTOCK porque al parte le faltaban palets
+ *   (ver generar-gstock-erp.mjs). Sin esto, el archivo nuevo se quedaria en el
+ *   parte sin leer: las dos condiciones de abajo miran "nunca analizado" y
+ *   "GSTOCK con los palets a cero", y un parte rehecho no es ninguna de las dos.
+ */
+export async function analizarPartesPendientes(supabase, { url, key, desde, aplicar = false, forzar = [] } = {}) {
+  const forzadas = new Set(forzar);
   const { data: partes, error } = await supabase.from("partes_diarios")
     .select("id, date, estado, resumen_ia, kg_palets_brutos, " + MANUALES.join(", "))
     .gte("date", desde).order("date");
@@ -71,8 +80,11 @@ export async function analizarPartesPendientes(supabase, { url, key, desde, apli
     const gstockSinLeer = p.estado === "Borrador"
       && archivos.some((a) => a.file_type === "GSTOCK")
       && !(Number(p.kg_palets_brutos) > 0);
-    if (!nuncaAnalizado && !gstockSinLeer) continue;
-    if (!nuncaAnalizado && p.estado !== "Borrador") continue;
+    // Un forzado solo vale si el parte sigue en Borrador: reanalizar uno cerrado
+    // podria revivir valores que alguien corrigio a mano.
+    const forzado = forzadas.has(p.date) && p.estado === "Borrador";
+    if (!nuncaAnalizado && !gstockSinLeer && !forzado) continue;
+    if (!nuncaAnalizado && !forzado && p.estado !== "Borrador") continue;
     if (!aplicar) {
       resultados.push({ fecha: p.date, accion: "analizaria", archivos: count });
       continue;
@@ -120,7 +132,10 @@ async function main() {
 
   const hoy = new Date();
   const desde = comoFecha(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - dias));
-  const r = await analizarPartesPendientes(supabase, { url, key, desde, aplicar });
+  // --forzar=2026-08-11[,otra] para releer un parte cuyo archivo ha cambiado.
+  const forzar = (args.find((a) => a.startsWith("--forzar="))?.split("=")[1] ?? "")
+    .split(",").map((s) => s.trim()).filter(Boolean);
+  const r = await analizarPartesPendientes(supabase, { url, key, desde, aplicar, forzar });
 
   if (r.length === 0) return console.log("No hay ningun parte sin analizar.");
   for (const x of r) {

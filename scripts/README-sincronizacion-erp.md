@@ -168,6 +168,38 @@ leyendo el ERP directamente empeora el |DSJ| medio de 4,66% a 13,39%, con días
 imposibles (27-jul a −25,5%, más palets que producción). El Excel es una foto del
 momento del cierre; el ERP sigue moviéndose después.
 
+#### Y por eso el Excel se rehace mientras el parte siga abierto
+
+El Excel se genera a las 07:10 del día siguiente, y **a esa hora todavía no han
+terminado de dar de alta**. Medido el 14-08-2026 sobre 55 partes: **31 tenían
+menos palets de los que el ERP dice hoy**, y casi siempre porque faltaban. Al
+parte del 11-ago le faltaban 11.662 kg y su descuadre era del **22%**; con los
+del ERP baja al **5,1%**, que es un día normal.
+
+Así que mientras el parte esté en **Borrador**, el GSTOCK se rehace solo
+(`refrescarSiFaltanKg`, 500 kg en el aviso diario) y el parte se vuelve a
+analizar para que lea los nuevos. Con tres cerrojos:
+
+- **Solo si el ERP tiene MÁS.** Reemplazar a ciegas no sale a cuenta: sobre esos
+  55 partes el |DSJ| medio solo baja de 13,80% a 12,95%, porque 18 días mejoran
+  y **12 empeoran** — los que ya tenían descuadre negativo. La regla no es "el
+  ERP manda", es *"el ERP manda cuando al parte le faltan palets"*.
+- **Solo partes en Borrador.** Uno cerrado no se toca: el 4-ago tiene 2.216 kg de
+  más en el ERP y se queda como está, porque alguien ya lo dio por bueno.
+- **Solo archivos que generó el propio script**, que se llaman `GSTOCK
+  <fecha>.xlsx`. Los que sube una persona llevan nombre libre (`palets 4
+  ago.xlsx`, `29 julio.xlsx`) y no se borran jamás.
+
+El borrado va **antes** de subir el nuevo a propósito: si se subiera primero y
+algo fallara en medio, el parte se quedaría con dos GSTOCK y el análisis sumaría
+los palets dos veces en silencio. Al revés, lo peor que pasa es que se quede un
+rato sin GSTOCK — el correo lo dice y la siguiente pasada lo regenera.
+
+```bash
+node scripts/generar-gstock-erp.mjs --fecha=2026-08-11 --refrescar=500 --aplicar
+node scripts/analizar-partes-pendientes.mjs --forzar=2026-08-11 --aplicar
+```
+
 ```bash
 node scripts/probar-palets-gstock.mjs
 ```

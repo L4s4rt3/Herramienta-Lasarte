@@ -32,6 +32,13 @@ const IP_ESPERADA = process.env.IP_RECEPTOR ?? "192.168.1.237";
 const DESTINO = process.env.AVISO_DESTINO ?? "soporte@lasartesat.es";
 const REMITENTE = process.env.RESEND_FROM_TECNICO ?? "calibrador@comunicaciones.lasartesat.com";
 const LOG = path.resolve("outputs/log-tarea-diaria.txt");
+/**
+ * Kilos de palets que tiene que aportar el ERP para que merezca la pena rehacer
+ * el GSTOCK de un parte que sigue en Borrador. Por debajo de esto no compensa:
+ * son los cuatro palets que siempre entran tarde, y en un dia de 70.000 kg
+ * mueven el descuadre menos de un punto.
+ */
+const REFRESCAR_GSTOCK_KG = 500;
 const sinTildes = (s) => (s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
 
 function ipLocal() {
@@ -290,20 +297,30 @@ async function main() {
   // tarde) nace sin GSTOCK, y sin GSTOCK no hay palets ni analisis — se quedaria
   // esperando para siempre a un dia que ya paso. generarYSubir no repite trabajo:
   // devuelve "ya-tenia" si el parte ya tiene uno y "sin-parte" si no hay parte.
+  //
+  // Y SE REHACE EL DE LOS DIAS QUE SE QUEDARON CORTOS. El Excel se genera a las
+  // 07:10 del dia siguiente, y a esa hora todavia no han terminado de dar de
+  // alta: medido el 14-08-2026, 31 de 55 partes tenian menos palets de los que
+  // el ERP dice hoy — el 11-08 le faltaban 11.662 kg y su descuadre era del 22%.
+  // Mientras el parte siga en Borrador se rehace solo. Ver generarYSubir: solo
+  // toca lo que genero el mismo, solo si el ERP tiene MAS, y nunca un parte
+  // cerrado ni un archivo que subiera una persona.
   let gstock = null;
   const gstockRecuperados = [];
+  const gstockRehechos = [];
   try {
     const conn = await conectarErp();
     try {
-      gstock = await generarYSubir(supabase, conn, ayer, { aplicar: true });
-      for (const f of ventanaDias(ayer, 7).slice(1)) {
-        const r = await generarYSubir(supabase, conn, f, { aplicar: true });
-        if (r.accion === "subido") gstockRecuperados.push(r);
+      for (const f of ventanaDias(ayer, 7)) {
+        const r = await generarYSubir(supabase, conn, f, { aplicar: true, refrescarSiFaltanKg: REFRESCAR_GSTOCK_KG });
+        if (f === ayer) gstock = r;
+        else if (r.accion === "subido") gstockRecuperados.push(r);
+        if (r.accion === "rehecho") gstockRehechos.push(r);
       }
     } finally {
       await conn.end().catch(() => {});
     }
-    for (const s of [...(gstock.sospechosos ?? []), ...gstockRecuperados.flatMap((r) => r.sospechosos ?? [])]) {
+    for (const s of [...(gstock?.sospechosos ?? []), ...gstockRecuperados.flatMap((r) => r.sospechosos ?? [])]) {
       incidencias.push(`ERROR: el palet ${s.palet} del GSTOCK tiene ${Math.round(s.kg).toLocaleString("es")} kg` +
         ` ("${s.producto}")${s.desmontado ? ", y es un DESMONTADO (industria o precalibrado)" : ""}.` +
         " Un palet fisico no llega a eso: se apunto despues con la fecha del lote, asi que ese dia" +
@@ -318,7 +335,12 @@ async function main() {
   let analizados = [];
   try {
     const desde = comoFecha(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - 14));
-    analizados = await analizarPartesPendientes(supabase, { url, key, desde, aplicar: true });
+    // Los rehechos van FORZADOS: su GSTOCK es otro, pero el parte no cumple
+    // ninguna de las dos condiciones normales (ya esta analizado y sus palets no
+    // estan a cero), asi que sin esto el archivo nuevo se quedaria sin leer.
+    analizados = await analizarPartesPendientes(supabase, {
+      url, key, desde, aplicar: true, forzar: gstockRehechos.map((r) => r.fecha),
+    });
     for (const a of analizados) {
       if (a.accion === "error") incidencias.push(`ERROR: analizar el parte del ${a.fecha}: ${a.motivo}`);
     }
@@ -452,7 +474,11 @@ async function main() {
   const { cuerpo, hayProblema } = componerAviso({
     fecha: ayer, entradas, palets, cobertura, correcciones, informesCalibrador,
     calibrador, productores, ip: ipLocal(), log: [...colaDelLog(), ...incidencias],
-    parte: { ...parte, gstockRecuperados: gstockRecuperados.map((r) => r.fecha) },
+    parte: {
+      ...parte,
+      gstockRecuperados: gstockRecuperados.map((r) => r.fecha),
+      gstockRehechos: gstockRehechos.map((r) => ({ fecha: r.fecha, faltaban: r.faltaban })),
+    },
     frescura: await frescuraDeDatos(supabase, comoFecha(hoy)),
     buzon: buzonDelDia(ayer),
     analizados: analizados.filter((a) => a.accion === "analizado"),

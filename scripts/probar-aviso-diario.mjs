@@ -114,6 +114,16 @@ comprobar("un descuadre sobre kilos provisionales lo dice",
 comprobar("y con volcado esa disculpa no aparece",
   !/el descuadre sale mas grande/.test(normal.cuerpo));
 
+// Un parte que ya se habia mirado y cambia de numero tiene que decirlo, o nadie
+// se entera de que los palets de ese dia ya no son los que vio.
+const rehecho = componerAviso({ ...BASE,
+  parte: { ...BASE.parte, gstockRehechos: [{ fecha: "2026-08-11", faltaban: 11662 }] } });
+comprobar("un GSTOCK rehecho se cuenta, con dia y kilos",
+  /El parte del 2026-08-11 se ha rehecho: el ERP tenia 11\.662 kg/.test(rehecho.cuerpo));
+comprobar("y no es una incidencia: es el sistema poniendose al dia",
+  rehecho.hayProblema === false);
+comprobar("sin rehacer nada no aparece la linea", !/se ha rehecho/.test(normal.cuerpo));
+
 const sinErp = componerAviso({ ...BASE, parte: { ...BASE.parte, erpCaido: "connect ETIMEDOUT" } });
 comprobar("el ERP caido SI es incidencia", sinErp.hayProblema === true);
 comprobar("y explica que hay que subir el GSTOCK a mano", /Excel del GSTOCK a mano/.test(sinErp.cuerpo));
