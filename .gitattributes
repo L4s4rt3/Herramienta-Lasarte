@@ -1,0 +1,17 @@
+# Los .cmd y .vbs SIEMPRE con saltos de linea de Windows (CRLF).
+#
+# POR QUE. cmd.exe lee el fichero por posicion de byte: con saltos LF se
+# descoloca y se come el primer caracter de una linea. No falla entero, que seria
+# facil de ver — ejecuta basura. El 14-08-2026 la tarea diaria corrio leyendo
+# "all" donde ponia "call", murio en los cuatro pasos y solo se noto porque el
+# log salio vacio; reiniciar-receptor.cmd escupia '"M" no se reconoce' por cada
+# REM. Los dos ficheros estaban guardados en LF.
+#
+# Con esto, cualquier copia del repo los saca en CRLF y deja de depender de con
+# que editor se toco el fichero por ultima vez.
+*.cmd text eol=crlf
+*.vbs text eol=crlf
+
+# Los .ps1 los lee PowerShell, que aguanta LF, pero se dejan igual por coherencia
+# con lo que abre el Bloc de notas en esa maquina.
+*.ps1 text eol=crlf
