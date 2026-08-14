@@ -447,6 +447,37 @@ export function useProductores(desde: string, hasta: string) {
       let clasifRows: ClasificacionRow[] = [];
       try {
         try {
+          // 1. La RPC por periodo: UNA llamada y ya agregada a la granularidad
+          //    exacta que se usa aquí. La vista de abajo agrupa además por
+          //    FECHA, que este hook descarta (ver
+          //    mapProductorAggRowsToClasificacionRows): esa fecha multiplicaba
+          //    las filas por días — 131.958 en vez de 16.585, o sea 132 páginas
+          //    de mil en lugar de una sola respuesta, y cada página volvía a
+          //    agregar la vista entera (~4 s). El dossier tardaba minutos.
+          //    Devuelve jsonb a propósito: 16.585 filas las recortaría el
+          //    max-rows de PostgREST en silencio (ver fetchAllRows).
+          const { data, error } = await SUPA.rpc("clasificacion_productor_periodo", {
+            desde,
+            hasta,
+          });
+          if (error) throw error;
+          clasifRows = (data ?? []) as unknown as ClasificacionRow[];
+        } catch (rpcErr) {
+          if (!esErrorTablaOColumnaInexistente(rpcErr)) throw rpcErr;
+          console.warn(
+            "useProductores: clasificacion_productor_periodo aún no existe (migración 20260814160000 pendiente de aplicar); usando la vista agregada.",
+            rpcErr,
+          );
+          clasifRows = await clasificacionDesdeVista();
+        }
+      } catch (clasifEx) {
+        console.error("useProductores: fallo al cargar lote_clasificacion (se omite el perfil de destino):", clasifEx);
+        clasifRows = [];
+      }
+
+      /** El camino de antes, intacto: vista agregada y, si no está, tabla entera. */
+      async function clasificacionDesdeVista(): Promise<ClasificacionRow[]> {
+        try {
           const aggRows = await fetchAllRows<ProductorAggRow>((from, to) =>
             SUPA
               .from("lote_clasificacion_productor_agg")
@@ -460,14 +491,14 @@ export function useProductores(desde: string, hasta: string) {
               .order("fecha")
               .range(from, to),
           );
-          clasifRows = mapProductorAggRowsToClasificacionRows(aggRows);
+          return mapProductorAggRowsToClasificacionRows(aggRows);
         } catch (aggErr) {
           if (!esErrorTablaOColumnaInexistente(aggErr)) throw aggErr;
           console.warn(
             "useProductores: lote_clasificacion_productor_agg aún no existe (migración 20260717120000 pendiente de aplicar); usando el fetch completo de lote_clasificacion.",
             aggErr,
           );
-          clasifRows = await fetchAllRows<ClasificacionRow>((from, to) =>
+          return await fetchAllRows<ClasificacionRow>((from, to) =>
             SUPA
               .from("clasificacion_lote")
               .select("productor, grupo_destino, clase, peso_kg, tamano, piezas, cartons")
@@ -477,9 +508,6 @@ export function useProductores(desde: string, hasta: string) {
               .range(from, to),
           );
         }
-      } catch (clasifEx) {
-        console.error("useProductores: fallo al cargar lote_clasificacion (se omite el perfil de destino):", clasifEx);
-        clasifRows = [];
       }
 
       const clasifPorNombre = new Map<string, ClasificacionRow[]>();

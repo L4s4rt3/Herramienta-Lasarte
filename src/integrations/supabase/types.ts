@@ -2843,6 +2843,10 @@ export type Database = {
           kg_provisional: number | null
         }[]
       }
+      clasificacion_productor_periodo: {
+        Args: { desde?: string | null; hasta?: string | null }
+        Returns: Json
+      }
       calibrador_desglose_sin_repartir: {
         Args: { desde?: string | null; hasta?: string | null }
         Returns: {
