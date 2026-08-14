@@ -63,7 +63,9 @@ $tareas = @(
   @{ nombre = "Lasarte - Sincronizar ERP";     vbs = "tarea-diaria.vbs";      despierta = $true;  reintento = "PT20M"; duracion = "PT5H" }
   @{ nombre = "Lasarte - Receptor calibrador"; vbs = "arrancar-receptor.vbs"; despierta = $true;  reintento = "PT5M" }
   @{ nombre = "Lasarte - Foto palets ERP";     vbs = "foto-palets.vbs";       despierta = $false }
-  @{ nombre = "Lasarte - Leer buzon";          vbs = "leer-buzon.vbs";        despierta = $false }
+  # "Lasarte - Leer buzon" se deshabilito el 14-08-2026 a proposito (el buzon
+  # IMAP no se usa: todo lo automatico entra por el receptor de la LAN). Si se
+  # reactivara, volver a añadirla aqui y en _shared/saludTrabajos.ts.
   # La copia despierta el equipo: es la unica defensa contra un desastre de la
   # base, y a las 21:30 el portatil puede estar en reposo moderno. El propio
   # script se planta si la de hoy ya esta verificada, asi que el reintento de

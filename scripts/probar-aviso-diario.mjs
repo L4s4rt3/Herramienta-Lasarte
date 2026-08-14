@@ -9,6 +9,7 @@
  *   node scripts/probar-aviso-diario.mjs
  */
 import { componerAviso, informesSinSubir } from "./lib-aviso-diario.mjs";
+import { renderAvisoHtml } from "./lib-aviso-html.mjs";
 
 const BASE = {
   fecha: "2026-08-10",
@@ -290,6 +291,36 @@ comprobar("sin datos de frescura no se inventa alarma", componerAviso(BASE).hayP
 const sinEntradas = componerAviso({ ...BASE, entradas: { n: 0, kg: 0, precalibrado: 0 } });
 comprobar("cero entradas se explica, no se calla", /se calibro de camara/.test(sinEntradas.cuerpo));
 comprobar("y no es una incidencia", sinEntradas.hayProblema === false);
+
+// ── El correo HTML: mismas decisiones que el texto, pero legible ────────────
+// Lo pinta lib-aviso-html.mjs desde el modelo. Aqui se protege lo que importa:
+// que lo urgente vaya ARRIBA, que los enlaces sean enlaces y que un nombre con
+// simbolos no rompa el HTML.
+const htmlNormal = renderAvisoHtml(normal.modelo);
+comprobar("html: un dia limpio dice Sin incidencias", /Sin incidencias/.test(htmlNormal));
+comprobar("html: el enlace al parte es un enlace de verdad",
+  /href="https:\/\/controlproduccion\.vercel\.app\/partes\/abc-123"/.test(htmlNormal));
+comprobar("html: trae las cifras del dia", /79\.164 kg en 4 pasadas/.test(htmlNormal));
+
+const htmlPend = renderAvisoHtml(pend.modelo);
+comprobar("html: lo que hay que revisar va ARRIBA de la produccion",
+  htmlPend.indexOf("REVISAR") < htmlPend.indexOf("Calibrado") && htmlPend.includes("26051905"));
+comprobar("html: con incidencias el chip lo dice", /Hay cosas que revisar/.test(htmlPend));
+
+comprobar("html: la semana lleva barras de verdad",
+  /width:\d+%/.test(renderAvisoHtml(conContexto.modelo)));
+
+const conSimbolos = componerAviso({ ...BASE,
+  productores: [{ productor: "A & B <AGRO>", kg: 5000, pctExportacion: 50 }] });
+comprobar("html: los simbolos de un nombre no rompen el html",
+  renderAvisoHtml(conSimbolos.modelo).includes("A &amp; B &lt;AGRO&gt;"));
+
+const htmlParado = renderAvisoHtml(componerAviso({
+  ...BASE, entradas: { n: 0, kg: 0, precalibrado: 0 },
+  palets: { n: 0, kg: 0, euros: 0, clientes: [] },
+  calibrador: null, productores: null, cobertura: { lotes: 0, conOrigen: 0 },
+}).modelo);
+comprobar("html: un dia parado tambien se explica con palabras", /Sin actividad registrada/.test(htmlParado));
 
 console.log(fallos === 0 ? "\nTodo correcto." : `\n${fallos} comprobacion(es) fallidas.`);
 process.exit(fallos === 0 ? 0 : 1);

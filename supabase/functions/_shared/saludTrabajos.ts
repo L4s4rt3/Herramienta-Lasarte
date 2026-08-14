@@ -208,18 +208,10 @@ const TRABAJOS: DefTrabajo[] = [
       "puede deducir la hora de cierre ni el inventario sin alta, pero no se pierde nada que el ERP tenga.",
     ),
   },
-  {
-    id: "leer-buzon",
-    nombre: "Buzón de correo (soporte@)",
-    queHace: "Lee los correos sin abrir del buzón e importa los Excel que la Herramienta reconoce.",
-    evaluar: periodico(
-      "varias veces al día",
-      6 * 60,
-      26 * 60,
-      "Comprueba el portátil de la oficina; su tarea es «Lasarte - Leer buzon». Mientras esté parado, " +
-      "los Excel reenviados a soporte@lasartesat.es se quedan en el buzón sin importar (no se pierden).",
-    ),
-  },
+  // El buzón IMAP (leer-buzon) se APAGÓ el 14-08-2026 a propósito: todo lo
+  // automático entra ya por el receptor de la LAN y no compensaba mantener las
+  // credenciales. Su tarea de Windows quedó deshabilitada. Si algún día se
+  // reactiva, recuperar su entrada de aquí (está en el historial de git).
   {
     id: "copia-seguridad",
     nombre: "Copia de seguridad diaria",

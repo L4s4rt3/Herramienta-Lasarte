@@ -19,6 +19,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { componerAviso, comoFecha, informesSinSubir } from "./lib-aviso-diario.mjs";
+import { renderAvisoHtml } from "./lib-aviso-html.mjs";
 import { repasarPartes, datosCalibradorDelDia, traerTodo } from "./crear-parte-diario.mjs";
 import { analizarPartesPendientes } from "./analizar-partes-pendientes.mjs";
 import { conectarErp } from "./lib-palets-erp.mjs";
@@ -471,7 +472,7 @@ async function main() {
     correcciones = fs.existsSync(csv) ? fs.readFileSync(csv, "utf8").trimEnd().split(/\r?\n/).length - 1 : 0;
   } catch { /* null = no se pudo comprobar */ }
 
-  const { cuerpo, hayProblema } = componerAviso({
+  const { cuerpo, hayProblema, modelo } = componerAviso({
     fecha: ayer, entradas, palets, cobertura, correcciones, informesCalibrador,
     calibrador, productores, ip: ipLocal(), log: [...colaDelLog(), ...incidencias],
     parte: {
@@ -495,8 +496,12 @@ async function main() {
     : "sin datos del calibrador";
   const asunto = `${hayProblema ? "[REVISAR] " : ""}Lasarte ${dm} · ${resumen}`;
 
+  // El HTML es lo que se lee (el texto plano destrozaba las columnas en Gmail);
+  // el texto sigue viajando como alternativa y como copia local inspeccionable.
+  const html = renderAvisoHtml(modelo);
   fs.mkdirSync(path.resolve("outputs"), { recursive: true });
   fs.writeFileSync(path.resolve("outputs/aviso-diario.txt"), `${asunto}\n\n${cuerpo}\n`, "utf8");
+  fs.writeFileSync(path.resolve("outputs/aviso-diario.html"), html, "utf8");
   console.log(`${asunto}\n\n${cuerpo}`);
 
   const apiKey = process.env.RESEND_API_KEY;
@@ -511,7 +516,7 @@ async function main() {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: REMITENTE, to: [DESTINO], subject: asunto, text: cuerpo }),
+      body: JSON.stringify({ from: REMITENTE, to: [DESTINO], subject: asunto, html, text: cuerpo }),
     });
     if (!res.ok) throw new Error(`Resend HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
     console.log(`\nAviso enviado a ${DESTINO}.`);

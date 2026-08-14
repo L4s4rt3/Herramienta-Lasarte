@@ -99,13 +99,13 @@ describe("evaluarTrabajos", () => {
       expect(parada.queHacer).toContain("Lasarte - Copia de seguridad");
     });
 
-    it("un pendiente conocido (buzón sin credenciales) es atención mientras siga latiendo, no alarma", () => {
-      const l = [latido("leer-buzon", "2026-08-14T09:30:00+02:00", "aviso", "sin configurar: faltan las credenciales IMAP en el .env")];
-      const t = estadoDe(l, en("2026-08-14T10:00:00+02:00"), "leer-buzon");
+    it("un pendiente conocido (estado aviso) es atención mientras siga latiendo, no alarma", () => {
+      const l = [latido("foto-palets", "2026-08-14T09:30:00+02:00", "aviso", "pendiente conocido de ejemplo")];
+      const t = estadoDe(l, en("2026-08-14T10:00:00+02:00"), "foto-palets");
       expect(t.estado).toBe("atencion");
-      expect(t.titulo).toContain("sin configurar");
+      expect(t.titulo).toContain("pendiente conocido");
       // Pero si ADEMÁS deja de latir, el silencio manda: parado.
-      const parado = estadoDe(l, en("2026-08-16T10:00:00+02:00"), "leer-buzon");
+      const parado = estadoDe(l, en("2026-08-16T10:00:00+02:00"), "foto-palets");
       expect(parado.estado).toBe("mal");
     });
   });
