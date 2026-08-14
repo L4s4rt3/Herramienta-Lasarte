@@ -47,9 +47,14 @@ $repo = Split-Path -Parent $PSScriptRoot
 # llegue con el receptor parado se pierde y no vuelve. Por eso escucha de 06:00 a
 # 22:00 — cubre el turno de verano (terminan sobre las 13:10) y el normal (14:00
 # o 15:00) sin tener que tocar nada cuando cambie.
+#
+# Y el RITMO del reintento del receptor es lo que mide el agujero cuando se
+# cae: reintentaba cada 30 min y el 14-08-2026 se murio a las 07:0x, asi que
+# hasta las 07:30 no habia quien recogiera nada. Baja a 5 min — un intento que
+# no toma muere en menos de un segundo, asi que no cuesta nada.
 $tareas = @(
   @{ nombre = "Lasarte - Sincronizar ERP";     vbs = "tarea-diaria.vbs";      despierta = $true }
-  @{ nombre = "Lasarte - Receptor calibrador"; vbs = "arrancar-receptor.vbs"; despierta = $true }
+  @{ nombre = "Lasarte - Receptor calibrador"; vbs = "arrancar-receptor.vbs"; despierta = $true; reintento = "PT5M" }
   @{ nombre = "Lasarte - Foto palets ERP";     vbs = "foto-palets.vbs";       despierta = $false }
   @{ nombre = "Lasarte - Leer buzon";          vbs = "leer-buzon.vbs";        despierta = $false }
 )
@@ -82,7 +87,19 @@ foreach ($t in $tareas) {
   $accion = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$ruta`""
 
   Set-ScheduledTask -TaskName $t.nombre -Settings $set -Action $accion | Out-Null
-  Write-Host "  $($t.nombre): arreglada"
+
+  # El disparador solo se toca donde se pide un ritmo concreto: el resto tienen
+  # su hora puesta a mano y no hay que inventarles ninguna.
+  if ($t.reintento) {
+    $disp = (Get-ScheduledTask -TaskName $t.nombre).Triggers
+    foreach ($d in $disp) {
+      if ($d.Repetition -and $d.Repetition.Duration) { $d.Repetition.Interval = $t.reintento }
+    }
+    Set-ScheduledTask -TaskName $t.nombre -Trigger $disp | Out-Null
+    Write-Host "  $($t.nombre): arreglada (reintento cada $($t.reintento))"
+  } else {
+    Write-Host "  $($t.nombre): arreglada"
+  }
 }
 
 Write-Host ""
