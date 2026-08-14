@@ -17,14 +17,23 @@ import { cn } from "@/lib/utils";
 import {
   useDesviacionesFuentes,
   useEstadoFuentes,
+  useTrabajosAutomaticos,
   type EstadoFuente,
 } from "@/hooks/useEstadoFuentes";
+import type { EstadoTrabajo } from "@/lib/saludTrabajos";
 
 const PRESENTACION: Record<EstadoFuente, { texto: string; icono: typeof CheckCircle2; clase: string }> = {
   "al-dia": { texto: "Al día", icono: CheckCircle2, clase: "text-emerald-600 dark:text-emerald-400" },
   "con-retraso": { texto: "Con retraso", icono: Clock, clase: "text-amber-600 dark:text-amber-400" },
   "parada": { texto: "Parada", icono: AlertTriangle, clase: "text-red-600 dark:text-red-400" },
   "sin-datos": { texto: "Sin datos", icono: HelpCircle, clase: "text-muted-foreground" },
+};
+
+const PRESENTACION_TRABAJO: Record<EstadoTrabajo, { texto: string; icono: typeof CheckCircle2; clase: string }> = {
+  "bien": { texto: "Bien", icono: CheckCircle2, clase: "text-emerald-600 dark:text-emerald-400" },
+  "atencion": { texto: "Atención", icono: Clock, clase: "text-amber-600 dark:text-amber-400" },
+  "mal": { texto: "Parado", icono: AlertTriangle, clase: "text-red-600 dark:text-red-400" },
+  "sin-estrenar": { texto: "Sin estrenar", icono: HelpCircle, clase: "text-muted-foreground" },
 };
 
 function hace(dias: number | null): string {
@@ -34,9 +43,18 @@ function hace(dias: number | null): string {
   return `hace ${dias} días`;
 }
 
+function horaCorta(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const dia = new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "short" }).format(d);
+  const hora = new Intl.DateTimeFormat("es-ES", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d);
+  return `${dia}, ${hora}`;
+}
+
 export default function DatosFuentes() {
   const { data: fuentes, isLoading, refetch, isFetching } = useEstadoFuentes();
   const { data: desviaciones } = useDesviacionesFuentes();
+  const { data: trabajos, refetch: refetchTrabajos } = useTrabajosAutomaticos();
 
   const conProblema = (fuentes ?? []).filter((f) => f.estado === "parada" || f.estado === "con-retraso");
 
@@ -51,11 +69,63 @@ export default function DatosFuentes() {
             de llegar no da error en ninguna pantalla: los números simplemente se quedan quietos.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => { refetch(); refetchTrabajos(); }}
+          disabled={isFetching}
+        >
           <RefreshCw className={cn("mr-2 h-4 w-4", isFetching && "animate-spin")} />
           Comprobar ahora
         </Button>
       </header>
+
+      {/* Los TRABAJOS que traen los datos. Una fuente parada casi siempre es un
+          trabajo parado: esta tarjeta dice cuál, desde cuándo y qué hacer. */}
+      <Card className="glass-accented">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Trabajos automáticos: ¿están corriendo?</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {(trabajos ?? []).map((t) => {
+            const p = PRESENTACION_TRABAJO[t.estado];
+            const Icono = p.icono;
+            return (
+              <div key={t.id} className="flex items-start gap-3">
+                <Icono className={cn("mt-0.5 h-5 w-5 shrink-0", p.clase)} />
+                <div className="min-w-0 flex-1 text-sm">
+                  <p className="font-medium">
+                    {t.nombre}
+                    <span className={cn("ml-2 text-xs font-medium", p.clase)}>{p.texto}</span>
+                  </p>
+                  <p className="text-muted-foreground">
+                    {t.titulo.charAt(0).toUpperCase() + t.titulo.slice(1)}.
+                  </p>
+                  {t.estado !== "bien" && (
+                    <p className="mt-0.5 text-xs text-muted-foreground">{t.queHace}</p>
+                  )}
+                  {t.queHacer && (
+                    <p className="mt-1.5 rounded-lg bg-muted/60 px-3 py-2 text-xs">
+                      <span className="font-semibold">Qué hacer:</span> {t.queHacer}
+                    </p>
+                  )}
+                </div>
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground" title="Última señal">
+                  {horaCorta(t.vistoA)}
+                </span>
+              </div>
+            );
+          })}
+          {(trabajos ?? []).length === 0 && (
+            <p className="text-sm text-muted-foreground">Comprobando…</p>
+          )}
+          <p className="pt-1 text-xs text-muted-foreground">
+            El vigilante corre en Supabase, fuera del portátil de la oficina: si estos trabajos dejan
+            de dar señales, manda un correo a soporte@lasartesat.es hacia las 13:45. Esta tarjeta
+            enseña lo mismo, en directo y con la misma lógica.
+          </p>
+        </CardContent>
+      </Card>
 
       {conProblema.length > 0 && (
         <Card className="glass-accented border-amber-500/40">

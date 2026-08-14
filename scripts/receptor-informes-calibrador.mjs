@@ -37,6 +37,7 @@ import { simpleParser } from "mailparser";
 import { parsearInformeCalibrador, validarBloques } from "./lib-informe-calibrador.mjs";
 import { subirInforme } from "./lib-subir-informe-calibrador.mjs";
 import { abrirZipExport, importarExportSizer } from "./importar-export-calibrador.mjs";
+import { latido } from "./lib-registro-ejecuciones.mjs";
 
 try { process.loadEnvFile(path.resolve(".env")); } catch { /* variables de entorno */ }
 
@@ -341,6 +342,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.log(`Receptor escuchando en el puerto ${PUERTO} (todas las interfaces)`);
     console.log(`Guardando en ${CARPETA}`);
     console.log("Para parar: Ctrl+C");
+    // El latido: /datos/fuentes y el vigilante miran esta señal para saber que
+    // el receptor sigue escuchando — el 13-08 estuvo diez horas muerto y solo
+    // se supo por los informes que faltaban. Cada 5 min, lo que tarda su tarea
+    // en relanzarlo si muere: un hueco mayor ya es una caida de verdad.
+    const darSenal = () => latido("receptor", { detalle: `escuchando en el puerto ${PUERTO}` });
+    darSenal();
+    setInterval(darSenal, 5 * 60 * 1000).unref();
   });
 }
 

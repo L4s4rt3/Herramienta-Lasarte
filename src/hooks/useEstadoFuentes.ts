@@ -15,6 +15,9 @@
 import { useQuery } from "@tanstack/react-query";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { evaluarTrabajos, type LatidoRow, type TrabajoSalud } from "@/lib/saludTrabajos";
+
+export type { TrabajoSalud } from "@/lib/saludTrabajos";
 
 const SUPA = supabase as unknown as SupabaseClient<any>;
 
@@ -48,7 +51,7 @@ interface Definicion {
 const FUENTES: Definicion[] = [
   {
     id: "entradas", nombre: "Entradas de fruta", tabla: "entradas_bascula", campo: "fecha",
-    origen: "Báscula, vía sincronización con el ERP (tarea diaria de las 6:30)",
+    origen: "Báscula, vía sincronización con el ERP (tarea diaria de las 07:10)",
     toleranciaDias: 3,
   },
   {
@@ -119,6 +122,27 @@ export function useEstadoFuentes() {
     // Una fuente no cambia de estado en segundos: media hora de caché sobra y
     // evita machacar la base cada vez que alguien entra en la página.
     staleTime: 30 * 60 * 1000,
+  });
+}
+
+/**
+ * Los TRABAJOS que traen los datos: ¿están vivos? La lógica (umbral por trabajo,
+ * texto del estado, qué hacer) vive en supabase/functions/_shared/saludTrabajos.ts
+ * y es la MISMA que usa la edge function `vigilante` para avisar por correo:
+ * la página y el correo no pueden contradecirse.
+ */
+export function useTrabajosAutomaticos() {
+  return useQuery({
+    queryKey: ["estado-fuentes", "trabajos"],
+    queryFn: async (): Promise<TrabajoSalud[]> => {
+      const { data, error } = await SUPA
+        .from("sistema_latidos")
+        .select("trabajo, visto_a, estado, detalle, equipo");
+      if (error) throw new Error(error.message);
+      return evaluarTrabajos((data ?? []) as LatidoRow[], new Date());
+    },
+    // Un receptor caído se tiene que ver en minutos, no en media hora: caché corta.
+    staleTime: 5 * 60 * 1000,
   });
 }
 

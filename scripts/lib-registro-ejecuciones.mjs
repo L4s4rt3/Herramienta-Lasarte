@@ -53,6 +53,16 @@ export async function latido(trabajo, { estado = "ok", detalle = null } = {}) {
 }
 
 /**
+ * Salir con error DESPUÉS de registrar. process.exit() justo detrás de un fetch
+ * aborta en Windows (libuv async.c:76) si el socket aún se está cerrando, y el
+ * código de salida sale corrupto: un cuarto de segundo de gracia lo evita.
+ */
+export async function salirConError(codigo = 1) {
+  await new Promise((r) => setTimeout(r, 250));
+  process.exit(codigo);
+}
+
+/**
  * Una ejecución terminada: fila en el histórico (sistema_ejecuciones) y de paso
  * el latido con el resultado, para que el último estado siempre esté al día.
  *

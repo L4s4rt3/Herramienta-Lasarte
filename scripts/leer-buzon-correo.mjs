@@ -39,6 +39,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
+import { anotarEjecucion, latido, salirConError } from "./lib-registro-ejecuciones.mjs";
 
 try { process.loadEnvFile(path.resolve(".env")); } catch { /* entorno */ }
 
@@ -155,8 +156,17 @@ async function main() {
   const args = process.argv.slice(2);
   const soloProbar = args.includes("--probar");
   const aplicar = args.includes("--aplicar");
+  const inicio = new Date().toISOString();
 
   const r = await leerBuzon({ aplicar, soloProbar });
+  // El rastro en la base: /datos/fuentes y el vigilante miran esta señal.
+  await anotarEjecucion({
+    trabajo: "leer-buzon",
+    inicio,
+    estado: "ok",
+    detalle: r.sinLeer === 0 ? "sin correos nuevos" : `${r.sinLeer} correo(s) sin leer, ${r.resultados.length} procesados`,
+    datos: { aplicar, soloProbar },
+  });
   console.log(`Buzon "${r.carpeta}": ${r.sinLeer} correo(s) sin leer.`);
   if (soloProbar) return console.log("Conexion correcta. (--probar: no se ha tocado nada)");
 
@@ -173,5 +183,16 @@ async function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((e) => { console.error("ERROR:", e.message); process.exit(1); });
+  main().catch(async (e) => {
+    // Sin credenciales no es una averia, es un pendiente conocido (ver el .cmd):
+    // se deja solo el latido en "aviso" — una fila de error cada 30 minutos por
+    // lo mismo enterraria los errores de verdad.
+    if (/Faltan las credenciales del buzon/.test(e.message)) {
+      await latido("leer-buzon", { estado: "aviso", detalle: "sin configurar: faltan las credenciales IMAP en el .env" });
+    } else {
+      await anotarEjecucion({ trabajo: "leer-buzon", estado: "error", detalle: e.message });
+    }
+    console.error("ERROR:", e.message);
+    await salirConError(1);
+  });
 }

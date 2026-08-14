@@ -24,7 +24,7 @@ import { analizarPartesPendientes } from "./analizar-partes-pendientes.mjs";
 import { conectarErp } from "./lib-palets-erp.mjs";
 import { generarYSubir } from "./generar-gstock-erp.mjs";
 import { detectarCierre, inventarioSinAlta, diaLocal } from "./lib-cierre-alta.mjs";
-import { anotarEjecucion } from "./lib-registro-ejecuciones.mjs";
+import { anotarEjecucion, salirConError } from "./lib-registro-ejecuciones.mjs";
 
 try { process.loadEnvFile(path.resolve(".env")); } catch { /* entorno */ }
 
@@ -509,6 +509,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     // tiene que verse en la base aunque el correo no haya podido salir.
     await anotarEjecucion({ trabajo: "tarea-diaria", estado: "error", detalle: e.message });
     console.error("ERROR:", e.message);
-    process.exit(1);
+    await salirConError(1);
   });
 }

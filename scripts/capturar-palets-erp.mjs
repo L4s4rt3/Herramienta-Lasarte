@@ -29,6 +29,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { conectarErp, paletsDelDia } from "./lib-palets-erp.mjs";
+import { anotarEjecucion, salirConError } from "./lib-registro-ejecuciones.mjs";
 
 try { process.loadEnvFile(path.resolve(".env")); } catch { /* entorno */ }
 
@@ -65,19 +66,28 @@ async function main() {
   // dia anterior desde que se cerro — eso es el inventario que quedo sin alta.
   const fechas = arg ? [arg] : [ayer, comoFecha(hoy)];
 
+  const inicio = new Date().toISOString();
+  const resumen = [];
   const conn = await conectarErp();
   try {
     for (const fecha of fechas) {
       const r = await capturarFoto(supabase, conn, fecha);
-      if (!r.guardada) { console.log(`${fecha}: ${r.motivo}`); continue; }
+      if (!r.guardada) { console.log(`${fecha}: ${r.motivo}`); resumen.push(`${fecha}: ${r.motivo}`); continue; }
       console.log(`Foto del ${fecha}: ${r.palets} palets · ${Math.round(r.netos).toLocaleString("es")} kg` +
         (r.sinValorar > 0 ? ` · ${r.sinValorar} sin valorar todavia` : ""));
+      resumen.push(`${fecha}: ${r.palets} palets, ${Math.round(r.netos).toLocaleString("es")} kg`);
     }
   } finally {
     await conn.end().catch(() => {});
   }
+  // El rastro en la base: /datos/fuentes y el vigilante miran esta señal.
+  await anotarEjecucion({ trabajo: "foto-palets", inicio, estado: "ok", detalle: resumen.join(" · ") || "sin fotos que guardar" });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((e) => { console.error("ERROR:", e.message); process.exit(1); });
+  main().catch(async (e) => {
+    await anotarEjecucion({ trabajo: "foto-palets", estado: "error", detalle: e.message });
+    console.error("ERROR:", e.message);
+    await salirConError(1);
+  });
 }
