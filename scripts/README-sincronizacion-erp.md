@@ -114,6 +114,30 @@ Se rellenan tres campos:
 Los dos primeros se comprobaron contra los partes ya cerrados del 3, 4, 5, 6 y 7
 de agosto de 2026: coinciden **al kilo los cinco**.
 
+### Dos fuentes de kilos, y la que llega sola es la segunda
+
+| `origen_calibrador` | Qué es | Cuándo llega |
+| --- | --- | --- |
+| `sql` | el volcado del Sizer (zip con `lotes.csv` + `clasificacion.csv`): **todas** las pasadas | solo cuando alguien ejecuta `export-sizer.ps1` en la máquina del Sizer |
+| `docx` | los informes de lote que el Sizer manda **solo** al receptor según cierra lotes | todos los días, sin que nadie haga nada |
+| `NULL` | escrito a mano, o anterior al 14-08-2026 | — |
+
+Hasta el 14-08-2026 solo se miraba el volcado, **y por eso el 12 y el 13 de agosto
+no se creó ningún parte**: el último volcado era del día 11 y esos días quedaban
+en `sin-datos` aunque sus informes estuvieran ya en la base.
+
+Lo que cuesta el respaldo: de un lote con varias pasadas el DOCX **solo ve la
+última**, así que puede quedarse corto. Medido sobre la campaña entera, son 37 de
+1.271 pares (lote, día) — un **2,9%**. Y el 11-08, único día con las dos fuentes a
+la vez, el DOCX reproduce el volcado **al kilo** (78.689 kg y 9.609 de mujeres).
+El correo marca esos kilos como `(provisional)` y lo explica.
+
+**Se corrige solo.** Un valor marcado `docx` lo pisa cualquier lectura posterior
+—el volcado cuando se exporte, o los informes que falten cuando lleguen—, porque
+los informes de un día no llegan todos a la vez. Un valor **escrito a mano
+(`NULL`) no se toca jamás**, y si al parte le suben el informe de **Producción**
+(que es del día entero) la corrección automática también se aparta: manda él.
+
 ### Los palets: se GENERA el Excel del GSTOCK y se sube
 
 `kg_palets_brutos` no se escribe a mano en el parte. Se **genera el mismo Excel**
@@ -213,3 +237,27 @@ del ERP mientras la gente trabaja.
 `tarea-diaria-erp.cmd` encadena los tres pasos en este orden, que importa:
 entradas → trazabilidad de palets → aviso. El aviso va el último porque cuenta lo
 que han hecho los otros dos, y de paso deja el parte del día anterior listo.
+
+### Se reintenta hasta que sale bien
+
+El 14-08-2026 la tarea corrió a las 07:10 con el portátil recién despierto y
+todavía sin red: los dos sincronizadores murieron con `EHOSTUNREACH
+192.168.1.10:3306`, el aviso con `fetch failed`, y **nadie lo volvió a intentar
+hasta el día siguiente**. Se perdieron el correo del día y los partes del 12 y el
+13 por unos minutos de red.
+
+Ahora la tarea **se repite cada 20 minutos hasta las 12:10** (lo pone
+`arreglar-tareas.ps1`), y el `.cmd` se planta solo con dos marcas en `outputs/`:
+
+| Marca | Qué significa | Qué corta |
+| --- | --- | --- |
+| `ultimo-aviso-ok.txt` | el correo del día ya salió | los reintentos siguen creando y analizando partes, pero con `--sin-enviar`: nadie recibe el mismo correo dos veces |
+| `ultima-tarea-diaria-ok.txt` | el día entero fue bien, sincronizadores incluidos | los reintentos que queden: salen sin hacer nada |
+
+Son dos y no una porque con una sola habría que elegir entre reenviar el correo o
+dar por bueno un día con el ERP a medias — que es exactamente lo que pasa cuando
+Supabase responde y el ERP no. En un día normal la tarea se ejecuta **una vez**.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\arreglar-tareas.ps1
+```

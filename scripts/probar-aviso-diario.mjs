@@ -96,6 +96,24 @@ comprobar("y un descuadre negativo se juzga por su valor absoluto", /\(ALTO\)/.t
 comprobar("sin palets no se inventa descuadre",
   !/Descuadre/.test(componerAviso({ ...BASE, parte: { ...BASE.parte, dsj: null } }).cuerpo));
 
+// El dia que no hay volcado del Sizer, los kilos salen de los informes de lote y
+// pueden quedarse cortos (el DOCX solo ve la ultima pasada de cada lote). Si eso
+// no se dice, el numero se lee como definitivo y nadie vuelve a mirarlo.
+const provisional = componerAviso({ ...BASE, parte: { ...BASE.parte, origen: "docx", lotes: 6 } });
+comprobar("los kilos sin volcado se marcan como provisionales",
+  /Produccion calibrador.*79\.164 kg \(provisional\)/.test(provisional.cuerpo));
+comprobar("y las mujeres tambien", /Mujeres.*4847 kg \(provisional\)/.test(provisional.cuerpo));
+comprobar("y se explica de donde salen y que se corrigen solos",
+  /salen de 6 informes de lote/.test(provisional.cuerpo) && /corrigen solos/.test(provisional.cuerpo));
+comprobar("con volcado no se dice nada de provisional",
+  !/provisional\)/.test(normal.cuerpo) && !/informes de lote,/.test(normal.cuerpo));
+comprobar("y los palets no heredan la coletilla",
+  !/Palets confeccionados.*provisional/.test(provisional.cuerpo));
+comprobar("un descuadre sobre kilos provisionales lo dice",
+  /el descuadre sale mas grande de lo que es/.test(provisional.cuerpo));
+comprobar("y con volcado esa disculpa no aparece",
+  !/el descuadre sale mas grande/.test(normal.cuerpo));
+
 const sinErp = componerAviso({ ...BASE, parte: { ...BASE.parte, erpCaido: "connect ETIMEDOUT" } });
 comprobar("el ERP caido SI es incidencia", sinErp.hayProblema === true);
 comprobar("y explica que hay que subir el GSTOCK a mano", /Excel del GSTOCK a mano/.test(sinErp.cuerpo));

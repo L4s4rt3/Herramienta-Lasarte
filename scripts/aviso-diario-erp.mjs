@@ -24,6 +24,7 @@ import { analizarPartesPendientes } from "./analizar-partes-pendientes.mjs";
 import { conectarErp } from "./lib-palets-erp.mjs";
 import { generarYSubir } from "./generar-gstock-erp.mjs";
 import { detectarCierre, inventarioSinAlta, diaLocal } from "./lib-cierre-alta.mjs";
+import { anotarEjecucion } from "./lib-registro-ejecuciones.mjs";
 
 try { process.loadEnvFile(path.resolve(".env")); } catch { /* entorno */ }
 
@@ -56,6 +57,13 @@ function receptorVivo(puerto = 25, ms = 2000) {
 
 const colaDelLog = (n = 15) => {
   try { return fs.readFileSync(LOG, "utf8").trimEnd().split(/\r?\n/).slice(-n); } catch { return []; }
+};
+
+/** Los `dias` dias que acaban en `hasta`, del mas reciente al mas antiguo. */
+const ventanaDias = (hasta, dias) => {
+  const fin = new Date(`${hasta}T12:00:00`);
+  return Array.from({ length: dias }, (_, i) =>
+    comoFecha(new Date(fin.getFullYear(), fin.getMonth(), fin.getDate() - i)));
 };
 
 /**
@@ -247,6 +255,7 @@ async function frescuraDeDatos(supabase, hoy) {
 }
 
 async function main() {
+  const inicioEjecucion = new Date().toISOString();
   const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Faltan SUPABASE_URL y/o SUPABASE_SERVICE_ROLE_KEY.");
@@ -275,15 +284,26 @@ async function main() {
   // El GSTOCK (consulta de palets) se genera del ERP y se sube al parte, para
   // que la app lo lea con su logica de siempre en vez de escribirle los kilos
   // por detras. Ver generar-gstock-erp.mjs.
+  //
+  // Se repasa la MISMA ventana que los partes, no solo ayer: un parte recuperado
+  // de hace dias (porque la tarea no corrio, o porque sus informes llegaron
+  // tarde) nace sin GSTOCK, y sin GSTOCK no hay palets ni analisis — se quedaria
+  // esperando para siempre a un dia que ya paso. generarYSubir no repite trabajo:
+  // devuelve "ya-tenia" si el parte ya tiene uno y "sin-parte" si no hay parte.
   let gstock = null;
+  const gstockRecuperados = [];
   try {
     const conn = await conectarErp();
     try {
       gstock = await generarYSubir(supabase, conn, ayer, { aplicar: true });
+      for (const f of ventanaDias(ayer, 7).slice(1)) {
+        const r = await generarYSubir(supabase, conn, f, { aplicar: true });
+        if (r.accion === "subido") gstockRecuperados.push(r);
+      }
     } finally {
       await conn.end().catch(() => {});
     }
-    for (const s of gstock.sospechosos ?? []) {
+    for (const s of [...(gstock.sospechosos ?? []), ...gstockRecuperados.flatMap((r) => r.sospechosos ?? [])]) {
       incidencias.push(`ERROR: el palet ${s.palet} del GSTOCK tiene ${Math.round(s.kg).toLocaleString("es")} kg` +
         ` ("${s.producto}")${s.desmontado ? ", y es un DESMONTADO (industria o precalibrado)" : ""}.` +
         " Un palet fisico no llega a eso: se apunto despues con la fecha del lote, asi que ese dia" +
@@ -349,10 +369,11 @@ async function main() {
   let calibrador = null;
   let productores = null;
   if (cal.pasadas > 0) {
-    const { data: batches } = await supabase.from("calibrador_batch")
-      .select("batch_id, lote").gte("inicio", `${ayer}T00:00:00`).lte("inicio", `${ayer}T23:59:59`);
-    const ids = (batches ?? []).map((b) => b.batch_id);
-    const loteDe = new Map((batches ?? []).map((b) => [b.batch_id, b.lote]));
+    // Las pasadas las elige datosCalibradorDelDia (volcado del Sizer si lo hay,
+    // informes de lote si no). Buscarlas otra vez aqui era pedirle el detalle a
+    // la fuente que ese dia NO tiene nada.
+    const ids = cal.ids ?? [];
+    const loteDe = cal.loteDe ?? new Map();
     // Paginado y con orden por la clave primaria entera: un dia normal pasa de
     // 1.000 filas y PostgREST recorta en silencio (ver traerTodo).
     const filas = [];
@@ -430,7 +451,8 @@ async function main() {
 
   const { cuerpo, hayProblema } = componerAviso({
     fecha: ayer, entradas, palets, cobertura, correcciones, informesCalibrador,
-    calibrador, parte, productores, ip: ipLocal(), log: [...colaDelLog(), ...incidencias],
+    calibrador, productores, ip: ipLocal(), log: [...colaDelLog(), ...incidencias],
+    parte: { ...parte, gstockRecuperados: gstockRecuperados.map((r) => r.fecha) },
     frescura: await frescuraDeDatos(supabase, comoFecha(hoy)),
     buzon: buzonDelDia(ayer),
     analizados: analizados.filter((a) => a.accion === "analizado"),
@@ -452,18 +474,41 @@ async function main() {
   console.log(`${asunto}\n\n${cuerpo}`);
 
   const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) { console.log("\n(sin RESEND_API_KEY: queda en outputs/aviso-diario.txt)"); return; }
-  if (process.argv.includes("--sin-enviar")) { console.log("\n(--sin-enviar)"); return; }
+  let envio = "enviado";
+  if (!apiKey) {
+    console.log("\n(sin RESEND_API_KEY: queda en outputs/aviso-diario.txt)");
+    envio = "sin-clave";
+  } else if (process.argv.includes("--sin-enviar")) {
+    console.log("\n(--sin-enviar)");
+    envio = "sin-enviar";
+  } else {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: REMITENTE, to: [DESTINO], subject: asunto, text: cuerpo }),
+    });
+    if (!res.ok) throw new Error(`Resend HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    console.log(`\nAviso enviado a ${DESTINO}.`);
+  }
 
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: REMITENTE, to: [DESTINO], subject: asunto, text: cuerpo }),
+  // El rastro del día EN LA BASE: es lo que enseña /datos/fuentes y lo que el
+  // vigilante comprueba desde fuera del portátil. "aviso" = corrió, pero el
+  // correo salió con cosas que revisar.
+  await anotarEjecucion({
+    trabajo: "tarea-diaria",
+    inicio: inicioEjecucion,
+    estado: hayProblema ? "aviso" : "ok",
+    detalle: asunto,
+    datos: { fecha: ayer, envio },
   });
-  if (!res.ok) throw new Error(`Resend HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  console.log(`\nAviso enviado a ${DESTINO}.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((e) => { console.error("ERROR:", e.message); process.exit(1); });
+  main().catch(async (e) => {
+    // El error tambien deja rastro: un dia que murio entero (sin red, ERP caido)
+    // tiene que verse en la base aunque el correo no haya podido salir.
+    await anotarEjecucion({ trabajo: "tarea-diaria", estado: "error", detalle: e.message });
+    console.error("ERROR:", e.message);
+    process.exit(1);
+  });
 }

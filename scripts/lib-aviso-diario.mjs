@@ -277,7 +277,7 @@ export function componerAviso({
     } else if (parte.accion === "respetado") {
       p.push(linea("Estado", `ya existia (${parte.motivo})`));
     } else if (parte.accion === "sin-datos") {
-      p.push(linea("Estado", "no se creo: sin datos del calibrador ese dia"));
+      p.push(linea("Estado", "no se creo: ese dia el calibrador no dejo ni volcado ni informes"));
     } else {
       p.push(linea("Estado", parte.accion));
     }
@@ -298,8 +298,20 @@ export function componerAviso({
         texto = "a falta de cerrar el dia anterior";
       } else if (campo === "kg_palets_brutos" && !(v > 0)) {
         texto = "falta subir el GSTOCK del dia";
+      } else if (parte.origen === "docx"
+        && (campo === "kg_produccion_calibrador" || campo === "kg_mujeres_calibrador")) {
+        // Sin volcado del Sizer, el numero sale de los informes de lote y puede
+        // quedarse corto (de un lote con varias pasadas el DOCX solo ve la
+        // ultima). Decirlo aqui es lo que evita que alguien lo de por cerrado.
+        texto = `${texto} (provisional)`;
       }
       p.push(linea(`  ${etiqueta}`, texto));
+    }
+
+    if (parte.origen === "docx") {
+      p.push(`  Los kilos del calibrador salen de ${parte.lotes} informes de lote,`);
+      p.push("  no del volcado del Sizer, que ese dia no llego. Se corrigen solos");
+      p.push("  cuando se exporte el volcado desde el visor.");
     }
 
     // El DSJ provisional: los manuales que faltan solo pueden bajarlo, asi que
@@ -308,6 +320,14 @@ export function componerAviso({
       const semaforo = Math.abs(parte.dsj.pct) <= 3 ? "" : Math.abs(parte.dsj.pct) <= 5 ? " (algo alto)" : " (ALTO)";
       p.push(linea("  Descuadre provisional", `${kg(parte.dsj.kg)} · ${pct(parte.dsj.pct)}${semaforo}`));
       p.push("  Provisional porque le faltan los manuales, que solo lo bajan.");
+      // Sin volcado, la produccion puede estar corta (faltan pasadas que no
+      // mandaron informe), y eso hincha el descuadre — hasta darlo la vuelta.
+      // Sin esta linea, un −21% se lee como fruta perdida en vez de como lo que
+      // suele ser: informes que no han llegado.
+      if (parte.origen === "docx") {
+        p.push("  Y porque la produccion sale de los informes de lote: si falta");
+        p.push("  alguno, el descuadre sale mas grande de lo que es (o negativo).");
+      }
     }
 
     if (enBorrador) {
@@ -321,6 +341,9 @@ export function componerAviso({
     }
     if (parte.recuperados?.length) {
       p.push(`  Ademas se han recuperado partes de dias sueltos: ${parte.recuperados.join(", ")}.`);
+    }
+    if (parte.gstockRecuperados?.length) {
+      p.push(`  Y se les ha subido el GSTOCK que les faltaba: ${parte.gstockRecuperados.join(", ")}.`);
     }
     // Partes que tenian sus informes subidos y nadie habia analizado.
     for (const a of analizados ?? []) {

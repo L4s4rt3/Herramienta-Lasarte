@@ -12,6 +12,27 @@
  * VALIDADO CONTRA LA REALIDAD (12-08-2026): los dos primeros reproducen AL KILO
  * los partes ya cerrados del 3, 4, 5, 6 y 7 de agosto — cinco de cinco.
  *
+ * DOS FUENTES, Y LA SEGUNDA ES LA QUE LLEGA SOLA (14-08-2026)
+ *
+ *   'sql'   el volcado del Sizer (zip con lotes.csv + clasificacion.csv). Trae
+ *           todas las pasadas: es la verdad completa. Pero hay que exportarlo a
+ *           mano desde el visor, asi que NO llega todos los dias.
+ *   'docx'  los informes de lote que el Sizer manda solo al receptor segun va
+ *           cerrando lotes. Llegan sin que nadie haga nada.
+ *
+ * Hasta hoy solo se miraba el volcado, y por eso el 12 y el 13 de agosto NO SE
+ * CREO NINGUN PARTE: el ultimo volcado era del 11 y el dia se quedaba en
+ * "sin-datos" aunque sus informes estuvieran en la base. Ahora, si no hay
+ * volcado, se usan los DOCX y se marca la fuente en `origen_calibrador`.
+ *
+ * LO QUE CUESTA EL RESPALDO: de un lote con varias pasadas el DOCX solo ve la
+ * ULTIMA, asi que puede quedarse corto. Medido sobre la campaña entera: 37 de
+ * 1.271 pares (lote, dia) tienen mas de una pasada — un 2,9%. Y el 11-08, unico
+ * dia con las dos fuentes a la vez, el DOCX reproduce el volcado AL KILO
+ * (78.689 kg y 9.609 de mujeres, identicos). Un numero provisional y marcado es
+ * mejor que ningun parte, sobre todo porque se corrige solo: cuando llega el
+ * volcado, un valor 'docx' SI se pisa (uno escrito a mano, nunca).
+ *
  * QUE NO SE RELLENA, Y POR QUE (medido el 12-08-2026, no es pereza)
  *
  *   kg_palets_brutos   Se probo a sacarlo del ERP y EMPEORA el balance: sobre
@@ -47,6 +68,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { conectarErp, paletsDelDia } from "./lib-palets-erp.mjs";
+import { batchIdDeDocx } from "./lib-subir-informe-calibrador.mjs";
 
 try { process.loadEnvFile(path.resolve(".env")); } catch { /* entorno */ }
 
@@ -86,15 +108,10 @@ export async function traerTodo(query, { paso = 1000 } = {}) {
 const porClavePrimaria = (q) =>
   q.order("batch_id").order("producto").order("calidad").order("clase").order("tamano");
 
-/** Los kilos que el calibrador clasifico ese dia, por pasada (no por lote). */
-export async function datosCalibradorDelDia(supabase, fecha) {
-  const { data: batches, error: errB } = await supabase
-    .from("calibrador_batch").select("batch_id")
-    .gte("inicio", `${fecha}T00:00:00`).lte("inicio", `${fecha}T23:59:59`);
-  if (errB) throw new Error(`calibrador_batch: ${errB.message}`);
-  const ids = (batches ?? []).map((b) => b.batch_id);
-  if (ids.length === 0) return { pasadas: 0, kgTotal: 0, kgMujeres: 0 };
+const esMujeres = (g) => (g ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase() === "MUJERES";
 
+/** Suma los kilos de una lista de batch_id, vengan del volcado o de un DOCX. */
+async function kilosDeBatches(supabase, ids) {
   const filas = [];
   try {
     for (let i = 0; i < ids.length; i += 100) {
@@ -106,12 +123,57 @@ export async function datosCalibradorDelDia(supabase, fecha) {
   } catch (e) {
     throw new Error(`calibrador_clasificacion: ${e.message}`);
   }
-  const esMujeres = (g) => (g ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase() === "MUJERES";
   return {
-    pasadas: ids.length,
     kgTotal: filas.reduce((s, f) => s + (Number(f.peso_kg) || 0), 0),
     kgMujeres: filas.filter((f) => esMujeres(f.grupo_destino))
       .reduce((s, f) => s + (Number(f.peso_kg) || 0), 0),
+  };
+}
+
+/**
+ * Los kilos que el calibrador clasifico ese dia, por pasada (no por lote).
+ *
+ * Manda el volcado SQL. Si ese dia no tiene ninguna pasada volcada, se cae a los
+ * informes DOCX que el Sizer manda solos (ver la cabecera del fichero) y se dice
+ * en `origen` para que quien escriba el parte sepa que es provisional.
+ */
+export async function datosCalibradorDelDia(supabase, fecha) {
+  const { data: batches, error: errB } = await supabase
+    .from("calibrador_batch").select("batch_id, lote")
+    .gte("inicio", `${fecha}T00:00:00`).lte("inicio", `${fecha}T23:59:59`);
+  if (errB) throw new Error(`calibrador_batch: ${errB.message}`);
+  const ids = (batches ?? []).map((b) => b.batch_id);
+  if (ids.length > 0) {
+    // `ids` y `loteDe` salen de aqui para que quien necesite el detalle (el
+    // aviso, para el reparto por destino y los productores) mire EXACTAMENTE las
+    // mismas pasadas. Cuando se buscaban por su cuenta en calibrador_batch, un
+    // dia servido por DOCX daba kilos pero cero exportacion, y el correo lo
+    // anunciaba como "el aprovechamiento mas bajo de la serie".
+    return {
+      pasadas: ids.length, origen: "sql", ids,
+      loteDe: new Map((batches ?? []).map((b) => [b.batch_id, b.lote])),
+      ...await kilosDeBatches(supabase, ids),
+    };
+  }
+
+  // Respaldo: los informes de lote de ese dia. Su batch_id es NEGATIVO y se
+  // calcula de (lote, comienzo) — es la unica forma de atribuir una clasificacion
+  // a su informe, porque `calibrador_clasificacion` no guarda el comienzo. Por
+  // eso se pasa por batchIdDeDocx en vez de sumar por lote: un lote que entro en
+  // linea dos dias tiene dos informes, y sumar por lote contaria los dos en cada
+  // uno de los dos dias.
+  const { data: informes, error: errI } = await supabase
+    .from("calibrador_informe").select("lote, comienzo").eq("fecha", fecha);
+  if (errI) throw new Error(`calibrador_informe: ${errI.message}`);
+  if (!informes?.length) {
+    return { pasadas: 0, origen: null, kgTotal: 0, kgMujeres: 0, ids: [], loteDe: new Map() };
+  }
+
+  const idsDocx = informes.map((i) => batchIdDeDocx(i.lote, i.comienzo));
+  return {
+    pasadas: idsDocx.length, origen: "docx", lotes: informes.length, ids: idsDocx,
+    loteDe: new Map(informes.map((i) => [batchIdDeDocx(i.lote, i.comienzo), i.lote])),
+    ...await kilosDeBatches(supabase, idsDocx),
   };
 }
 
@@ -123,7 +185,8 @@ export async function datosCalibradorDelDia(supabase, fecha) {
 export async function crearParteDiario(supabase, fecha, { aplicar = false, palets = null } = {}) {
   const cal = await datosCalibradorDelDia(supabase, fecha);
   if (cal.pasadas === 0) {
-    return { fecha, accion: "sin-datos", motivo: "el calibrador no registro ninguna pasada ese dia" };
+    return { fecha, accion: "sin-datos",
+      motivo: "ese dia no hay ni pasadas volcadas ni informes de lote del calibrador" };
   }
 
   // Arrastre del inventario sin alta del parte anterior.
@@ -148,16 +211,48 @@ export async function crearParteDiario(supabase, fecha, { aplicar = false, palet
   }
 
   // Solo se tocan los automaticos que sigan a cero: un valor a mano manda.
+  //
+  // CON UNA EXCEPCION: un valor que escribimos NOSOTROS desde un DOCX es
+  // provisional, y una lectura posterior lo corrige. Lo unico que distingue
+  // "nuestro" de "tecleado" es la marca origen_calibrador: a NULL (o cualquier
+  // cosa que no sea 'docx') no se toca.
+  //
+  // Y lo corrige CUALQUIER lectura nueva, no solo el volcado. Los informes de un
+  // dia no llegan todos a la vez — el 13-08 el parte se hizo con 3, y los que
+  // cerraron despues habrian llegado con el correo del dia siguiente. Si solo se
+  // aceptara el volcado, ese parte se quedaria corto hasta que alguien exportara
+  // a mano, que es justo lo que no se puede dar por hecho.
+  //
+  // SALVO que le hayan subido el informe de Produccion: ese es del DIA ENTERO, y
+  // `analizar-parte` lo vuelca en este mismo campo (no lo tiene por manual). Es
+  // mejor dato que una suma de los lotes cuyo informe llego, asi que en cuanto
+  // aparece, la correccion automatica se aparta.
+  let corrigeProvisional = parte?.origen_calibrador === "docx";
+  if (corrigeProvisional) {
+    const { data: informeProd, error: errIP } = await supabase.from("partes_archivos")
+      .select("id").eq("part_id", parte.id).eq("file_type", "Produccion").limit(1);
+    if (errIP) throw new Error(`archivos del parte: ${errIP.message}`);
+    if (informeProd?.length) corrigeProvisional = false;
+  }
   const campos = {};
-  const ponSiVacio = (col, valor) => {
+  const ponSiVacio = (col, valor, { corregible = false } = {}) => {
     const actual = parte ? Number(parte[col]) || 0 : null;
-    if (actual > 0) return;              // puesto a mano (o ya calculado): manda
-    if (actual === valor) return;        // el mismo 0 de siempre: no es un cambio
+    if (actual > 0 && !(corregible && corrigeProvisional)) return;
+    if (actual === valor) return;        // el mismo valor de siempre: no es un cambio
     campos[col] = valor;
   };
-  ponSiVacio("kg_produccion_calibrador", Math.round(cal.kgTotal * 10000) / 10000);
-  ponSiVacio("kg_mujeres_calibrador", Math.round(cal.kgMujeres * 10000) / 10000);
+  ponSiVacio("kg_produccion_calibrador", Math.round(cal.kgTotal * 10000) / 10000, { corregible: true });
+  ponSiVacio("kg_mujeres_calibrador", Math.round(cal.kgMujeres * 10000) / 10000, { corregible: true });
   ponSiVacio("kg_inventario_anterior_sin_alta", anterior);
+
+  // La marca de fuente solo se pone cuando los kilos son nuestros: al escribirlos,
+  // o al confirmar con el volcado un provisional que ya coincidia (mismo numero,
+  // asi que arriba no genero cambio, pero deja de ser provisional — fue el caso
+  // del 11-08, donde el DOCX daba los 78.689 kg exactos del volcado).
+  if (campos.kg_produccion_calibrador !== undefined) campos.origen_calibrador = cal.origen;
+  else if (corrigeProvisional && cal.origen !== parte.origen_calibrador) {
+    campos.origen_calibrador = cal.origen;
+  }
   // Los palets NO se rellenan desde el ERP: ver la nota de arriba. `palets` se
   // sigue leyendo para poder enseñarlo en el correo como referencia.
 
@@ -274,11 +369,16 @@ async function main() {
   const cuenta = (r) => {
     console.log(`Parte del ${r.fecha}: ${r.accion}${r.motivo ? ` (${r.motivo})` : ""}`);
     if (r.pasadas) {
-      console.log(`  calibrador: ${r.pasadas} pasadas · ${Math.round(r.kgTotal).toLocaleString("es")} kg` +
+      const fuente = r.origen === "docx"
+        ? `${r.lotes} informes de lote (PROVISIONAL: falta el volcado)`
+        : `${r.pasadas} pasadas volcadas`;
+      console.log(`  calibrador: ${fuente} · ${Math.round(r.kgTotal).toLocaleString("es")} kg` +
         ` · mujeres ${Math.round(r.kgMujeres).toLocaleString("es")} kg`);
     }
     for (const [k, v] of Object.entries(r.campos ?? {})) {
-      console.log(`  ${k} = ${Math.round(Number(v)).toLocaleString("es")}`);
+      // origen_calibrador es texto: redondearlo daria NaN.
+      const valor = typeof v === "number" ? Math.round(v).toLocaleString("es") : v;
+      console.log(`  ${k} = ${valor}`);
     }
   };
 

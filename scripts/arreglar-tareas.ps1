@@ -52,9 +52,16 @@ $repo = Split-Path -Parent $PSScriptRoot
 # cae: reintentaba cada 30 min y el 14-08-2026 se murio a las 07:0x, asi que
 # hasta las 07:30 no habia quien recogiera nada. Baja a 5 min — un intento que
 # no toma muere en menos de un segundo, asi que no cuesta nada.
+#
+# LA TAREA DIARIA TAMBIEN SE REINTENTA, y por lo mismo: ese 14-08 corrio a las
+# 07:10 con el portatil recien despierto y sin red todavia, murio entera y nadie
+# lo volvio a intentar hasta el dia siguiente — un correo y dos partes perdidos
+# por unos minutos de red. Se repite cada 20 min hasta las 12:10; el propio .cmd
+# se planta solo en cuanto el dia sale entero (ver sus dos marcas), asi que en un
+# dia normal se ejecuta UNA vez.
 $tareas = @(
-  @{ nombre = "Lasarte - Sincronizar ERP";     vbs = "tarea-diaria.vbs";      despierta = $true }
-  @{ nombre = "Lasarte - Receptor calibrador"; vbs = "arrancar-receptor.vbs"; despierta = $true; reintento = "PT5M" }
+  @{ nombre = "Lasarte - Sincronizar ERP";     vbs = "tarea-diaria.vbs";      despierta = $true;  reintento = "PT20M"; duracion = "PT5H" }
+  @{ nombre = "Lasarte - Receptor calibrador"; vbs = "arrancar-receptor.vbs"; despierta = $true;  reintento = "PT5M" }
   @{ nombre = "Lasarte - Foto palets ERP";     vbs = "foto-palets.vbs";       despierta = $false }
   @{ nombre = "Lasarte - Leer buzon";          vbs = "leer-buzon.vbs";        despierta = $false }
 )
@@ -90,13 +97,24 @@ foreach ($t in $tareas) {
 
   # El disparador solo se toca donde se pide un ritmo concreto: el resto tienen
   # su hora puesta a mano y no hay que inventarles ninguna.
+  #
+  # La repeticion se CREA si no la hay (la tarea diaria nacio sin ella, con un
+  # unico disparo a las 07:10), y para eso hace falta la duracion: un intervalo
+  # sin duracion Windows lo ignora en silencio.
   if ($t.reintento) {
     $disp = (Get-ScheduledTask -TaskName $t.nombre).Triggers
     foreach ($d in $disp) {
-      if ($d.Repetition -and $d.Repetition.Duration) { $d.Repetition.Interval = $t.reintento }
+      if ($d.Repetition -and $d.Repetition.Duration) {
+        $d.Repetition.Interval = $t.reintento
+      } elseif ($t.duracion) {
+        $d.Repetition.Interval = $t.reintento
+        $d.Repetition.Duration = $t.duracion
+        $d.Repetition.StopAtDurationEnd = $false
+      }
     }
     Set-ScheduledTask -TaskName $t.nombre -Trigger $disp | Out-Null
-    Write-Host "  $($t.nombre): arreglada (reintento cada $($t.reintento))"
+    $r = (Get-ScheduledTask -TaskName $t.nombre).Triggers[0].Repetition
+    Write-Host "  $($t.nombre): arreglada (reintento cada $($r.Interval) durante $($r.Duration))"
   } else {
     Write-Host "  $($t.nombre): arreglada"
   }
