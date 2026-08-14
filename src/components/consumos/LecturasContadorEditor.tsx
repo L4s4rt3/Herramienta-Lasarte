@@ -16,10 +16,7 @@ import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { toast } from "@/hooks/use-toast";
 import { formatDate, formatNumber } from "@/lib/format";
 import {
-  buildDailyWaterMeterConsumoFromReading,
-  buildDrencherWaterMeterConsumoFromReading,
-  buildJabonWaterMeterConsumoFromReading,
-  buildTratamientoWaterMeterConsumoFromReading,
+  buildWaterMeterConsumoFromReading,
   extractFotoFecha,
   findNextWaterMeterReading,
   findPreviousWaterMeterReading,
@@ -29,17 +26,18 @@ import {
   parseWaterMeterReading,
   subtractOneDayLocal,
   WATER_METER_LABEL,
+  WATER_METER_UNIT,
   type ConsumoFisicoInput,
-  type DailyWaterMeterConsumo,
   type WaterMeterReference,
 } from "@/lib/consumosFisicos";
 import type { ConsumoFisicoRow } from "@/lib/types";
 
+/** true si la esfera de ese contador marca m3 (el resto marcan litros). */
 const METROS_CUBICOS: Record<WaterMeterReference, boolean> = {
-  "agua-contador-general": true,
-  "agua-contador-tratamiento": true,
-  "agua-contador-tratamiento-jabon": false,
-  "agua-contador-drencher": false,
+  "agua-contador-general": WATER_METER_UNIT["agua-contador-general"] === "m3",
+  "agua-contador-tratamiento": WATER_METER_UNIT["agua-contador-tratamiento"] === "m3",
+  "agua-contador-tratamiento-jabon": WATER_METER_UNIT["agua-contador-tratamiento-jabon"] === "m3",
+  "agua-contador-drencher": WATER_METER_UNIT["agua-contador-drencher"] === "m3",
 };
 
 interface LecturaFila {
@@ -50,46 +48,13 @@ interface LecturaFila {
   consumoL: number;
 }
 
-function rebuildConsumo(
+const rebuildConsumo = (
   referencia: WaterMeterReference,
   foto: string,
   lectura: number,
   lecturaAnterior: number | null,
   fechaLecturaAnterior: string | null,
-): DailyWaterMeterConsumo {
-  switch (referencia) {
-    case "agua-contador-general":
-      return buildDailyWaterMeterConsumoFromReading({
-        fecha: foto,
-        lecturaContadorM3: lectura,
-        lecturaAnteriorM3: lecturaAnterior,
-        fechaLecturaAnterior,
-        lineaTratamientoL: 0,
-        drencherL: 0,
-      });
-    case "agua-contador-tratamiento":
-      return buildTratamientoWaterMeterConsumoFromReading({
-        fecha: foto,
-        lecturaContadorM3: lectura,
-        lecturaAnteriorM3: lecturaAnterior,
-        fechaLecturaAnterior,
-      });
-    case "agua-contador-tratamiento-jabon":
-      return buildJabonWaterMeterConsumoFromReading({
-        fecha: foto,
-        lecturaContadorL: lectura,
-        lecturaAnteriorL: lecturaAnterior,
-        fechaLecturaAnterior,
-      });
-    case "agua-contador-drencher":
-      return buildDrencherWaterMeterConsumoFromReading({
-        fecha: foto,
-        lecturaContadorL: lectura,
-        lecturaAnteriorL: lecturaAnterior,
-        fechaLecturaAnterior,
-      });
-  }
-}
+) => buildWaterMeterConsumoFromReading({ referencia, fecha: foto, lectura, lecturaAnterior, fechaLecturaAnterior });
 
 export function LecturasContadorEditor({
   registros,

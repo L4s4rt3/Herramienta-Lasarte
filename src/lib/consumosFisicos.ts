@@ -102,6 +102,24 @@ export const WATER_METER_ORDER: WaterMeterReference[] = [
   "agua-contador-drencher",
 ];
 
+/**
+ * Unidad en la que marca la ESFERA de cada contador. El general y la línea de
+ * tratamiento son mecánicos en m3; el de tratamiento+jabón es digital y el
+ * drencher marcan litros. El consumo siempre se guarda en litros (unidad "l"),
+ * así que esta tabla solo describe cómo se teclea y se muestra la LECTURA.
+ */
+export const WATER_METER_UNIT: Record<WaterMeterReference, "m3" | "L"> = {
+  "agua-contador-general": "m3",
+  "agua-contador-tratamiento": "m3",
+  "agua-contador-tratamiento-jabon": "L",
+  "agua-contador-drencher": "L",
+};
+
+/** Litros que representa una lectura según la unidad de su esfera. */
+export function waterMeterReadingToLitres(referencia: WaterMeterReference, lectura: number): number {
+  return WATER_METER_UNIT[referencia] === "m3" ? lectura * 1000 : lectura;
+}
+
 export interface WaterMeterReading {
   id?: string;
   fecha: string;
@@ -462,6 +480,385 @@ export function findPreviousWaterMeterReading(
       };
     })
     .sort((a, b) => b.fecha.localeCompare(a.fecha))[0] ?? null;
+}
+
+// ─── Tanda de lecturas (apuntar varios días de golpe) ────────────────────────
+//
+// El responsable fotografía los contadores cada mañana, pero no siempre los
+// teclea el mismo día: cuando se acumulan varios días (o se recuperan fotos
+// atrasadas) hace falta meterlos en una sola pasada. Estas funciones parsean el
+// texto pegado y ENCADENAN las lecturas: el consumo de cada día se calcula
+// contra la lectura anterior, que puede ser una fila ya guardada o una línea
+// anterior de la propia tanda.
+
+/** Una línea del texto pegado, ya troceada (o con el motivo de por qué no vale). */
+export interface LecturaAguaPegadaFila {
+  /** Nº de línea del texto pegado (1-based), para poder señalar el error. */
+  linea: number;
+  /** Texto original, tal cual, para mostrarlo cuando falla. */
+  original: string;
+  /** Fecha de la FOTO (no del consumo), en ISO. */
+  fecha: string | null;
+  lecturas: Partial<Record<WaterMeterReference, number>>;
+  error: string | null;
+}
+
+const CELDA_VACIA = new Set(["", "-", "--", "—", "–", "?", "n/a", "na", "sin", "x"]);
+
+/**
+ * Fecha en cualquiera de los formatos que se escriben a mano: ISO (2026-08-05),
+ * español (5/8/2026, 05-08-2026, 5.8.26). Devuelve ISO o null.
+ */
+function parseFechaFlexible(raw: string): string | null {
+  const cell = raw.trim().replace(/[:.]$/, "");
+  const iso = cell.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  const esp = cell.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2}|\d{4})$/);
+
+  let year: number;
+  let month: number;
+  let day: number;
+  if (iso) {
+    [year, month, day] = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
+  } else if (esp) {
+    [day, month] = [Number(esp[1]), Number(esp[2])];
+    year = esp[3].length === 2 ? 2000 + Number(esp[3]) : Number(esp[3]);
+  } else {
+    return null;
+  }
+
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const isoDate = `${year}-${pad(month)}-${pad(day)}`;
+  // Rechaza días que no existen (31 de febrero y compañía).
+  const check = new Date(`${isoDate}T00:00:00Z`);
+  return Number.isNaN(check.getTime()) || check.getUTCDate() !== day ? null : isoDate;
+}
+
+function splitCeldas(line: string): string[] {
+  // Excel y las listas escritas a mano traen tab / ; / |; si no hay ninguno,
+  // vale cualquier racha de espacios.
+  if (/[\t;|]/.test(line)) {
+    return line.split(/[\t;|]+/).map((cell) => cell.trim());
+  }
+  return line.trim().split(/\s+/);
+}
+
+function parseCeldaLectura(raw: string): { value: number | null; invalida: boolean } {
+  const cell = raw.trim();
+  if (CELDA_VACIA.has(cell.toLowerCase())) {
+    return { value: null, invalida: false };
+  }
+  // Solo dígitos con separadores decimales/de millar y, como mucho, la unidad.
+  const limpio = cell.replace(/\s*(m3|m³|l|litros)\s*$/i, "").trim();
+  if (!/^\d[\d.,]*$/.test(limpio)) {
+    return { value: null, invalida: true };
+  }
+  const value = parseConsumoNumber(limpio);
+  return value > 0 ? { value, invalida: false } : { value: null, invalida: true };
+}
+
+/**
+ * Parsea el texto pegado en una fila por línea. Formato de cada línea:
+ *   fecha  general  tratamiento  tratamiento+jabón  drencher
+ * en el orden de WATER_METER_ORDER. Las columnas de la derecha se pueden omitir
+ * y cualquier celda puede quedar vacía ("-") si ese contador no se leyó.
+ * Se ignoran las líneas en blanco, los comentarios (#) y una posible cabecera.
+ */
+export function parseLecturasAguaPegadas(texto: string): LecturaAguaPegadaFila[] {
+  const filas: LecturaAguaPegadaFila[] = [];
+
+  texto.split(/\r?\n/).forEach((original, index) => {
+    const linea = index + 1;
+    const trimmed = original.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      return;
+    }
+
+    const celdas = splitCeldas(trimmed);
+    const fecha = parseFechaFlexible(celdas[0] ?? "");
+    if (fecha == null) {
+      // Cabecera del tipo "Fecha General Tratamiento ...": se ignora en silencio.
+      // Anclada al principio de la celda a propósito: "no-es-fecha" es un error
+      // que hay que señalar, no una cabecera que saltarse.
+      if (/^(fecha|d[íi]a)\b/i.test(celdas[0] ?? "")) {
+        return;
+      }
+      filas.push({ linea, original: trimmed, fecha: null, lecturas: {}, error: `No se entiende la fecha ("${celdas[0] ?? ""}"). Escríbela como 2026-08-05 o 05/08/2026.` });
+      return;
+    }
+
+    const lecturas: Partial<Record<WaterMeterReference, number>> = {};
+    const invalidas: string[] = [];
+    WATER_METER_ORDER.forEach((referencia, columna) => {
+      const celda = celdas[columna + 1];
+      if (celda === undefined) {
+        return;
+      }
+      const { value, invalida } = parseCeldaLectura(celda);
+      if (invalida) {
+        invalidas.push(`${WATER_METER_LABEL[referencia]} ("${celda}")`);
+      } else if (value != null) {
+        lecturas[referencia] = value;
+      }
+    });
+
+    if (invalidas.length > 0) {
+      filas.push({ linea, original: trimmed, fecha, lecturas, error: `Lectura no numérica en ${invalidas.join(", ")}.` });
+      return;
+    }
+    if (Object.keys(lecturas).length === 0) {
+      filas.push({ linea, original: trimmed, fecha, lecturas, error: "La línea no trae ninguna lectura." });
+      return;
+    }
+    if (celdas.length > WATER_METER_ORDER.length + 1) {
+      filas.push({ linea, original: trimmed, fecha, lecturas, error: `Sobran columnas: se esperan como máximo ${WATER_METER_ORDER.length} lecturas (${WATER_METER_ORDER.map((r) => WATER_METER_LABEL[r]).join(", ")}).` });
+      return;
+    }
+
+    filas.push({ linea, original: trimmed, fecha, lecturas, error: null });
+  });
+
+  return filas;
+}
+
+export interface LecturaAguaBatchEntrada {
+  referencia: WaterMeterReference;
+  lectura: number;
+  lecturaAnterior: number | null;
+  fechaLecturaAnterior: string | null;
+  consumoL: number;
+  /** Fila lista para guardar en consumos_fisicos. */
+  consumo: DailyWaterMeterConsumo;
+}
+
+export interface LecturaAguaBatchDia {
+  linea: number;
+  original: string;
+  /** Fecha de la foto. */
+  fecha: string;
+  entradas: LecturaAguaBatchEntrada[];
+  /** Lecturas descartadas de este día, con el motivo. */
+  errores: string[];
+  avisos: string[];
+}
+
+export interface LecturaAguaBatchPlan {
+  dias: LecturaAguaBatchDia[];
+  /** Líneas que no se han podido leer (con su motivo). */
+  filasInvalidas: LecturaAguaPegadaFila[];
+  totalLecturas: number;
+  totalConsumoL: number;
+  hayErrores: boolean;
+}
+
+/**
+ * Convierte el texto pegado en el plan de filas a guardar. ENCADENA las lecturas
+ * en orden de fecha: la lectura anterior de cada contador es la línea previa de
+ * la tanda si existe y, si no, la última lectura ya guardada (REGLA 1: el consumo
+ * se atribuye a los días anteriores a la foto, así que la cadena se sigue por la
+ * fecha de la FOTO, no por el rango del consumo).
+ *
+ * No guarda nada: devuelve el plan para poder revisarlo antes de confirmar.
+ */
+export function buildLecturasAguaBatch(input: {
+  texto: string;
+  consumos: ConsumoFisicoInput[];
+  /** Fecha de hoy: ninguna foto puede ser posterior. */
+  hoy: string;
+}): LecturaAguaBatchPlan {
+  const filas = parseLecturasAguaPegadas(input.texto);
+  const filasInvalidas = filas.filter((fila) => fila.error != null);
+  const validas = filas
+    .filter((fila): fila is LecturaAguaPegadaFila & { fecha: string } => fila.error == null && fila.fecha != null)
+    .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.linea - b.linea);
+
+  // Última lectura de cada contador según la tanda ya procesada; arranca sin
+  // valor y se resuelve contra lo guardado la primera vez que hace falta.
+  const ultimaEnTanda = new Map<WaterMeterReference, { lectura: number; fecha: string }>();
+  const fechasVistas = new Set<string>();
+  const dias: LecturaAguaBatchDia[] = [];
+
+  validas.forEach((fila) => {
+    const errores: string[] = [];
+    const avisos: string[] = [];
+    const entradas: LecturaAguaBatchEntrada[] = [];
+
+    if (fila.fecha > input.hoy) {
+      dias.push({ linea: fila.linea, original: fila.original, fecha: fila.fecha, entradas, errores: ["La foto no puede ser de una fecha futura."], avisos });
+      return;
+    }
+    if (fechasVistas.has(fila.fecha)) {
+      dias.push({ linea: fila.linea, original: fila.original, fecha: fila.fecha, entradas, errores: ["Hay otra línea con esta misma fecha de foto."], avisos });
+      return;
+    }
+    fechasVistas.add(fila.fecha);
+
+    WATER_METER_ORDER.forEach((referencia) => {
+      const lectura = fila.lecturas[referencia];
+      if (lectura == null) {
+        return;
+      }
+
+      const yaGuardada = input.consumos.some((consumo) => (
+        consumo.recurso === "agua"
+        && consumo.fuente === "contador"
+        && consumo.referencia === referencia
+        && extractFotoFecha(consumo) === fila.fecha
+      ));
+      if (yaGuardada) {
+        avisos.push(`${WATER_METER_LABEL[referencia]}: ya había una lectura guardada para esta foto, se deja como está.`);
+        return;
+      }
+
+      // La lectura anterior es la MÁS RECIENTE de las dos candidatas: la línea
+      // previa de la tanda y la última fila ya guardada antes de esta foto. Con
+      // una tanda que empiece antes de lo ya guardado (fotos atrasadas), la de
+      // la tanda se queda vieja y hay que enlazar con la guardada.
+      const enTanda = ultimaEnTanda.get(referencia) ?? null;
+      const previa = findPreviousWaterMeterReading(input.consumos, fila.fecha, referencia);
+      const esM3 = WATER_METER_UNIT[referencia] === "m3";
+      const guardada = previa
+        ? { lectura: (esM3 ? previa.lecturaM3 : previa.lecturaL) ?? 0, fecha: previa.fecha }
+        : null;
+      const anterior = enTanda == null || (guardada != null && guardada.fecha > enTanda.fecha)
+        ? guardada
+        : enTanda;
+
+      if (anterior != null && lectura < anterior.lectura) {
+        errores.push(`${WATER_METER_LABEL[referencia]}: ${formatLectura(lectura, referencia)} es menor que la lectura anterior (${formatLectura(anterior.lectura, referencia)} del ${anterior.fecha}). Un contador no retrocede.`);
+        return;
+      }
+
+      const consumo = buildWaterMeterConsumoFromReading({
+        referencia,
+        fecha: fila.fecha,
+        lectura,
+        lecturaAnterior: anterior?.lectura ?? null,
+        fechaLecturaAnterior: anterior?.fecha ?? null,
+      });
+
+      entradas.push({
+        referencia,
+        lectura,
+        lecturaAnterior: anterior?.lectura ?? null,
+        fechaLecturaAnterior: anterior?.fecha ?? null,
+        consumoL: consumo.cantidad,
+        consumo,
+      });
+      ultimaEnTanda.set(referencia, { lectura, fecha: fila.fecha });
+    });
+
+    // REGLA 2: los subcontadores desglosan el general, nunca lo superan.
+    const general = entradas.find((entrada) => entrada.referencia === "agua-contador-general");
+    const subs = entradas.filter((entrada) => entrada.referencia !== "agua-contador-general");
+    const subsL = subs.reduce((total, entrada) => total + entrada.consumoL, 0);
+    if (general != null && general.consumoL > 0 && subsL >= general.consumoL) {
+      errores.push(`El desglose suma ${Math.round(subsL)} L y el contador general solo marca ${Math.round(general.consumoL)} L: el desglose siempre va por debajo del general.`);
+    } else if (general == null && subs.length > 0) {
+      avisos.push("Sin lectura del contador general en esta línea: no se puede comprobar que el desglose quepa dentro del general.");
+    }
+
+    dias.push({ linea: fila.linea, original: fila.original, fecha: fila.fecha, entradas, errores, avisos });
+  });
+
+  const diasConError = dias.filter((dia) => dia.errores.length > 0);
+  const entradasValidas = dias.filter((dia) => dia.errores.length === 0).flatMap((dia) => dia.entradas);
+
+  return {
+    dias,
+    filasInvalidas,
+    totalLecturas: entradasValidas.length,
+    totalConsumoL: entradasValidas
+      .filter((entrada) => entrada.referencia === "agua-contador-general")
+      .reduce((total, entrada) => total + entrada.consumoL, 0),
+    hayErrores: filasInvalidas.length > 0 || diasConError.length > 0,
+  };
+}
+
+function formatLectura(lectura: number, referencia: WaterMeterReference): string {
+  return `${lectura} ${WATER_METER_UNIT[referencia]}`;
+}
+
+/** Despacha al builder del contador que toque, para no repetir el switch. */
+export function buildWaterMeterConsumoFromReading(input: {
+  referencia: WaterMeterReference;
+  fecha: string;
+  lectura: number;
+  lecturaAnterior: number | null;
+  fechaLecturaAnterior: string | null;
+}): DailyWaterMeterConsumo {
+  const { fecha, lectura, lecturaAnterior, fechaLecturaAnterior } = input;
+  switch (input.referencia) {
+    case "agua-contador-general":
+      return buildDailyWaterMeterConsumoFromReading({
+        fecha,
+        lecturaContadorM3: lectura,
+        lecturaAnteriorM3: lecturaAnterior,
+        fechaLecturaAnterior,
+        lineaTratamientoL: 0,
+        drencherL: 0,
+      });
+    case "agua-contador-tratamiento":
+      return buildTratamientoWaterMeterConsumoFromReading({
+        fecha,
+        lecturaContadorM3: lectura,
+        lecturaAnteriorM3: lecturaAnterior,
+        fechaLecturaAnterior,
+      });
+    case "agua-contador-tratamiento-jabon":
+      return buildJabonWaterMeterConsumoFromReading({
+        fecha,
+        lecturaContadorL: lectura,
+        lecturaAnteriorL: lecturaAnterior,
+        fechaLecturaAnterior,
+      });
+    case "agua-contador-drencher":
+      return buildDrencherWaterMeterConsumoFromReading({
+        fecha,
+        lecturaContadorL: lectura,
+        lecturaAnteriorL: lecturaAnterior,
+        fechaLecturaAnterior,
+      });
+  }
+}
+
+/**
+ * Días LABORABLES sin foto del contador general, desde la última lectura
+ * guardada hasta hoy. Las fotos son de lunes a viernes (la del lunes cubre el
+ * fin de semana), así que un sábado o un domingo sin lectura no es un olvido.
+ */
+export function fechasSinLecturaAgua(
+  consumos: ConsumoFisicoInput[],
+  opciones: { hoy: string; referencia?: WaterMeterReference },
+): string[] {
+  const referencia = opciones.referencia ?? "agua-contador-general";
+  const fotos = new Set(
+    consumos
+      .filter((consumo) => (
+        consumo.recurso === "agua"
+        && consumo.fuente === "contador"
+        && consumo.referencia === referencia
+      ))
+      .map((consumo) => extractFotoFecha(consumo)),
+  );
+  if (fotos.size === 0) {
+    return [];
+  }
+
+  const ultima = [...fotos].sort().at(-1)!;
+  const pendientes: string[] = [];
+  const SATURDAY = 6;
+  const SUNDAY = 0;
+  for (let fecha = addOneDayLocal(ultima); fecha <= opciones.hoy; fecha = addOneDayLocal(fecha)) {
+    const dia = localWeekday(fecha);
+    if (dia === SATURDAY || dia === SUNDAY || fotos.has(fecha)) {
+      continue;
+    }
+    pendientes.push(fecha);
+  }
+  return pendientes;
 }
 
 export interface WaterBreakdown {
