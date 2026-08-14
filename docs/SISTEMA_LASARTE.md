@@ -76,6 +76,7 @@ Leyenda: ✅ en producción y estable · 🟡 funciona pero con riesgos o cabos 
 | Chat con IA | 🟡 | Cadena OpenRouter (gratis) → Puter. Proveedores gratuitos = fiabilidad limitada por diseño. |
 | Auto-envío del propio calibrador | 🔴 | Falla por STARTTLS y está apagado; parte de incidencia enviado a Compac, sin respuesta. |
 | Vigilante (Supabase, 13:45) | ✅ | Desde 14-08: avisa por correo si los trabajos del portátil dejan de dar señales. Es la primera pieza que NO depende del portátil. |
+| Copia de seguridad diaria (21:30) | ✅ | Desde 14-08: todas las tablas + espejo del storage a `outputs/copias/` (OneDrive la sube a la nube). Verificada releyéndose; restauración probada de verdad. Runbook en §Fase 1. |
 
 ### 2.6 Plataforma e infraestructura
 
@@ -123,10 +124,18 @@ No se trata de construir "el sistema definitivo" de golpe: cada fase entrega alg
 - ✅ **HECHO 14-08** — Rastro central en la base: `sistema_ejecuciones` (histórico, una fila por ejecución) y `sistema_latidos` (último estado por trabajo, el receptor late cada 5 min). Escriben los 4 trabajos del portátil vía `scripts/lib-registro-ejecuciones.mjs` — que nunca rompe el trabajo si Supabase no responde.
 - ✅ **HECHO 14-08** — Tarjeta **"Trabajos automáticos: ¿están corriendo?"** en `/datos/fuentes`, encima del estado de las fuentes: semáforo por trabajo con el estado contado en palabras y el "qué hacer" cuando toca. Lógica en `_shared/saludTrabajos.ts` (13 tests), compartida con el vigilante para que pantalla y correo no se contradigan.
 - ✅ **HECHO 14-08** — El **vigilante**: edge function + pg_cron (`vigilante-diario`, 13:45 Madrid, después del último reintento de la tarea diaria). Corre en Supabase, FUERA del portátil: si la tarea de las 07:10 no corrió o el receptor no late, manda un correo en lenguaje llano con los pasos. Cuando todo va bien, calla (el correo del día ya es el de las 07:10). Se limpia solo el histórico (90 días).
-- ⬜ Verificar backups de Supabase con una **restauración de prueba real** + export periódico propio de las tablas críticas.
+- ✅ **HECHO 14-08** — **Copia de seguridad propia con restauración probada.** Cada noche (21:30, tarea «Lasarte - Copia de seguridad») se vuelcan TODAS las tablas a `outputs/copias/<fecha>/` (NDJSON comprimido + manifiesto con recuentos y huellas) y el espejo incremental del storage (CMRs y archivos de partes); OneDrive lo sube todo a la nube — segunda ubicación sin infraestructura. La copia **se verifica releyéndose entera** y rota sola (14 diarias + 1 mensual perpetua). Primera prueba real de restauración PASADA el 14-08: 72 tablas, 659.920 filas restauradas en el esquema de ensayo, todos los recuentos exactos. La copia también late en `/datos/fuentes` y la vigila el vigilante.
 
 *Criterio de hecho: José María puede saber si el sistema está bien sin preguntar a nadie.*
 *Nota de estreno: la tarea diaria registra desde su próxima ejecución (07:10) y el receptor desde su próximo reinicio — hasta entonces salen como "sin estrenar", que a propósito no alarma a nadie.*
+
+#### Copias y restauración: el runbook
+
+- **Dónde están.** `outputs/copias/<fecha>/` (tablas, una carpeta por día) y `outputs/copias/archivos/` (espejo del storage). Como `outputs/` vive dentro de OneDrive, todo está también en la nube de OneDrive: que muera el portátil no pierde ninguna copia.
+- **Cómo saber que funcionan.** Sin hacer nada: la fila "Copia de seguridad diaria" de Datos → Estado de las fuentes, y el vigilante avisa por correo si lleva 2 días sin correr.
+- **Ensayo de restauración** (recomendado 1 vez por trimestre, o tras cambios grandes de esquema): `node scripts/restaurar-copia.mjs` — carga la última copia entera en un esquema aparte, compara recuentos y huellas, y lo limpia. Éxito = "todas cuadran".
+- **Desastre de verdad** (proyecto de Supabase perdido): crear proyecto nuevo → aplicar las migraciones del repo (`supabase db push` o el MCP) → `node scripts/restaurar-copia.mjs --de-verdad` (se niega a escribir sobre tablas con datos) → subir el espejo de archivos al storage. Los usuarios de Auth se recrean a mano (son ~8) y las claves (`.env`, secretos de las funciones) salen del gestor de contraseñas.
+- **Qué NO cubre.** Los usuarios/contraseñas de Auth (pocos y recreables) y los secretos de las funciones edge (viven en Supabase y en el `.env` del portátil). Las copias internas de Supabase siguen existiendo aparte, como primera línea.
 
 ### Fase 2 — Independencia: que nada viva en el PC de Luis
 

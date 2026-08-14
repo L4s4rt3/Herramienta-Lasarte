@@ -91,6 +91,14 @@ describe("evaluarTrabajos", () => {
       expect(t.estado).toBe("bien");
     });
 
+    it("la copia de anoche es bien por la mañana; tres días sin copia es una avería con pasos", () => {
+      const anoche = estadoDe([latido("copia-seguridad", "2026-08-13T21:35:00+02:00")], en("2026-08-14T10:00:00+02:00"), "copia-seguridad");
+      expect(anoche.estado).toBe("bien");
+      const parada = estadoDe([latido("copia-seguridad", "2026-08-11T21:35:00+02:00")], en("2026-08-14T10:00:00+02:00"), "copia-seguridad");
+      expect(parada.estado).toBe("mal");
+      expect(parada.queHacer).toContain("Lasarte - Copia de seguridad");
+    });
+
     it("un pendiente conocido (buzón sin credenciales) es atención mientras siga latiendo, no alarma", () => {
       const l = [latido("leer-buzon", "2026-08-14T09:30:00+02:00", "aviso", "sin configurar: faltan las credenciales IMAP en el .env")];
       const t = estadoDe(l, en("2026-08-14T10:00:00+02:00"), "leer-buzon");

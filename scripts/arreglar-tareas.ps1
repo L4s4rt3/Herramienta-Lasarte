@@ -64,6 +64,11 @@ $tareas = @(
   @{ nombre = "Lasarte - Receptor calibrador"; vbs = "arrancar-receptor.vbs"; despierta = $true;  reintento = "PT5M" }
   @{ nombre = "Lasarte - Foto palets ERP";     vbs = "foto-palets.vbs";       despierta = $false }
   @{ nombre = "Lasarte - Leer buzon";          vbs = "leer-buzon.vbs";        despierta = $false }
+  # La copia despierta el equipo: es la unica defensa contra un desastre de la
+  # base, y a las 21:30 el portatil puede estar en reposo moderno. El propio
+  # script se planta si la de hoy ya esta verificada, asi que el reintento de
+  # 30 min sale gratis.
+  @{ nombre = "Lasarte - Copia de seguridad";  vbs = "copia-seguridad.vbs";   despierta = $true;  reintento = "PT30M"; duracion = "PT3H" }
 )
 
 # Temporizadores de reactivacion con corriente alterna: 1 = habilitar. Sin esto,

@@ -221,6 +221,19 @@ const TRABAJOS: DefTrabajo[] = [
     ),
   },
   {
+    id: "copia-seguridad",
+    nombre: "Copia de seguridad diaria",
+    queHace: "Baja cada noche (21:30) todas las tablas y los archivos nuevos del storage a outputs/copias — OneDrive los sube a la nube — y se verifica releyéndose entera.",
+    evaluar: periodico(
+      "una vez al día (21:30)",
+      26 * 60,
+      50 * 60,
+      "Comprueba el portátil de la oficina; su tarea es «Lasarte - Copia de seguridad» (también vale " +
+      "a mano: node scripts/copia-seguridad.mjs). No se pierde nada todavía, pero un desastre de la " +
+      "base solo se cubre con la última copia buena — cuanto más vieja, más días perdidos.",
+    ),
+  },
+  {
     id: "vigilante",
     nombre: "Vigilante (corre en Supabase)",
     queHace: "Comprueba cada día a las 13:45, desde fuera del portátil, que todo lo de arriba ha corrido; si no, avisa por correo.",
