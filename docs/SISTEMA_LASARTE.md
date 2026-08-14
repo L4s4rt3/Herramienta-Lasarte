@@ -1,0 +1,206 @@
+# Sistema interno de Lasarte — auditoría y hoja de ruta
+
+> Documento vivo. Última revisión: **14 de agosto de 2026**.
+> Objetivo: que todo lo construido deje de ser un conjunto de herramientas sueltas y se convierta en un sistema interno coherente, robusto y utilizable sin conocimientos técnicos — que funcione semanas sin intervención y **no dependa de ninguna persona concreta para mantenerse**.
+
+---
+
+## 1. Propósito
+
+Lasarte Cítricos S.L. gestiona hoy buena parte de su operación con el ERP de LR Informática, Excel, papel y conocimiento en cabezas concretas. La herramienta interna ya centraliza producción, trazabilidad, calidad, comercial y parte de RR. HH. Este documento fija:
+
+1. Qué hay construido y su estado **real** (no el ideal).
+2. De qué depende cada pieza y dónde están los riesgos.
+3. Qué sigue siendo manual y merece automatizarse.
+4. En qué orden atacarlo y cómo mediremos que compensa.
+
+El criterio de éxito no es técnico: es que **José María y el equipo puedan usarlo, entenderlo y confiar en él** sin necesitar a quien lo programó.
+
+---
+
+## 2. Qué hay construido y en qué estado
+
+Leyenda: ✅ en producción y estable · 🟡 funciona pero con riesgos o cabos sueltos · 🔴 pendiente o aplazado.
+
+### 2.1 Entradas y producción (el núcleo)
+
+| Pieza | Estado | Notas |
+|---|---|---|
+| Fuentes canónicas: calibrador (`clasificacion_lote`) + ERP (vista `palets`) | ✅ | Regla del 13-08. El Word y `palets_dia` quedan como respaldo. |
+| Receptor SMTP de informes del calibrador | 🟡 | Campaña entera cargada (864 lotes, 19 M kg). Reintento cada 5 min con rastro. **Corre en un PC de la LAN: punto único de fallo.** |
+| Parte diario automático | ✅ | Se crea solo con producción y mujeres. DSJ ~4,66 %; el 9,21 % de 138 días es trabajo por apuntar, no fruta perdida. |
+| OCR de partes EMBASUR (Mistral OCR ~95 %) | ✅ | Integrado 24-jul. Validación con checksum desglose↔palets. |
+| Import unificado `/importar` | ✅ | Clasificador try-parse con 23 tests, zona automática, 5 tarjetas de confirmación. |
+| Buzón de correo para importar | ✅ | Reenviar un Excel al receptor lo clasifica e importa si es de los automáticos. |
+| Ciclo de vida del lote (cierre automático ≥97 % + 2 días) | ✅ | 785 lotes / 17.233 t cerrados en la primera pasada; cámaras conciliadas; productores auto-creados por trigger. |
+| Trazabilidad (refundación 04-08) | ✅ | Regla de oro: el derrame no cierra lotes. Banco dorado de fixtures `campana2026`. Doc: `docs/TRAZABILIDAD_REFUNDACION.md`. |
+| Merma y podrido | ✅ | Pérdida de campaña 3,74 % (739.936 kg / 368.585 €). Podrido manual es pre-calibrador (decisión del dueño 06-08). Tasa de cámara 0,0466 %/día. |
+| Precalibrado conectado a productores | 🟡 | Vía `agri_produc_mp_pt` del ERP. Cobertura 27 % (límite físico: lo apartado no siempre se pesa). |
+| Reparto de pasadas multi-lote | 🟡 | 114 pasadas (8,9 % de la campaña) atribuyen todo al primer lote; la vía para las 77 pendientes es la regla de `conciliacionKg`. |
+| Parte con origen calibrador | 🟡 | En curso ahora mismo (migración `20260814093000` + scripts sin commitear). |
+
+### 2.2 Calidad
+
+| Pieza | Estado | Notas |
+|---|---|---|
+| Import de diarios de calidad (Eusebio) | ✅ | Formatos .doc HTML UTF-16/UTF-8 y .docx con casillas ☑. El .doc no entra por `/importar` (rechazo explícito, a propósito). |
+| Generación determinista de comentarios e informes (v4) | ✅ | Sin LLM: variantes por semilla del lote, respeta observación/acción manual del técnico. |
+| Contraste calidad ↔ aprovechamiento por productor | ✅ | En `/mercadona`. |
+
+### 2.3 Comercial y económico
+
+| Pieza | Estado | Notas |
+|---|---|---|
+| Rentabilidad diaria (`/economico/rentabilidad`) | ✅ | Metodología v5 validada; primer informe entregado 05-08. **Fix bandeja catálogo-vs-Mercadona sin commitear.** |
+| Import mensual de ventas | ✅ | Reparte primera/segunda por método; MA→Mercadona. Sigue necesitando que alguien lo lance cada mes. |
+| Precios Mercadona por semana | ✅ | Los fiables son de la semana 31/2026 en adelante (tarifa nueva). |
+| Coste por producto (CMV) | 🟡 | 978 fichas con coste propio. **Falta el importador del Informe PRODUCTO del ERP** — hoy es carga manual. |
+| Venta en consignación | ✅ | Entendida y documentada: albarán sin factura ≠ albarán olvidado. |
+| Gastos varios (facturas no-fruta, ~3 M€) | 🔴 | Aplazado: duda del precio por millar de Ecoenvases sin confirmar y riesgo de doble conteo con consumos. |
+| Ventas vs. facturas Mercadona | 🔴 | Son idénticas; decisión de unificar pendiente. |
+
+### 2.4 RR. HH.
+
+| Pieza | Estado | Notas |
+|---|---|---|
+| Asistencia (volcado semanal) | ✅ | Se carga los lunes por semanas completas; la semana en curso vacía es normal, no avería. |
+| Páginas de plantilla, ausencias, vacaciones, amonestaciones, nóminas, comunicaciones | 🟡 | Construidas (tablas del 30-07). **Nivel de adopción real por confirmar** — es el área con más distancia entre lo construido y lo usado. |
+
+### 2.5 Automatizaciones y comunicación
+
+| Pieza | Estado | Notas |
+|---|---|---|
+| Informe semanal automático (lunes 12:00) | ✅ | pg_cron → función edge; contenido pactado con el dueño (sin euros), con merma y stock. |
+| Aviso diario del ERP | 🟡 | Detecta informes que llegaron y no entraron en la base (commit c5b72e6). **Corre como tarea programada de Windows en el PC de Luis.** |
+| Correo saliente (Resend) | ✅ | Dominio comunicaciones.lasartesat.com verificado, DMARC puesto. |
+| Chat con IA | 🟡 | Cadena OpenRouter (gratis) → Puter. Proveedores gratuitos = fiabilidad limitada por diseño. |
+| Auto-envío del propio calibrador | 🔴 | Falla por STARTTLS y está apagado; parte de incidencia enviado a Compac, sin respuesta. |
+| Vigilante (Supabase, 13:45) | ✅ | Desde 14-08: avisa por correo si los trabajos del portátil dejan de dar señales. Es la primera pieza que NO depende del portátil. |
+
+### 2.6 Plataforma e infraestructura
+
+- **Frontend**: Vite + React, 52 páginas, 7 secciones / 25 entradas de menú (rediseño 13-08, URLs estables con redirecciones).
+- **Backend**: Supabase — ~95 migraciones, RLS, 12 funciones edge, pg_cron, storage (2.859 CMRs en `logistics-templates`).
+- **Roles**: admin ve todo; ventas (Juanvi) 5 secciones; operario lo básico. Modo económico (ocultar €) pendiente.
+- **Calidad de código**: typecheck en verde (regla: mantenerlo); ~95 `any` crónicos aceptados; 23 tests del clasificador + banco dorado de trazabilidad.
+- **Reglas técnicas vigentes**: `fetchAllRows` en todo SELECT no acotado (PostgREST recorta a 1.000 en silencio); null ≠ 0; estados derivados, no guardados; imports idempotentes.
+
+---
+
+## 3. Dependencias y riesgos — lo que impide que esto viva solo
+
+Ordenados por gravedad:
+
+1. **El PC de Luis (y la LAN) es un punto único de fallo.** En él corren: el receptor SMTP del calibrador, las tareas programadas de Windows (aviso diario ERP, foto de palets, lectura del buzón) y la lectura del MySQL del ERP. Si ese equipo se apaga, se estropea o Luis no está, el flujo diario de datos **se para en silencio**.
+2. **No existe un panel de salud.** Hoy solo Luis puede saber si "todo ha corrido". Nadie más tiene forma de distinguir "no hay datos porque no hubo producción" de "no hay datos porque algo se rompió".
+3. **Backups sin verificar ni documentar.** Supabase tiene copias propias, pero nunca hemos probado una restauración ni existe un export periódico nuestro. El ERP es de LR Informática y está fuera de nuestro alcance (prohibido tocar).
+4. **Conocimiento no transferido.** Peculiaridades del ERP (estado=4 = palets desmontados), credenciales del calibrador, reglas de negocio (consignación, podrido pre-calibrador, semanas de tarifa)… Mucho está en este repo y en docs, pero **no hay un runbook para no técnicos**.
+5. **Adopción sin medir.** No sabemos qué páginas se usan y cuáles no. Construir sobre lo que nadie abre es el desperdicio más caro.
+6. **Trabajo sin commitear** se acumula a veces (fix de rentabilidad, scripts de hoy): riesgo de perderlo o de que producción y repo diverjan.
+
+---
+
+## 4. Procesos que siguen siendo manuales
+
+| Proceso | Quién lo hace hoy | Automatizable |
+|---|---|---|
+| Import mensual de ventas (Excel) | Luis | Parcial: llega por correo → buzón podría tratarlo como los diarios. |
+| Informe PRODUCTO del ERP → CMV | Luis, a mano | Sí: importador pendiente (pieza que cierra el círculo económico). |
+| Análisis ad hoc para dirección (tipo stock S33-S34) | Luis con scripts | Parcial: convertir los recurrentes en páginas o informes automáticos. |
+| Revisión de partes con DSJ ~100 % (sin analizar) | Nadie de forma sistemática | Sí: lista de trabajo visible + aviso, en vez de descubrirlo tarde. |
+| Contadores de agua (foto → apunte) | Operario + revisión | Ya existe OCR (`analizar-contador-agua`); falta cerrar el circuito de avisos si falta la foto. |
+| Gastos varios / facturas no-fruta | Nadie (aplazado) | Sí, cuando se resuelva la duda Ecoenvases. |
+| Vigilar que las automatizaciones corren | Luis | Sí: es exactamente la Fase 1. |
+
+---
+
+## 5. Hoja de ruta
+
+No se trata de construir "el sistema definitivo" de golpe: cada fase entrega algo que se pone en producción, se comprueba que se usa, y se mejora. El orden responde a una idea: **primero que no se caiga, luego que no dependa de nadie, luego que cualquiera lo use, y por último que lo cuente todo.**
+
+### Fase 1 — Observabilidad: que el sistema diga cómo está *(la piedra angular)*
+
+- ✅ **HECHO 14-08** — Rastro central en la base: `sistema_ejecuciones` (histórico, una fila por ejecución) y `sistema_latidos` (último estado por trabajo, el receptor late cada 5 min). Escriben los 4 trabajos del portátil vía `scripts/lib-registro-ejecuciones.mjs` — que nunca rompe el trabajo si Supabase no responde.
+- ✅ **HECHO 14-08** — Tarjeta **"Trabajos automáticos: ¿están corriendo?"** en `/datos/fuentes`, encima del estado de las fuentes: semáforo por trabajo con el estado contado en palabras y el "qué hacer" cuando toca. Lógica en `_shared/saludTrabajos.ts` (13 tests), compartida con el vigilante para que pantalla y correo no se contradigan.
+- ✅ **HECHO 14-08** — El **vigilante**: edge function + pg_cron (`vigilante-diario`, 13:45 Madrid, después del último reintento de la tarea diaria). Corre en Supabase, FUERA del portátil: si la tarea de las 07:10 no corrió o el receptor no late, manda un correo en lenguaje llano con los pasos. Cuando todo va bien, calla (el correo del día ya es el de las 07:10). Se limpia solo el histórico (90 días).
+- ⬜ Verificar backups de Supabase con una **restauración de prueba real** + export periódico propio de las tablas críticas.
+
+*Criterio de hecho: José María puede saber si el sistema está bien sin preguntar a nadie.*
+*Nota de estreno: la tarea diaria registra desde su próxima ejecución (07:10) y el receptor desde su próximo reinicio — hasta entonces salen como "sin estrenar", que a propósito no alarma a nadie.*
+
+### Fase 2 — Independencia: que nada viva en el PC de Luis
+
+- Inventario exacto de todo lo que corre en ese PC (ya listado arriba).
+- Mover receptor + tareas a un **equipo estable de la empresa** (mini-PC/servidor en la LAN) con arranque automático y supervisión desde la Fase 1.
+- **Runbook de recuperación**: "si este equipo muere, así se monta otro en una hora", probado de verdad una vez.
+- Cerrar la incidencia Compac (si el auto-envío directo funciona, sobra una pieza; si no responde, darla por perdida y consolidar el receptor).
+
+*Criterio de hecho: Luis puede irse dos semanas de vacaciones y los datos siguen entrando.*
+
+### Fase 3 — Usabilidad: diseñado para José María
+
+- Sesión de observación con José María y Juanvi: qué miran, qué no entienden, qué echan de menos. **Antes de construir nada nuevo.**
+- Manual de usuario por sección, dentro de la propia herramienta; textos de error que digan qué hacer, no qué falló técnicamente.
+- Revisar permisos y terminar el modo económico (€ solo para quien corresponda).
+- Retirar o fusionar lo que la observación demuestre que no se usa (sobre todo en RR. HH.).
+
+*Criterio de hecho: una persona sin perfil técnico resuelve sola las situaciones normales.*
+
+### Fase 4 — Completar el círculo económico
+
+- Importador del Informe PRODUCTO (CMV automático).
+- Retomar gastos varios (confirmando antes el precio Ecoenvases).
+- Decidir ventas vs. facturas Mercadona (unificar).
+- Cuenta de resultados de campaña dentro de la herramienta: de "informes que hace Luis" a "página que consulta dirección".
+
+### Fase 5 — Medición y mejora continua
+
+- Registro de ahorro por automatización (ver §7).
+- Revisión trimestral de la tabla de procesos manuales (§4): qué ha aparecido, qué merece la pena.
+- Este documento se actualiza en cada revisión.
+
+---
+
+## 6. Principios de diseño
+
+Los que ya rigen (y se mantienen):
+
+- **Todo conectado**: cada dato cableado a todos sus consumidores; estados derivados, no guardados; deduplicación completa; null ≠ 0; imports idempotentes.
+- **Fuentes canónicas**: calibrador y ERP mandan; el papel y el Excel son respaldo.
+- **Cada página responde una pregunta**: Entradas=fruta/stock, Trazabilidad=lote, Productores=quién, Análisis diario=tiempo.
+- **Incertidumbre con dos cifras** (probada/estimada), nunca una métrica sobre la calidad del dato.
+
+Los nuevos, a partir de ahora, para **cada** pieza que se construya o toque:
+
+1. **¿Quién lo va a usar?** Si la respuesta es "solo Luis", replantearlo.
+2. **¿Qué pasa si falla un martes a las 7:00 y Luis no está?** Tiene que dejar rastro y avisar en lenguaje llano.
+3. **¿Dónde corre?** Nada nuevo en el PC de Luis.
+4. **¿Está documentado** para el siguiente (técnico) y para el usuario (no técnico)?
+5. **¿Sabemos cuánto ahorra?** Aunque sea una estimación apuntada al entregarlo.
+
+---
+
+## 7. Cómo mediremos el ahorro
+
+Sin inventar cifras: al entregar cada automatización se apunta (a) qué proceso manual sustituye, (b) minutos/frecuencia que costaba, (c) errores típicos que evita. Candidatas a medir ya, porque están en producción:
+
+- Parte diario automático (antes: transcripción diaria a mano).
+- OCR de partes EMBASUR (antes: teclear el desglose de cada parte).
+- Informe semanal (antes: recopilación manual para dirección).
+- Receptor del calibrador (antes: sin datos de clasificación utilizables — aquí el valor no es tiempo, es **información que no existía**: 19 M kg clasificados consultables).
+- Cierre automático de lotes (785 lotes que nadie tuvo que cerrar a mano).
+
+La medición de uso de la herramienta (qué páginas se abren) entra en la Fase 1 con la misma infraestructura de registro.
+
+---
+
+## 8. Pendientes concretos ya identificados (lista corta)
+
+- [ ] Committear el trabajo en curso: parte con origen calibrador + fix bandeja de rentabilidad.
+- [ ] Reparto de las 77 pasadas multi-lote vía `conciliacionKg`.
+- [ ] Importador del Informe PRODUCTO (CMV).
+- [ ] Modo económico (ocultar € por rol).
+- [ ] Gastos varios (bloqueado por la duda Ecoenvases).
+- [ ] Decisión ventas/facturas Mercadona.
+- [ ] Respuesta de Compac a la incidencia del auto-envío (o cerrarla).
+- [ ] Store global de tiempo (aplazado en la reforma de conectividad).
