@@ -184,11 +184,29 @@ analizar para que lea los nuevos. Con tres cerrojos:
   55 partes el |DSJ| medio solo baja de 13,80% a 12,95%, porque 18 días mejoran
   y **12 empeoran** — los que ya tenían descuadre negativo. La regla no es "el
   ERP manda", es *"el ERP manda cuando al parte le faltan palets"*.
-- **Solo partes en Borrador.** Uno cerrado no se toca: el 4-ago tiene 2.216 kg de
-  más en el ERP y se queda como está, porque alguien ya lo dio por bueno.
+- **Solo partes en Borrador.** Uno cerrado no se toca: alguien ya lo dio por bueno.
 - **Solo archivos que generó el propio script**, que se llaman `GSTOCK
   <fecha>.xlsx`. Los que sube una persona llevan nombre libre (`palets 4
   ago.xlsx`, `29 julio.xlsx`) y no se borran jamás.
+
+**Si hay que saltarse los cerrojos** (el dueño lo pidió para el 4-ago el
+14-08-2026: estaba Analizado y su GSTOCK lo había subido una persona), el orden
+es este, y el primer paso no es opcional:
+
+1. **Descargar el Excel de la persona a `outputs/respaldo-gstock/`.** Un archivo
+   que subió alguien no se borra sin dejar copia.
+2. Borrar su fila y su objeto de storage, y abrir el parte a Borrador.
+3. `generarYSubir` por la vía normal, y `analizarPartesPendientes` con `forzar`.
+
+No se puede dejar el viejo dentro y añadir el nuevo: `analizar-parte` **sustituye**
+el detalle de palets con el último archivo que lee (`serverPalets = palets`), así
+que el parte acabaría con el total de un Excel y el detalle del otro. El total sí
+se resuelve solo — un archivo `gstock` siempre pisa a uno `palets` —, pero el
+detalle no.
+
+Resultado en los dos días que lo necesitaban: el 4-ago pasó de 49.981 a 52.197 kg
+(descuadre 8,6% → 4,6%) y el 11-ago de 53.898 a 65.560 (22,0% → **5,1%**), con los
+kilos del papel intactos.
 
 El borrado va **antes** de subir el nuevo a propósito: si se subiera primero y
 algo fallara en medio, el parte se quedaría con dos GSTOCK y el análisis sumaría
