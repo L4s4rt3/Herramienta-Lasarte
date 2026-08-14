@@ -64,7 +64,7 @@ function BarraDestino({ fila }: { fila: AprovechamientoProductor }) {
 export default function Calibrador() {
   const {
     productores, sinAtribuir, desgloseSinRepartir, noProductores,
-    pasadasRepartidas, colaDesglose, isLoading, error,
+    pasadasRepartidas, colaDesglose, kgProvisional, isLoading, error,
   } = useCalibradorAprovechamiento();
 
   // La cola, agrupada por el porqué: es lo accionable. Un listado de 111 nombres
@@ -216,12 +216,22 @@ export default function Calibrador() {
             </CardContent>
           </Card>
 
-          {sinAtribuir || desgloseSinRepartir || noProductores.length > 0 ? (
+          {sinAtribuir || desgloseSinRepartir || noProductores.length > 0 || kgProvisional > 0 ? (
             <Card className="glass-accented border-amber-500/30">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Hasta dónde llega esta atribución</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 pb-4 text-sm text-muted-foreground">
+                {kgProvisional > 0 ? (
+                  <p>
+                    <span className="font-semibold tabular-nums text-foreground">{formatKg(kgProvisional)}</span>{" "}
+                    ({formatNumber((kgProvisional / totales.kgClasificados) * 100, 1)}%){" "}
+                    <strong>provisionales</strong>: salen de los informes de lote del calibrador, no del
+                    volcado completo de la máquina. Un lote que pasa dos veces el mismo día solo enseña
+                    la última pasada en su informe, así que estos kilos pueden quedarse cortos —
+                    nunca sobrar. Se corrigen solos en cuanto se vuelque el SQL del Sizer.
+                  </p>
+                ) : null}
                 {noProductores.map((p) => (
                   <p key={p.productor}>
                     <span className="font-semibold tabular-nums text-foreground">{formatKg(p.kg_total)}</span>{" "}

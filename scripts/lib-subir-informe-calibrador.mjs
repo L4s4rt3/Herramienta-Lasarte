@@ -50,7 +50,31 @@ export async function subirInforme(supabase, informe, fichero = null) {
   const c = informe.cabecera;
   if (!c.lote) throw new Error("El informe no trae lote: no se sube.");
 
+  const batchId = batchIdDeDocx(c.lote, c.comienzo);
+  const fecha = fechaDeComienzo(c.comienzo);
+
+  // ¿Ese DÍA ya está volcado del SQL para ese lote? Entonces el DOCX no aporta:
+  // el volcado trae TODAS las pasadas del lote ese día y este solo la última. Se
+  // guarda la cabecera (dice que el informe llegó) pero NO se escriben sus
+  // líneas, porque sumarían encima de las buenas. Es la misma regla que aplica
+  // importar-export-calibrador.mjs cuando llega en el otro orden, y hace falta
+  // en los dos: el volcado limpia lo provisional que encuentra, pero no puede
+  // impedir que llegue después.
+  //
+  // POR DÍA, NUNCA POR LOTE A SECAS. Un mismo lote entra en línea varios días
+  // (el 26051506 se pasó el 11 y el 12): mirando solo el lote, el informe del 12
+  // se descartaría porque el 11 está volcado, y ese día perdería sus kilos. Pasó
+  // de verdad el 14-08-2026 con 2 informes y 22.598 kg.
+  const ocho = (s) => String(s ?? "").match(/\d{8}/)?.[0] ?? null;
+  const { data: delDia, error: errV } = await supabase.from("calibrador_batch")
+    .select("lote").gte("inicio", `${fecha}T00:00:00`).lte("inicio", `${fecha}T23:59:59`);
+  if (errV) throw new Error(`comprobando el volcado: ${errV.message}`);
+  // Se comparan los 8 dígitos: el volcado guarda el código pelado y el informe,
+  // el texto que escribió el operario ("26051507  34 BOX").
+  const yaVolcado = ocho(c.lote) && (delDia ?? []).some((b) => ocho(b.lote) === ocho(c.lote));
+
   const cabecera = {
+    batch_id: batchId,
     lote: c.lote,
     commodity: c.commodity,
     productor: c.productorNombre,
@@ -76,11 +100,14 @@ export async function subirInforme(supabase, informe, fichero = null) {
     .from("calibrador_informe").upsert(cabecera, { onConflict: "lote,comienzo" });
   if (errCab) throw new Error(`calibrador_informe: ${errCab.message}`);
 
+  if (yaVolcado) {
+    return { lote: c.lote, fecha: cabecera.fecha, lineas: 0, yaVolcado: true };
+  }
+
   // Borrar y reescribir SOLO lo provisional de ESTE lote (su batch_id negativo).
   // Las filas con batch_id>0 vienen del volcado SQL del Sizer y cubren TODAS
   // las pasadas del lote (un 26% de los lotes tiene varias); el DOCX solo ve la
   // ultima, asi que jamas debe pisarlas.
-  const batchId = batchIdDeDocx(c.lote, c.comienzo);
   const { error: errDel } = await supabase
     .from("calibrador_clasificacion").delete().eq("batch_id", batchId);
   if (errDel) throw new Error(`borrando clasificacion: ${errDel.message}`);

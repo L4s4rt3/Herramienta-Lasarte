@@ -48,6 +48,18 @@ export interface AprovechamientoProductor {
   kg_mujeres: number;
   kg_otros: number;
   pct_exportacion: number | null;
+  /**
+   * De esos kilos, los que salen de informes DOCX y no del volcado SQL. De un
+   * lote con varias pasadas EL MISMO DÍA el DOCX solo trae la última (2,9% de
+   * los pares lote-día en la campaña), así que un total con esto por encima de
+   * cero puede quedarse corto. Se enseña para que nadie juzgue por lo bajo a un
+   * productor sin saberlo.
+   *
+   * OPCIONAL porque solo lo traen las filas tal y como salen de la RPC: en
+   * cuanto `aplicarReparto` mueve kilos de un productor a otro, deja de tener
+   * sentido por fila y solo se sostiene el total del periodo (`kgProvisional`).
+   */
+  kg_provisional?: number;
 }
 
 const num = (v: unknown): number => Number(v) || 0;
@@ -104,6 +116,7 @@ export function useCalibradorAprovechamiento(desde?: string | null, hasta?: stri
         kg_mujeres: num(r.kg_mujeres),
         kg_otros: num(r.kg_otros),
         pct_exportacion: r.pct_exportacion == null ? null : Number(r.pct_exportacion),
+        kg_provisional: num(r.kg_provisional),
       }));
     },
   });
@@ -185,6 +198,13 @@ export function useCalibradorAprovechamiento(desde?: string | null, hasta?: stri
     noProductores: ajustado.noProductores,
     /** Kilos que la máquina clasificó pero no se pueden atribuir a nadie. */
     sinAtribuir: filas?.find(esHueco) ?? null,
+    /**
+     * De lo anterior, cuántos kilos salen de informes DOCX y no del volcado SQL.
+     * Se suma AQUÍ y no por fila porque `aplicarReparto` mueve kilos de un
+     * productor a otro y devuelve `FilaProductor`, que no lleva este campo: el
+     * total del periodo se conserva, el de cada fila no.
+     */
+    kgProvisional: (filas ?? []).reduce((s, f) => s + num(f.kg_provisional), 0),
     /** Kilos atribuidos al primer lote cuando el nombre dice que hubo más. */
     desgloseSinRepartir: desglose.data ?? null,
     /** Pasadas repartidas solas y kilos que el reparto deja sin dueño. */

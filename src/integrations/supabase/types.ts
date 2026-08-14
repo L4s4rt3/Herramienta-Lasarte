@@ -2840,6 +2840,7 @@ export type Database = {
           kg_mujeres: number
           kg_otros: number
           pct_exportacion: number | null
+          kg_provisional: number | null
         }[]
       }
       calibrador_desglose_sin_repartir: {
