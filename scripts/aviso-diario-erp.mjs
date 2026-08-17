@@ -25,6 +25,7 @@ import { analizarPartesPendientes } from "./analizar-partes-pendientes.mjs";
 import { conectarErp } from "./lib-palets-erp.mjs";
 import { generarYSubir } from "./generar-gstock-erp.mjs";
 import { generarYSubirInformes } from "./generar-informes-parte.mjs";
+import { cuadrar } from "./rehacer-parte.mjs";
 import { detectarCierre, inventarioSinAlta, diaLocal } from "./lib-cierre-alta.mjs";
 import { anotarEjecucion, salirConError } from "./lib-registro-ejecuciones.mjs";
 
@@ -364,6 +365,24 @@ async function main() {
     }
   } catch (e) {
     incidencias.push(`ERROR: no se pudieron analizar los partes pendientes: ${e.message}`);
+  }
+
+  // EL CUADRE, TODAS LAS MAÑANAS. Un parte puede quedarse con el detalle
+  // descuadrado sin que nada falle: los informes se suben, el analisis termina
+  // bien, y aun asi calibres_dia suma otra cosa que kg_produccion_calibrador.
+  // Paso el 17-08-2026 con las mujeres contadas dos veces, y solo se vio porque
+  // alguien se puso a mirarlo. Comprobarlo aqui es lo que convierte "se subio"
+  // en "esta bien", y sale en el correo con el dia y los kilos.
+  for (const f of ventanaDias(ayer, 7)) {
+    try {
+      const { data: p } = await supabase.from("partes_diarios")
+        .select("id, date, kg_produccion_calibrador, kg_palets_brutos").eq("date", f).maybeSingle();
+      if (!p) continue;
+      const c = await cuadrar(supabase, p);
+      for (const d of c.desvios) incidencias.push(`ERROR: el parte del ${f} no cuadra. ${d}.`);
+    } catch (e) {
+      incidencias.push(`ERROR: no se pudo cuadrar el parte del ${f}: ${e.message}`);
+    }
   }
 
   // 2. Entradas y palets de ayer.
