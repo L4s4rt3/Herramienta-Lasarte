@@ -189,15 +189,24 @@ export function hojaTamanos(filas) {
   return filasHoja;
 }
 
-/** Informe PRODUCTO: kg y cajas por producto, con su destino. */
-export function hojaProducto(filas) {
+/**
+ * Informe PRODUCTO: kg y cajas por producto, con su destino y su EMPAQUE.
+ *
+ * El empaque no viene del calibrador (el volcado no lo trae): se rellena con el
+ * habitual de cada producto (RPC empaques_habituales — el de más kg de su
+ * historial en producto_dia). Sin él, este informe nacía con la columna vacía
+ * y producto_dia dejó de acumular empaques desde el 11-08 — que es justo lo
+ * que el CMV usa para deducir los kg por bulto. Un producto sin historial va
+ * vacío, no inventado: su verdad tiene que venir del catálogo del Sizer.
+ */
+export function hojaProducto(filas, empaques = new Map()) {
   const filasHoja = [["Producto", "Empaque", "Cajas", "Peso (kg)", "Grupo"]];
   const porProducto = agrupar(filas, (f) => `${f.producto ?? ""}||${f.grupo_destino ?? ""}`);
   const orden = [...porProducto].sort((a, b) => b[1].kg - a[1].kg);
   for (const [clave, acc] of orden) {
     const [producto, grupo] = clave.split("||");
     if (!producto) continue;
-    filasHoja.push([producto, "", redondea(acc.cartons, 2), redondea(acc.kg, 3), grupo]);
+    filasHoja.push([producto, empaques.get(producto) ?? "", redondea(acc.cartons, 2), redondea(acc.kg, 3), grupo]);
   }
   filasHoja.push(["TOTAL", "", redondea(orden.reduce((s, [, a]) => s + a.cartons, 0), 2),
     redondea(orden.reduce((s, [, a]) => s + a.kg, 0), 3), ""]);
@@ -232,18 +241,37 @@ const libro = (filasHoja, nombreHoja) => {
   return XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
 };
 
+/**
+ * El empaque habitual de cada producto del día. Una sola llamada; si falla, el
+ * informe sale igual con la columna vacía — el empaque mejora el informe, pero
+ * no puede impedirlo.
+ */
+async function empaquesDelDia(supabase, filas) {
+  const nombres = [...new Set(filas.map((f) => f.producto).filter(Boolean))];
+  if (!nombres.length) return new Map();
+  const { data, error } = await supabase.rpc("empaques_habituales", { nombres });
+  if (error) {
+    console.warn(`  (sin empaques habituales: ${error.message})`);
+    return new Map();
+  }
+  return new Map((data ?? []).map((e) => [e.nombre, e.empaque]));
+}
+
 /** Los tres informes del día, con el nombre exacto que espera `classify()`. */
 export async function informesDelParte(supabase, fecha) {
   const { cal, filas } = await lineasDelDia(supabase, fecha);
   if (filas.length === 0) return { cal, informes: [] };
-  const { data: informes } = await supabase.from("calibrador_informe")
-    .select("lote, productor, commodity, toneladas_hora, peso_fruta_media_g, comienzo, tiempo_maquina")
-    .eq("fecha", fecha);
+  const [{ data: informes }, empaques] = await Promise.all([
+    supabase.from("calibrador_informe")
+      .select("lote, productor, commodity, toneladas_hora, peso_fruta_media_g, comienzo, tiempo_maquina")
+      .eq("fecha", fecha),
+    empaquesDelDia(supabase, filas),
+  ]);
   return {
     cal,
     informes: [
       { nombre: "Informe TAMAÑOS CLASE Y CALIDAD.xlsx", buffer: libro(hojaTamanos(filas), "Tamaños") },
-      { nombre: "Informe PRODUCTO.xlsx", buffer: libro(hojaProducto(filas), "Producto") },
+      { nombre: "Informe PRODUCTO.xlsx", buffer: libro(hojaProducto(filas, empaques), "Producto") },
       { nombre: "Informe PRODUCCION.xlsx", buffer: libro(hojaProduccion(filas, informes), "Producción") },
     ],
   };

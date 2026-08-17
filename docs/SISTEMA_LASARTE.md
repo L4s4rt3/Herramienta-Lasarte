@@ -54,7 +54,7 @@ Leyenda: ✅ en producción y estable · 🟡 funciona pero con riesgos o cabos 
 | Rentabilidad diaria (`/economico/rentabilidad`) | ✅ | Metodología v5 validada; primer informe entregado 05-08. **Fix bandeja catálogo-vs-Mercadona sin commitear.** |
 | Import mensual de ventas | ✅ | Reparte primera/segunda por método; MA→Mercadona. Sigue necesitando que alguien lo lance cada mes. |
 | Precios Mercadona por semana | ✅ | Los fiables son de la semana 31/2026 en adelante (tarifa nueva). |
-| Coste por producto (CMV) | 🟡 | 978 fichas con coste propio. **Falta el importador del Informe PRODUCTO del ERP** — hoy es carga manual. |
+| Coste por producto (CMV) | 🟡 | 978 fichas con coste propio. El Informe PRODUCTO ya se genera y sube solo (14-08) y desde el 17-08 lleva el **empaque habitual relleno** (RPC `empaques_habituales`): los kg/bulto se deducen sin carga manual. Queda: catálogo del Sizer para productos NUEVOS (bloqueado por credenciales `SIZER_*`) y los costes/precios de ficha, que son del dueño. |
 | Venta en consignación | ✅ | Entendida y documentada: albarán sin factura ≠ albarán olvidado. |
 | Gastos varios (facturas no-fruta, ~3 M€) | 🔴 | Aplazado: duda del precio por millar de Ecoenvases sin confirmar y riesgo de doble conteo con consumos. |
 | Ventas vs. facturas Mercadona | 🔴 | Son idénticas; decisión de unificar pendiente. |
@@ -107,7 +107,7 @@ Ordenados por gravedad:
 | Proceso | Quién lo hace hoy | Automatizable |
 |---|---|---|
 | Import mensual de ventas (Excel) | Luis | Parcial: llega por correo → buzón podría tratarlo como los diarios. |
-| Informe PRODUCTO del ERP → CMV | Luis, a mano | Sí: importador pendiente (pieza que cierra el círculo económico). |
+| Informe PRODUCTO → CMV | Nadie (automático desde 14/17-08) | HECHO: se genera del calibrador, sube al parte y lleva el empaque habitual. Resto: catálogo del Sizer (credenciales) para productos nuevos. |
 | Análisis ad hoc para dirección (tipo stock S33-S34) | Luis con scripts | Parcial: convertir los recurrentes en páginas o informes automáticos. |
 | Revisión de partes con DSJ ~100 % (sin analizar) | Nadie de forma sistemática | Sí: lista de trabajo visible + aviso, en vez de descubrirlo tarde. |
 | Contadores de agua (foto → apunte) | Operario + revisión | Ya existe OCR (`analizar-contador-agua`); falta cerrar el circuito de avisos si falta la foto. |
@@ -287,7 +287,8 @@ La medición de uso de la herramienta (qué páginas se abren) entra en la Fase 
 
 - [ ] Committear el trabajo en curso: parte con origen calibrador + fix bandeja de rentabilidad.
 - [ ] Reparto de las 77 pasadas multi-lote vía `conciliacionKg`.
-- [ ] Importador del Informe PRODUCTO (CMV).
+- [x] Importador del Informe PRODUCTO (CMV) — disuelto: generación automática (14-08) + empaque habitual (17-08).
+- [ ] Catálogo de productos del Sizer (empaque de productos NUEVOS): bloqueado por las credenciales `SIZER_*` del visor.
 - [ ] Modo económico (ocultar € por rol).
 - [ ] Gastos varios (bloqueado por la duda Ecoenvases).
 - [ ] Decisión ventas/facturas Mercadona.
