@@ -276,6 +276,45 @@ async function main() {
   // no se toca.
   const refrescarSiFaltanKg = Number(args.find((a) => a.startsWith("--refrescar="))?.split("=")[1]) || 0;
 
+  // --dias=N recorre la ventana entera, de ayer hacia atras. Es el paso 1 del
+  // corte del aviso (docs/SISTEMA_LASARTE.md): el GSTOCK es lo unico del aviso
+  // que necesita el ERP, asi que sacarlo a su propia entrada deja al aviso
+  // hablando solo con Supabase — que es lo que permite moverlo fuera del
+  // portatil. Aqui todavia no se le quita nada al aviso: esta entrada existe y
+  // se puede llamar, pero el .cmd sigue como estaba.
+  const dias = Number(args.find((a) => a.startsWith("--dias="))?.split("=")[1]) || 0;
+  if (dias > 0) {
+    const fin = new Date(`${fecha}T12:00:00`);
+    const fechas = Array.from({ length: dias }, (_, i) =>
+      (() => { const d = new Date(fin.getFullYear(), fin.getMonth(), fin.getDate() - i);
+        return `${d.getFullYear()}-${dd(d.getMonth() + 1)}-${dd(d.getDate())}`; })());
+    const conn = await conectarErp();
+    let tocados = 0;
+    try {
+      for (const f of fechas) {
+        const x = await generarYSubir(supabase, conn, f, { aplicar, refrescarSiFaltanKg });
+        if (["subido", "rehecho", "subiria", "reharia"].includes(x.accion)) {
+          tocados++;
+          console.log(`GSTOCK del ${f}: ${x.accion}` +
+            (x.palets ? ` · ${x.palets} palets · ${Math.round(x.kg).toLocaleString("es")} kg` : ""));
+          if (x.faltaban != null) {
+            console.log(`  le faltaban ${Math.round(x.faltaban).toLocaleString("es")} kg de palets` +
+              " · HAY QUE VOLVER A ANALIZAR el parte");
+          }
+        }
+        for (const s of x.sospechosos ?? []) {
+          console.log(`  AVISO: el palet ${s.palet} del ${f} tiene ${Math.round(s.kg).toLocaleString("es")} kg` +
+            ` ("${s.producto}"). Un palet fisico no llega a eso.`);
+        }
+      }
+    } finally {
+      await conn.end().catch(() => {});
+    }
+    console.log(`${fechas.length} dias repasados, ${tocados} con cambios.`);
+    if (!aplicar) console.log("(simulacion: repite con --aplicar)");
+    return;
+  }
+
   const conn = await conectarErp();
   let r;
   try {
