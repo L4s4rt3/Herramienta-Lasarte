@@ -138,14 +138,53 @@ No se trata de construir "el sistema definitivo" de golpe: cada fase entrega alg
 - **Desastre de verdad** (proyecto de Supabase perdido): crear proyecto nuevo → aplicar las migraciones del repo (`supabase db push` o el MCP) → `node scripts/restaurar-copia.mjs --de-verdad` (se niega a escribir sobre tablas con datos) → subir el espejo de archivos al storage. Los usuarios de Auth se recrean a mano (son ~8) y las claves (`.env`, secretos de las funciones) salen del gestor de contraseñas.
 - **Qué NO cubre.** Los usuarios/contraseñas de Auth (pocos y recreables) y los secretos de las funciones edge (viven en Supabase y en el `.env` del portátil). Las copias internas de Supabase siguen existiendo aparte, como primera línea.
 
-### Fase 2 — Independencia: que nada viva en el PC de Luis
+### Fase 2 — Independencia: que el PC de Luis deje de ser imprescindible
 
-- Inventario exacto de todo lo que corre en ese PC (ya listado arriba).
-- Mover receptor + tareas a un **equipo estable de la empresa** (mini-PC/servidor en la LAN) con arranque automático y supervisión desde la Fase 1.
-- **Runbook de recuperación**: "si este equipo muere, así se monta otro en una hora", probado de verdad una vez.
-- Cerrar la incidencia Compac (si el auto-envío directo funciona, sobra una pieza; si no responde, darla por perdida y consolidar el receptor).
+**Decisión del 17-08-2026: no hay mudanza a otro equipo.** El portátil se queda
+encendido siempre, configurado y avisado. Así que la Fase 2 deja de ser "mover
+las tareas a un mini-PC" y pasa a ser otra cosa, más barata y más útil.
 
-*Criterio de hecho: Luis puede irse dos semanas de vacaciones y los datos siguen entrando.*
+**Lo primero, distinguir dos problemas que no son el mismo.** Estar encendido
+resuelve la disponibilidad; no resuelve que el equipo sea de una persona. Y ni
+siquiera resuelve del todo la disponibilidad: el 17-08, con el portátil
+encendido, la suspensión moderna se lo tragó y la tarea de las 07:10 murió sin
+red. Lo que salvó el día fue el reintento, no el equipo.
+
+**Lo que NO puede salir de la LAN, y por tanto se queda donde está:**
+
+| pieza | por qué no puede irse |
+|---|---|
+| Receptor del calibrador | el Sizer solo habla TLS 1.0 y envía a una IP de la red |
+| Lectura del ERP (MySQL 192.168.1.10) | está en la red local; credenciales en el registro de Windows |
+| Foto horaria de palets, generación del GSTOCK | leen el ERP |
+
+**Lo que sí puede irse ya, porque solo habla con Supabase** (`pg_cron` → edge
+function, como el informe semanal de los lunes, que ya funciona así):
+
+crear el parte del día · generar y subir los informes del calibrador ·
+analizar los partes pendientes · **el cuadre diario** · la copia de seguridad ·
+el correo diario.
+
+Eso obliga a partir el aviso en dos: la parte del ERP se queda en la LAN y deja
+sus datos en Supabase; la parte que crea, analiza, cuadra y envía se va fuera.
+**El objetivo no es que no falle: es que falle a medias.** Hoy, si el portátil
+no arranca, no pasa nada y nadie se entera. Después, seguiría llegando el correo
+diciendo que falta el ERP — que es justo la señal que hoy no existe.
+
+**Y el vigilante va primero, no último.** El 17-08 aparecieron tres cosas rotas
+—la tarea diaria con saltos de línea LF, el receptor con el código viejo en
+memoria, las mujeres contadas dos veces en `calibres_dia`— y las tres se vieron
+porque alguien estaba mirando. Cambiar piezas de sitio sin tener quién avise solo
+cambia el sitio donde ocurre el silencio.
+
+- [ ] Desplegar el vigilante (escrito, sin desplegar).
+- [ ] Partir el aviso: ERP en la LAN, el resto en `pg_cron` → edge.
+- [ ] **Runbook de recuperación**: "si este portátil muere, así se monta otro en
+      una hora", probado de verdad una vez. Sigue haciendo falta, encendido o no.
+- [ ] Cerrar la incidencia Compac (si el auto-envío funciona, sobra una pieza).
+
+*Criterio de hecho: Luis puede irse dos semanas y, si algo se para, el correo lo
+dice el mismo día.*
 
 ### Fase 3 — Usabilidad: diseñado para José María
 
