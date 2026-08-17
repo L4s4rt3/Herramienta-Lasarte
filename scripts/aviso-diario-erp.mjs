@@ -24,6 +24,7 @@ import { repasarPartes, datosCalibradorDelDia, traerTodo } from "./crear-parte-d
 import { analizarPartesPendientes } from "./analizar-partes-pendientes.mjs";
 import { conectarErp } from "./lib-palets-erp.mjs";
 import { generarYSubir } from "./generar-gstock-erp.mjs";
+import { generarYSubirInformes } from "./generar-informes-parte.mjs";
 import { detectarCierre, inventarioSinAlta, diaLocal } from "./lib-cierre-alta.mjs";
 import { anotarEjecucion, salirConError } from "./lib-registro-ejecuciones.mjs";
 
@@ -331,6 +332,22 @@ async function main() {
     incidencias.push(`ERROR: no se pudo generar el GSTOCK del dia: ${e.message}`);
   }
 
+  // Y los informes del calibrador que subia la persona (TAMAÑOS/CLASE Y CALIDAD,
+  // PRODUCTO y PRODUCCION). Del Sizer solo llega el .docx por lote y
+  // `analizar-parte` lee con XLSX: sin estos, el parte se queda sin desglose por
+  // calibre ni por destino, que es justo lo que el analisis venia avisando.
+  // Mismo criterio que el GSTOCK: se fabrica el fichero, no se escriben los
+  // kilos por detras. Ver generar-informes-parte.mjs.
+  const informesSubidos = [];
+  for (const f of ventanaDias(ayer, 7)) {
+    try {
+      const r = await generarYSubirInformes(supabase, f, { aplicar: true });
+      if (r.accion === "subido" || r.accion === "rehecho") informesSubidos.push(f);
+    } catch (e) {
+      incidencias.push(`ERROR: informes del calibrador del ${f}: ${e.message}`);
+    }
+  }
+
   // Y se analizan los que tengan sus informes subidos y nadie haya analizado:
   // los archivos ahi dentro sin extraer no le sirven a nadie.
   let analizados = [];
@@ -340,7 +357,7 @@ async function main() {
     // ninguna de las dos condiciones normales (ya esta analizado y sus palets no
     // estan a cero), asi que sin esto el archivo nuevo se quedaria sin leer.
     analizados = await analizarPartesPendientes(supabase, {
-      url, key, desde, aplicar: true, forzar: gstockRehechos.map((r) => r.fecha),
+      url, key, desde, aplicar: true, forzar: [...new Set([...gstockRehechos.map((r) => r.fecha), ...informesSubidos])],
     });
     for (const a of analizados) {
       if (a.accion === "error") incidencias.push(`ERROR: analizar el parte del ${a.fecha}: ${a.motivo}`);
