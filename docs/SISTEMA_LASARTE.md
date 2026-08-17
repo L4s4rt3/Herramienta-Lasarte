@@ -177,8 +177,48 @@ memoria, las mujeres contadas dos veces en `calibres_dia`— y las tres se viero
 porque alguien estaba mirando. Cambiar piezas de sitio sin tener quién avise solo
 cambia el sitio donde ocurre el silencio.
 
-- [ ] Desplegar el vigilante (escrito, sin desplegar).
+- [x] **Desplegar el vigilante** — hecho el 17-08-2026. Ojo con lo que se
+      descubrió al hacerlo: el `pg_cron` (`vigilante-diario`, 11:45 UTC) llevaba
+      tres días disparando contra una función que no existía, y los registros
+      salían `succeeded` porque `net.http_post` solo confirma que encoló la
+      petición, no que el otro lado respondiera. Al vigilante le pasaba justo lo
+      que venía a vigilar. **Un cron en verde no prueba que su función corra.**
 - [ ] Partir el aviso: ERP en la LAN, el resto en `pg_cron` → edge.
+
+#### El corte del aviso, para no re-deducirlo
+
+**No es un corte mecánico.** El correo RESUME el trabajo del ERP (entradas,
+palets, GSTOCK, cobertura de trazabilidad), así que la mitad que se va a la nube
+no puede recibir esos resultados en memoria: tiene que **leerlos de Supabase**.
+Ahí está el trabajo de verdad, no en mover ficheros.
+
+Y se puede, porque el ERP ya deja todo lo que el correo necesita en la base:
+`entradas_bascula`, `erp_palet`, `erp_confeccion_origen`, `erp_palets_foto` y el
+GSTOCK subido al parte. Lo único que hoy viaja en memoria y no está en la base es
+el detalle de los sospechosos del GSTOCK (palets > 10.000 kg): o se guarda, o el
+correo lo recalcula leyendo `erp_palet`.
+
+    LAN (portátil)                          NUBE (pg_cron → edge)
+    ─────────────────────────               ─────────────────────────
+    sincronizar entradas                    crear el parte del día
+    sincronizar trazabilidad                subir los informes del calibrador
+    sincronizar precalibrado                analizar los partes pendientes
+    generar y subir el GSTOCK               cuadrar los 7 días
+    → deja todo en Supabase                 componer y enviar el correo
+                                            → si falta el ERP, el correo lo dice
+
+**Orden que no rompe nada** (cada paso deja el sistema funcionando):
+
+1. Partir el `.mjs` en dos entradas que sigan corriendo las dos en el portátil.
+   Refactor puro, mismo comportamiento, y ya se puede probar el seam.
+2. Hacer que la segunda mitad lea de Supabase en vez de recibir la primera en
+   memoria. Sigue en el portátil; aquí es donde se ve si el corte es correcto.
+3. Portar esa segunda mitad a edge (Deno + `_shared`). Ojo: `generar-informes-parte`
+   usa `xlsx`, que en Deno hay que traer por esm.sh como hacen las otras.
+4. Colgarla de `pg_cron` y quitar su paso del `.cmd` — el último, no el primero.
+
+*Mientras no esté el paso 4, el `.cmd` sigue siendo el que manda: no quitarle
+pasos "por adelantar trabajo".*
 - [ ] **Runbook de recuperación**: "si este portátil muere, así se monta otro en
       una hora", probado de verdad una vez. Sigue haciendo falta, encendido o no.
 - [ ] Cerrar la incidencia Compac (si el auto-envío funciona, sobra una pieza).
