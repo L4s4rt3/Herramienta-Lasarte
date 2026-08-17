@@ -148,6 +148,29 @@ export function hojaTamanos(filas) {
   const total = filas.reduce((s, f) => s + num(f.peso_kg), 0);
   const eti = etiquetadores(filas);
 
+  // EL RESUMEN VA DELANTE, y no es cosmético. `extractCalibresDetalle` cuelga
+  // cada tabla de la última clase que haya visto, y no cierra la sección al
+  // acabarla: puesto al final, este bloque se leía como calibres de la clase
+  // anterior y las mujeres se contaban DOS VECES (el 12-08 daba 92.973 kg de
+  // calibres para 85.682 de producción — justo los 7.292 de mujeres de más).
+  // Delante, `currentClase` todavía es null y el parser de calibres lo ignora,
+  // mientras que `extractTamanos`, que recorre la hoja entera, sí lo encuentra.
+  const kgDe = (p) => filas.filter((f) => p.test(f.clase ?? "") || p.test(f.grupo_destino ?? ""));
+  const podrido = kgDe(/podrido/i);
+  filasHoja.push(["Podrido", redondea(podrido.reduce((s, f) => s + num(f.piezas), 0)),
+    redondea(podrido.reduce((s, f) => s + num(f.peso_kg), 0), 3), ""]);
+  filasHoja.push([]);
+
+  const mujeres = kgDe(/mujeres/i);
+  filasHoja.push(["Mujeres"]);
+  filasHoja.push(["Tamaño", "Piezas", "Peso (kg)", "% peso"]);
+  for (const [tamano, t] of [...agrupar(mujeres, (f) => eti.tamano(f.tamano))]
+    .sort((a, b) => a[0].localeCompare(b[0], "es"))) {
+    filasHoja.push([tamano, redondea(t.piezas), redondea(t.kg, 3), ""]);
+  }
+  filasHoja.push(["Total", "", redondea(mujeres.reduce((s, f) => s + num(f.peso_kg), 0), 3), ""]);
+  filasHoja.push([]);
+
   const porClase = agrupar(filas, (f) => eti.clase(f.clase));
   for (const [clase, acc] of [...porClase].sort((a, b) => a[0].localeCompare(b[0], "es"))) {
     const grupos = [...new Set(acc.filas.map((f) => f.grupo_destino).filter(Boolean))];
@@ -163,22 +186,6 @@ export function hojaTamanos(filas) {
     filasHoja.push([]);
   }
 
-  // Podrido: fila suelta, su peso se lee en la columna C.
-  const podrido = filas.filter((f) => /podrido/i.test(f.clase ?? "") || /podrido/i.test(f.grupo_destino ?? ""));
-  filasHoja.push(["Podrido", redondea(podrido.reduce((s, f) => s + num(f.piezas), 0)),
-    redondea(podrido.reduce((s, f) => s + num(f.peso_kg), 0), 3), ""]);
-  filasHoja.push([]);
-
-  // Mujeres: sección propia. El parser abre al ver la palabra, busca la
-  // cabecera, acumula y cierra cuadrando contra el total de la última fila.
-  const mujeres = filas.filter((f) => /mujeres/i.test(f.clase ?? "") || /mujeres/i.test(f.grupo_destino ?? ""));
-  filasHoja.push(["Mujeres"]);
-  filasHoja.push(["Tamaño", "Piezas", "Peso (kg)", "% peso"]);
-  const porTamanoMuj = agrupar(mujeres, (f) => eti.tamano(f.tamano));
-  for (const [tamano, t] of [...porTamanoMuj].sort((a, b) => a[0].localeCompare(b[0], "es"))) {
-    filasHoja.push([tamano, redondea(t.piezas), redondea(t.kg, 3), ""]);
-  }
-  filasHoja.push(["Total", "", redondea(mujeres.reduce((s, f) => s + num(f.peso_kg), 0), 3), ""]);
   return filasHoja;
 }
 
@@ -256,13 +263,30 @@ export async function generarYSubirInformes(supabase, fecha, { aplicar = false }
     return { fecha, accion: "respetado", motivo: `el parte esta en "${parte.estado}"` };
   }
 
-  const { cal, informes } = await informesDelParte(supabase, fecha);
-  if (informes.length === 0) return { fecha, accion: "sin-datos" };
+  const { cal, informes: todos } = await informesDelParte(supabase, fecha);
+  if (todos.length === 0) return { fecha, accion: "sin-datos" };
+
+  // EL PRODUCCION SE CAE SI OTRO YA PUSO LOS LOTES. `analizar-parte` limpia de
+  // `lotes_dia` solo lo suyo (source = 'ia'): las filas que dejó la sincronización
+  // del calibrador (source = 'calibrador') se quedan, y el informe añadiría las
+  // mismas otra vez. Paso el 11-08: 10 lotes y 157.378 kg donde el día tenía 5 y
+  // 78.689. Los otros dos informes sí van — calibres y producto no los escribe nadie más.
+  const { data: lotesAjenos, error: errL } = await supabase.from("lotes_dia")
+    .select("id").eq("part_id", parte.id).neq("source", "ia").limit(1);
+  if (errL) throw new Error(`lotes_dia: ${errL.message}`);
+  const informes = lotesAjenos?.length
+    ? todos.filter((i) => !/PRODUCCION/i.test(i.nombre))
+    : todos;
 
   const { data: yaHay, error: errA } = await supabase.from("partes_archivos")
     .select("id, file_name, file_path").eq("part_id", parte.id).eq("file_type", "Produccion");
   if (errA) throw new Error(`archivos: ${errA.message}`);
-  const nuestros = new Set(informes.map((i) => i.nombre));
+  // La propiedad se mira contra los TRES nombres, no contra los que toque subir
+  // hoy: si un día dejamos de generar uno (el PRODUCCION cuando ya hay lotes del
+  // volcado), el que subimos ayer seguiría siendo nuestro y hay que poder
+  // retirarlo. Mirándolo contra la lista filtrada, el script se plantaba diciendo
+  // que el parte tenía informes de otro.
+  const nuestros = new Set(todos.map((i) => i.nombre));
   const ajenos = (yaHay ?? []).filter((a) => !nuestros.has(a.file_name));
   if (ajenos.length) {
     return { fecha, accion: "respetado",
