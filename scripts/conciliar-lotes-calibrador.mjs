@@ -5,16 +5,22 @@
  * cerrar un lote, y ese Word SOLO TRAE LA ÚLTIMA PASADA.
  *
  * LO QUE DE VERDAD PASA. Comparada la campaña entera pasada a pasada
- * (13-08-2026), de 1.253 pasadas del calibrador:
+ * (18-08-2026), de 1.253 pasadas del calibrador:
  *
- *   · 1.085 cuadran AL KILO con lo que tiene la app  (86,6%)
- *   ·     3 descuadran                               (13.868 kg)
- *   ·   165 faltan ENTERAS                           (2.865.743 kg)
+ *   · 1.247 cuadran AL KILO con lo que tiene la app  (99,5%)
+ *   ·     6 descuadran                               (van al CSV)
+ *   ·     0 faltan enteras
  *
- * O sea: a la app NO le fallan los kilos dentro de una pasada — le faltan
- * pasadas completas. Ejemplo real, lote 26041602: tiene la pasada del 17-04
- * (3.161 kg) y la del 20-04 (14.667 kg) exactas, y no tiene la del 21-04
- * (33.982 kg).
+ * O sea: a la app NO le fallan los kilos dentro de una pasada.
+ *
+ * CUIDADO CON LA MEDIDA VIEJA. El 13-08-2026 esta misma cuenta decía que
+ * faltaban 165 pasadas enteras (2.865.743 kg), y NO faltaban: se comparaban los
+ * códigos crudos y "26051802+ 2 BOX DE RECICLAJE" no casaba con el "26051802"
+ * de la máquina. Este script las dio de alta creyéndolas nuevas y dejó 157
+ * pasadas repetidas contando 2.708.859 kg dos veces. Ahora se casan por el
+ * código base (ver lib-lotes.mjs) y las repetidas se quitaron con
+ * quitar-pasadas-repetidas.mjs. Si algún día vuelven a "faltar" pasadas a
+ * cientos, lo primero que hay que mirar es el emparejado, no la máquina.
  *
  * POR QUÉ IMPORTA LA DISTINCIÓN. La primera versión de este script sumaba los
  * kilos que faltaban a la fila de mayor peso del lote. Habría metido los 33.982
@@ -41,6 +47,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
+import { codigoBaseLote } from "./lib-lotes.mjs";
 
 try { process.loadEnvFile(path.resolve(".env")); } catch { /* entorno */ }
 
@@ -66,7 +73,14 @@ async function traerTodo(consulta) {
   }
 }
 
-const clave = (lote, dia) => `${lote}|${dia}`;
+/**
+ * Lote y dia, con el lote NORMALIZADO (ver lib-lotes.mjs). Con el codigo crudo
+ * "26051802+ 2 BOX DE RECICLAJE" no casaba con el "26051802" de la maquina, esta
+ * pasada parecia FALTAR y se daba de alta otra vez: 157 pasadas repetidas y
+ * 2.708.859 kg contados dos veces antes de verse (18-08-2026). Las repetidas que
+ * ya estan se quitan con quitar-pasadas-repetidas.mjs.
+ */
+const clave = (lote, dia) => `${codigoBaseLote(lote)}|${dia}`;
 
 async function main() {
   const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;

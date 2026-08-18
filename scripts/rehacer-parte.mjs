@@ -36,6 +36,7 @@ import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { generarYSubirInformes } from "./generar-informes-parte.mjs";
 import { analizarPartesPendientes } from "./analizar-partes-pendientes.mjs";
+import { codigoBaseLote } from "./lib-lotes.mjs";
 
 try { process.loadEnvFile(path.resolve(".env")); } catch { /* entorno */ }
 
@@ -66,9 +67,6 @@ const sumar = async (supabase, tabla, campo, partId, afinar = (q) => q) => {
   return (data ?? []).reduce((s, f) => s + num(f[campo]), 0);
 };
 
-/** El codigo de la pasada sin lo que apunto planta: "26051802+ 2 BOX DE RECICLAJE" -> "26051802". */
-const baseDeLote = (codigo) => (String(codigo ?? "").match(/\d{8}/) ?? [null])[0];
-
 /**
  * Los kilos de las pasadas del dia, y cuantas vienen DOS VECES.
  *
@@ -94,10 +92,10 @@ async function sumarLotes(supabase, partId) {
   const yaCasadas = new Set();
   const repetidas = [];
   for (const v of delVolcado) {
-    const base = baseDeLote(v.lote_codigo);
+    const base = codigoBaseLote(v.lote_codigo);
     if (!base) continue;
     const i = delParte.findIndex((p, idx) => !yaCasadas.has(idx)
-      && baseDeLote(p.lote_codigo) === base
+      && codigoBaseLote(p.lote_codigo) === base
       && Math.abs(num(p.kg_peso_total) - num(v.kg_peso_total)) <= 1);
     if (i < 0) continue;
     yaCasadas.add(i);
