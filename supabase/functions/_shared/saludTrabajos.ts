@@ -208,10 +208,21 @@ const TRABAJOS: DefTrabajo[] = [
       "puede deducir la hora de cierre ni el inventario sin alta, pero no se pierde nada que el ERP tenga.",
     ),
   },
-  // El buzón IMAP (leer-buzon) se APAGÓ el 14-08-2026 a propósito: todo lo
-  // automático entra ya por el receptor de la LAN y no compensaba mantener las
-  // credenciales. Su tarea de Windows quedó deshabilitada. Si algún día se
-  // reactiva, recuperar su entrada de aquí (está en el historial de git).
+  // REACTIVADO 18-08-2026: Tomra configuró el auto-envío del Sizer contra
+  // Gmail, así que los informes de lote viajan ahora por correo y este lector
+  // es quien los mete en la Herramienta. (Estuvo apagado del 14 al 18-08.)
+  {
+    id: "leer-buzon",
+    nombre: "Buzón del calibrador (Gmail)",
+    queHace: "Lee lasartecitricos@gmail.com e importa lo que el Sizer envía: informes de lote, exports SQL y Excel reconocidos.",
+    evaluar: periodico(
+      "cada 30 min en horario de trabajo",
+      12 * 60,
+      26 * 60,
+      "Comprueba el portátil de la oficina; su tarea es «Lasarte - Leer buzon». Mientras esté parado, " +
+      "los informes se quedan en el buzón de Gmail sin importar (no se pierden: se recuperan al arrancar).",
+    ),
+  },
   {
     id: "copia-seguridad",
     nombre: "Copia de seguridad diaria",

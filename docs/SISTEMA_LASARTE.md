@@ -73,7 +73,7 @@ Leyenda: ✅ en producción y estable · 🟡 funciona pero con riesgos o cabos 
 |---|---|---|
 | Informe semanal automático (lunes 12:00) | ✅ | pg_cron → función edge; contenido pactado con el dueño (sin euros), con merma y stock. |
 | Aviso diario del ERP | 🟡 | Detecta informes que llegaron y no entraron en la base. Desde 14-08 llega **en HTML legible** (lo urgente arriba, tablas de verdad; antes era texto plano que los clientes de correo destrozaban). **Sigue corriendo en el PC de Luis** (Fase 2). |
-| Buzón IMAP (leer-buzon) | ⚪ | **Apagado a propósito 14-08**: todo lo automático entra por el receptor de la LAN; no compensaba mantener credenciales. Tarea deshabilitada; reactivable (código en git). |
+| Buzón del calibrador (Gmail) | ✅ | **Reactivado 18-08**: Tomra configuró el auto-envío del Sizer contra `lasartecitricos@gmail.com` (SMTP con contraseña de aplicación) y el lector IMAP importa lo que llegue — informes de lote DOCX (mismo tratamiento que el receptor: parsear, validar que cuadra, subir), exports SQL y Excel reconocidos. Un correo cuya subida falle se queda SIN marcar como leído y se reintenta solo. El receptor de la LAN sigue de red de seguridad. |
 | Correo saliente (Resend) | ✅ | Dominio comunicaciones.lasartesat.com verificado, DMARC puesto. |
 | Chat con IA | 🟡 | Cadena OpenRouter (gratis) → Puter. Proveedores gratuitos = fiabilidad limitada por diseño. |
 | Auto-envío del propio calibrador | 🔴 | Falla por STARTTLS y está apagado; parte de incidencia enviado a Compac, sin respuesta. |
