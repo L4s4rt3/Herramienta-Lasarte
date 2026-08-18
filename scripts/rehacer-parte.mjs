@@ -60,11 +60,53 @@ function rango(desde, hasta) {
   return dias;
 }
 
-const sumar = async (supabase, tabla, campo, partId) => {
-  const { data, error } = await supabase.from(tabla).select(campo).eq("part_id", partId);
+const sumar = async (supabase, tabla, campo, partId, afinar = (q) => q) => {
+  const { data, error } = await afinar(supabase.from(tabla).select(campo).eq("part_id", partId));
   if (error) throw new Error(`${tabla}: ${error.message}`);
   return (data ?? []).reduce((s, f) => s + num(f[campo]), 0);
 };
+
+/** El codigo de la pasada sin lo que apunto planta: "26051802+ 2 BOX DE RECICLAJE" -> "26051802". */
+const baseDeLote = (codigo) => (String(codigo ?? "").match(/\d{8}/) ?? [null])[0];
+
+/**
+ * Los kilos de las pasadas del dia, y cuantas vienen DOS VECES.
+ *
+ * POR QUE. `lotes_dia` guarda la pasada del parte (source "ia", con el codigo
+ * tal cual lo escribio planta) y la del volcado del calibrador (source
+ * "calibrador", con el codigo limpio). El volcado historico que entro el
+ * 11-08-2026 no se caso con lo que ya habia: la misma pasada quedo repetida en
+ * 157 sitios de la campana. Sumar las dos fuentes daba un descuadre SIN NOMBRE
+ * ("el parte dice 79.164 kg y el detalle 96.889") que nadie podia arreglar
+ * porque no decia que sobraba. Ahora se casan por codigo base y kilos, y se
+ * dice cual esta repetida.
+ *
+ * Se casan de una en una (`yaCasadas`): dos pasadas del mismo lote con los
+ * mismos kilos son dos camiones seguidos, no una repetida.
+ */
+async function sumarLotes(supabase, partId) {
+  const { data, error } = await supabase.from("lotes_dia")
+    .select("source, lote_codigo, kg_peso_total").eq("part_id", partId);
+  if (error) throw new Error(`lotes_dia: ${error.message}`);
+  const filas = data ?? [];
+  const delVolcado = filas.filter((f) => f.source === "calibrador");
+  const delParte = filas.filter((f) => f.source !== "calibrador");
+  const yaCasadas = new Set();
+  const repetidas = [];
+  for (const v of delVolcado) {
+    const base = baseDeLote(v.lote_codigo);
+    if (!base) continue;
+    const i = delParte.findIndex((p, idx) => !yaCasadas.has(idx)
+      && baseDeLote(p.lote_codigo) === base
+      && Math.abs(num(p.kg_peso_total) - num(v.kg_peso_total)) <= 1);
+    if (i < 0) continue;
+    yaCasadas.add(i);
+    repetidas.push({ lote: base, kg: num(v.kg_peso_total) });
+  }
+  const total = filas.reduce((s, f) => s + num(f.kg_peso_total), 0);
+  const kgRepetido = repetidas.reduce((s, r) => s + r.kg, 0);
+  return { total, repetidas, kgRepetido, sinRepetir: total - kgRepetido };
+}
 
 /**
  * ¿Dicen lo mismo el parte y su detalle? Tolerancia de 1 kg: los informes
@@ -75,8 +117,12 @@ export async function cuadrar(supabase, parte) {
   const palets = num(parte.kg_palets_brutos);
   const [calibres, producto, lotes, paletsDet] = await Promise.all([
     sumar(supabase, "calibres_dia", "kg", parte.id),
-    sumar(supabase, "producto_dia", "kg", parte.id),
-    sumar(supabase, "lotes_dia", "kg_peso_total", parte.id),
+    // La fila TOTAL de `producto_dia` (producto null, 82 en la campana) es el
+    // total del dia, no un producto mas: sumarla daba EXACTAMENTE el doble y
+    // parecia un descuadre del parte cuando el parte estaba bien. La app la
+    // excluye igual (ver el % MDNA en src/hooks/useMercadonaLotes.ts).
+    sumar(supabase, "producto_dia", "kg", parte.id, (q) => q.not("producto", "is", null)),
+    sumarLotes(supabase, parte.id),
     sumar(supabase, "palets_dia", "kg_neto", parte.id),
   ]);
   const desvios = [];
@@ -88,9 +134,21 @@ export async function cuadrar(supabase, parte) {
   };
   mira("calibres", prod, calibres);
   mira("producto", prod, producto);
-  mira("lotes", prod, lotes);
+  // La pasada repetida se dice CON SU NOMBRE, y aparte se comprueba lo que
+  // queda: si tambien falla eso, son dos problemas distintos y hay que verlos
+  // los dos. Repetida no se silencia — la app suma toda fila de lotes_dia (ver
+  // src/hooks/useEntradasBascula.ts), asi que mientras este ahi cuenta doble.
+  if (lotes.repetidas.length) {
+    desvios.push(`lotes: el detalle trae ${lotes.repetidas.length} pasada(s) dos veces`
+      + ` (el parte y el volcado: ${lotes.repetidas.map((r) => r.lote).join(", ")}),`
+      + ` ${miles(lotes.kgRepetido)} kg de mas`);
+  }
+  mira("lotes", prod, lotes.sinRepetir);
   mira("palets", palets, paletsDet);
-  return { prod, palets, calibres, producto, lotes, paletsDet, desvios };
+  return {
+    prod, palets, calibres, producto, paletsDet, desvios,
+    lotes: lotes.sinRepetir, lotesRepetidas: lotes.repetidas, lotesKgRepetido: lotes.kgRepetido,
+  };
 }
 
 export async function rehacerParte(supabase, fecha, { url, key, aplicar = false } = {}) {
