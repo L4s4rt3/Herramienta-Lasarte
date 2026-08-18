@@ -193,6 +193,7 @@ export function componerAviso({
   sinSubir = null,
   parte = null, productores = null, ipEsperada = "192.168.1.237",
   frescura = null, buzon = null, analizados = null, alta = null, contexto = null,
+  estimados = null,
 }) {
   const secciones = [];
   const avisos = [];
@@ -430,6 +431,39 @@ export function componerAviso({
     secciones.push(p);
   }
 
+  // ── Manuales estimados según histórico ──────────────────────────────────
+  // Encargo del 17-08 ("si no hay información de la que yo pongo manual, se
+  // estima"): lo estimado se cuenta AQUÍ con su método y su valor — nunca en
+  // silencio —, el dato real gana y retira la estimación, y un parte VALIDADO
+  // con estimaciones dentro sube a REVISAR (eso ya no es normal).
+  if (estimados?.estimados?.length || estimados?.recuperados?.length || estimados?.reabiertos?.length) {
+    const NOMBRE_MANUAL = {
+      kg_industria_manual: "industria",
+      kg_reciclado_malla_z1: "reciclado Z1",
+      kg_reciclado_malla_z2: "reciclado Z2",
+      kg_inventario_sin_alta: "inventario sin alta",
+      kg_podrido_bolsa_basura: "podrido de bolsa",
+    };
+    const est = nuevaSeccion("estimaciones", "ESTIMADO SEGUN HISTORICO");
+    for (const r of estimados.estimados ?? []) {
+      est.texto(`  El parte del ${r.fecha} llevaba ${r.diasSinPapel} dias sin los datos del papel:`);
+      est.texto("  se ha completado con estimaciones para que el dia quede entero.");
+      for (const d of r.detalle ?? []) {
+        if (d.valor != null) est.par(`  ${d.etiqueta}`, kg(d.valor));
+        else est.texto(`    ${d.etiqueta}`);
+      }
+    }
+    for (const r of estimados.recuperados ?? []) {
+      est.texto(`  El parte del ${r.fecha} recupero el dato real de` +
+        ` ${r.campos.map((c) => NOMBRE_MANUAL[c] ?? c).join(", ")}: fuera su estimacion.`);
+    }
+    for (const f of estimados.reabiertos ?? []) {
+      est.texto(`  El parte del ${f} se reabrio a Borrador: sigue con estimaciones vigentes.`);
+    }
+    est.texto("  El dato real siempre gana: corrige el campo en el parte y la estimacion se retira sola.");
+    secciones.push(est);
+  }
+
   // ── Trazabilidad ────────────────────────────────────────────────────────
   if (cobertura?.lotes > 0) {
     // La cobertura parcial es lo normal y NO es una averia: se ha comprobado
@@ -558,6 +592,13 @@ export function componerAviso({
   if (buzon?.noReconocidos?.length) {
     avisos.push(`Y ${buzon.noReconocidos.length} archivo(s) que el buzon no supo reconocer:` +
       ` ${buzon.noReconocidos.map((x) => x.fichero).join(", ")}.`);
+  }
+
+  // Un parte firmado que sigue llevando estimaciones dentro ya no es el sistema
+  // trabajando: es una firma sobre numeros que nadie confirmo. Eso se dice.
+  for (const f of estimados?.validadosConEstimacion ?? []) {
+    avisos.push(`El parte del ${f} esta VALIDADO con estimaciones vigentes dentro: o el papel` +
+      " se copio con los mismos numeros, o se firmo sin revisar. Merece un vistazo.");
   }
 
   const errores = (log ?? []).filter((l) => /ERROR|Error:|no se pudo/i.test(l));

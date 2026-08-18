@@ -67,6 +67,8 @@ interface Parte {
   /** Nº de box de reciclaje por zona. null = sin desglose (parte antiguo), no un 0. */
   box_reciclaje_z1: number | null;
   box_reciclaje_z2: number | null;
+  /** Campos rellenados por estimación según histórico (scripts/estimar-manuales-parte.mjs) con su valor y método. null = todo lo metió una persona. El dato real pisa la estimación y la marca se retira sola. */
+  campos_estimados?: { estimado_at?: string; campos?: Record<string, { valor: number; metodo: string }> } | null;
   kg_inventario_sin_alta: number;
   kg_podrido_bolsa_basura: number;
   /** Podrido pesado en las bateas de la tría PRE-calibrador (migración 20260727120000). null = sin medición ese día (histórico anterior al 22-jul-2026), no un 0. */
@@ -1191,6 +1193,26 @@ export default function PartDetail() {
 
         {/* ── TAB: Datos manuales ─────────────────────────────────────────── */}
         <TabsContent value="manual" className="mt-4 space-y-6">
+          {/* Estimaciones a la vista: si nadie metió el papel a tiempo, estos
+              campos los rellenó el sistema según histórico (nunca en silencio)
+              y quien abra el parte tiene que saberlo antes de fiarse o firmar. */}
+          {(() => {
+            const marcas = parte.campos_estimados?.campos ?? null;
+            const n = marcas ? Object.keys(marcas).length : 0;
+            if (n === 0) return null;
+            return (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+                <p className="font-medium">
+                  {n === 1 ? "1 campo de este parte es una estimación" : `${n} campos de este parte son estimaciones`} según
+                  histórico: nadie metió los datos del papel a tiempo y el sistema los completó para que el día quedara entero.
+                </p>
+                <p className="mt-0.5 text-muted-foreground">
+                  Si el papel dice otra cosa, corrige el campo y guarda: el dato real gana y la marca se
+                  retira sola en la pasada de la mañana siguiente. No valides el parte sin revisarlos.
+                </p>
+              </div>
+            );
+          })()}
           <PartDetailManual
             parte={parte}
             readOnly={readOnly}

@@ -26,6 +26,7 @@ import { conectarErp } from "./lib-palets-erp.mjs";
 import { generarYSubir } from "./generar-gstock-erp.mjs";
 import { generarYSubirInformes } from "./generar-informes-parte.mjs";
 import { cuadrar } from "./rehacer-parte.mjs";
+import { estimarPartesPendientes } from "./estimar-manuales-parte.mjs";
 import { detectarCierre, inventarioSinAlta, diaLocal } from "./lib-cierre-alta.mjs";
 import { anotarEjecucion, salirConError } from "./lib-registro-ejecuciones.mjs";
 
@@ -417,6 +418,18 @@ async function main() {
     incidencias.push(`ERROR: no se pudieron analizar los partes pendientes: ${e.message}`);
   }
 
+  // Los manuales que nadie metio se ESTIMAN segun historico (encargo del 17-08:
+  // "si no hay informacion de la que yo pongo manual, se estima"), con un dia
+  // entero de gracia y todo marcado en campos_estimados. El correo lo cuenta, y
+  // el dato real, cuando alguien lo teclee, gana y retira la estimacion solo.
+  // Ver lib-estimar-manuales.mjs para el metodo campo a campo y sus porques.
+  let estimados = null;
+  try {
+    estimados = await estimarPartesPendientes(supabase, { hoy: comoFecha(hoy), aplicar: true });
+  } catch (e) {
+    incidencias.push(`ERROR: no se pudieron estimar los manuales pendientes: ${e.message}`);
+  }
+
   // EL CUADRE, TODAS LAS MAÑANAS. Un parte puede quedarse con el detalle
   // descuadrado sin que nada falle: los informes se suben, el analisis termina
   // bien, y aun asi calibres_dia suma otra cosa que kg_produccion_calibrador.
@@ -569,6 +582,7 @@ async function main() {
     frescura: await frescuraDeDatos(supabase, comoFecha(hoy)),
     buzon: buzonDelDia(ayer),
     analizados: analizados.filter((a) => a.accion === "analizado"),
+    estimados,
     alta: await cierreEInventario(supabase, ayer),
     contexto: await contextoSemana(supabase, ayer),
     receptor: await receptorVivo(), ipEsperada: IP_ESPERADA,

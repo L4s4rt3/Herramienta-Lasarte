@@ -356,5 +356,40 @@ const conRespaldo = componerAviso({ ...BASE, fecha: "2026-08-13", contexto: {
 comprobar("serie: la grafica del correo cuenta los dias del parte",
   conRespaldo.cuerpo.includes("Total 3 dias") && conRespaldo.cuerpo.includes("237.473 kg"));
 
+// ─── Manuales estimados: nunca en silencio, y el dato real gana ──────────────
+// Lo que protege: la estimacion escribe en los partes cuando no hay nadie (el
+// usuario fuera una semana). Si el correo no la contara, seria una estimacion
+// en silencio — justo lo que la casa prohibe.
+const conEstimados = componerAviso({ ...BASE, estimados: {
+  estimados: [{ fecha: "2026-08-12", diasSinPapel: 2, detalle: [
+    { campo: "kg_inventario_sin_alta", valor: 845, metodo: "fotos-erp", etiqueta: "Inventario sin alta (deducido de las fotos del ERP)" },
+    { campo: "kg_reciclado_malla_z1", valor: 392, metodo: "mediana-14d", etiqueta: "Reciclado Z1" },
+    { campo: "kg_podrido_bateas", valor: null, metodo: "no-se-estima", etiqueta: "Podrido de bateas: no se estima (solo cuenta si se vaciaron)" },
+  ] }],
+  recuperados: [{ fecha: "2026-08-11", campos: ["kg_inventario_sin_alta"] }],
+  reabiertos: ["2026-08-10"],
+  validadosConEstimacion: [],
+} });
+comprobar("estimaciones: el correo dice que se estimo, con valor y metodo",
+  /ESTIMADO SEGUN HISTORICO/.test(conEstimados.cuerpo)
+  && /845 kg/.test(conEstimados.cuerpo) && /fotos del ERP/.test(conEstimados.cuerpo));
+comprobar("estimaciones: las bateas dicen que NO se estiman",
+  /Podrido de bateas: no se estima/.test(conEstimados.cuerpo));
+comprobar("estimaciones: el dato real recuperado se cuenta",
+  /recupero el dato real de inventario sin alta/.test(conEstimados.cuerpo));
+comprobar("estimaciones: el reabierto a Borrador se cuenta",
+  /2026-08-10 se reabrio a Borrador/.test(conEstimados.cuerpo));
+comprobar("estimar NO es una incidencia: es el sistema trabajando",
+  conEstimados.hayProblema === false);
+comprobar("y se recuerda que el dato real gana",
+  /la estimacion se retira sola/.test(conEstimados.cuerpo));
+
+const validadoCon = componerAviso({ ...BASE, estimados: {
+  estimados: [], recuperados: [], reabiertos: [], validadosConEstimacion: ["2026-08-09"],
+} });
+comprobar("un VALIDADO con estimaciones dentro SI es incidencia",
+  validadoCon.hayProblema === true && /VALIDADO con estimaciones/.test(validadoCon.cuerpo));
+comprobar("sin estimaciones no aparece la seccion", !/ESTIMADO SEGUN/.test(normal.cuerpo));
+
 console.log(fallos === 0 ? "\nTodo correcto." : `\n${fallos} comprobacion(es) fallidas.`);
 process.exit(fallos === 0 ? 0 : 1);
