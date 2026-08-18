@@ -162,6 +162,31 @@ export function informesSinSubir(entradas, clavesEnBase, lotesEnBase = new Set()
   return pendientes;
 }
 
+/**
+ * La serie de dias de "COMO VIENE LA SEMANA", con el PARTE como respaldo.
+ *
+ * POR QUE. La serie sale de las pasadas del calibrador, y el volcado puede no
+ * llegar: del 12 al 14-08-2026 el parte se creo solo con los informes DOCX y
+ * esos tres dias DESAPARECIERON del correo. El del 17-08 hablaba de "547.707 kg
+ * en 7 dias" acabados el martes 11 mientras el almacen habia trabajado tres
+ * dias mas — y el parte si tenia los kilos. Un correo que se deja fuera lo
+ * ultimo que paso no sirve para saber como va la semana, que es para lo que
+ * esta la grafica.
+ *
+ * MANDA LA PASADA cuando existe: trae el dia partido pasada por pasada y el
+ * respaldo solo trae el dia entero. Los dias del respaldo van marcados
+ * (`origen: "informes"`) para poder distinguirlos, y los de kg 0 no entran: un
+ * dia a cero no es un dia flojo, es un dia sin datos.
+ */
+export function mezclarSerie(dePasadas = [], deLosPartes = []) {
+  const porDia = new Map();
+  for (const d of deLosPartes) if (d.kg > 0) porDia.set(d.fecha, { ...d, origen: "informes" });
+  for (const d of dePasadas) if (d.kg > 0) porDia.set(d.fecha, { ...d, origen: "pasadas" });
+  return [...porDia.values()]
+    .map((d) => ({ ...d, pctExp: d.kg > 0 ? (d.exportacion / d.kg) * 100 : 0 }))
+    .sort((a, b) => a.fecha.localeCompare(b.fecha));
+}
+
 export function componerAviso({
   fecha, entradas, palets, cobertura, correcciones, ip, log,
   receptor = null, informesCalibrador = null, calibrador = null,

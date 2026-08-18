@@ -8,7 +8,7 @@
  *
  *   node scripts/probar-aviso-diario.mjs
  */
-import { componerAviso, informesSinSubir } from "./lib-aviso-diario.mjs";
+import { componerAviso, informesSinSubir, mezclarSerie } from "./lib-aviso-diario.mjs";
 import { renderAvisoHtml } from "./lib-aviso-html.mjs";
 
 const BASE = {
@@ -321,6 +321,40 @@ const htmlParado = renderAvisoHtml(componerAviso({
   calibrador: null, productores: null, cobertura: { lotes: 0, conOrigen: 0 },
 }).modelo);
 comprobar("html: un dia parado tambien se explica con palabras", /Sin actividad registrada/.test(htmlParado));
+
+// ─── La serie de la semana, con el parte como respaldo ──────────────────────
+// Lo que protege: del 12 al 14-08-2026 el correo se dejo fuera tres dias que el
+// almacen SI trabajo, porque no habia volcado del calibrador. No se ve en una
+// revision rapida — el correo llega igual, con su grafica y su total.
+const PASADA = { fecha: "2026-08-11", kg: 78689, exportacion: 41855, mujeres: 9609, pasadas: 5 };
+const DEL_PARTE = { fecha: "2026-08-12", kg: 85682, exportacion: 42765, mujeres: 7292, pasadas: 6 };
+const DEL_PARTE_2 = { fecha: "2026-08-13", kg: 73102, exportacion: 47101, mujeres: 5263, pasadas: 4 };
+
+const mezcla = mezclarSerie([PASADA], [DEL_PARTE]);
+comprobar("serie: el dia sin volcado entra igual",
+  mezcla.length === 2 && mezcla.at(-1).fecha === "2026-08-12");
+comprobar("serie: y viene marcado como del parte",
+  mezcla.at(-1).origen === "informes" && mezcla[0].origen === "pasadas");
+comprobar("serie: sale en orden de fecha",
+  mezclarSerie([], [DEL_PARTE, PASADA]).map((d) => d.fecha).join() === "2026-08-11,2026-08-12");
+comprobar("serie: el % de exportacion se calcula solo",
+  Math.round(mezcla.at(-1).pctExp * 10) / 10 === 49.9);
+
+// La pasada MANDA: trae el dia partido pasada por pasada, el parte solo el total.
+const pisado = mezclarSerie([PASADA], [{ ...DEL_PARTE, fecha: "2026-08-11", kg: 1 }]);
+comprobar("serie: donde hay volcado, manda el volcado",
+  pisado.length === 1 && pisado[0].kg === 78689 && pisado[0].origen === "pasadas");
+
+comprobar("serie: un dia a cero no es un dia flojo, no entra",
+  mezclarSerie([], [{ fecha: "2026-08-16", kg: 0, exportacion: 0, mujeres: 0, pasadas: 0 }]).length === 0);
+comprobar("serie: sin nada de nada, no hay serie", mezclarSerie().length === 0);
+
+// Y el correo la pinta igual venga de donde venga.
+const conRespaldo = componerAviso({ ...BASE, fecha: "2026-08-13", contexto: {
+  media: null, serie: mezclarSerie([PASADA], [DEL_PARTE, DEL_PARTE_2]),
+} });
+comprobar("serie: la grafica del correo cuenta los dias del parte",
+  conRespaldo.cuerpo.includes("Total 3 dias") && conRespaldo.cuerpo.includes("237.473 kg"));
 
 console.log(fallos === 0 ? "\nTodo correcto." : `\n${fallos} comprobacion(es) fallidas.`);
 process.exit(fallos === 0 ? 0 : 1);

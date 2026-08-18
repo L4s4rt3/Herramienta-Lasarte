@@ -18,7 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-import { componerAviso, comoFecha, informesSinSubir } from "./lib-aviso-diario.mjs";
+import { componerAviso, comoFecha, informesSinSubir, mezclarSerie } from "./lib-aviso-diario.mjs";
 import { renderAvisoHtml } from "./lib-aviso-html.mjs";
 import { repasarPartes, datosCalibradorDelDia, traerTodo } from "./crear-parte-diario.mjs";
 import { analizarPartesPendientes } from "./analizar-partes-pendientes.mjs";
@@ -189,6 +189,52 @@ async function cierreEInventario(supabase, dia) {
 }
 
 /**
+ * El día visto por el PARTE, para cuando no hay volcado del calibrador. Los
+ * kilos y el destino salen de `producto_dia`, que es lo que escriben los
+ * informes DOCX al analizarse.
+ *
+ * SOLO LAS FILAS CON DESTINO. Los partes viejos traen `grupo_destino` en blanco
+ * y darlos por buenos pintaría un día entero al 0% de exportación; esos días
+ * tienen su volcado, que es quien manda (ver mezclarSerie). Y nunca la fila
+ * TOTAL (producto null), que es el total del día y contaría los kilos dos veces.
+ *
+ * Las pasadas se cuentan por los informes que llegaron ese día: cuando no hay
+ * volcado, son lo único que sabe cuántas fueron.
+ */
+async function diasDelParte(supabase, desde, hasta) {
+  const { data: partes } = await supabase.from("partes_diarios")
+    .select("id, date").gte("date", desde).lte("date", hasta);
+  if (!partes?.length) return [];
+  const fechaDe = new Map(partes.map((p) => [p.id, p.date]));
+  const [filas, informes] = await Promise.all([
+    traerTodo(() => supabase.from("producto_dia")
+      .select("part_id, kg, grupo_destino").in("part_id", [...fechaDe.keys()])
+      .not("producto", "is", null).not("grupo_destino", "is", null).order("id")),
+    supabase.from("calibrador_informe").select("fecha, lote")
+      .gte("fecha", desde).lte("fecha", hasta),
+  ]);
+  const lotesPorDia = new Map();
+  for (const i of informes.data ?? []) {
+    if (!lotesPorDia.has(i.fecha)) lotesPorDia.set(i.fecha, new Set());
+    lotesPorDia.get(i.fecha).add(i.lote);
+  }
+  const porDia = new Map();
+  for (const fila of filas) {
+    const fecha = fechaDe.get(fila.part_id);
+    if (!fecha) continue;
+    const acc = porDia.get(fecha) ?? { fecha, kg: 0, exportacion: 0, mujeres: 0, pasadas: 0 };
+    const kg = Number(fila.kg) || 0;
+    acc.kg += kg;
+    const g = sinTildes(fila.grupo_destino);
+    if (g === "EXPORTACION") acc.exportacion += kg;
+    if (g === "MUJERES") acc.mujeres += kg;
+    porDia.set(fecha, acc);
+  }
+  for (const [fecha, acc] of porDia) acc.pasadas = lotesPorDia.get(fecha)?.size ?? 0;
+  return [...porDia.values()];
+}
+
+/**
  * Los últimos días de producción, para poder decir si el de ayer fue bueno o
  * malo. Un número suelto ("78.689 kg") no dice nada; el mismo número al lado de
  * la media de la semana sí.
@@ -205,10 +251,12 @@ async function contextoSemana(supabase, hasta, dias = 14) {
 
   const { data: batches, error } = await supabase.from("calibrador_batch")
     .select("batch_id, inicio").gte("inicio", `${desde}T00:00:00`).lte("inicio", `${hasta}T23:59:59`);
-  if (error || !batches?.length) return null;
+  // CERO PASADAS YA NO ES EL FINAL: desde el 12-08-2026 hay días que solo
+  // existen en los informes DOCX, y antes eso dejaba la gráfica entera fuera.
+  if (error) return null;
 
-  const diaDe = new Map(batches.map((b) => [b.batch_id, String(b.inicio).slice(0, 10)]));
-  const ids = batches.map((b) => b.batch_id);
+  const diaDe = new Map((batches ?? []).map((b) => [b.batch_id, String(b.inicio).slice(0, 10)]));
+  const ids = (batches ?? []).map((b) => b.batch_id);
   const filas = [];
   for (let i = 0; i < ids.length; i += 100) {
     const trozo = ids.slice(i, i + 100);
@@ -231,9 +279,11 @@ async function contextoSemana(supabase, hasta, dias = 14) {
     porDia.set(d, acc);
   }
 
-  const serie = [...porDia.values()]
-    .map((d) => ({ ...d, pasadas: d.pasadas.size, pctExp: d.kg > 0 ? (d.exportacion / d.kg) * 100 : 0 }))
-    .sort((a, b) => a.fecha.localeCompare(b.fecha));
+  // Las pasadas mandan; los días que no las tienen los pone el parte.
+  const serie = mezclarSerie(
+    [...porDia.values()].map((d) => ({ ...d, pasadas: d.pasadas.size })),
+    await diasDelParte(supabase, desde, hasta),
+  );
   if (serie.length === 0) return null;
 
   // La media EXCLUYE el día del que se informa: comparar un día consigo mismo
