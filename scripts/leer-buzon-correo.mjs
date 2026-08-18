@@ -17,6 +17,12 @@
  *   el fichero ya está a salvo y el correo se queda SIN marcar como leído, así
  *   que la siguiente pasada lo reintenta sola.
  *
+ * EL BUZÓN ES COMPARTIDO (18-08-2026: llegan currículums y correos internos de
+ * la empresa). Por eso SOLO se tocan los correos del remitente del calibrador
+ * (BUZON_REMITENTES, por defecto la propia cuenta, que es el emisor que Tomra
+ * configuró): el resto NI SE DESCARGA, ni se guarda, ni se marca como leído —
+ * el correo de las personas se queda exactamente como estaba.
+ *
  * QUÉ NO HACE: no borra correos, no responde, no manda nada. Solo lee y marca
  * como leído lo que ha podido procesar (y solo con --aplicar).
  *
@@ -61,6 +67,22 @@ function nombreSeguro(bruto, i) {
 function anotar(evento) {
   fs.mkdirSync(CARPETA, { recursive: true });
   fs.appendFileSync(REGISTRO, `${JSON.stringify(evento)}\n`, "utf8");
+}
+
+/**
+ * El marcador de hasta dónde se ha procesado (por UID del buzón). Existe porque
+ * Gmail puede dejar como "leídos" los envíos de la propia cuenta (el emisor del
+ * Sizer ES la cuenta), así que la cola por "sin leer" perdería informes. Con el
+ * marcador, todo correo del calibrador posterior entra, esté leído o no.
+ */
+const ESTADO = path.join(CARPETA, "estado.json");
+function leerEstado() {
+  try { return JSON.parse(fs.readFileSync(ESTADO, "utf8")); }
+  catch { return { uidValidity: null, ultimoUid: 0 }; }
+}
+function guardarEstado(e) {
+  fs.mkdirSync(CARPETA, { recursive: true });
+  fs.writeFileSync(ESTADO, JSON.stringify(e), "utf8");
 }
 
 function clienteSupabase() {
@@ -141,18 +163,63 @@ export async function leerBuzon({ aplicar = false, soloProbar = false } = {}) {
   const supabase = clienteSupabase();
   await cliente.connect();
 
+  // El buzon es compartido: solo son nuestros los correos de estos remitentes.
+  // Los demas ni se buscan, ni se descargan, ni se tocan.
+  const remitentes = (process.env.BUZON_REMITENTES ?? cfg.auth.user)
+    .toLowerCase().split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+
   const resultados = [];
   let sinLeer = 0;
+  let estado = leerEstado();
+  let pendientes = [];
   const cerrojo = await cliente.getMailboxLock(cfg.carpeta);
   try {
-    const nuevos = await cliente.search({ seen: false });
-    sinLeer = nuevos.length;
-    if (soloProbar) return { conectado: true, carpeta: cfg.carpeta, sinLeer, resultados };
+    // Si el buzon se recrea (UIDVALIDITY cambia), los UID dejan de valer: el
+    // marcador vuelve a cero y las restricciones unicas evitan duplicados.
+    const uidValidity = String(cliente.mailbox?.uidValidity ?? "");
+    if (estado.uidValidity !== uidValidity) estado = { uidValidity, ultimoUid: 0 };
 
-    for (const uid of nuevos) {
-      const { content } = await cliente.download(String(uid), undefined, { uid: true });
+    sinLeer = ((await cliente.search({ seen: false })) ?? []).length;
+
+    const uids = new Set();
+    for (const rem of remitentes) {
+      const encontrados = await cliente.search({ from: rem, uid: `${estado.ultimoUid + 1}:*` }, { uid: true });
+      // El rango "N:*" devuelve siempre el ultimo mensaje aunque su UID sea
+      // menor que N (manias de IMAP): se filtra a mano.
+      for (const u of encontrados ?? []) if (u > estado.ultimoUid) uids.add(u);
+    }
+    pendientes = [...uids].sort((a, b) => a - b);
+
+    if (!soloProbar) {
+      for (const uid of pendientes) {
+        // Cada correo va en su propio try: uno que no se deje descargar o
+        // interpretar se anota, NO adelanta el marcador (se reintenta en la
+        // siguiente pasada) y no bloquea a los demas.
+        try {
+          const fallos = await procesarCorreo(cliente, uid, { aplicar, supabase, resultados });
+          if (aplicar && fallos === 0) {
+            estado.ultimoUid = uid;
+            guardarEstado(estado);
+          }
+        } catch (e) {
+          anotar({ leido: ahora(), uid, error: e.message });
+          resultados.push({ leido: ahora(), uid, error: e.message, adjuntos: [], sin_adjuntos: true });
+        }
+      }
+    }
+  } finally {
+    cerrojo.release();
+    await cliente.logout().catch(() => {});
+  }
+  return { conectado: true, carpeta: cfg.carpeta, sinLeer, propios: pendientes.length, resultados };
+}
+
+async function procesarCorreo(cliente, uid, { aplicar, supabase, resultados }) {
+  {
+      const descarga = await cliente.download(String(uid), undefined, { uid: true });
+      if (!descarga?.content) throw new Error("el servidor no devolvio el contenido del mensaje");
       const trozos = [];
-      for await (const t of content) trozos.push(t);
+      for await (const t of descarga.content) trozos.push(t);
       const correo = await simpleParser(Buffer.concat(trozos));
 
       const carpetaDia = path.join(CARPETA, hoy());
@@ -204,15 +271,13 @@ export async function leerBuzon({ aplicar = false, soloProbar = false } = {}) {
       // Marcar como leido SOLO si se aplico Y todo lo suyo entro (o no era
       // nuestro): un correo con una subida fallida se queda sin marcar y la
       // siguiente pasada lo reintenta sola.
+      // La marca de leido es solo cosmetica para quien abra el buzon: la cola
+      // de verdad es el marcador de UID.
       if (aplicar && fallosDeSubida === 0) {
         await cliente.messageFlagsAdd(String(uid), ["\\Seen"], { uid: true });
       }
-    }
-  } finally {
-    cerrojo.release();
-    await cliente.logout().catch(() => {});
+      return fallosDeSubida;
   }
-  return { conectado: true, carpeta: cfg.carpeta, sinLeer, resultados };
 }
 
 async function main() {
@@ -233,14 +298,15 @@ async function main() {
     trabajo: "leer-buzon",
     inicio,
     estado: fallidos > 0 ? "aviso" : "ok",
-    detalle: r.sinLeer === 0
-      ? "sin correos nuevos"
-      : `${r.sinLeer} correo(s): ${subidos} informe(s) de lote subidos` +
+    detalle: r.propios === 0
+      ? "sin correos nuevos del calibrador"
+      : `${r.propios} del calibrador: ${subidos} informe(s) de lote subidos` +
         (fallidos ? `, ${fallidos} NO subieron (se reintentan solos)` : ""),
-    datos: { aplicar, soloProbar, correos: r.sinLeer, informesSubidos: subidos },
+    datos: { aplicar, soloProbar, propios: r.propios, sinLeerEnBuzon: r.sinLeer, informesSubidos: subidos },
   });
 
-  console.log(`Buzon "${r.carpeta}": ${r.sinLeer} correo(s) sin leer.`);
+  console.log(`Buzon "${r.carpeta}": ${r.propios} correo(s) del calibrador pendientes` +
+    ` · ${r.sinLeer} sin leer en el buzon (los ajenos no se tocan).`);
   if (soloProbar) return console.log("Conexion correcta. (--probar: no se ha tocado nada)");
 
   for (const ev of r.resultados) {
