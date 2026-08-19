@@ -199,8 +199,13 @@ comprobar("y dicen el lote y como recuperarlos",
   /26051905/.test(pend.cuerpo) && /subir-informes-calibrador\.mjs --aplicar/.test(pend.cuerpo));
 comprobar("sin pendientes no hay alarma", componerAviso({ ...BASE, sinSubir: [] }).hayProblema === false);
 
-const viejo = componerAviso({ ...BASE, calibrador: { ...BASE.calibrador, desfaseExport: 5 } });
-comprobar("datos del calibrador viejos: alarma con instrucciones", viejo.hayProblema === true && /export-sizer\.ps1/.test(viejo.cuerpo));
+// desfaseDatos solo se pone cuando NINGUNA de las dos vias (volcado SQL o
+// informes DOCX) trae nada: el volcado atrasado con los DOCX al dia no alarma.
+const mudo = componerAviso({ ...BASE, calibrador: { ...BASE.calibrador, desfaseDatos: 5 } });
+comprobar("calibrador mudo por las dos vias: alarma con instrucciones",
+  mudo.hayProblema === true && /export-sizer\.ps1/.test(mudo.cuerpo) && /ni informes/.test(mudo.cuerpo));
+comprobar("el desfase del volcado a secas ya no alarma (era la falsa alarma de los dias docx)",
+  componerAviso({ ...BASE, calibrador: { ...BASE.calibrador, desfaseExport: 5 } }).hayProblema === false);
 
 const sinInformes = componerAviso({ ...BASE, informesCalibrador: { n: 0, lotes: [], lotesConfeccion: 4, faltan: [] } });
 comprobar("hubo lotes y cero informes DOCX: alarma", sinInformes.hayProblema === true);
@@ -210,6 +215,13 @@ comprobar("faltan informes concretos: los nombra", /26052207/.test(faltanAlgunos
 
 const conErrores = componerAviso({ ...BASE, log: ["normal", "ERROR: fallo la sincronizacion"] });
 comprobar("un ERROR del log sube al aviso", conErrores.hayProblema === true && /fallo la sincronizacion/.test(conErrores.cuerpo));
+
+// El log guarda la salida de la tarea, asi que la cabecera "Errores de esta
+// noche" del aviso anterior acaba dentro y contiene "Error": no puede volver
+// a contar como error o el aviso se cita a si mismo cada mañana.
+const conEco = componerAviso({ ...BASE, log: ["  - Errores de esta noche:", "ERROR: fallo la sincronizacion"] });
+comprobar("el eco del aviso anterior no se cita como error",
+  (conEco.cuerpo.match(/Errores de esta noche/g) ?? []).length === 1);
 
 comprobar("las correcciones pendientes se avisan",
   componerAviso({ ...BASE, correcciones: 12 }).cuerpo.includes("12 campos"));

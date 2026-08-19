@@ -567,9 +567,14 @@ export function componerAviso({
       avisos.push(`Sin informe DOCX del calibrador: ${informesCalibrador.faltan.join(", ")}.`);
     }
   }
-  if (calibrador?.desfaseExport) {
-    avisos.push(`Los datos del calibrador son de hace ${calibrador.desfaseExport} dias.` +
-      " Ejecutar export-sizer.ps1 en la maquina del Sizer con la linea parada.");
+  // Solo cuando el calibrador esta mudo por las DOS vias (ni volcado SQL ni
+  // informes DOCX de lote). Que el volcado vaya atrasado con los DOCX entrando
+  // a diario NO es esto: esos dias se crean y analizan solos con el informe de
+  // lote, y avisar cada mañana los hacia pasar por partes sin analizar.
+  if (calibrador?.desfaseDatos) {
+    avisos.push(`El calibrador no manda nada desde hace ${calibrador.desfaseDatos} dias: ni informes` +
+      " de lote (auto-envio por correo) ni volcado SQL. Revisar el auto-envio del Sizer y el buzon;" +
+      " el volcado se saca con export-sizer.ps1 en la maquina del Sizer con la linea parada.");
   }
   // Datos que se han quedado atrás. La herramienta sigue enseñando el último
   // dato como si fuera de hoy, así que un abandono no se nota solo: aquí sí.
@@ -601,7 +606,11 @@ export function componerAviso({
       " se copio con los mismos numeros, o se firmo sin revisar. Merece un vistazo.");
   }
 
-  const errores = (log ?? []).filter((l) => /ERROR|Error:|no se pudo/i.test(l));
+  // La cabecera "Errores de esta noche" del aviso anterior tambien contiene
+  // "Error", y como el log guarda la salida de la tarea, el aviso acababa
+  // citandose a si mismo cada mañana. Solo cuentan las lineas de error reales.
+  const errores = (log ?? []).filter((l) =>
+    /ERROR|Error:|no se pudo/i.test(l) && !/Errores de esta noche/i.test(l));
   if (errores.length) avisos.push("Errores de esta noche:", ...errores.map((e) => `  ${e}`));
 
   const cuerpo = [

@@ -25,6 +25,7 @@ import { analizarPartesPendientes } from "./analizar-partes-pendientes.mjs";
 import { conectarErp } from "./lib-palets-erp.mjs";
 import { generarYSubir } from "./generar-gstock-erp.mjs";
 import { generarYSubirInformes } from "./generar-informes-parte.mjs";
+import { codigoBaseLote } from "./lib-lotes.mjs";
 import { cuadrar } from "./rehacer-parte.mjs";
 import { estimarPartesPendientes } from "./estimar-manuales-parte.mjs";
 import { detectarCierre, inventarioSinAlta, diaLocal } from "./lib-cierre-alta.mjs";
@@ -86,7 +87,19 @@ const ventanaDias = (hasta, dias) => {
  */
 const FUENTES = [
   { tabla: "entradas_bascula", campo: "fecha", que: "Entradas de fruta", dias: 7 },
-  { tabla: "calibrador_batch", campo: "inicio", que: "Pasadas del calibrador", dias: 5 },
+  // El calibrador tiene DOS vias y cualquiera vale: el volcado SQL (a mano) y
+  // los informes DOCX de lote que el Sizer manda solos. Mirar solo el volcado
+  // hacia decir "nada desde el 11-08" cada mañana con los DOCX entrando a
+  // diario y sus partes analizados (visto el 19-08): el dia contaba como sin
+  // analizar solo por ser docx. La pregunta de esta lista es "¿sigue entrando
+  // el dato?", no "¿por que via?".
+  { tablas: [
+    { tabla: "calibrador_batch", campo: "inicio" },
+    { tabla: "calibrador_informe", campo: "fecha" },
+  ], que: "Datos del calibrador (volcado o informes de lote)", dias: 5 },
+  // El volcado en si se vigila aparte y con manga ancha: es manual, y si se
+  // abandona semanas los dias con varias pasadas (2,9%) se quedan cortos.
+  { tabla: "calibrador_batch", campo: "inicio", que: "Volcado SQL del calibrador (export-sizer.ps1 a mano)", dias: 21 },
   { tabla: "erp_palet", campo: "fecha", que: "Palets del ERP", dias: 5 },
   { tabla: "calidad_lotes", campo: "fecha", que: "Informes de calidad", dias: 14 },
   { tabla: "limpieza_partes", campo: "fecha", que: "Partes de limpieza de box", dias: 21 },
@@ -299,16 +312,29 @@ async function contextoSemana(supabase, hasta, dias = 14) {
   return { serie: serie.slice(-8), media, hoy: serie.find((d) => d.fecha === hasta) ?? null };
 }
 
-/** El último dato de cada fuente y cuántos días hace de él. */
+/**
+ * El último dato de cada fuente y cuántos días hace de él. Una fuente puede
+ * tener varias tablas (`tablas`): vale la MÁS RECIENTE de todas, porque lo que
+ * se vigila es que el dato siga entrando, por la vía que sea.
+ */
 async function frescuraDeDatos(supabase, hoy) {
   const out = [];
   for (const f of FUENTES) {
-    const { data, error } = await supabase.from(f.tabla)
-      .select(f.campo).order(f.campo, { ascending: false }).limit(1);
-    if (error) continue;                       // tabla que ya no existe: no es asunto del aviso
-    const valor = data?.[0]?.[f.campo];
-    if (!valor) { out.push({ ...f, ultimo: null, retraso: null }); continue; }
-    const ultimo = String(valor).slice(0, 10);
+    const patas = f.tablas ?? [{ tabla: f.tabla, campo: f.campo }];
+    let ultimo = null;
+    let legible = false;
+    for (const p of patas) {
+      const { data, error } = await supabase.from(p.tabla)
+        .select(p.campo).order(p.campo, { ascending: false }).limit(1);
+      if (error) continue;                     // tabla que ya no existe: no es asunto del aviso
+      legible = true;
+      const valor = data?.[0]?.[p.campo];
+      if (!valor) continue;
+      const fecha = String(valor).slice(0, 10);
+      if (!ultimo || fecha > ultimo) ultimo = fecha;
+    }
+    if (!legible) continue;
+    if (!ultimo) { out.push({ ...f, ultimo: null, retraso: null }); continue; }
     const retraso = Math.floor((Date.parse(`${hoy}T00:00:00`) - Date.parse(`${ultimo}T00:00:00`)) / 86400000);
     out.push({ ...f, ultimo, retraso });
   }
@@ -515,8 +541,13 @@ async function main() {
         .reduce((s, f) => s + Number(f.peso_kg), 0),
     };
 
-    // Productores: por lote contra entradas_bascula (nunca por nombre).
-    const lotes = [...new Set([...loteDe.values()].filter((l) => /^\d{8}$/.test(l)))];
+    // Productores: por lote contra entradas_bascula (nunca por nombre). El
+    // codigo se pasa por codigoBaseLote: el volcado lo trae limpio ("26051903")
+    // pero el informe DOCX lo trae tal cual lo teclea planta ("26051903 24
+    // BOX"), y compararlo crudo dejaba los dias servidos por DOCX enteros como
+    // "(sin productor)" (visto en el aviso del 18-08).
+    const lotes = [...new Set([...loteDe.values()].map((l) => codigoBaseLote(l))
+      .filter((l) => /^\d{8}$/.test(l)))];
     const dueno = new Map();
     for (let i = 0; i < lotes.length; i += 200) {
       const { data } = await supabase.from("entradas_bascula")
@@ -525,7 +556,7 @@ async function main() {
     }
     const porProd = new Map();
     for (const f of filas) {
-      const nombre = dueno.get(loteDe.get(f.batch_id)) ?? "(sin productor)";
+      const nombre = dueno.get(codigoBaseLote(loteDe.get(f.batch_id))) ?? "(sin productor)";
       const acc = porProd.get(nombre) ?? { kg: 0, exp: 0 };
       acc.kg += Number(f.peso_kg) || 0;
       if (grupo(f) === "EXPORTACION") acc.exp += Number(f.peso_kg) || 0;
@@ -535,12 +566,23 @@ async function main() {
       .map(([productor, a]) => ({ productor, kg: a.kg, pctExportacion: a.kg > 0 ? 100 * a.exp / a.kg : 0 }))
       .sort((a, b) => b.kg - a.kg);
 
-    // ¿Cuanto hace del ultimo export SQL? Si se queda viejo, el parte saldra corto.
-    const { data: ultimo } = await supabase.from("calibrador_batch")
-      .select("inicio").order("inicio", { ascending: false }).limit(1);
-    if (ultimo?.[0]?.inicio) {
-      const dias = Math.floor((Date.parse(`${ayer}T23:59:59`) - Date.parse(ultimo[0].inicio)) / 86400000);
-      if (dias > 1) calibrador.desfaseExport = dias;
+    // ¿Cuanto hace del ultimo DATO del calibrador? Las fuentes son DOS, como en
+    // datosCalibradorDelDia: el volcado SQL y los informes DOCX de lote. El
+    // volcado se exporta A MANO y puede pasarse semanas parado (lo esta desde
+    // el 11-08); mientras los informes sigan entrando, el calibrador NO esta
+    // mudo. Mirar solo el volcado hacia saltar "[REVISAR] datos de hace N dias"
+    // cada mañana, como si los partes de esos dias no se analizaran, cuando se
+    // crean y analizan a diario con los DOCX (visto el 19-08). El abandono del
+    // volcado en si lo vigila la lista FUENTES, con umbral generoso.
+    const [{ data: ultimoBatch }, { data: ultimoInforme }] = await Promise.all([
+      supabase.from("calibrador_batch").select("inicio").order("inicio", { ascending: false }).limit(1),
+      supabase.from("calibrador_informe").select("fecha").order("fecha", { ascending: false }).limit(1),
+    ]);
+    const ultimoDato = [ultimoBatch?.[0]?.inicio, ultimoInforme?.[0]?.fecha]
+      .filter(Boolean).map((v) => String(v).slice(0, 10)).sort().at(-1);
+    if (ultimoDato) {
+      const dias = Math.floor((Date.parse(`${ayer}T23:59:59`) - Date.parse(`${ultimoDato}T00:00:00`)) / 86400000);
+      if (dias > 1) calibrador.desfaseDatos = dias;
     }
   }
 
@@ -557,8 +599,11 @@ async function main() {
 
   const yymmdd = ayer.slice(2, 4) + ayer.slice(5, 7) + ayer.slice(8, 10);
   const confAyer = new Set(lotesDia.filter((l) => /^\d{8}$/.test(l) && l.slice(2) === yymmdd));
+  // El lote del informe viene tal cual lo teclea planta ("26051903 24 BOX"):
+  // se reduce al codigo base para que case con los lotes de entrada esperados,
+  // o cada informe llegado contaria igualmente como "sin informe".
   const { data: infData } = await supabase.from("calibrador_informe").select("lote").eq("fecha", ayer);
-  const lotesInformes = [...new Set((infData ?? []).map((r) => r.lote))].sort();
+  const lotesInformes = [...new Set((infData ?? []).map((r) => codigoBaseLote(r.lote)))].sort();
   const esperados = [...new Set(origenesDia.filter((o) => confAyer.has(o.lote_confeccion)).map((o) => o.lote_entrada))];
   const informesCalibrador = {
     n: lotesInformes.length, lotes: lotesInformes, lotesConfeccion: confAyer.size,
