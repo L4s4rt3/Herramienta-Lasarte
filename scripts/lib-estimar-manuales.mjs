@@ -65,6 +65,31 @@ export function esCandidato(parte, limiteFecha) {
     && parte.date <= limiteFecha;
 }
 
+/**
+ * El inventario sin alta COHERENTE con los palets que el parte ya tiene.
+ *
+ * POR QUÉ (26-08-2026, el descuadre de la semana de vacaciones). El campo del
+ * parte significa "fruta del día que AÚN NO está en kg_palets_brutos". Deducir
+ * "final del ERP − foto del cierre" era correcto cuando el GSTOCK se quedaba
+ * congelado en la foto de la mañana — pero el GSTOCK ahora SE REFRESCA solo al
+ * total final mientras el parte esté en Borrador, y entonces esa deducción
+ * cuenta los kilos tardíos DOS veces. Pasó de verdad con el 19-08: el ERP le
+ * apuntó 19.977 kg de madrugada (una regularización), el GSTOCK ya los traía, y
+ * la estimación los volvió a poner como inventario → DSJ −27,1% en el 19 y
+ * +33,4% en el 20 (el arrastre los restaba de un día que no los tenía).
+ *
+ * La regla buena no depende de cuándo se generó el GSTOCK: inventario = lo que
+ * al parte le falta para llegar al total final del ERP. Si el parte ya está al
+ * día, cero; si su GSTOCK quedó en la foto del cierre, sale exactamente el
+ * "final − cierre" de antes. Sin palets en el parte (sin GSTOCK) se usa la
+ * deducción clásica: no hay contra qué complementar.
+ */
+export function inventarioQueFalta({ kgFinalErp, kgCierre, kgPaletsParte }) {
+  if (!(num(kgFinalErp) > 0)) return null;
+  if (num(kgPaletsParte) > 0) return Math.max(0, Math.round(num(kgFinalErp) - num(kgPaletsParte)));
+  return Math.max(0, Math.round(num(kgFinalErp) - num(kgCierre)));
+}
+
 /** El box y el bruto del reciclado, con la aritmética observada (6 de 6 días reales). */
 export function derivadosReciclado(neto) {
   if (!(neto > 0)) return { box: 0, bruto: 0 };

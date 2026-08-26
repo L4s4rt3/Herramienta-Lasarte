@@ -18,7 +18,7 @@ import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { inventarioSinAlta } from "./lib-cierre-alta.mjs";
 import {
-  CINCO_DEL_PAPEL, esCandidato, estimarCampos, pisados, sinManuales,
+  CINCO_DEL_PAPEL, esCandidato, estimarCampos, inventarioQueFalta, pisados, sinManuales,
 } from "./lib-estimar-manuales.mjs";
 
 try { process.loadEnvFile(path.resolve(".env")); } catch { /* entorno */ }
@@ -34,16 +34,24 @@ const restarDias = (iso, n) => {
 };
 
 const COLUMNAS = ["id", "date", "estado", "campos_estimados", "kg_produccion_calibrador",
+  "kg_palets_brutos",
   "kg_reciclado_malla_z1_bruto", "kg_reciclado_malla_z2_bruto", "box_reciclaje_z1", "box_reciclaje_z2",
   ...CINCO_DEL_PAPEL].join(", ");
 
-/** La deducción de las fotos del ERP para un día, o null si no se puede. */
-async function inventarioDeducido(supabase, fecha) {
+/**
+ * La deducción de las fotos del ERP para un día, o null si no se puede.
+ *
+ * Se deduce CONTRA LOS PALETS DEL PARTE (ver inventarioQueFalta): el GSTOCK se
+ * refresca solo al total del ERP, y deducir "final − cierre" sin mirar el parte
+ * contaba dos veces lo que entra de madrugada (el −27%/+33% del 19/20-08).
+ */
+async function inventarioDeducido(supabase, fecha, kgPaletsParte) {
   const { data, error } = await supabase.from("erp_palets_foto")
     .select("tomada_a, kg_netos, palets").eq("dia", fecha).order("tomada_a");
   if (error || !data?.length) return null;
   const r = inventarioSinAlta(fecha, data);
-  return r?.estado === "calculado" ? r.kg : null;
+  if (r?.estado !== "calculado") return null;
+  return inventarioQueFalta({ kgFinalErp: r.kgDespues, kgCierre: r.kgCierre, kgPaletsParte });
 }
 
 /**
@@ -105,7 +113,7 @@ export async function estimarPartesPendientes(supabase, { hoy = comoFecha(new Da
     const historico = partes.filter((h) =>
       h.date < p.date && !sinManuales(h) && !(h.campos_estimados?.campos && Object.keys(h.campos_estimados.campos).length));
 
-    const deducido = await inventarioDeducido(supabase, p.date);
+    const deducido = await inventarioDeducido(supabase, p.date, p.kg_palets_brutos);
     const { campos, detalle } = estimarCampos({ historico, inventarioDeducido: deducido });
     if (!Object.keys(campos).length) continue; // sin histórico no se inventa nada
 

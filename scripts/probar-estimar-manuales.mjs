@@ -10,7 +10,8 @@
  */
 import assert from "node:assert/strict";
 import {
-  CINCO_DEL_PAPEL, derivadosReciclado, esCandidato, estimarCampos, mediana, pisados, sinManuales,
+  CINCO_DEL_PAPEL, derivadosReciclado, esCandidato, estimarCampos, inventarioQueFalta,
+  mediana, pisados, sinManuales,
 } from "./lib-estimar-manuales.mjs";
 
 // ── mediana ──────────────────────────────────────────────────────────────────
@@ -39,6 +40,22 @@ for (const [neto, box, bruto] of [[1135, 5, 1285], [382, 2, 442], [216, 1, 246],
   assert.equal(r.bruto, bruto, `bruto de ${neto}`);
 }
 assert.deepEqual(derivadosReciclado(0), { box: 0, bruto: 0 });
+
+// ── el inventario se deduce CONTRA los palets del parte ─────────────────────
+// El caso real del 19-08: el ERP apunto 19.977 kg de madrugada, el GSTOCK
+// refrescado ya los traia (59.891) y "final − cierre" los contaba dos veces.
+assert.equal(inventarioQueFalta({ kgFinalErp: 59891, kgCierre: 39914, kgPaletsParte: 59891 }), 0,
+  "parte ya al dia con el ERP: inventario 0, no 19.977");
+assert.equal(inventarioQueFalta({ kgFinalErp: 59891, kgCierre: 39914, kgPaletsParte: 39914 }), 19977,
+  "GSTOCK congelado en el cierre: el complemento da lo mismo que antes");
+assert.equal(inventarioQueFalta({ kgFinalErp: 41036, kgCierre: 40154, kgPaletsParte: 40500 }), 536,
+  "parte a medio refrescar: solo lo que aun le falta");
+assert.equal(inventarioQueFalta({ kgFinalErp: 40154, kgCierre: 39914, kgPaletsParte: 41000 }), 0,
+  "el parte tiene MAS que el ERP (anulaciones): nunca negativo");
+assert.equal(inventarioQueFalta({ kgFinalErp: 41036, kgCierre: 40154, kgPaletsParte: 0 }), 882,
+  "sin GSTOCK en el parte: la deduccion clasica final − cierre (caso validado 890≈882)");
+assert.equal(inventarioQueFalta({ kgFinalErp: 0, kgCierre: 0, kgPaletsParte: 0 }), null,
+  "sin dato final del ERP no se deduce nada");
 
 // ── estimarCampos ────────────────────────────────────────────────────────────
 const dia = (industria, z1, z2, inv, bolsa) => ({
