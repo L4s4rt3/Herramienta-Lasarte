@@ -1,68 +1,73 @@
-# El buzón: mandar un informe por correo y que entre solo
+# El buzón de correo: los informes del Sizer entran solos
 
-Hay **dos buzones**, y hacen lo mismo por caminos distintos.
+**Desde el 26-08-2026 el correo es la VÍA ÚNICA**: el Sizer manda cada informe
+de lote por Gmail al cerrar el lote, y este lector lo mete en la Herramienta.
+El receptor de la LAN (`192.168.1.237:25`) sigue escuchando **solo como
+respaldo** por si algún día hubiera que volver a la vía antigua.
 
-| | Cómo llega | Para qué |
+| | Cómo llega | Estado |
 | --- | --- | --- |
-| **Receptor de la LAN** | el Sizer (o cualquiera de la oficina) manda a `192.168.1.237:25` | los informes del calibrador |
-| **Buzón de correo** | llega a `soporte@lasartesat.es` y se lee por IMAP | cualquier informe, desde donde sea |
+| **Buzón de correo (Gmail)** | el Sizer envía desde `lasartecitricos@gmail.com` al buzón configurado en el `.env`; se lee por IMAP cada 30 min | **la vía única** |
+| **Receptor de la LAN** | quien sea de la oficina manda a `192.168.1.237:25` | respaldo |
 
-Los dos usan **el mismo clasificador** que la página `/importar` (13 tipos, 23
-tests). Lo que la app importaría sola, entra sola; lo que pide confirmación
-humana se guarda y se avisa en el correo diario. Nunca se escribe nada a
-espaldas de nadie.
+## Qué procesa cada correo
 
-## Por qué por IMAP y no reenviando
+- **`.docx` de lote del Sizer** (`SizeGradeQualityTotalsByProduct.docx`): se
+  parsea, se valida que cuadre consigo mismo y se sube a `calibrador_informe` +
+  `calibrador_clasificacion` (batch_id NEGATIVO = provisional; el volcado SQL,
+  si algún día llega, manda). Además alimenta el **parte diario EN VIVO**
+  (`lib-parte-en-vivo.mjs`): el primer lote del día crea el parte, cada informe
+  se adjunta al parte con su código de lote, y se regeneran GSTOCK + informes y
+  se analiza — como lo haría una persona.
+- **`.zip` del export SQL** (lotes.csv + clasificacion.csv): se importa entero.
+- **`.xlsx`/`.csv`**: el mismo clasificador que `/importar` (13 tipos). Lo que
+  la app importaría sola entra solo; lo que pide confirmación se guarda y se
+  avisa en el correo diario. Nunca se escribe nada a espaldas de nadie.
+- **Correos reenviados desde Outlook**: el reenvío adjunta el CORREO ORIGINAL
+  entero (un `.eml` sin nombre); el lector lo detecta, entra dentro y procesa
+  el informe igual. Un `.docx` sin extensión se reconoce por su firma.
 
-El receptor de la LAN solo escucha en `192.168.1.x`. Un correo mandado desde
-casa, desde el móvil o desde un proveedor externo **no le llega**, y exponerlo a
-internet no se va a hacer. Leyendo el buzón de verdad basta con que el informe
-llegue a `soporte@lasartesat.es`, venga de donde venga.
+## El buzón es COMPARTIDO: solo se tocan los correos del calibrador
+
+El lector **solo mira los correos de los remitentes de `BUZON_REMITENTES`**
+(por defecto, el emisor del Sizer). Los demás correos NI SE DESCARGAN, ni se
+guardan, ni se marcan: el correo personal queda exactamente como estaba.
+
+## La cola es un marcador de UID, no el "sin leer"
+
+Gmail puede dejar como leídos los envíos de la propia cuenta, así que la cola
+por "sin leer" perdería informes. El lector guarda hasta qué UID ha procesado
+(`outputs/buzon/estado.json`) y sigue desde ahí. Un correo cuya subida falle
+NO avanza el marcador: se reintenta solo en la siguiente pasada.
 
 ## Qué hay que poner en el `.env`
 
 ```
-BUZON_IMAP_HOST=imap.ionos.es
+BUZON_IMAP_HOST=imap.gmail.com
 BUZON_IMAP_PUERTO=993
-BUZON_IMAP_USUARIO=soporte@lasartesat.es
-BUZON_IMAP_PASSWORD=...
+BUZON_IMAP_USUARIO=...            # la cuenta que recibe los informes del Sizer
+BUZON_IMAP_PASSWORD=...           # contraseña de APLICACION (16 letras)
 BUZON_IMAP_CARPETA=INBOX
+BUZON_REMITENTES=lasartecitricos@gmail.com,soporte@lasartesat.es
 ```
 
-El servidor depende de quién lleve el correo:
+Gmail exige **contraseña de aplicación** (la normal no vale para IMAP desde
+2025): se crea en myaccount.google.com/apppasswords con la verificación en dos
+pasos activa. El `.env` no se sube al repositorio (`.gitignore`).
 
-| Proveedor | `BUZON_IMAP_HOST` |
-| --- | --- |
-| IONOS | `imap.ionos.es` |
-| Google Workspace / Gmail | `imap.gmail.com` |
-| Microsoft 365 / Outlook | `outlook.office365.com` |
-
-**Si la cuenta tiene verificación en dos pasos**, la contraseña normal no vale:
-hay que crear una *contraseña de aplicación* desde el panel del proveedor. Es una
-contraseña larga que solo sirve para esto y se puede revocar sola.
-
-El `.env` **no se sube al repositorio** (está en `.gitignore`), así que la
-contraseña se queda en el portátil.
-
-## Si prefieres no dar acceso a todo el buzón
-
-Crea una carpeta en el correo (por ejemplo `Herramienta`), pon una regla que
-mueva ahí lo que quieras importar, y cambia:
-
-```
-BUZON_IMAP_CARPETA=Herramienta
-```
-
-Así solo se lee esa carpeta y el resto del buzón no se toca.
+OJO: los buzones `@lasartesat.es` son de Telefónica (Microsoft 365) — el IMAP
+básico está muerto ahí, por eso NO se lee soporte@ directamente.
 
 ## Qué hace y qué no
 
-- Mira **solo los correos sin leer**. Al procesar uno lo marca como leído, así
-  que nunca se importa dos veces y en el buzón se ve qué ha pasado.
-- Guarda cada adjunto en `outputs/buzon/<fecha>/` **antes** de nada: si algo
-  falla después, el fichero ya está a salvo.
-- **No borra correos. No responde. No manda nada.** Solo lee y marca como leído.
-- Deja una línea por correo en `outputs/buzon/registro.jsonl`.
+- Guarda cada adjunto en `outputs/buzon/<fecha>/` **antes** de procesarlo: si
+  algo falla después, el fichero ya está a salvo.
+- **No borra correos. No responde. No manda nada.** Solo lee, procesa y marca
+  como leído lo suyo (la marca es cosmética; la cola de verdad es el UID).
+- Deja una línea por correo en `outputs/buzon/registro.jsonl`, su rastro en
+  `sistema_ejecuciones`/`sistema_latidos` (lo vigilan `/datos/fuentes` y el
+  vigilante), y el correo de las 07:10 avisa de los informes que llegaron y no
+  están en la base (mirando este registro Y el del receptor).
 
 ## Comprobarlo
 
@@ -70,23 +75,18 @@ Así solo se lee esa carpeta y el resto del buzón no se toca.
 node scripts/leer-buzon-correo.mjs --probar
 ```
 
-Solo conecta y dice cuántos correos sin leer hay. No baja nada ni marca nada.
-
-```bash
-node scripts/leer-buzon-correo.mjs
-```
-
-Baja los adjuntos y los clasifica, pero **no importa nada** y no marca los
-correos: se puede repetir las veces que haga falta.
+Solo conecta y cuenta. Sin tocar nada.
 
 ```bash
 node scripts/leer-buzon-correo.mjs --aplicar
 ```
 
-Lo de verdad. Es lo que ejecuta la tarea programada cada 30 minutos.
+Lo de verdad: es lo que ejecuta la tarea programada. Las pruebas offline del
+reparto de adjuntos (eml anidado, firma DOCX) están en
+`scripts/probar-leer-buzon.mjs`.
 
 ## La tarea
 
-`Lasarte - Leer buzon`, cada 30 minutos de 06:15 a 22:15, sin ventana. Mientras
-no estén las credenciales deja un aviso en `outputs/log-buzon.txt` y no hace nada
-más — no rompe nada por estar a medias.
+`Lasarte - Leer buzon`, cada 30 minutos de 06:15 a 22:15, sin ventana. Sin
+credenciales deja el latido en "aviso" y no hace nada más — no rompe nada por
+estar a medias.

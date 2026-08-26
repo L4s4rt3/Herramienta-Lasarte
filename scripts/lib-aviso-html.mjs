@@ -141,7 +141,7 @@ export function renderAvisoHtml(modelo, { appUrl = "https://controlproduccion.ve
 <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f3f4f6;border-collapse:collapse;"><tr><td align="center" style="padding:16px 8px;">
 <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:620px;background:#ffffff;border-radius:12px;border-collapse:collapse;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 <tr><td style="padding:20px 22px 24px;">
-  <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:1px;color:${GRIS};">HERRAMIENTA LASARTE &middot; AVISO DIARIO</p>
+  <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:1px;color:${GRIS};">LASARTE C&Iacute;TRICOS S.L. &middot; AVISO DIARIO</p>
   <p style="margin:0 0 8px;font-size:20px;font-weight:700;color:${TINTA};">Producci&oacute;n del ${esc(modelo.fechaTexto)}</p>
   ${chip}
   ${modelo.avisos.length ? cajaRevisar(modelo.avisos) : ""}

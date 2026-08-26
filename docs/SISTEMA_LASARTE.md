@@ -281,6 +281,9 @@ Sin inventar cifras: al entregar cada automatización se apunta (a) qué proceso
 - Informe semanal (antes: recopilación manual para dirección).
 - Receptor del calibrador (antes: sin datos de clasificación utilizables — aquí el valor no es tiempo, es **información que no existía**: 19 M kg clasificados consultables).
 - Cierre automático de lotes (785 lotes que nadie tuvo que cerrar a mano).
+- Buzón de correo del calibrador + parte EN VIVO (26-08): antes, cada informe exigía que alguien lo reenviara/subiera y el parte se montaba a mano o a la mañana siguiente; ahora entra solo al cerrar el lote. Sustituye ~10-15 min/día de recopilación y, sobre todo, el punto único "si Luis no está, no hay parte" — probado con una semana entera de ausencia reconstruida en una mañana.
+- Ventas Mercadona semanal (19-08): antes, consulta manual al ERP y correo a mano cada lunes (~15 min/semana); ahora sale de Supabase aunque el portátil esté apagado.
+- Estimación de manuales del parte (17-08): antes, un parte sin papel quedaba sin DSJ ni análisis hasta que alguien volvía; ahora el día queda entero (marcado en ámbar) y el dato real lo pisa.
 
 La medición de uso de la herramienta (qué páginas se abren) entra en la Fase 1 con la misma infraestructura de registro.
 
@@ -295,5 +298,5 @@ La medición de uso de la herramienta (qué páginas se abren) entra en la Fase 
 - [ ] Modo económico (ocultar € por rol).
 - [ ] Gastos varios (bloqueado por la duda Ecoenvases).
 - [ ] Decisión ventas/facturas Mercadona.
-- [ ] Respuesta de Compac a la incidencia del auto-envío (o cerrarla).
+- [x] Respuesta de Compac a la incidencia del auto-envío — CERRADA: el auto-envío funciona por Gmail desde el 18-08 y es la vía única desde el 26-08 (destino directo al buzón que lee la Herramienta).
 - [ ] Store global de tiempo (aplazado en la reforma de conectividad).

@@ -182,7 +182,7 @@ export function renderVentasMercadonaHtml(d: DatosCorreoMercadona): string {
 <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f3f4f6;border-collapse:collapse;"><tr><td align="center" style="padding:16px 8px;">
 <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;background:#ffffff;border-radius:12px;border-collapse:collapse;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 <tr><td style="padding:22px 22px 8px;">
-  <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:1px;color:${GRIS};">HERRAMIENTA LASARTE &middot; VENTAS MERCADONA</p>
+  <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:1px;color:${GRIS};">LASARTE C&Iacute;TRICOS S.L. &middot; VENTAS MERCADONA</p>
   <p style="margin:0;font-size:20px;font-weight:700;color:${TINTA};">Semana ${d.semana}/${d.anio}</p>
   <p style="margin:2px 0 0;font-size:13px;color:${GRIS};">${rango}</p>
 </td></tr>
