@@ -34,9 +34,10 @@ import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { SMTPServer } from "smtp-server";
 import { simpleParser } from "mailparser";
-import { parsearInformeCalibrador, validarBloques } from "./lib-informe-calibrador.mjs";
+import { fechaDeComienzo, parsearInformeCalibrador, validarBloques } from "./lib-informe-calibrador.mjs";
 import { subirInforme } from "./lib-subir-informe-calibrador.mjs";
 import { abrirZipExport, importarExportSizer } from "./importar-export-calibrador.mjs";
+import { adjuntarLoteAlParte, refrescarParteEnVivo } from "./lib-parte-en-vivo.mjs";
 import { latido } from "./lib-registro-ejecuciones.mjs";
 
 try { process.loadEnvFile(path.resolve(".env")); } catch { /* variables de entorno */ }
@@ -103,6 +104,27 @@ async function subir(informe, resumen, fichero) {
   }
 }
 
+/**
+ * Remonta el parte del dia (GSTOCK + informes + analisis) un ratito DESPUES del
+ * ultimo informe: el Sizer suelta los lotes en rafagas al cerrar linea, y
+ * analizar tras cada uno seria pagar el analisis cinco veces para quedarse con
+ * el ultimo. Tres minutos sin informes nuevos = la rafaga acabo. Si llega otro
+ * mas tarde, se vuelve a programar: el remonte es idempotente.
+ */
+const refrescosPendientes = new Map();
+function programarRefrescoParte(fecha) {
+  clearTimeout(refrescosPendientes.get(fecha));
+  const temporizador = setTimeout(() => {
+    refrescosPendientes.delete(fecha);
+    refrescarParteEnVivo(supabase, fecha, { url: URL_SUPA, key: KEY_SUPA })
+      .then((r) => console.log(`[${ahora()}] parte en vivo del ${fecha}:` +
+        ` gstock ${r.gstock} · informes ${r.informes} · analisis ${r.analisis}`))
+      .catch((e) => console.error(`[${ahora()}] parte en vivo del ${fecha}: ${e.message}`));
+  }, 3 * 60 * 1000);
+  temporizador.unref?.();
+  refrescosPendientes.set(fecha, temporizador);
+}
+
 function resumirInforme(contenido, nombre) {
   if (!/\.docx$/i.test(nombre ?? "")) return null;
   try {
@@ -120,6 +142,8 @@ function resumirInforme(contenido, nombre) {
       // clave de `calibrador_informe` y sin el no se puede saber si una pasada
       // concreta acabo entrando o se quedo por el camino. Ver informesSinSubir.
       comienzo: r.cabecera.comienzo,
+      // El dia del informe: decide a que parte diario se adjunta (parte en vivo).
+      fecha: fechaDeComienzo(r.cabecera.comienzo),
       commodity: r.cabecera.commodity,
       productor: r.cabecera.productorNombre,
       productorCodigo: r.cabecera.productorCodigo,
@@ -191,6 +215,23 @@ async function guardarCorreo(buffer, ip) {
     g.subida = await subir(inf.informe, inf, g.fichero);
     // El informe entero (cientos de lineas) NO va al registro: solo el resumen.
     delete inf.informe;
+
+    // El parte EN VIVO (encargo del 26-08): el lote recien llegado se adjunta a
+    // su parte diario (creandolo si es el primero del dia) y se programa el
+    // remonte. El adjunto es archivo para personas: si falla, se dice y ya.
+    const entro = g.subida?.subido || /unique/i.test(g.subida?.motivo ?? "");
+    if (supabase && entro && inf.fecha) {
+      try {
+        const adj = await adjuntarLoteAlParte(supabase, {
+          fecha: inf.fecha, lote: inf.lote,
+          contenido: fs.readFileSync(path.join(CARPETA, g.fichero)),
+        });
+        g.adjuntado = adj.accion;
+        programarRefrescoParte(inf.fecha);
+      } catch (e) {
+        g.adjuntado = `error: ${e.message}`;
+      }
+    }
   }
 
   // Export SQL del Sizer (zip con lotes.csv + clasificacion.csv): se importa

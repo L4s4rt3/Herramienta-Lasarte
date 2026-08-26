@@ -46,9 +46,10 @@ import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
-import { parsearInformeCalibrador, validarBloques } from "./lib-informe-calibrador.mjs";
+import { fechaDeComienzo, parsearInformeCalibrador, validarBloques } from "./lib-informe-calibrador.mjs";
 import { subirInforme } from "./lib-subir-informe-calibrador.mjs";
 import { abrirZipExport, importarExportSizer } from "./importar-export-calibrador.mjs";
+import { adjuntarLoteAlParte, refrescarParteEnVivo } from "./lib-parte-en-vivo.mjs";
 import { anotarEjecucion, latido, salirConError } from "./lib-registro-ejecuciones.mjs";
 
 try { process.loadEnvFile(path.resolve(".env")); } catch { /* entorno */ }
@@ -146,6 +147,8 @@ async function procesarDocx(supabase, contenido, fichero, { aplicar }) {
   const resumen = {
     lote: r.cabecera.lote,
     comienzo: r.cabecera.comienzo ?? null,
+    // La fecha del dia del informe: es la que decide a que parte se adjunta.
+    fecha: fechaDeComienzo(r.cabecera.comienzo),
     lineas: r.lineas.length,
     kg: Math.round(r.lineas.reduce((s, l) => s + (l.kg ?? 0), 0)),
     cuadra: descuadres.length === 0,
@@ -253,7 +256,28 @@ export async function leerBuzon({ aplicar = false, soloProbar = false } = {}) {
     cerrojo.release();
     await cliente.logout().catch(() => {});
   }
-  return { conectado: true, carpeta: cfg.carpeta, sinLeer, propios: pendientes.length, resultados };
+
+  // El parte EN VIVO, una vez por dia tocado y AL FINAL de la pasada: si el
+  // Sizer solto una rafaga de informes, se remonta el parte una sola vez con
+  // todos dentro (GSTOCK + informes del dia + el mismo analisis que el boton).
+  const partesEnVivo = [];
+  if (aplicar && supabase) {
+    const fechas = [...new Set(resultados.flatMap((ev) => (ev.adjuntos ?? [])
+      .filter((a) => a.informe?.fecha
+        && (a.informe.subida?.subido || /unique/i.test(a.informe.subida?.motivo ?? "")))
+      .map((a) => a.informe.fecha)))].sort();
+    const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    for (const f of fechas) {
+      try {
+        partesEnVivo.push(await refrescarParteEnVivo(supabase, f, { url, key }));
+      } catch (e) {
+        partesEnVivo.push({ fecha: f, error: e.message });
+      }
+    }
+  }
+
+  return { conectado: true, carpeta: cfg.carpeta, sinLeer, propios: pendientes.length, resultados, partesEnVivo };
 }
 
 /**
@@ -290,6 +314,22 @@ export async function procesarAdjuntos(attachments, { aplicar, supabase, carpeta
       item.informe = await procesarDocx(supabase, a.content, item.fichero, { aplicar });
       if (aplicar && item.informe?.subida?.subido === false
         && !/simulacion|unique/i.test(item.informe.subida.motivo)) fallosDeSubida += 1;
+      // El parte EN VIVO (encargo del 26-08): cada lote que entra se adjunta a
+      // su parte diario como lo hacia la persona. Tambien el reenviado que "ya
+      // estaba" en la base (unique): pudo entrar por el receptor sin adjuntarse.
+      const entro = item.informe?.subida?.subido || /unique/i.test(item.informe?.subida?.motivo ?? "");
+      if (aplicar && supabase && entro && item.informe?.fecha) {
+        try {
+          const adj = await adjuntarLoteAlParte(supabase, {
+            fecha: item.informe.fecha, lote: item.informe.lote, contenido: a.content,
+          });
+          item.informe.adjuntado = adj.accion;
+        } catch (e) {
+          // El adjunto es archivo para personas, no el dato (ya esta subido):
+          // si falla se dice, pero no cuenta como fallo de subida.
+          item.informe.adjuntado = `error: ${e.message}`;
+        }
+      }
     } else if (/\.zip$/i.test(nombre)) {
       try {
         const csvs = abrirZipExport(a.content);
@@ -368,8 +408,9 @@ async function main() {
     detalle: r.propios === 0
       ? "sin correos nuevos del calibrador"
       : `${r.propios} del calibrador: ${subidos} informe(s) de lote subidos` +
-        (fallidos ? `, ${fallidos} NO subieron (se reintentan solos)` : ""),
-    datos: { aplicar, soloProbar, propios: r.propios, sinLeerEnBuzon: r.sinLeer, informesSubidos: subidos },
+        (fallidos ? `, ${fallidos} NO subieron (se reintentan solos)` : "") +
+        ((r.partesEnVivo ?? []).length ? ` · parte en vivo: ${r.partesEnVivo.map((p) => p.fecha).join(", ")}` : ""),
+    datos: { aplicar, soloProbar, propios: r.propios, sinLeerEnBuzon: r.sinLeer, informesSubidos: subidos, partesEnVivo: r.partesEnVivo ?? [] },
   });
 
   console.log(`Buzon "${r.carpeta}": ${r.propios} correo(s) del calibrador pendientes` +
@@ -384,7 +425,8 @@ async function main() {
         const inf = a.informe;
         if (inf.error) { console.log(`    ${path.basename(a.fichero)} -> NO SE ENTIENDE: ${inf.error}`); continue; }
         console.log(`    ${path.basename(a.fichero)} -> lote ${inf.lote} · ${inf.lineas} lineas · ${inf.kg} kg` +
-          ` · ${inf.subida.subido ? `SUBIDO (${inf.subida.fecha})` : `no subido: ${inf.subida.motivo}`}`);
+          ` · ${inf.subida.subido ? `SUBIDO (${inf.subida.fecha})` : `no subido: ${inf.subida.motivo}`}` +
+          (inf.adjuntado ? ` · al parte: ${inf.adjuntado}` : ""));
       } else if (a.importExport) {
         const x = a.importExport;
         console.log(`    ${path.basename(a.fichero)} -> export SQL: ` +
@@ -396,6 +438,12 @@ async function main() {
         console.log(`    ${path.basename(a.fichero)} (guardado, sin procesador)`);
       }
     }
+  }
+  for (const p of r.partesEnVivo ?? []) {
+    console.log(p.error
+      ? `\n  parte en vivo del ${p.fecha}: ERROR ${p.error}`
+      : `\n  parte en vivo del ${p.fecha}: gstock ${p.gstock} · informes ${p.informes} · analisis ${p.analisis}` +
+        (p.reabierto ? " · reabierto para los manuales" : ""));
   }
   if (!aplicar && r.resultados.length) console.log("\n(simulacion: repite con --aplicar)");
 }
