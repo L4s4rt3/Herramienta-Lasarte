@@ -64,6 +64,48 @@ function nombreSeguro(bruto, i) {
   return limpio || `adjunto-${i + 1}.bin`;
 }
 
+/**
+ * ¿Este adjunto es en realidad un correo entero (un .eml)?
+ *
+ * POR QUE IMPORTA (26-08-2026): al reenviar los informes desde Outlook, el
+ * adjunto no es el .docx — es el CORREO ORIGINAL completo, con el .docx dentro.
+ * Llega sin nombre (adjunto-1.bin) y empieza por cabeceras de correo
+ * ("Received:", "From:"...). El dueño reenvio asi una semana entera de informes
+ * y todos se quedaron "sin procesador" porque el reparto miraba solo la
+ * extension. Aqui se detecta para poder entrar dentro y sacar el informe.
+ *
+ * Se mira el content-type primero (lo fiable) y, si no viene, se olfatean las
+ * cabeceras: message/rfc822 empieza siempre por una linea "Cabecera: valor" y
+ * lleva un From. Un .docx/.zip empieza por "PK" y un CSV por datos, asi que no
+ * hay falsos positivos.
+ */
+/**
+ * ¿El contenido es un .docx aunque no lo diga el nombre? Un DOCX es un ZIP
+ * (firma "PK\x03\x04") que lleva dentro "word/document.xml". El export SQL del
+ * Sizer tambien es un ZIP, por eso no basta con la firma: se mira que sea Word.
+ * Asi un informe que llegue sin extension (adjunto de un correo reenviado) se
+ * reconoce igual, sin confundirlo con el .zip del export.
+ */
+export function esDocx(contenido) {
+  if (!Buffer.isBuffer(contenido) || contenido.length < 4) return false;
+  if (contenido[0] !== 0x50 || contenido[1] !== 0x4b) return false;   // "PK"
+  // "word/document.xml" aparece en la tabla del ZIP como texto plano.
+  return contenido.includes(Buffer.from("word/document.xml"));
+}
+
+export function pareceCorreo(contentType, filename, contenido) {
+  if (/message\/rfc822/i.test(contentType ?? "")) return true;
+  if (/\.eml$/i.test(filename ?? "")) return true;
+  if (!Buffer.isBuffer(contenido) || contenido.length < 16) return false;
+  const cabeza = contenido.subarray(0, 2048).toString("latin1");
+  const primeraLinea = cabeza.split(/\r?\n/, 1)[0] ?? "";
+  const empiezaConCabecera = /^(Received|Return-Path|Delivered-To|From|MIME-Version|Message-ID|Date|Subject|X-[\w-]+):\s/i.test(primeraLinea);
+  // El From puede ser la primera cabecera o venir tras los Received: se acepta
+  // en cualquier posicion (pero siempre a principio de linea, no en el cuerpo
+  // del texto: por eso el ancla, y por eso ademas se exige empezar por cabecera).
+  return empiezaConCabecera && /(^|\n)From:\s/i.test(cabeza);
+}
+
 function anotar(evento) {
   fs.mkdirSync(CARPETA, { recursive: true });
   fs.appendFileSync(REGISTRO, `${JSON.stringify(evento)}\n`, "utf8");
@@ -214,6 +256,60 @@ export async function leerBuzon({ aplicar = false, soloProbar = false } = {}) {
   return { conectado: true, carpeta: cfg.carpeta, sinLeer, propios: pendientes.length, resultados };
 }
 
+/**
+ * Procesa una lista de adjuntos y devuelve {adjuntos, fallos}. Es RECURSIVA:
+ * si un adjunto es en realidad un correo (reenvio de Outlook, ver pareceCorreo),
+ * entra dentro y procesa SUS adjuntos con la misma logica. La profundidad se
+ * limita para que un correo dentro de un correo dentro de otro no de vueltas.
+ */
+export async function procesarAdjuntos(attachments, { aplicar, supabase, carpetaDia, profundidad = 0 }) {
+  const adjuntos = [];
+  let fallosDeSubida = 0;
+  for (const [i, a] of (attachments ?? []).entries()) {
+    // ¿Un correo reenviado como adjunto? Se entra dentro a por el informe.
+    if (profundidad < 3 && pareceCorreo(a.contentType, a.filename, a.content)) {
+      try {
+        const interno = await simpleParser(a.content);
+        const r = await procesarAdjuntos(interno.attachments, { aplicar, supabase, carpetaDia, profundidad: profundidad + 1 });
+        adjuntos.push(...r.adjuntos);
+        fallosDeSubida += r.fallos;
+        continue;
+      } catch { /* no era un correo legible: cae al guardado normal de abajo */ }
+    }
+
+    const marca = ahora().replace(/[:.]/g, "-");
+    const nombre = nombreSeguro(a.filename, i);
+    const destino = path.join(carpetaDia, `${marca}_${nombre}`);
+    // A disco ANTES de procesar: si algo falla luego, el dato no se pierde.
+    fs.writeFileSync(destino, a.content);
+    const item = { fichero: path.relative(CARPETA, destino), bytes: a.content.length };
+
+    // El .docx puede venir sin extension (adjunto de un correo anidado que ya
+    // perdio el nombre): se reconoce tambien por su firma ZIP + word/document.
+    if (/\.docx$/i.test(nombre) || esDocx(a.content)) {
+      item.informe = await procesarDocx(supabase, a.content, item.fichero, { aplicar });
+      if (aplicar && item.informe?.subida?.subido === false
+        && !/simulacion|unique/i.test(item.informe.subida.motivo)) fallosDeSubida += 1;
+    } else if (/\.zip$/i.test(nombre)) {
+      try {
+        const csvs = abrirZipExport(a.content);
+        if (csvs) {
+          if (!aplicar) item.importExport = { simulacion: true };
+          else if (!supabase) item.importExport = { error: "sin credenciales de Supabase" };
+          else item.importExport = await importarExportSizer(supabase, csvs);
+        }
+      } catch (e) {
+        item.importExport = { error: e.message };
+        fallosDeSubida += 1;
+      }
+    } else if (/\.(xlsx?|csv)$/i.test(nombre)) {
+      item.buzon = await clasificarEImportar(destino, aplicar);
+    }
+    adjuntos.push(item);
+  }
+  return { adjuntos, fallos: fallosDeSubida };
+}
+
 async function procesarCorreo(cliente, uid, { aplicar, supabase, resultados }) {
   {
       const descarga = await cliente.download(String(uid), undefined, { uid: true });
@@ -225,37 +321,8 @@ async function procesarCorreo(cliente, uid, { aplicar, supabase, resultados }) {
       const carpetaDia = path.join(CARPETA, hoy());
       fs.mkdirSync(carpetaDia, { recursive: true });
 
-      const adjuntos = [];
-      let fallosDeSubida = 0;
-      for (const [i, a] of (correo.attachments ?? []).entries()) {
-        const marca = ahora().replace(/[:.]/g, "-");
-        const nombre = nombreSeguro(a.filename, i);
-        const destino = path.join(carpetaDia, `${marca}_${nombre}`);
-        // A disco ANTES de procesar: si algo falla luego, el dato no se pierde.
-        fs.writeFileSync(destino, a.content);
-        const item = { fichero: path.relative(CARPETA, destino), bytes: a.content.length };
-
-        if (/\.docx$/i.test(nombre)) {
-          item.informe = await procesarDocx(supabase, a.content, item.fichero, { aplicar });
-          if (aplicar && item.informe?.subida?.subido === false
-            && !/simulacion|unique/i.test(item.informe.subida.motivo)) fallosDeSubida += 1;
-        } else if (/\.zip$/i.test(nombre)) {
-          try {
-            const csvs = abrirZipExport(a.content);
-            if (csvs) {
-              if (!aplicar) item.importExport = { simulacion: true };
-              else if (!supabase) item.importExport = { error: "sin credenciales de Supabase" };
-              else item.importExport = await importarExportSizer(supabase, csvs);
-            }
-          } catch (e) {
-            item.importExport = { error: e.message };
-            fallosDeSubida += 1;
-          }
-        } else if (/\.(xlsx?|csv)$/i.test(nombre)) {
-          item.buzon = await clasificarEImportar(destino, aplicar);
-        }
-        adjuntos.push(item);
-      }
+      const { adjuntos, fallos: fallosDeSubida } = await procesarAdjuntos(
+        correo.attachments, { aplicar, supabase, carpetaDia });
 
       const evento = {
         leido: ahora(), uid,

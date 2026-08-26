@@ -44,6 +44,17 @@ const LOG = path.resolve("outputs/log-tarea-diaria.txt");
  * mueven el descuadre menos de un punto.
  */
 const REFRESCAR_GSTOCK_KG = 500;
+/**
+ * Cuantos dias hacia atras repasa la tarea cada mañana (partes, GSTOCK,
+ * informes y cuadre). Es la red que tapa los huecos: un dia que la tarea no
+ * corrio, o un lote cuyo informe llego tarde, se recupera solo mientras caiga
+ * dentro de esta ventana. Eran 7, pero 7 se queda JUSTO al borde de una
+ * ausencia de una semana — paso en agosto de 2026: el dueño estuvo fuera 6
+ * dias, los informes se reenviaron al volver y el primer dia quedaba en el
+ * limite. 14 da margen para una semana entera de vacaciones sin perder ninguno.
+ * El repaso es idempotente: los dias que ya estan salen "sin-cambios"/"ya-tenia".
+ */
+const VENTANA_RECUPERACION = 14;
 const sinTildes = (s) => (s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
 
 function ipLocal() {
@@ -359,7 +370,7 @@ async function main() {
   let parte = null;
   const incidencias = [];
   try {
-    const repaso = await repasarPartes(supabase, ayer, { dias: 7, aplicar: true });
+    const repaso = await repasarPartes(supabase, ayer, { dias: VENTANA_RECUPERACION, aplicar: true });
     parte = { ...repaso.ultimo, recuperados: repaso.recuperados, erpCaido: repaso.erpCaido };
     for (const e of repaso.errores) {
       if (e.fecha !== ayer) incidencias.push(`ERROR: parte del ${e.fecha}: ${e.motivo}`);
@@ -391,7 +402,7 @@ async function main() {
   try {
     const conn = await conectarErp();
     try {
-      for (const f of ventanaDias(ayer, 7)) {
+      for (const f of ventanaDias(ayer, VENTANA_RECUPERACION)) {
         const r = await generarYSubir(supabase, conn, f, { aplicar: true, refrescarSiFaltanKg: REFRESCAR_GSTOCK_KG });
         if (f === ayer) gstock = r;
         else if (r.accion === "subido") gstockRecuperados.push(r);
@@ -417,7 +428,7 @@ async function main() {
   // Mismo criterio que el GSTOCK: se fabrica el fichero, no se escriben los
   // kilos por detras. Ver generar-informes-parte.mjs.
   const informesSubidos = [];
-  for (const f of ventanaDias(ayer, 7)) {
+  for (const f of ventanaDias(ayer, VENTANA_RECUPERACION)) {
     try {
       const r = await generarYSubirInformes(supabase, f, { aplicar: true });
       if (r.accion === "subido" || r.accion === "rehecho") informesSubidos.push(f);
@@ -430,7 +441,7 @@ async function main() {
   // los archivos ahi dentro sin extraer no le sirven a nadie.
   let analizados = [];
   try {
-    const desde = comoFecha(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - 14));
+    const desde = comoFecha(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - VENTANA_RECUPERACION));
     // Los rehechos van FORZADOS: su GSTOCK es otro, pero el parte no cumple
     // ninguna de las dos condiciones normales (ya esta analizado y sus palets no
     // estan a cero), asi que sin esto el archivo nuevo se quedaria sin leer.
@@ -462,7 +473,7 @@ async function main() {
   // Paso el 17-08-2026 con las mujeres contadas dos veces, y solo se vio porque
   // alguien se puso a mirarlo. Comprobarlo aqui es lo que convierte "se subio"
   // en "esta bien", y sale en el correo con el dia y los kilos.
-  for (const f of ventanaDias(ayer, 7)) {
+  for (const f of ventanaDias(ayer, VENTANA_RECUPERACION)) {
     try {
       const { data: p } = await supabase.from("partes_diarios")
         .select("id, date, kg_produccion_calibrador, kg_palets_brutos").eq("date", f).maybeSingle();
