@@ -85,9 +85,9 @@ const QUE_HACER_TAREA =
   "del día se crean solos al correr; no se pierde nada que el ERP y el Sizer ya tengan guardado.";
 
 const QUE_HACER_RECEPTOR =
-  "Comprueba que el portátil de la oficina esté encendido: la tarea «Lasarte - Receptor calibrador» " +
-  "lo relanza sola cada 5 minutos en cuanto pueda. Los informes que se hayan perdido mientras tanto " +
-  "se reenvían desde el visor del Sizer («Reporte por email») o llegan con el export SQL.";
+  "Tranquilidad: desde el 18-08 los informes del Sizer llegan por CORREO (buzón Gmail), así que con " +
+  "el receptor caído no se pierde nada — es el respaldo de la LAN. La tarea «Lasarte - Receptor " +
+  "calibrador» lo relanza sola cada 5 minutos en cuanto el portátil de la oficina esté encendido.";
 
 /** La tarea de las 07:10 con reintentos cada 20 min hasta las 12:10 (ver tarea-diaria-erp.cmd). */
 function evaluarTareaDiaria(l: LatidoRow, ahora: Date): Veredicto {
@@ -152,7 +152,9 @@ function evaluarReceptor(l: LatidoRow, ahora: Date): Veredicto {
   }
   return {
     estado: "mal",
-    titulo: `no da señales desde las ${hora}: lo que el Sizer mande ahora se está PERDIENDO`,
+    // Desde el 18-08 los informes llegan por correo: un receptor caído ya no
+    // pierde nada, pero un respaldo apagado tampoco es un respaldo.
+    titulo: `no da señales desde las ${hora} (no se pierde nada: los informes llegan por correo, pero el respaldo está apagado)`,
     queHacer: QUE_HACER_RECEPTOR,
   };
 }
@@ -192,8 +194,8 @@ const TRABAJOS: DefTrabajo[] = [
   },
   {
     id: "receptor",
-    nombre: "Receptor de informes del calibrador",
-    queHace: "Escucha en la red de la oficina los informes que manda el Sizer al cerrar cada lote y los sube a la Herramienta.",
+    nombre: "Receptor LAN del calibrador (respaldo)",
+    queHace: "Escucha en la red de la oficina por si el Sizer volviera a mandar por LAN. Desde el 18-08 los informes llegan por correo (buzón Gmail): esta vía es solo el respaldo.",
     evaluar: evaluarReceptor,
   },
   {

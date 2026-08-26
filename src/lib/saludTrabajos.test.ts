@@ -65,10 +65,12 @@ describe("evaluarTrabajos", () => {
       expect(t.estado).toBe("bien");
     });
 
-    it("dos horas mudo en horario → mal, y dice que se está perdiendo lo que llegue", () => {
+    // Desde el 18-08 los informes llegan por CORREO: el receptor es el respaldo
+    // de la LAN, y caído ya no se pierde nada — el aviso tiene que decir eso.
+    it("dos horas mudo en horario → mal, pero deja claro que no se pierde nada (es el respaldo)", () => {
       const t = estadoDe([latido("receptor", "2026-08-14T08:00:00+02:00")], en("2026-08-14T10:00:00+02:00"), "receptor");
       expect(t.estado).toBe("mal");
-      expect(t.titulo).toContain("PERDIENDO");
+      expect(t.titulo).toContain("no se pierde nada");
       expect(t.queHacer).toContain("Lasarte - Receptor calibrador");
     });
 

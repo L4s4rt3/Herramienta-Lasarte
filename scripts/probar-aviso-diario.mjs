@@ -1,10 +1,10 @@
 ﻿/**
  * Comprobación del texto del aviso diario.
  *
- * Lo que protege: los avisos de "la IP ha cambiado", "el receptor está caído" o
- * "faltan informes" saltan una vez cada mucho tiempo y tienen que funcionar
- * justo ese día. Y el asunto tiene que llevar [REVISAR] cuando hay algo que
- * mirar, porque si no se lee en diagonal.
+ * Lo que protege: los avisos de "el receptor está caído" o "faltan informes"
+ * saltan una vez cada mucho tiempo y tienen que funcionar justo ese día. Y el
+ * asunto tiene que llevar [REVISAR] cuando hay algo que mirar, porque si no se
+ * lee en diagonal.
  *
  *   node scripts/probar-aviso-diario.mjs
  */
@@ -27,10 +27,8 @@ const BASE = {
   },
   productores: [{ productor: "ECILIMP AGRO S.L.", kg: 40000, pctExportacion: 77 }],
   correcciones: 0,
-  ip: "192.168.1.237",
   log: [],
   receptor: true,
-  ipEsperada: "192.168.1.237",
 };
 
 let fallos = 0;
@@ -154,14 +152,14 @@ const nombreLargo = componerAviso({ ...BASE,
 comprobar("el nombre largo de productor NO se corta",
   nombreLargo.cuerpo.includes("LASARTE EXPORT S.L. Invermarmelo-FRUBEZAR"));
 
-const ipMala = componerAviso({ ...BASE, ip: "192.168.1.99" });
-comprobar("la IP distinta SI da problema", ipMala.hayProblema === true);
-comprobar("y dice las dos IPs y la consecuencia", ipMala.cuerpo.includes("192.168.1.99") && /NO estan llegando/.test(ipMala.cuerpo));
-
-comprobar("no poder leer la IP tambien es problema", componerAviso({ ...BASE, ip: null }).hayProblema === true);
+// La IP dejo de ser asunto del aviso el 26-08: el Sizer envia por correo, no a
+// una IP fija de la LAN. Pasarla no hace nada (y no debe volver a alarmar).
+comprobar("la IP ya no es asunto del correo",
+  componerAviso({ ...BASE, ip: "192.168.1.99", ipEsperada: "192.168.1.237" }).hayProblema === false);
 
 const caido = componerAviso({ ...BASE, receptor: false });
-comprobar("el receptor caido SI da problema", caido.hayProblema === true && /se perderan/.test(caido.cuerpo));
+comprobar("el receptor (respaldo) caido SI se dice", caido.hayProblema === true && /respaldo/.test(caido.cuerpo));
+comprobar("pero deja claro que NO se pierde nada (llega por correo)", /NO se pierde nada/.test(caido.cuerpo));
 comprobar("si no se comprueba (null) no se inventa alarma", componerAviso({ ...BASE, receptor: null }).hayProblema === false);
 
 // ── Informes recibidos que no llegaron a la base ────────────────────────────

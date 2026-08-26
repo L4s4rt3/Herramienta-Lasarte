@@ -14,7 +14,6 @@
  */
 import fs from "node:fs";
 import net from "node:net";
-import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
@@ -33,7 +32,6 @@ import { anotarEjecucion, salirConError } from "./lib-registro-ejecuciones.mjs";
 
 try { process.loadEnvFile(path.resolve(".env")); } catch { /* entorno */ }
 
-const IP_ESPERADA = process.env.IP_RECEPTOR ?? "192.168.1.237";
 const DESTINO = process.env.AVISO_DESTINO ?? "soporte@lasartesat.es";
 const REMITENTE = process.env.RESEND_FROM_TECNICO ?? "calibrador@comunicaciones.lasartesat.com";
 const LOG = path.resolve("outputs/log-tarea-diaria.txt");
@@ -57,16 +55,12 @@ const REFRESCAR_GSTOCK_KG = 500;
 const VENTANA_RECUPERACION = 14;
 const sinTildes = (s) => (s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
 
-function ipLocal() {
-  for (const [, dirs] of Object.entries(os.networkInterfaces())) {
-    for (const d of dirs ?? []) {
-      if (d.family === "IPv4" && !d.internal && d.address.startsWith("192.168.")) return d.address;
-    }
-  }
-  return null;
-}
-
-/** ¿Escucha el receptor? Si no, los informes del Sizer se pierden. */
+/**
+ * ¿Escucha el receptor de la LAN? Es el RESPALDO: desde el 18-08 el Sizer manda
+ * los informes por correo, asi que caido no se pierde nada — pero un respaldo
+ * apagado tampoco es un respaldo, y se dice. (La vigilancia de la IP del equipo
+ * se retiro el 26-08 con la via LAN: ya nadie envia a una IP fija.)
+ */
 function receptorVivo(puerto = 25, ms = 2000) {
   return new Promise((resolve) => {
     const s = net.createConnection({ host: "127.0.0.1", port: puerto });
@@ -151,29 +145,45 @@ function buzonDelDia(fecha) {
 }
 
 /**
- * Informes que el receptor guardó en disco y que no están en la base.
+ * Informes que llegaron y que no están en la base — por CUALQUIERA de las dos
+ * vías: el buzón de correo (la canónica desde el 18-08) y el receptor de la
+ * LAN (el respaldo). Hasta el 26-08 solo se miraba el registro del receptor,
+ * y un informe que el buzón no lograra subir se quedaba sin que nadie chillara.
  *
  * El registro dice si la subida falló, pero NO se usa como verdad: lo que manda
  * es si la pasada está hoy en `calibrador_informe`. Así, en cuanto se reintenta,
  * el aviso desaparece solo. Ver informesSinSubir en lib-aviso-diario.mjs.
  */
 async function calibradorSinSubir(supabase) {
-  const registro = path.resolve("outputs/calibrador/registro.jsonl");
-  let lineas;
-  try { lineas = fs.readFileSync(registro, "utf8").trimEnd().split(/\r?\n/); } catch { return null; }
-
+  const registros = [
+    path.resolve("outputs/calibrador/registro.jsonl"),   // receptor LAN (respaldo)
+    path.resolve("outputs/buzon/registro.jsonl"),        // buzón Gmail (canónica)
+  ];
   const entradas = [];
-  for (const l of lineas) {
-    let ev;
-    try { ev = JSON.parse(l); } catch { continue; }
-    for (const a of ev.adjuntos ?? []) {
-      if (!a.informe?.lote || a.subida?.subido !== false) continue;
-      entradas.push({
-        recibido: ev.recibido, lote: a.informe.lote,
-        comienzo: a.informe.comienzo ?? null, motivo: a.subida.motivo,
-      });
+  let algunRegistro = false;
+  for (const registro of registros) {
+    let lineas;
+    try { lineas = fs.readFileSync(registro, "utf8").trimEnd().split(/\r?\n/); } catch { continue; }
+    algunRegistro = true;
+    for (const l of lineas) {
+      let ev;
+      try { ev = JSON.parse(l); } catch { continue; }
+      for (const a of ev.adjuntos ?? []) {
+        // El receptor apunta la subida AL LADO del informe (a.subida); el buzón,
+        // DENTRO (a.informe.subida). Se aceptan las dos formas.
+        const inf = a.informe;
+        const subida = a.subida ?? inf?.subida;
+        if (!inf?.lote || subida?.subido !== false) continue;
+        // "simulacion" no es un fallo, y "unique" es que ya estaba en la base.
+        if (/simulacion|unique/i.test(subida.motivo ?? "")) continue;
+        entradas.push({
+          recibido: ev.recibido ?? ev.leido, lote: inf.lote,
+          comienzo: inf.comienzo ?? null, motivo: subida.motivo,
+        });
+      }
     }
   }
+  if (!algunRegistro) return null;
   if (!entradas.length) return [];
 
   // Solo los lotes implicados: son un puñado y evita traerse la tabla entera.
@@ -629,7 +639,7 @@ async function main() {
 
   const { cuerpo, hayProblema, modelo } = componerAviso({
     fecha: ayer, entradas, palets, cobertura, correcciones, informesCalibrador,
-    calibrador, productores, ip: ipLocal(), log: [...colaDelLog(), ...incidencias],
+    calibrador, productores, log: [...colaDelLog(), ...incidencias],
     parte: {
       ...parte,
       gstockRecuperados: gstockRecuperados.map((r) => r.fecha),
@@ -641,7 +651,7 @@ async function main() {
     estimados,
     alta: await cierreEInventario(supabase, ayer),
     contexto: await contextoSemana(supabase, ayer),
-    receptor: await receptorVivo(), ipEsperada: IP_ESPERADA,
+    receptor: await receptorVivo(),
     sinSubir: await calibradorSinSubir(supabase),
   });
   // El asunto lleva ya lo esencial: en la bandeja se ve el dia sin abrirlo, y

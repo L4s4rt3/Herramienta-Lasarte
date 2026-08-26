@@ -188,10 +188,10 @@ export function mezclarSerie(dePasadas = [], deLosPartes = []) {
 }
 
 export function componerAviso({
-  fecha, entradas, palets, cobertura, correcciones, ip, log,
+  fecha, entradas, palets, cobertura, correcciones, log,
   receptor = null, informesCalibrador = null, calibrador = null,
   sinSubir = null,
-  parte = null, productores = null, ipEsperada = "192.168.1.237",
+  parte = null, productores = null,
   frescura = null, buzon = null, analizados = null, alta = null, contexto = null,
   estimados = null,
 }) {
@@ -524,17 +524,21 @@ export function componerAviso({
   }
 
   // ── Incidencias ─────────────────────────────────────────────────────────
+  // Desde el 26-08 el Sizer manda los informes SOLO por correo: el receptor de
+  // la LAN queda de respaldo. Caido ya no significa perder informes — pero un
+  // respaldo apagado tampoco es un respaldo, asi que se dice.
   if (receptor === false) {
-    avisos.push("El receptor de informes del calibrador NO esta escuchando: los informes que" +
-      ' mande el Sizer se perderan. Deberia levantarlo la tarea "Lasarte - Receptor calibrador".');
+    avisos.push("El receptor de la LAN (respaldo) no esta escuchando. Los informes del Sizer" +
+      " llegan por correo, asi que NO se pierde nada; deberia relanzarlo la tarea" +
+      ' "Lasarte - Receptor calibrador" en 5 minutos.');
   }
   // Recibido no es lo mismo que guardado: el .docx puede estar en disco y no
   // haber entrado en la base. Se nombran los lotes para poder buscarlos.
   if (sinSubir?.length) {
     const n = sinSubir.length;
-    avisos.push(`${n} informe(s) del calibrador llegaron al receptor pero NO estan en la` +
-      " Herramienta. El .docx esta a salvo en outputs/calibrador: se recuperan con" +
-      " node scripts/subir-informes-calibrador.mjs --aplicar");
+    avisos.push(`${n} informe(s) del calibrador llegaron (correo o receptor) pero NO estan en la` +
+      " Herramienta. El fichero esta a salvo en outputs/: los del buzon se reintentan solos," +
+      " y los del receptor se recuperan con node scripts/subir-informes-calibrador.mjs --aplicar");
     for (const p of sinSubir.slice(0, 6)) {
       avisos.push(`  lote ${p.lote}${p.comienzo ? ` (${p.comienzo})` : ""}: ${p.motivo}`);
     }
@@ -548,11 +552,9 @@ export function componerAviso({
       " sin los kilos de palets y sin descuadre. Hay que subir el Excel del GSTOCK a mano," +
       " o volver a lanzar la tarea cuando haya red de oficina.");
   }
-  if (ip == null) avisos.push("No se pudo leer la IP de este equipo.");
-  else if (ip !== ipEsperada) {
-    avisos.push(`La IP de este equipo es ${ip} y se esperaba ${ipEsperada}. El Sizer sigue enviando` +
-      " a la vieja, asi que los informes del calibrador NO estan llegando.");
-  }
+  // La vigilancia de la IP del equipo se retiro el 26-08: era de la epoca en
+  // que el Sizer enviaba por LAN a una IP fija. Ahora envia por correo y la IP
+  // del portatil no le importa a nadie.
   if (correcciones == null) avisos.push("No se pudo comprobar si hay correcciones pendientes.");
   else if (correcciones > 0) {
     avisos.push(`Hay ${correcciones} campos que el ERP tiene distintos de la app` +
