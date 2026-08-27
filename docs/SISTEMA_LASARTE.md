@@ -261,6 +261,7 @@ Los que ya rigen (y se mantienen):
 - **Fuentes canónicas**: calibrador y ERP mandan; el papel y el Excel son respaldo.
 - **Cada página responde una pregunta**: Entradas=fruta/stock, Trazabilidad=lote, Productores=quién, Análisis diario=tiempo.
 - **Incertidumbre con dos cifras** (probada/estimada), nunca una métrica sobre la calidad del dato.
+- **Estándar kg/persona POR RÉGIMEN de plantilla** (dueño, 27-08): media plantilla (≤35 presentes, régimen de agosto) suelo 2.200 / objetivo 2.600; plantilla completa (aunque haya faltas) suelo 1.700 / objetivo 2.100. Vive en `tmp/informe-produccion/estandar.json` y lo usan el semáforo del correo diario de rendimiento, los informes de la encargada y el análisis por tipo de día — mismo número, misma fuente. Revisar cada 4-6 semanas.
 
 Los nuevos, a partir de ahora, para **cada** pieza que se construya o toque:
 
