@@ -77,7 +77,17 @@ const SQL_ENTRADAS = `
          af.denominacion              AS finca,
          ap.denominacion              AS parcela,
          ag.denominacion              AS articulo,
-         bp.kilos                     AS kg_entrada,
+         -- IMPORTACION (tipo_entrada 21): la bascula pesa la mercancia CON los
+         -- cartones y los palets (el SAF del 27-08: 25.022 brutos vs 23.589 de
+         -- fruta), asi que el kg de entrada es el NETO del albaran cuando
+         -- existe. En las nacionales bascula = neto del albaran (comprobado
+         -- 28-08: diferencia 0 en todas las de agosto), y se quedan como estan.
+         -- El bruto de la importacion se conserva en su propia columna: si una
+         -- importacion no tiene neto en el albaran (Egipto 12-08, sin valorar),
+         -- kg_entrada = bruto y kg_bruto_bascula igual lo delata.
+         IF(cab.tipo_entrada = 21 AND epl.unidades_1 > 0,
+            epl.unidades_1, bp.kilos) AS kg_entrada,
+         IF(cab.tipo_entrada = 21, bp.kilos, NULL) AS kg_bruto_bascula,
          cab.imp_transporte           AS importe_transporte,
          cab.certificada              AS certificada,
          tpo.certificado_GGAP         AS certificado_ggn,
@@ -204,6 +214,8 @@ function aFilaApp(r, userId, estimar) {
     tipo_envase: txt(r.tipo_envase),
     envases: num(r.envases),
     kg_entrada: num(r.kg_entrada),
+    // Solo en importaciones: el kilo de bascula con envases (NULL en nacionales)
+    kg_bruto_bascula: num(r.kg_bruto_bascula),
     precio_compra_kg: num(r.precio_compra_kg),
     importe_compra: num(r.importe_compra),
     importe_transporte: num(r.importe_transporte),
@@ -234,8 +246,8 @@ function aFilaApp(r, userId, estimar) {
 /** Campos que se comparan contra lo que ya hay en la app. */
 const COMPARABLES = [
   "num_entrada", "agricultor", "finca", "parcela", "articulo",
-  "tipo_envase", "envases", "kg_entrada", "precio_compra_kg",
-  "importe_compra", "importe_transporte", "certificada",
+  "tipo_envase", "envases", "kg_entrada", "kg_bruto_bascula",
+  "precio_compra_kg", "importe_compra", "importe_transporte", "certificada",
 ];
 
 const vacio = (v) => v === null || v === undefined || v === "";
@@ -251,8 +263,8 @@ const vacio = (v) => v === null || v === undefined || v === "";
  */
 const RELLENABLES = [
   "num_entrada", "agricultor", "finca", "parcela", "articulo",
-  "tipo_envase", "envases", "precio_compra_kg", "importe_compra",
-  "importe_transporte", "certificado_ggn",
+  "tipo_envase", "envases", "kg_bruto_bascula", "precio_compra_kg",
+  "importe_compra", "importe_transporte", "certificado_ggn",
 ];
 
 /**

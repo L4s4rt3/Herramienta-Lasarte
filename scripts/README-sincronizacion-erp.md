@@ -24,7 +24,8 @@
 
 | Campo en `entradas_bascula` | Origen en el ERP (`gdata001`) |
 | --- | --- |
-| `fecha`, `lote`, `kg_entrada` | `basculas_pesadas` (filtrando `tipo_dcmto = 25`) |
+| `fecha`, `lote`, `kg_entrada` | `basculas_pesadas` (filtrando `tipo_dcmto = 25`) — **salvo importación, ver abajo** |
+| `kg_bruto_bascula` | solo importación (`ent_prov_cab_alb.tipo_entrada = 21`): `basculas_pesadas.kilos` |
 | `num_entrada` | `basculas_pesadas.num_dcmto_relacionado` |
 | `agricultor` | `terceros_proveedores.razon_social` |
 | `finca` | `agricultura_fincas.denominacion` (por `zona_origen` + proveedor) |
@@ -38,6 +39,27 @@
 
 El código de lote **no se reconstruye**: `basculas_pesadas.lote` ya lo trae, en
 las 16.459 pesadas y sin un solo hueco.
+
+## Importación (tipo_entrada 21): el kg de entrada es el NETO, no la báscula
+
+En las entradas nacionales el kilo de báscula y el neto del albarán son
+idénticos (comprobado el 28-08: diferencia 0 en todas las de agosto), así que
+copiar la báscula siempre fue correcto. En la **importación** no: la mercancía
+entra en cartones sobre palets y la báscula los pesa también. El primer camión
+SAF (27-08, lote 26082701) dio 25.022 kg brutos con solo 23.589 de fruta —
+1.433 kg de cartón y madera que, contados como fruta, inventan ~6 puntos de
+merma y hunden el aprovechamiento del "productor" importador.
+
+Regla del sincronizador desde el 28-08:
+
+- `tipo_entrada = 21` **con neto en el albarán** (`ent_prov_lineas.unidades_1 > 0`):
+  `kg_entrada` = ese neto, y el bruto se conserva en `kg_bruto_bascula`.
+- `tipo_entrada = 21` **sin neto** (entrada sin valorar, como Egipto 11/12-08):
+  `kg_entrada` = bruto (lo único que se sabe) y `kg_bruto_bascula` = el mismo
+  valor — esa igualdad es la señal de "neto desconocido", no una redundancia.
+- Nacionales: como siempre (`kg_bruto_bascula` queda a NULL).
+
+Nada de esto escribe en el ERP: contra MySQL solo hay SELECT, como siempre.
 
 ## Recolección: estimada, nunca inventada en el sitio del coste real
 
