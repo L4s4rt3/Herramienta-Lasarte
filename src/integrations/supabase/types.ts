@@ -214,6 +214,170 @@ export type Database = {
           },
         ]
       }
+      calidad_import_controles: {
+        Row: {
+          barco: string
+          calibre: string
+          clasificacion: string
+          created_at: string
+          defectos_evolutivos: Json
+          defectos_graves: Json
+          defectos_leves: Json
+          estado: string
+          etiquetado: string
+          evaluador: string
+          fecha: string
+          firma_path: string | null
+          ggn: string
+          id: string
+          kg_total: string
+          marca: string
+          muestras_internas: Json
+          muestreo_evolutivos: string
+          muestreo_no_evolutivos: string
+          num_contenedor: string
+          nuestra_ref: string
+          obs_evolutivos: string
+          obs_no_evolutivos: string
+          origen: string
+          paletizacion: string
+          papel: string
+          peso_medio_cajas: string
+          proveedor: string
+          puc_orchard: string
+          referencia: string
+          sticker: string
+          temperatura: string
+          tipo_confeccion: string
+          tipo_producto: string
+          tratamientos: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          barco?: string
+          calibre?: string
+          clasificacion?: string
+          created_at?: string
+          defectos_evolutivos?: Json
+          defectos_graves?: Json
+          defectos_leves?: Json
+          estado?: string
+          etiquetado?: string
+          evaluador?: string
+          fecha?: string
+          firma_path?: string | null
+          ggn?: string
+          id?: string
+          kg_total?: string
+          marca?: string
+          muestras_internas?: Json
+          muestreo_evolutivos?: string
+          muestreo_no_evolutivos?: string
+          num_contenedor?: string
+          nuestra_ref?: string
+          obs_evolutivos?: string
+          obs_no_evolutivos?: string
+          origen?: string
+          paletizacion?: string
+          papel?: string
+          peso_medio_cajas?: string
+          proveedor?: string
+          puc_orchard?: string
+          referencia?: string
+          sticker?: string
+          temperatura?: string
+          tipo_confeccion?: string
+          tipo_producto?: string
+          tratamientos?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          barco?: string
+          calibre?: string
+          clasificacion?: string
+          created_at?: string
+          defectos_evolutivos?: Json
+          defectos_graves?: Json
+          defectos_leves?: Json
+          estado?: string
+          etiquetado?: string
+          evaluador?: string
+          fecha?: string
+          firma_path?: string | null
+          ggn?: string
+          id?: string
+          kg_total?: string
+          marca?: string
+          muestras_internas?: Json
+          muestreo_evolutivos?: string
+          muestreo_no_evolutivos?: string
+          num_contenedor?: string
+          nuestra_ref?: string
+          obs_evolutivos?: string
+          obs_no_evolutivos?: string
+          origen?: string
+          paletizacion?: string
+          papel?: string
+          peso_medio_cajas?: string
+          proveedor?: string
+          puc_orchard?: string
+          referencia?: string
+          sticker?: string
+          temperatura?: string
+          tipo_confeccion?: string
+          tipo_producto?: string
+          tratamientos?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      calidad_import_fotos: {
+        Row: {
+          control_id: string
+          created_at: string
+          file_name: string
+          file_path: string
+          file_size: number | null
+          id: string
+          mime_type: string | null
+          orden: number
+          user_id: string
+        }
+        Insert: {
+          control_id: string
+          created_at?: string
+          file_name: string
+          file_path: string
+          file_size?: number | null
+          id?: string
+          mime_type?: string | null
+          orden?: number
+          user_id: string
+        }
+        Update: {
+          control_id?: string
+          created_at?: string
+          file_name?: string
+          file_path?: string
+          file_size?: number | null
+          id?: string
+          mime_type?: string | null
+          orden?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calidad_import_fotos_control_id_fkey"
+            columns: ["control_id"]
+            isOneToOne: false
+            referencedRelation: "calidad_import_controles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       calidad_jornadas: {
         Row: {
           created_at: string

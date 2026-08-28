@@ -64,6 +64,12 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/produccion",
     parentLabel: "Planta",
   },
+  "/calidad/importacion": {
+    label: "Calidad importación",
+    subtitle: "Controles de la fruta de importación y su informe de calidad",
+    parent: "/produccion",
+    parentLabel: "Planta",
+  },
   "/analisis/diario": {
     label: "Análisis por día",
     subtitle: "Qué pasó un día concreto: lotes, calibres y destinos",

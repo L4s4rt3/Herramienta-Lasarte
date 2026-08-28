@@ -70,6 +70,7 @@ const PAGES = [
   { to: "/trazabilidad", label: "Análisis por lote", icon: Waypoints, keywords: "trazabilidad lote finca origen destino cadena seguimiento" },
   { to: "/productores?vista=calibrador", label: "Aprovechamiento (calibrador)", icon: Cog, keywords: "calibrador sizer compac aprovechamiento productor exportacion industria clasificacion maquina" },
   { to: "/calidad", label: "Calidad", icon: ClipboardCheck, keywords: "calidad lotes notas aerobotics finca productor jornada" },
+  { to: "/calidad/importacion", label: "Calidad importación", icon: ClipboardCheck, keywords: "calidad importacion control contenedor camion saf sudafrica reporte informe word defectos zumo brix" },
   { to: "/partes", label: "Parte del día", icon: FileText, keywords: "partes produccion diario diarios" },
   { to: "/analisis/diario", label: "Análisis por día", icon: BarChart3, keywords: "analisis diario lotes calibres" },
   { to: "/productores", label: "Análisis por productor", icon: Sprout, keywords: "productores proveedores origen eficiencia" },

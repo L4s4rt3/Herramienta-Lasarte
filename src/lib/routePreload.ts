@@ -2,6 +2,8 @@ export const pageLoaders = {
   auth: () => import("@/pages/Auth"),
   dashboard: () => import("@/pages/Dashboard"),
   calidad: () => import("@/pages/CalidadJornada"),
+  calidadImportacion: () => import("@/pages/CalidadImportacion"),
+  calidadImportacionControl: () => import("@/pages/CalidadImportacionControl"),
   partesList: () => import("@/pages/PartesList"),
   partDetail: () => import("@/pages/PartDetail"),
   consumoCostes: () => import("@/pages/ConsumoCostes"),
@@ -62,6 +64,7 @@ const preloadByPath: Record<string, () => Promise<unknown>> = {
   "/trazabilidad": pageLoaders.trazabilidad,
   "/calibrador": pageLoaders.analisisPorProductor,
   "/calidad": pageLoaders.calidad,
+  "/calidad/importacion": pageLoaders.calidadImportacion,
   "/partes": pageLoaders.partesList,
   "/costes/consumos": pageLoaders.economicoCostesPanel,
   "/limpieza": pageLoaders.limpiezaBox,
@@ -100,6 +103,12 @@ const preloadByPath: Record<string, () => Promise<unknown>> = {
 };
 
 export function preloadRoute(path: string) {
-  const loader = preloadByPath[path] ?? (path.startsWith("/partes/") ? pageLoaders.partDetail : null);
+  const loader =
+    preloadByPath[path] ??
+    (path.startsWith("/partes/")
+      ? pageLoaders.partDetail
+      : path.startsWith("/calidad/importacion/")
+        ? pageLoaders.calidadImportacionControl
+        : null);
   if (loader) void loader();
 }

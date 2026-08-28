@@ -188,6 +188,10 @@ export const NAV_GROUPS: Array<{ label: string; workspace: WorkspaceId; items: N
       { to: "/partes", label: "Parte del día", icon: FileText, match: (p) => p.startsWith("/partes") },
       { to: "/entradas", label: "Entradas y stock", icon: Truck },
       { to: "/calidad", label: "Calidad", icon: ClipboardCheck },
+      // Controles de la fruta de importación (contenedores/camiones de fuera):
+      // página aparte de /calidad porque contesta a OTRA pregunta (¿cómo viene
+      // la fruta comprada fuera?) y está pensada para el móvil de calidad.
+      { to: "/calidad/importacion", label: "Calidad importación", icon: ClipboardCheck, match: (p) => p.startsWith("/calidad/importacion") },
       { to: "/limpieza", label: "Limpieza de box", icon: Brush, adminOnly: true },
     ],
   },

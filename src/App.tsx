@@ -18,6 +18,8 @@ import { pageLoaders } from "@/lib/routePreload";
 const Auth = lazy(pageLoaders.auth);
 const Dashboard = lazy(pageLoaders.dashboard);
 const CalidadJornada = lazy(pageLoaders.calidad);
+const CalidadImportacion = lazy(pageLoaders.calidadImportacion);
+const CalidadImportacionControl = lazy(pageLoaders.calidadImportacionControl);
 const PartesList = lazy(pageLoaders.partesList);
 const PartDetail = lazy(pageLoaders.partDetail);
 const NotFound = lazy(pageLoaders.notFound);
@@ -90,6 +92,10 @@ const App = () => (
                       <Route path="/entradas" element={<EntradasBascula />} />
                       <Route path="/trazabilidad" element={<TrazabilidadLote />} />
                       <Route path="/calidad" element={<CalidadJornada />} />
+                      {/* Calidad de importación: los controles de contenedores/camiones
+                          de fuera (SAF etc.), pensados para rellenarse desde el móvil. */}
+                      <Route path="/calidad/importacion" element={<CalidadImportacion />} />
+                      <Route path="/calidad/importacion/:id" element={<CalidadImportacionControl />} />
                       <Route path="/partes" element={<PartesList />} />
                       <Route path="/partes/:id" element={<PartDetail />} />
                       <Route path="/limpieza" element={<LimpiezaBox />} />
