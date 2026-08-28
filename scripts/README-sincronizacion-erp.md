@@ -198,7 +198,7 @@ menos palets de los que el ERP dice hoy**, y casi siempre porque faltaban. Al
 parte del 11-ago le faltaban 11.662 kg y su descuadre era del **22%**; con los
 del ERP baja al **5,1%**, que es un día normal.
 
-Así que mientras el parte esté en **Borrador**, el GSTOCK se rehace solo
+Así que mientras el parte no esté **Validado**, el GSTOCK se rehace solo
 (`refrescarSiFaltanKg`, 500 kg en el aviso diario) y el parte se vuelve a
 analizar para que lea los nuevos. Con tres cerrojos:
 
@@ -206,7 +206,10 @@ analizar para que lea los nuevos. Con tres cerrojos:
   55 partes el |DSJ| medio solo baja de 13,80% a 12,95%, porque 18 días mejoran
   y **12 empeoran** — los que ya tenían descuadre negativo. La regla no es "el
   ERP manda", es *"el ERP manda cuando al parte le faltan palets"*.
-- **Solo partes en Borrador.** Uno cerrado no se toca: alguien ya lo dio por bueno.
+- **Un "Validado" no se toca: alguien lo firmó.** (Regla del dueño 28-08-2026:
+  antes el cerrojo era "solo Borrador", pero el análisis automático deja los
+  partes en "Analizado" y esos tienen que seguir recibiendo lo que llega tarde.
+  El único candado humano es Validado.)
 - **Solo archivos que generó el propio script**, que se llaman `GSTOCK
   <fecha>.xlsx`. Los que sube una persona llevan nombre libre (`palets 4
   ago.xlsx`, `29 julio.xlsx`) y no se borran jamás.
@@ -253,8 +256,10 @@ nada — y meter un número que no cuadra sí lo haría.
 lo dice: hay que subir el Excel del GSTOCK a mano o relanzar la tarea. Nunca se
 escribe un 0 como si fuera un dato.
 
-**Nunca pisa trabajo humano.** Si el parte ya existe y no está en Borrador, no se
-toca. Si está en Borrador, solo se rellenan los automáticos que sigan a cero.
+**Nunca pisa trabajo humano.** Un parte **Validado** no se toca. En cualquier
+otro estado solo se rellenan los automáticos que sigan a cero — un valor
+tecleado se respeta siempre, y las estimaciones quedan marcadas y las retira
+el dato real.
 
 **Repasa una semana, no solo ayer.** Si un día la tarea no llega a correr, ese
 parte no se crearía nunca; y el arrastre del inventario solo se puede poner

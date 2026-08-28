@@ -278,16 +278,17 @@ export async function informesDelParte(supabase, fecha) {
 }
 
 /**
- * Sube los tres al parte del día. Como el GSTOCK: solo partes en Borrador, y
- * solo se reemplazan los que generó este mismo script (nombre exacto). Un
- * archivo que subió una persona no se toca nunca.
+ * Sube los tres al parte del día. Como el GSTOCK: cualquier parte NO Validado
+ * (el candado humano; regla del dueño 28-08-2026), y solo se reemplazan los
+ * que generó este mismo script (nombre exacto). Un archivo que subió una
+ * persona no se toca nunca.
  */
 export async function generarYSubirInformes(supabase, fecha, { aplicar = false } = {}) {
   const { data: parte, error: errP } = await supabase.from("partes_diarios")
     .select("id, user_id, estado").eq("date", fecha).maybeSingle();
   if (errP) throw new Error(`parte: ${errP.message}`);
   if (!parte) return { fecha, accion: "sin-parte" };
-  if (parte.estado !== "Borrador") {
+  if (parte.estado === "Validado") {
     return { fecha, accion: "respetado", motivo: `el parte esta en "${parte.estado}"` };
   }
 

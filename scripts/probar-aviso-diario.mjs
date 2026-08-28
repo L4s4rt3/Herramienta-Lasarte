@@ -243,9 +243,9 @@ comprobar("y dice sobre cuantos kilos va", /sobre.*36\.000 kg de 72\.709 kg/.tes
 comprobar("si esta todo facturado no sobra la aclaracion", !/ya facturados/.test(normal.cuerpo));
 
 const analizadoSolo = componerAviso({ ...BASE,
-  analizados: [{ fecha: "2026-08-10", archivos: 8, reabierto: true }] });
+  analizados: [{ fecha: "2026-08-10", archivos: 8, faltanManuales: true }] });
 comprobar("dice que analizo un parte que estaba sin extraer", /Analizado solo el parte del 2026-08-10 \(8 informes/.test(analizadoSolo.cuerpo));
-comprobar("y que sigue editable para los manuales", /sigue en borrador para los manuales/.test(analizadoSolo.cuerpo));
+comprobar("y avisa de que el papel sigue pendiente (el parte queda Analizado)", /papel sigue pendiente/.test(analizadoSolo.cuerpo));
 comprobar("analizar solo no es una incidencia", analizadoSolo.hayProblema === false);
 
 // El alta de palets deducida de las fotos: en pruebas, no debe escribir nada.
@@ -377,7 +377,6 @@ const conEstimados = componerAviso({ ...BASE, estimados: {
     { campo: "kg_podrido_bateas", valor: null, metodo: "no-se-estima", etiqueta: "Podrido de bateas: no se estima (solo cuenta si se vaciaron)" },
   ] }],
   recuperados: [{ fecha: "2026-08-11", campos: ["kg_inventario_sin_alta"] }],
-  reabiertos: ["2026-08-10"],
   validadosConEstimacion: [],
 } });
 comprobar("estimaciones: el correo dice que se estimo, con valor y metodo",
@@ -387,15 +386,17 @@ comprobar("estimaciones: las bateas dicen que NO se estiman",
   /Podrido de bateas: no se estima/.test(conEstimados.cuerpo));
 comprobar("estimaciones: el dato real recuperado se cuenta",
   /recupero el dato real de inventario sin alta/.test(conEstimados.cuerpo));
-comprobar("estimaciones: el reabierto a Borrador se cuenta",
-  /2026-08-10 se reabrio a Borrador/.test(conEstimados.cuerpo));
+// Regla del dueño (28-08): los partes con estimaciones se quedan ANALIZADOS —
+// el correo ya no habla de "reabrir a Borrador", sino de reabrir para corregir.
+comprobar("estimaciones: ya no se reabre nada a Borrador",
+  !/reabrio a Borrador/.test(conEstimados.cuerpo));
 comprobar("estimar NO es una incidencia: es el sistema trabajando",
   conEstimados.hayProblema === false);
 comprobar("y se recuerda que el dato real gana",
   /la estimacion se retira sola/.test(conEstimados.cuerpo));
 
 const validadoCon = componerAviso({ ...BASE, estimados: {
-  estimados: [], recuperados: [], reabiertos: [], validadosConEstimacion: ["2026-08-09"],
+  estimados: [], recuperados: [], validadosConEstimacion: ["2026-08-09"],
 } });
 comprobar("un VALIDADO con estimaciones dentro SI es incidencia",
   validadoCon.hayProblema === true && /VALIDADO con estimaciones/.test(validadoCon.cuerpo));

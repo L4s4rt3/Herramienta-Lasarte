@@ -28,7 +28,10 @@ assert.equal(sinManuales({ ...vacio, kg_inventario_sin_alta: 882 }), false,
 // ── ¿candidato? ──────────────────────────────────────────────────────────────
 const base = { ...vacio, estado: "Borrador", date: "2026-08-12", kg_produccion_calibrador: 85682 };
 assert.equal(esCandidato(base, "2026-08-15"), true);
-assert.equal(esCandidato({ ...base, estado: "Analizado" }, "2026-08-15"), false, "Analizado no se toca");
+// Regla del dueño 28-08: el análisis automático deja los partes "Analizado" y
+// esos TAMBIÉN reciben estimación; el único candado humano es "Validado".
+assert.equal(esCandidato({ ...base, estado: "Analizado" }, "2026-08-15"), true, "Analizado sí recibe estimación");
+assert.equal(esCandidato({ ...base, estado: "Validado" }, "2026-08-15"), false, "Validado no se toca jamás");
 assert.equal(esCandidato({ ...base, date: "2026-08-16" }, "2026-08-15"), false, "dia de gracia: lo reciente espera a una persona");
 assert.equal(esCandidato({ ...base, kg_produccion_calibrador: 0 }, "2026-08-15"), false, "sin produccion no hay que estimar nada");
 assert.equal(esCandidato({ ...base, kg_podrido_bolsa_basura: 333 }, "2026-08-15"), false, "con papel metido no se estima");

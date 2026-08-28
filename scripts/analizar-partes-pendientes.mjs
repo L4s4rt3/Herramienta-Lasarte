@@ -9,21 +9,19 @@
  *
  * QUÉ SE ANALIZA. Partes con archivos adjuntos que ademas cumplan una de dos:
  *   a) no se han analizado nunca (`resumen_ia` a null), o
- *   b) siguen en Borrador y tienen un GSTOCK subido pero `kg_palets_brutos` a
- *      cero — es decir, el archivo llegó DESPUÉS del análisis y su dato no está
- *      reflejado. Pasa cada vez que el GSTOCK se genera solo (ver
- *      generar-gstock-erp.mjs) sobre un parte que ya se había analizado.
+ *   b) tienen un GSTOCK subido pero `kg_palets_brutos` a cero — es decir, el
+ *      archivo llegó DESPUÉS del análisis y su dato no está reflejado. Pasa
+ *      cada vez que el GSTOCK se genera solo (ver generar-gstock-erp.mjs)
+ *      sobre un parte que ya se había analizado.
  *
- * Un parte que no esté en Borrador NO se toca nunca: reanalizar uno cerrado
- * podría revivir valores que alguien corrigió a mano.
- *
- * EL ESTADO SE DEVUELVE A BORRADOR SI QUEDA TRABAJO. `analizar-parte` deja el
- * parte en "Analizado", y en la app eso lo pone de SOLO LECTURA
- * (PartDetail: readOnly = estado !== "Borrador"). Si aún faltan los datos del
- * papel, dejarlo así le cerraría la puerta al operario justo cuando le toca
- * escribir. Por eso: si tras analizar los cinco manuales siguen a cero, vuelve a
- * Borrador. Si ya había metido alguno, se respeta el estado que decida el
- * análisis.
+ * EL CANDADO ES "Validado", NO "Analizado" (regla del dueño, 28-08-2026). Antes
+ * el análisis devolvía el parte a Borrador si faltaba el papel, y el dueño veía
+ * "todos en borrador" cuando en realidad estaban analizados. Ahora el análisis
+ * deja el parte en "Analizado" — como si lo hubiera analizado una persona — y
+ * SOLO un parte "Validado" (firmado por alguien) queda fuera del alcance de la
+ * automatización. Para teclear el papel en un parte Analizado, el botón de la
+ * app lo reabre (PartDetail.toggleEstado); el dato real gana y retira su
+ * estimación, como siempre.
  *
  * Los campos manuales NUNCA se pisan: eso ya lo garantiza la propia edge
  * function (su lista `manualFields` protege lo que el usuario haya escrito).
@@ -52,7 +50,7 @@ const comoFecha = (d) => `${d.getFullYear()}-${dd(d.getMonth() + 1)}-${dd(d.getD
 
 /**
  * @param forzar  fechas que hay que reanalizar SI O SI (siempre que el parte
- *   siga en Borrador). Se usa cuando un archivo del parte ha cambiado por
+ *   no esté Validado). Se usa cuando un archivo del parte ha cambiado por
  *   detras — hoy, cuando se rehace el GSTOCK porque al parte le faltaban palets
  *   (ver generar-gstock-erp.mjs). Sin esto, el archivo nuevo se quedaria en el
  *   parte sin leer: las dos condiciones de abajo miran "nunca analizado" y
@@ -76,15 +74,14 @@ export async function analizarPartesPendientes(supabase, { url, key, desde, apli
       continue;
     }
 
+    // "Validado" es el candado humano: ese parte no se analiza ni forzado.
+    if (p.estado === "Validado") continue;
+
     const nuncaAnalizado = !p.resumen_ia;
-    const gstockSinLeer = p.estado === "Borrador"
-      && archivos.some((a) => a.file_type === "GSTOCK")
+    const gstockSinLeer = archivos.some((a) => a.file_type === "GSTOCK")
       && !(Number(p.kg_palets_brutos) > 0);
-    // Un forzado solo vale si el parte sigue en Borrador: reanalizar uno cerrado
-    // podria revivir valores que alguien corrigio a mano.
-    const forzado = forzadas.has(p.date) && p.estado === "Borrador";
+    const forzado = forzadas.has(p.date);
     if (!nuncaAnalizado && !gstockSinLeer && !forzado) continue;
-    if (!nuncaAnalizado && !forzado && p.estado !== "Borrador") continue;
     if (!aplicar) {
       resultados.push({ fecha: p.date, accion: "analizaria", archivos: count });
       continue;
@@ -102,16 +99,13 @@ export async function analizarPartesPendientes(supabase, { url, key, desde, apli
         continue;
       }
 
-      // ¿Queda trabajo del papel? Entonces el parte tiene que seguir editable.
+      // El parte queda como lo deje el análisis ("Analizado"): ya no se
+      // devuelve a Borrador aunque falte el papel — el operario reabre desde
+      // la app cuando le toque teclear (regla del dueño, 28-08-2026).
       const faltanManuales = MANUALES.every((c) => !(Number(p[c]) > 0));
-      if (faltanManuales && p.estado === "Borrador") {
-        const { error: errE } = await supabase.from("partes_diarios")
-          .update({ estado: "Borrador" }).eq("id", p.id);
-        if (errE) throw new Error(`reabrir: ${errE.message}`);
-      }
       resultados.push({
         fecha: p.date, accion: "analizado", archivos: count,
-        reabierto: faltanManuales && p.estado === "Borrador",
+        faltanManuales,
         avisos: cuerpo.avisos ?? [],
       });
     } catch (e) {
@@ -140,7 +134,7 @@ async function main() {
   if (r.length === 0) return console.log("No hay ningun parte sin analizar.");
   for (const x of r) {
     const extra = x.accion === "analizado"
-      ? ` (${x.archivos} archivos${x.reabierto ? ", devuelto a Borrador para los manuales" : ""})`
+      ? ` (${x.archivos} archivos${x.faltanManuales ? ", papel pendiente" : ""})`
       : x.accion === "analizaria" ? ` (${x.archivos} archivos)` : x.motivo ? ` (${x.motivo})` : "";
     console.log(`  ${x.fecha}: ${x.accion}${extra}`);
     for (const a of x.avisos ?? []) console.log(`      aviso: ${a}`);

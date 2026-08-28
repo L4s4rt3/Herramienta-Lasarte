@@ -403,9 +403,10 @@ async function main() {
   // 07:10 del dia siguiente, y a esa hora todavia no han terminado de dar de
   // alta: medido el 14-08-2026, 31 de 55 partes tenian menos palets de los que
   // el ERP dice hoy — el 11-08 le faltaban 11.662 kg y su descuadre era del 22%.
-  // Mientras el parte siga en Borrador se rehace solo. Ver generarYSubir: solo
-  // toca lo que genero el mismo, solo si el ERP tiene MAS, y nunca un parte
-  // cerrado ni un archivo que subiera una persona.
+  // Mientras nadie VALIDE el parte se rehace solo (desde el 28-08 "Analizado"
+  // tambien se rehace: es el estado normal del automatico). Ver generarYSubir:
+  // solo toca lo que genero el mismo, solo si el ERP tiene MAS, y nunca un
+  // parte Validado ni un archivo que subiera una persona.
   let gstock = null;
   const gstockRecuperados = [];
   const gstockRehechos = [];

@@ -50,9 +50,12 @@
  *     parte cuenta (5.849 vs 207 el 3-ago). No entra en el DSJ (cascade.ts): es
  *     informativo, asi que dejarlo a cero no descuadra nada.
  *
- * NUNCA PISA TRABAJO HUMANO: si el parte ya existe y no esta en Borrador, no se
- * toca. Si esta en Borrador, solo se rellenan los campos automaticos que sigan
- * a cero — un valor puesto a mano se respeta siempre.
+ * NUNCA PISA TRABAJO HUMANO: un parte "Validado" (firmado por una persona) no
+ * se toca. En cualquier otro estado solo se rellenan los campos automaticos
+ * que sigan a cero — un valor puesto a mano se respeta siempre. (Hasta el
+ * 28-08-2026 el candado era "no Borrador", pero el analisis automatico deja
+ * los partes en "Analizado" y estos tienen que seguir recibiendo lo que
+ * llegue tarde: regla del dueño.)
  *
  * SE REPASA UNA VENTANA, NO SOLO AYER: si un dia la tarea no corre (portatil
  * apagado), ese parte no se crearia nunca. Y el arrastre del inventario del dia
@@ -198,14 +201,14 @@ export async function crearParteDiario(supabase, fecha, { aplicar = false, palet
   // Un 0 arrastrado de un dia que aun no se ha cerrado no es un 0 de verdad:
   // es "todavia no se sabe". PartDetail lo recalcula al abrir el parte, y el
   // repaso de la ventana tambien; hay que decirlo, no ensenar un 0 tranquilo.
-  const anteriorPendiente = anterior === 0 && (previos?.[0]?.estado ?? "Borrador") === "Borrador";
+  const anteriorPendiente = anterior === 0 && (previos?.[0]?.estado ?? "Borrador") !== "Validado";
 
   const { data: existentes, error: errEx } = await supabase
     .from("partes_diarios").select("*").eq("date", fecha).limit(1);
   if (errEx) throw new Error(`parte existente: ${errEx.message}`);
   const parte = existentes?.[0] ?? null;
 
-  if (parte && parte.estado !== "Borrador") {
+  if (parte && parte.estado === "Validado") {
     return { fecha, id: parte.id, estado: parte.estado, accion: "respetado",
       motivo: `ya existe y esta en "${parte.estado}"`, ...cal };
   }

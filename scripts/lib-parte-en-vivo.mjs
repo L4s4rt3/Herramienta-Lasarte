@@ -54,7 +54,9 @@ export function nombreAdjuntoLote(lote) {
  * primero. Idempotente por nombre: el mismo lote reenviado REEMPLAZA su
  * adjunto (el informe nuevo es mas completo), nunca lo duplica.
  *
- * Un parte que ya no este en Borrador no se toca: lo cerro una persona.
+ * Solo un parte "Validado" no se toca: lo firmo una persona. "Analizado" es
+ * terreno de la automatizacion (regla del dueño, 28-08-2026): un lote que
+ * llega tarde tiene que poder entrar en su parte ya analizado.
  */
 export async function adjuntarLoteAlParte(supabase, { fecha, lote, contenido }) {
   if (!fecha || !contenido) return { accion: "sin-datos" };
@@ -69,7 +71,7 @@ export async function adjuntarLoteAlParte(supabase, { fecha, lote, contenido }) 
     .select("id, user_id, estado").eq("date", fecha).maybeSingle();
   if (errP) throw new Error(`parte: ${errP.message}`);
   if (!parte) return { accion: "sin-parte" };
-  if (parte.estado !== "Borrador") return { accion: "respetado", motivo: `esta en "${parte.estado}"` };
+  if (parte.estado === "Validado") return { accion: "respetado", motivo: `esta en "${parte.estado}"` };
 
   const nombre = nombreAdjuntoLote(lote);
   const { data: yaHay, error: errA } = await supabase.from("partes_archivos")
@@ -135,7 +137,10 @@ export async function refrescarParteEnVivo(supabase, fecha, { url, key } = {}) {
   }
 
   // El MISMO analisis que el boton de la app, forzado porque los informes de
-  // este dia acaban de cambiar. Reabre a Borrador si faltan los manuales.
+  // este dia acaban de cambiar. El parte queda "Analizado" — ya NO se devuelve
+  // a Borrador por estimaciones vigentes (regla del dueño, 28-08-2026): las
+  // marcas ambar de campos_estimados ya dicen que es provisional, y el boton
+  // de la app reabre cuando llegue el papel.
   try {
     const analisis = await analizarPartesPendientes(supabase, {
       url, key, desde: fecha, aplicar: true, forzar: [fecha],
@@ -144,18 +149,6 @@ export async function refrescarParteEnVivo(supabase, fecha, { url, key } = {}) {
   } catch (e) {
     r.analisis = `error: ${e.message}`;
   }
-
-  // Un parte con estimaciones vigentes no puede quedar en solo lectura por un
-  // reanalisis: mismo criterio que estimar-manuales-parte (el operario tiene
-  // que poder teclear el dato real, que gana y retira la estimacion).
-  try {
-    const { data: p } = await supabase.from("partes_diarios")
-      .select("id, estado, campos_estimados").eq("date", fecha).maybeSingle();
-    if (p?.estado === "Analizado" && p.campos_estimados && Object.keys(p.campos_estimados).length > 0) {
-      const { error } = await supabase.from("partes_diarios").update({ estado: "Borrador" }).eq("id", p.id);
-      if (!error) r.reabierto = true;
-    }
-  } catch { /* la tarea de la manana lo normaliza */ }
 
   return r;
 }

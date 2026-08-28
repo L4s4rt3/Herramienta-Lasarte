@@ -65,7 +65,7 @@ export async function estimarPartesPendientes(supabase, { hoy = comoFecha(new Da
   if (error) throw new Error(`partes: ${error.message}`);
   const partes = data ?? [];
 
-  const eventos = { estimados: [], recuperados: [], reabiertos: [], validadosConEstimacion: [] };
+  const eventos = { estimados: [], recuperados: [], validadosConEstimacion: [] };
 
   // ── 1. Mantenimiento de lo ya estimado ────────────────────────────────────
   for (const p of partes) {
@@ -88,17 +88,12 @@ export async function estimarPartesPendientes(supabase, { hoy = comoFecha(new Da
 
     const vigentes = Object.keys(p.campos_estimados?.campos ?? {});
     if (!vigentes.length) continue;
-    // Un parte con estimaciones vigentes no está terminado: si algo lo dejó en
-    // "Analizado" (solo lectura), se reabre para que el dato real pueda entrar.
-    // "Validado" no se toca jamás (lo firmó una persona), pero se avisa.
-    if (p.estado === "Analizado") {
-      if (aplicar) {
-        const { error: e } = await supabase.from("partes_diarios")
-          .update({ estado: "Borrador" }).eq("id", p.id);
-        if (e) throw new Error(`reabrir el ${p.date}: ${e.message}`);
-      }
-      eventos.reabiertos.push(p.date);
-    } else if (p.estado === "Validado") {
+    // Un parte "Analizado" con estimaciones vigentes se queda como está: las
+    // marcas ámbar de campos_estimados ya dicen que es provisional, y el botón
+    // de la app lo reabre cuando llegue el papel (regla del dueño, 28-08-2026;
+    // antes se devolvía a Borrador y el dueño veía "todo en borrador"). Un
+    // "Validado" con estimaciones sí se avisa: alguien firmó un provisional.
+    if (p.estado === "Validado") {
       eventos.validadosConEstimacion.push(p.date);
     }
   }
@@ -145,7 +140,6 @@ async function main() {
   for (const r of ev.recuperados) {
     console.log(`${r.fecha}: el dato real gano en ${r.campos.join(", ")} — estimacion retirada`);
   }
-  for (const f of ev.reabiertos) console.log(`${f}: reabierto a Borrador (tiene estimaciones vigentes)`);
   for (const f of ev.validadosConEstimacion) console.log(`${f}: OJO, Validado con estimaciones vigentes`);
   for (const e of ev.estimados) {
     console.log(`${e.fecha}: estimado (${aplicar ? "aplicado" : "simulacion"})`);
@@ -153,7 +147,7 @@ async function main() {
       console.log(`   ${d.etiqueta}${d.valor != null ? `: ${d.valor.toLocaleString("es-ES")} kg` : ""} [${d.metodo}]`);
     }
   }
-  if (!ev.estimados.length && !ev.recuperados.length && !ev.reabiertos.length) {
+  if (!ev.estimados.length && !ev.recuperados.length) {
     console.log("Nada que estimar ni que mantener.");
   }
   if (!aplicar) console.log("\n(simulacion: repite con --aplicar)");

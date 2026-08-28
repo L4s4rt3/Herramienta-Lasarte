@@ -426,7 +426,7 @@ export function componerAviso({
     // Partes que tenian sus informes subidos y nadie habia analizado.
     for (const a of analizados ?? []) {
       p.texto(`  Analizado solo el parte del ${a.fecha} (${a.archivos} informes que estaban sin extraer` +
-        `${a.reabierto ? ", sigue en borrador para los manuales" : ""}).`);
+        `${a.faltanManuales ? "; el papel sigue pendiente, reabrelo para teclearlo" : ""}).`);
     }
     secciones.push(p);
   }
@@ -436,7 +436,7 @@ export function componerAviso({
   // estima"): lo estimado se cuenta AQUÍ con su método y su valor — nunca en
   // silencio —, el dato real gana y retira la estimación, y un parte VALIDADO
   // con estimaciones dentro sube a REVISAR (eso ya no es normal).
-  if (estimados?.estimados?.length || estimados?.recuperados?.length || estimados?.reabiertos?.length) {
+  if (estimados?.estimados?.length || estimados?.recuperados?.length) {
     const NOMBRE_MANUAL = {
       kg_industria_manual: "industria",
       kg_reciclado_malla_z1: "reciclado Z1",
@@ -457,10 +457,7 @@ export function componerAviso({
       est.texto(`  El parte del ${r.fecha} recupero el dato real de` +
         ` ${r.campos.map((c) => NOMBRE_MANUAL[c] ?? c).join(", ")}: fuera su estimacion.`);
     }
-    for (const f of estimados.reabiertos ?? []) {
-      est.texto(`  El parte del ${f} se reabrio a Borrador: sigue con estimaciones vigentes.`);
-    }
-    est.texto("  El dato real siempre gana: corrige el campo en el parte y la estimacion se retira sola.");
+    est.texto("  El dato real siempre gana: reabre el parte, corrige el campo y la estimacion se retira sola.");
     secciones.push(est);
   }
 

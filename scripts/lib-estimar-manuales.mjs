@@ -5,7 +5,7 @@
  *
  * ENCARGO DEL USUARIO (17-08-2026, se va una semana): "si no hay información de
  * la que yo pongo manual, se haga una estimación según histórico". Sin esto los
- * partes se quedan en Borrador esperando el papel y la semana sale a medias.
+ * partes se quedan a medias esperando el papel y la semana sale coja.
  *
  * EL MÉTODO SALE DE LOS DATOS (30 partes, 5-jul a 17-ago):
  *
@@ -29,8 +29,10 @@
  *     valor y su método, y el correo lo cuenta.
  *   - El dato real SIEMPRE gana: si alguien teclea el campo, `pisados()` lo
  *     detecta y la estimación se retira sola.
- *   - Solo partes en Borrador con los CINCO del papel a cero (así se distingue
+ *   - Solo partes NO Validados con los CINCO del papel a cero (así se distingue
  *     "nadie lo metió" de "metieron un 0 real") y con un día entero de gracia.
+ *     Desde el 28-08-2026 el análisis automático deja los partes "Analizado",
+ *     y esos también reciben estimación: el candado humano es "Validado".
  */
 
 /** Los cinco del papel — mismos nombres que rehacer-parte.mjs. */
@@ -54,12 +56,12 @@ export function sinManuales(parte) {
 }
 
 /**
- * ¿Le toca estimación a este parte? Borrador + producción real + papel sin
+ * ¿Le toca estimación a este parte? No Validado + producción real + papel sin
  * meter + un día entero de gracia (fecha <= límite) para que una persona pueda
- * adelantarse. Los Validado/Analizado no se tocan: alguien ya decidió.
+ * adelantarse. Solo "Validado" queda fuera: lo firmó alguien y ese 0 es suyo.
  */
 export function esCandidato(parte, limiteFecha) {
-  return parte.estado === "Borrador"
+  return parte.estado !== "Validado"
     && num(parte.kg_produccion_calibrador) > 0
     && sinManuales(parte)
     && parte.date <= limiteFecha;

@@ -160,7 +160,7 @@ export const nombreGenerado = (fecha) => `GSTOCK ${fecha}.xlsx`;
  */
 function motivoParaNoRehacer(parte, archivos, fecha, refrescarSiFaltanKg) {
   if (!refrescarSiFaltanKg) return "el parte ya tiene un GSTOCK subido";
-  if (parte.estado !== "Borrador") return `el parte ya no esta en Borrador (${parte.estado})`;
+  if (parte.estado === "Validado") return `el parte esta Validado (firmado por una persona)`;
   if (archivos.some((a) => a.file_name !== nombreGenerado(fecha))) {
     return "el GSTOCK del parte lo subio una persona";
   }
