@@ -239,6 +239,31 @@ const TRABAJOS: DefTrabajo[] = [
     ),
   },
   {
+    id: "informe-semanal",
+    nombre: "Informe semanal (corre en Supabase)",
+    queHace: "Cada lunes a las 12:00 manda la semana cerrada: kg, podrido, merma, stock y kg por persona. Late al terminar (y también cuando falla): el 17 y el 24-08 murió en silencio y nadie lo supo.",
+    evaluar: periodico(
+      "cada lunes a las 12:00",
+      7 * 24 * 60 + 6 * 60,
+      8 * 24 * 60,
+      "Corre en Supabase: revisar los logs de la edge function informe-semanal y el job " +
+      "«informe-semanal-lunes» de pg_cron (hay un reintento a las 12:25). Se puede relanzar a mano " +
+      "invocando la función con la semana concreta; no duplica lo ya enviado.",
+    ),
+  },
+  {
+    id: "ventas-mercadona",
+    nombre: "Ventas Mercadona semanal (corre en Supabase)",
+    queHace: "Cada lunes a las 10:00 manda los kg, cajas y palets vendidos a Mercadona la semana cerrada (de erp_palet, pesada real).",
+    evaluar: periodico(
+      "cada lunes a las 10:00",
+      7 * 24 * 60 + 6 * 60,
+      8 * 24 * 60,
+      "Corre en Supabase: revisar los logs de la edge function ventas-mercadona-semanal y el job " +
+      "«ventas-mercadona-lunes» de pg_cron. Relanzable a mano; no duplica lo ya enviado.",
+    ),
+  },
+  {
     id: "vigilante",
     nombre: "Vigilante (corre en Supabase)",
     queHace: "Comprueba cada día a las 13:45, desde fuera del portátil, que todo lo de arriba ha corrido; si no, avisa por correo.",

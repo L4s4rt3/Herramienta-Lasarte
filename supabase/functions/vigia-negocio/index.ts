@@ -357,6 +357,17 @@ Deno.serve(async (req) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[vigia-negocio] error: ${msg}`);
+    // Latido de error también aquí: un vigía mudo sin rastro no lo caza nadie.
+    try {
+      const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+      await db.from("sistema_latidos").upsert({
+        trabajo: "vigia-negocio",
+        visto_a: new Date().toISOString(),
+        estado: "error",
+        detalle: msg.slice(0, 500),
+        equipo: "supabase-edge",
+      });
+    } catch { /* best-effort */ }
     return json({ error: "El vigía de negocio no pudo completar la revisión.", detalle: msg }, 500);
   }
 });

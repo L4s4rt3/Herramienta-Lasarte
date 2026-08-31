@@ -32,6 +32,7 @@ import {
   type PaletVenta,
   type SemanaIso,
 } from "../_shared/ventasMercadona.ts";
+import { registrarLatido } from "../_shared/latido.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -170,12 +171,26 @@ Deno.serve(async (req) => {
     });
     if (errLog) console.error(`[ventas-mercadona] no se pudo registrar: ${errLog.message}`);
 
+    await registrarLatido(
+      db,
+      "ventas-mercadona",
+      envio.ok ? "ok" : "error",
+      envio.ok
+        ? `semana ${objetivo.semana}/${objetivo.anio} enviada (${actual.palets} palets, ${Math.round(actual.kg)} kg)`
+        : `semana ${objetivo.semana}/${objetivo.anio}: ${envio.error}`,
+    );
+
     console.log(`[ventas-mercadona] semana=${objetivo.semana}/${objetivo.anio} enviado=${envio.ok} palets=${actual.palets} kg=${actual.kg}`);
     if (!envio.ok) return json({ enviado: false, motivo: "error_envio", detalle: envio.error, ...objetivo }, 502);
     return json({ enviado: true, asunto, destinatarios, actual, anterior, ...objetivo });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[ventas-mercadona] error: ${msg}`);
+    // Latido de error también aquí: un lunes mudo sin rastro no lo caza nadie.
+    try {
+      const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+      await registrarLatido(db, "ventas-mercadona", "error", msg);
+    } catch { /* best-effort */ }
     return json({ error: "No se pudo generar el correo de ventas Mercadona.", detalle: msg }, 500);
   }
 });

@@ -100,6 +100,23 @@ Verificado el 31-08: +703.192 kg exactos (todo el lado DOCX), del 12-08 al
 Si el import manual del Excel se retoma para un día ya cubierto por DOCX,
 gana el Excel (más completo).
 
+## Los lunes mudos (31-08, encontrado al verificar)
+
+El informe semanal de las semanas 33 y 34 **nunca salió y nadie lo supo**: el
+cron dispara por pg_net, que encola el POST y marca «succeeded» pase lo que
+pase; la función murió a medias (fallo intermitente: al reintentar funcionó)
+sin dejar ni fila de envío ni latido. Tres capas de arreglo, mismo día:
+
+1. Todas las funciones de correo **laten** en `sistema_latidos` al terminar y
+   también en su `catch` (helper `_shared/latido.ts`).
+2. `informe-semanal` y `ventas-mercadona` entraron en el catálogo de
+   `saludTrabajos.ts`: el vigilante avisa si un lunes pasa sin latido.
+3. Job `informe-semanal-lunes-reintento` (12:25 Madrid): inocuo si el primero
+   funcionó (responde `ya_enviado`), salva el lunes si murió.
+
+Las semanas 33 (399.450 kg) y 34 (338.832 kg) se enviaron el 31-08 con los
+datos ya completos de la vista arreglada.
+
 ## Lo que quedó apuntado (no construido)
 
 - **Excel semanal del dueño** (dos libros): el motor vivía en

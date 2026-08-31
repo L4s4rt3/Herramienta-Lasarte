@@ -49,6 +49,7 @@ import {
   type SemanaIso,
 } from "../_shared/informeSemanal.ts";
 import { calcularStockYMerma, cargarCampana, fetchTodas } from "../_shared/campanaEdge.ts";
+import { registrarLatido } from "../_shared/latido.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -300,6 +301,15 @@ Deno.serve(async (req) => {
     });
     if (errLog) console.error(`[informe-semanal] no se pudo registrar el envío: ${errLog.message}`);
 
+    await registrarLatido(
+      db,
+      "informe-semanal",
+      envio.ok ? "ok" : "error",
+      envio.ok
+        ? `semana ${informe.semana}/${informe.anio} enviada (${Math.round(informe.kgTotal)} kg)`
+        : `semana ${informe.semana}/${informe.anio}: ${envio.error}`,
+    );
+
     console.log(
       `[informe-semanal] semana=${informe.semana}/${informe.anio} enviado=${envio.ok} destinatarios=${destinatarios.length} avisos=${informe.avisos.length} stock=${Math.round(stockInforme.kgEnCamara)}kg merma_lotes=${mermaSemana.nLotes}`,
     );
@@ -323,6 +333,13 @@ Deno.serve(async (req) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[informe-semanal] error: ${msg}`);
+    // El latido de error también en el catch: dos lunes (17 y 24-08) murieron
+    // sin dejar rastro y nadie lo supo. Si hasta esto falla, queda el latido
+    // envejecido, que el vigilante también caza.
+    try {
+      const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+      await registrarLatido(db, "informe-semanal", "error", msg);
+    } catch { /* best-effort */ }
     return json({ error: "No se pudo generar el informe semanal.", detalle: msg }, 500);
   }
 });

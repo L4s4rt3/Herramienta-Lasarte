@@ -48,6 +48,7 @@ import {
   toNum,
   type StockYMerma,
 } from "../_shared/campanaEdge.ts";
+import { registrarLatido } from "../_shared/latido.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -300,14 +301,12 @@ Deno.serve(async (req) => {
     if (errLog) console.error(`[cierre-mensual] no se pudo registrar el envío: ${errLog.message}`);
 
     // Latido para el vigilante y la página /datos/fuentes.
-    const { error: errLat } = await db.from("sistema_latidos").upsert({
-      trabajo: "cierre-mensual",
-      visto_a: new Date().toISOString(),
-      estado: envio.ok ? "ok" : "error",
-      detalle: envio.ok ? `cierre de ${objetivo.mes}/${objetivo.anio} enviado` : envio.error,
-      equipo: "supabase-edge",
-    });
-    if (errLat) console.error(`[cierre-mensual] no se pudo actualizar el latido: ${errLat.message}`);
+    await registrarLatido(
+      db,
+      "cierre-mensual",
+      envio.ok ? "ok" : "error",
+      envio.ok ? `cierre de ${objetivo.mes}/${objetivo.anio} enviado` : (envio.error ?? "error de envío"),
+    );
 
     console.log(`[cierre-mensual] mes=${objetivo.mes}/${objetivo.anio} enviado=${envio.ok} kg=${Math.round(actual.kgCalibrado)}`);
 
@@ -328,6 +327,11 @@ Deno.serve(async (req) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[cierre-mensual] error: ${msg}`);
+    // Latido de error también aquí: que un día 1 mudo no pase sin rastro.
+    try {
+      const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+      await registrarLatido(db, "cierre-mensual", "error", msg);
+    } catch { /* best-effort */ }
     return json({ error: "No se pudo generar el cierre mensual.", detalle: msg }, 500);
   }
 });
