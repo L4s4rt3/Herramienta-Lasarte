@@ -3,7 +3,9 @@
 // Pensada para el móvil de la evaluadora: botón grande de "Nuevo control",
 // tarjetas de un vistazo (referencia, categoría, proveedor, fotos, estado) y
 // las acciones de cada control (abrir, duplicar para la otra categoría,
-// descargar el Word, borrar) sin salir de la lista.
+// descargar el Word, borrar) sin salir de la lista. Funciona sin conexión
+// (se trabaja contra la copia local y se sube solo) y se refresca en vivo
+// cuando cualquier usuario cambia algo.
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -16,6 +18,7 @@ import {
   Plus,
   Search,
   Trash2,
+  WifiOff,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,11 +47,14 @@ import {
   prefillDuplicado,
   useCalidadImportControles,
   useCalidadImportMutations,
+  useCalidadImportSync,
+  type ControlBundle,
   type ControlConFotos,
 } from "@/hooks/useCalidadImport";
 import { supabase } from "@/integrations/supabase/client";
 import type { CalidadImportFoto } from "@/lib/calidadImport";
 import { fechaInformeTexto } from "@/lib/calidadImportDocx";
+import { controlCacheado, esErrorDeRed } from "@/lib/calidadImportOffline";
 import { cn } from "@/lib/utils";
 
 function tituloControl(control: ControlConFotos): string {
@@ -60,6 +66,7 @@ export default function CalidadImportacion() {
   const navigate = useNavigate();
   const { data: controles, isLoading } = useCalidadImportControles();
   const { crearControl, borrarControl } = useCalidadImportMutations();
+  const { online } = useCalidadImportSync();
   const [filtro, setFiltro] = useState("");
   const [aBorrar, setABorrar] = useState<ControlConFotos | null>(null);
   const [generandoId, setGenerandoId] = useState<string | null>(null);
@@ -76,12 +83,12 @@ export default function CalidadImportacion() {
   }, [controles, filtro]);
 
   const nuevoControl = async () => {
-    const id = await crearControl.mutateAsync(undefined);
+    const { id } = await crearControl.mutateAsync(undefined);
     navigate(`/calidad/importacion/${id}`);
   };
 
   const duplicar = async (control: ControlConFotos) => {
-    const id = await crearControl.mutateAsync(prefillDuplicado(control));
+    const { id } = await crearControl.mutateAsync(prefillDuplicado(control));
     toast({ title: "Control duplicado", description: "Producto e información general copiados; medidas y fotos, en blanco." });
     navigate(`/calidad/importacion/${id}`);
   };
@@ -89,14 +96,22 @@ export default function CalidadImportacion() {
   const descargarWord = async (control: ControlConFotos) => {
     setGenerandoId(control.id);
     try {
-      const { data, error } = await supabase
-        .from("calidad_import_fotos")
-        .select("*")
-        .eq("control_id", control.id)
-        .order("orden");
-      if (error) throw error;
-      const filename = await generarYDescargarInforme(control, (data ?? []) as unknown as CalidadImportFoto[]);
-      toast({ title: "Informe generado", description: filename });
+      let fotos: CalidadImportFoto[];
+      try {
+        const { data, error } = await supabase
+          .from("calidad_import_fotos")
+          .select("*")
+          .eq("control_id", control.id)
+          .order("orden");
+        if (error) throw error;
+        fotos = (data ?? []) as unknown as CalidadImportFoto[];
+      } catch (error) {
+        // Sin red: las fotos de la última copia local del control.
+        if (!esErrorDeRed(error)) throw error;
+        fotos = controlCacheado<ControlBundle>(control.id)?.fotos ?? [];
+      }
+      const filename = await generarYDescargarInforme(control, fotos);
+      if (filename) toast({ title: "Informe generado", description: filename });
     } catch (error) {
       toast({
         title: "No se pudo generar el informe",
@@ -110,6 +125,13 @@ export default function CalidadImportacion() {
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 p-3 sm:p-6">
+      {!online && (
+        <div className="flex items-center gap-2 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+          <WifiOff className="h-4 w-4 shrink-0" />
+          Sin conexión: puedes seguir trabajando; todo se guarda en el móvil y se sube solo al volver la red.
+        </div>
+      )}
+
       {/* Botón principal, a tamaño de pulgar */}
       <Button
         onClick={nuevoControl}
@@ -173,7 +195,7 @@ export default function CalidadImportacion() {
                         : "border-warning/40 bg-warning/10 text-warning",
                     )}
                   >
-                    {control.estado === "completado" ? "Completado" : "Borrador"}
+                    {control.estado === "completado" ? "Validado" : "Borrador"}
                   </Badge>
                 </div>
                 <p className="truncate text-sm text-muted-foreground">
@@ -199,7 +221,7 @@ export default function CalidadImportacion() {
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={() => void descargarWord(control)} disabled={generandoId !== null}>
                       <FileText className="mr-2 h-4 w-4" />
-                      Descargar informe Word
+                      Informe Word
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => void duplicar(control)} disabled={crearControl.isPending}>
                       <Copy className="mr-2 h-4 w-4" />

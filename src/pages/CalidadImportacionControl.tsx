@@ -1,9 +1,15 @@
 // Editor de UN control de calidad de importación, pensado para rellenarse
-// desde el iPhone en la nave: secciones plegables (las 7 del informe), inputs
+// desde el iPhone en la nave: secciones plegables (las del informe), inputs
 // a tamaño de dedo, chips de un toque para los defectos habituales, cámara
-// directa para las fotos, firma dibujada y autoguardado continuo. Al terminar,
-// "Informe Word" genera el REPORTE DE CALIDAD FRUTA IMPORTACIÓN idéntico al
-// que calidad hacía a mano.
+// directa o galería para las fotos, firma dibujada en un modal (sin que se
+// mueva la pantalla) y autoguardado continuo con botón de Guardar explícito.
+//
+// Funciona también SIN conexión: los cambios se guardan en el móvil y se
+// suben solos al volver la red (ver lib/calidadImportOffline).
+//
+// "Validar y cerrar" deja el control en solo lectura (reabrible); el botón
+// de Word genera el REPORTE DE CALIDAD FRUTA IMPORTACIÓN y en el móvil abre
+// la hoja de compartir para mandarlo por correo/WhatsApp.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -14,8 +20,11 @@ import {
   FileText,
   Images,
   Loader2,
+  LockKeyhole,
   Plus,
+  Save,
   Trash2,
+  WifiOff,
   X,
 } from "lucide-react";
 import {
@@ -37,7 +46,7 @@ import {
   generarYDescargarInforme,
   useCalidadImportControl,
   useCalidadImportMutations,
-  type ControlPatch,
+  useCalidadImportSync,
 } from "@/hooks/useCalidadImport";
 import {
   CLASIFICACIONES_SUGERIDAS,
@@ -56,20 +65,7 @@ import {
 } from "@/lib/calidadImport";
 import { cn } from "@/lib/utils";
 
-type EstadoGuardado = "guardado" | "guardando" | "pendiente" | "error";
-
-// Solo lo editable viaja en el autoguardado (nada de id/user_id/timestamps).
-function patchEditable(control: CalidadImportControl): ControlPatch {
-  const {
-    id: _id,
-    user_id: _userId,
-    created_at: _creado,
-    updated_at: _actualizado,
-    firma_path: _firma,
-    ...editable
-  } = control;
-  return editable;
-}
+type EstadoGuardado = "guardado" | "guardando" | "pendiente" | "offline" | "error";
 
 // ─── Piezas de formulario a tamaño de dedo ───────────────────────────────────
 
@@ -197,7 +193,7 @@ function ListaDefectos({
               key={sugerencia}
               type="button"
               onClick={() => onCambio([...defectos, { tipo: sugerencia, pct: "" }])}
-              className="rounded-full border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
+              className="rounded-full border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/15 disabled:opacity-40"
             >
               + {sugerencia}
             </button>
@@ -205,7 +201,7 @@ function ListaDefectos({
         <button
           type="button"
           onClick={() => onCambio([...defectos, { tipo: "", pct: "" }])}
-          className="rounded-full border border-dashed px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-primary"
+          className="rounded-full border border-dashed px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-40"
         >
           + Otro
         </button>
@@ -286,6 +282,7 @@ export default function CalidadImportacionControl() {
   const { id } = useParams<{ id: string }>();
   const { data: bundle, isLoading } = useCalidadImportControl(id);
   const { actualizarControl, subirFotos, borrarFoto, guardarFirma } = useCalidadImportMutations();
+  const { online } = useCalidadImportSync();
 
   const [control, setControl] = useState<CalidadImportControl | null>(null);
   const [estadoGuardado, setEstadoGuardado] = useState<EstadoGuardado>("guardado");
@@ -312,8 +309,8 @@ export default function CalidadImportacionControl() {
     sucioRef.current = false;
     setEstadoGuardado("guardando");
     try {
-      await actualizarControl.mutateAsync({ id: aGuardar.id, patch: patchEditable(aGuardar) });
-      setEstadoGuardado(sucioRef.current ? "pendiente" : "guardado");
+      const { offline } = await actualizarControl.mutateAsync(aGuardar);
+      setEstadoGuardado(sucioRef.current ? "pendiente" : offline ? "offline" : "guardado");
     } catch {
       sucioRef.current = true;
       setEstadoGuardado("error");
@@ -345,7 +342,7 @@ export default function CalidadImportacionControl() {
     try {
       if (sucioRef.current) await guardar(control);
       const filename = await generarYDescargarInforme(control, bundle?.fotos ?? []);
-      toast({ title: "Informe generado", description: filename });
+      if (filename) toast({ title: "Informe generado", description: filename });
     } catch (error) {
       toast({
         title: "No se pudo generar el informe",
@@ -376,10 +373,11 @@ export default function CalidadImportacionControl() {
   }
 
   const completas = secciones.filter((s) => s.completa).length;
+  const validado = control.estado === "completado";
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 p-3 pb-28 sm:p-6 sm:pb-28">
-      {/* Cabecera pegajosa: volver, estado del guardado y progreso */}
+      {/* Cabecera: volver, estado del guardado y conexión */}
       <div className="flex items-center justify-between gap-2">
         <Button asChild variant="ghost" className="h-10 rounded-xl px-2 text-muted-foreground">
           <Link to="/calidad/importacion">
@@ -388,11 +386,19 @@ export default function CalidadImportacionControl() {
           </Link>
         </Button>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          {!online && (
+            <span className="flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 font-medium text-warning">
+              <WifiOff className="h-3.5 w-3.5" /> Sin conexión
+            </span>
+          )}
           {estadoGuardado === "guardando" && (
             <span className="flex items-center gap-1"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Guardando...</span>
           )}
           {estadoGuardado === "guardado" && (
             <span className="flex items-center gap-1 text-success"><Check className="h-3.5 w-3.5" /> Guardado</span>
+          )}
+          {estadoGuardado === "offline" && (
+            <span className="flex items-center gap-1 text-warning"><Check className="h-3.5 w-3.5" /> Guardado en el móvil</span>
           )}
           {estadoGuardado === "pendiente" && <span>Cambios sin guardar...</span>}
           {estadoGuardado === "error" && (
@@ -411,18 +417,39 @@ export default function CalidadImportacionControl() {
           {control.clasificacion.trim() !== "" && (
             <Badge variant="outline" className="border-primary/40 bg-primary/10 text-primary">{control.clasificacion}</Badge>
           )}
+          {validado && (
+            <Badge variant="outline" className="border-success/40 bg-success/10 text-success">
+              <LockKeyhole className="mr-1 h-3 w-3" />
+              Validado
+            </Badge>
+          )}
         </div>
         <p className="text-xs text-muted-foreground">
           {completas} de {secciones.length} secciones con datos
         </p>
       </div>
 
-      <Accordion type="multiple" defaultValue={["s1"]} className="space-y-2">
+      {validado && (
+        <div className="rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+          Control validado y cerrado: los campos están bloqueados. Pulsa «Reabrir» abajo si necesitas corregir algo.
+        </div>
+      )}
+
+      <Accordion type="multiple" defaultValue={validado ? [] : ["s1"]} className="space-y-2">
         {/* ── 1. Información del producto ── */}
-        <SeccionAcordeon numero={1} titulo="Información del producto" completa={secciones[0].completa}>
+        <SeccionAcordeon numero={1} titulo="Información del producto" completa={secciones[0].completa} bloqueada={validado}>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <CampoTexto etiqueta="Referencia proveedor" valor={control.referencia} onCambio={(v) => cambiar({ referencia: v })} placeholder="1184057" />
             <CampoTexto etiqueta="Nuestra referencia (lote)" valor={control.nuestra_ref} onCambio={(v) => cambiar({ nuestra_ref: v })} placeholder="26082701" />
+            <div className="space-y-1">
+              <Label className="text-xs font-medium text-muted-foreground">Fecha descarga del camión</Label>
+              <Input
+                type="date"
+                value={control.fecha_descarga ?? ""}
+                onChange={(evento) => cambiar({ fecha_descarga: evento.target.value || null })}
+                className="h-11 rounded-xl text-base"
+              />
+            </div>
             <CampoTexto etiqueta="Proveedor" valor={control.proveedor} onCambio={(v) => cambiar({ proveedor: v })} />
             <CampoTexto etiqueta="Barco" valor={control.barco} onCambio={(v) => cambiar({ barco: v })} />
             <CampoTexto etiqueta="Marca" valor={control.marca} onCambio={(v) => cambiar({ marca: v })} />
@@ -442,13 +469,13 @@ export default function CalidadImportacionControl() {
         </SeccionAcordeon>
 
         {/* ── 2. Información general ── */}
-        <SeccionAcordeon numero={2} titulo="Información general" completa={secciones[1].completa}>
+        <SeccionAcordeon numero={2} titulo="Información general" completa={secciones[1].completa} bloqueada={validado}>
           <div className="space-y-3">
             <OpcionesRapidas etiqueta="Etiquetado" valor={control.etiquetado} opciones={["OK", "NO OK"]} onCambio={(v) => cambiar({ etiquetado: v })} />
             <OpcionesRapidas etiqueta="Clasificación" valor={control.clasificacion} opciones={CLASIFICACIONES_SUGERIDAS} onCambio={(v) => cambiar({ clasificacion: v })} conTextoLibre />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <CampoTexto etiqueta="Tratamientos post-cosecha" valor={control.tratamientos} onCambio={(v) => cambiar({ tratamientos: v })} placeholder="IMAZALIL, CERAS E-903 E-904" />
-              <CampoTexto etiqueta="Temperatura (ºC)" valor={control.temperatura} onCambio={(v) => cambiar({ temperatura: v })} modo="decimal" />
+              <CampoTexto etiqueta="Temperatura (ºC)" valor={control.temperatura} onCambio={(v) => cambiar({ temperatura: v })} />
               <CampoTexto etiqueta="Paletización / cajas" valor={control.paletizacion} onCambio={(v) => cambiar({ paletizacion: v })} placeholder="80 CAJAS" />
               <CampoTexto etiqueta="Peso medio de las cajas (kg)" valor={control.peso_medio_cajas} onCambio={(v) => cambiar({ peso_medio_cajas: v })} modo="decimal" />
             </div>
@@ -460,7 +487,7 @@ export default function CalidadImportacionControl() {
         </SeccionAcordeon>
 
         {/* ── 3. Defectos no evolutivos ── */}
-        <SeccionAcordeon numero={3} titulo="Defectos no evolutivos" completa={secciones[2].completa}>
+        <SeccionAcordeon numero={3} titulo="Defectos no evolutivos" completa={secciones[2].completa} bloqueada={validado}>
           <div className="space-y-4">
             <CampoTexto etiqueta="Muestreo (piezas con defecto - muestra)" valor={control.muestreo_no_evolutivos} onCambio={(v) => cambiar({ muestreo_no_evolutivos: v })} placeholder="(11-200)" />
             <ListaDefectos etiqueta="Defectos leves" defectos={control.defectos_leves} sugerencias={DEFECTOS_NO_EVOLUTIVOS_SUGERIDOS} onCambio={(v) => cambiar({ defectos_leves: v })} />
@@ -473,7 +500,7 @@ export default function CalidadImportacionControl() {
         </SeccionAcordeon>
 
         {/* ── 4. Defectos evolutivos ── */}
-        <SeccionAcordeon numero={4} titulo="Defectos evolutivos" completa={secciones[3].completa}>
+        <SeccionAcordeon numero={4} titulo="Defectos evolutivos" completa={secciones[3].completa} bloqueada={validado}>
           <div className="space-y-4">
             <CampoTexto etiqueta="Muestreo (piezas con defecto - muestra)" valor={control.muestreo_evolutivos} onCambio={(v) => cambiar({ muestreo_evolutivos: v })} placeholder="(2-200)" />
             <ListaDefectos etiqueta="Defectos" defectos={control.defectos_evolutivos} sugerencias={DEFECTOS_EVOLUTIVOS_SUGERIDOS} onCambio={(v) => cambiar({ defectos_evolutivos: v })} />
@@ -485,7 +512,7 @@ export default function CalidadImportacionControl() {
         </SeccionAcordeon>
 
         {/* ── 5. Calidad interna ── */}
-        <SeccionAcordeon numero={5} titulo="Calidad interna" completa={secciones[4].completa}>
+        <SeccionAcordeon numero={5} titulo="Calidad interna" completa={secciones[4].completa} bloqueada={validado}>
           <div className="space-y-3">
             <MuestrasInternas muestras={control.muestras_internas} onCambio={(v) => cambiar({ muestras_internas: v })} />
             <div className="space-y-1">
@@ -496,7 +523,7 @@ export default function CalidadImportacionControl() {
         </SeccionAcordeon>
 
         {/* ── 6. Registro fotográfico ── */}
-        <SeccionAcordeon numero={6} titulo={`Registro fotográfico (${bundle?.fotos.length ?? 0})`} completa={secciones[5].completa}>
+        <SeccionAcordeon numero={6} titulo={`Registro fotográfico (${bundle?.fotos.length ?? 0})`} completa={secciones[5].completa} bloqueada={validado}>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <Button type="button" variant="outline" className="h-12 rounded-xl" disabled={subirFotos.isPending} onClick={() => camaraRef.current?.click()}>
@@ -539,6 +566,11 @@ export default function CalidadImportacionControl() {
                     ) : (
                       <div className="flex h-full items-center justify-center text-xs text-muted-foreground">Sin vista previa</div>
                     )}
+                    {foto.id.startsWith("pendiente-") && (
+                      <span className="absolute left-1 top-1 rounded-full bg-warning/90 px-1.5 py-0.5 text-[10px] font-semibold text-warning-foreground">
+                        Por subir
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => void borrarFoto.mutateAsync(foto)}
@@ -555,7 +587,7 @@ export default function CalidadImportacionControl() {
         </SeccionAcordeon>
 
         {/* ── 7. Realiza ── */}
-        <SeccionAcordeon numero={7} titulo="Realiza" completa={secciones[6].completa}>
+        <SeccionAcordeon numero={7} titulo="Realiza" completa={secciones[6].completa} bloqueada={validado}>
           <div className="space-y-3">
             <CampoTexto etiqueta="Nombre del evaluador" valor={control.evaluador} onCambio={(v) => cambiar({ evaluador: v })} />
             <div className="space-y-1">
@@ -572,6 +604,7 @@ export default function CalidadImportacionControl() {
               ) : (
                 <FirmaPad
                   guardando={guardarFirma.isPending}
+                  etiqueta={bundle?.firmaUrl ? "Rehacer firma" : "Firmar"}
                   onGuardar={(blob) => {
                     void guardarFirma.mutateAsync({ control, blob }).then(() => setRehacerFirma(false));
                   }}
@@ -592,21 +625,43 @@ export default function CalidadImportacionControl() {
         </SeccionAcordeon>
       </Accordion>
 
-      {/* Barra inferior fija: el remate del flujo con el pulgar */}
+      {/* Barra inferior fija: guardar, validar/reabrir y el informe */}
       <div className="fixed inset-x-0 bottom-0 z-20 border-t bg-[var(--glass-bg-solid)] p-3 backdrop-blur-xl">
         <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
+          {!validado && (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-12 flex-1 rounded-xl"
+              disabled={estadoGuardado === "guardando"}
+              onClick={() => void guardar(control)}
+            >
+              <Save className="mr-2 h-5 w-5" />
+              Guardar
+            </Button>
+          )}
           <Button
             type="button"
-            variant={control.estado === "completado" ? "outline" : "secondary"}
+            variant={validado ? "outline" : "secondary"}
             className="h-12 flex-1 rounded-xl"
-            onClick={() => cambiar({ estado: control.estado === "completado" ? "borrador" : "completado" })}
+            onClick={() => {
+              const nuevoEstado = validado ? "borrador" : "completado";
+              sucioRef.current = true;
+              const actualizado = { ...control, estado: nuevoEstado as CalidadImportControl["estado"] };
+              setControl(actualizado);
+              void guardar(actualizado);
+              toast({
+                title: nuevoEstado === "completado" ? "Control validado y cerrado" : "Control reabierto",
+                description: nuevoEstado === "completado" ? "Los campos quedan bloqueados. Puedes reabrirlo cuando haga falta." : undefined,
+              });
+            }}
           >
-            <CheckCircle2 className={cn("mr-2 h-5 w-5", control.estado === "completado" && "text-success")} />
-            {control.estado === "completado" ? "Completado" : "Marcar completado"}
+            <CheckCircle2 className={cn("mr-2 h-5 w-5", validado && "text-success")} />
+            {validado ? "Reabrir" : "Validar"}
           </Button>
           <Button type="button" className="h-12 flex-1 rounded-xl font-semibold" disabled={generando} onClick={() => void generarInforme()}>
             {generando ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <FileText className="mr-2 h-5 w-5" />}
-            Informe Word
+            Word
           </Button>
         </div>
       </div>
@@ -618,11 +673,14 @@ function SeccionAcordeon({
   numero,
   titulo,
   completa,
+  bloqueada,
   children,
 }: {
   numero: number;
   titulo: string;
   completa: boolean;
+  /** Control validado: los campos de la sección quedan deshabilitados. */
+  bloqueada: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -640,7 +698,13 @@ function SeccionAcordeon({
           <span className="text-sm font-semibold">{titulo}</span>
         </span>
       </AccordionTrigger>
-      <AccordionContent className="px-4 pb-4">{children}</AccordionContent>
+      <AccordionContent className="px-4 pb-4">
+        {/* fieldset deshabilitado = TODOS los inputs y botones nativos de la
+            sección quedan bloqueados de una vez cuando el control está validado. */}
+        <fieldset disabled={bloqueada} className={cn(bloqueada && "opacity-60")}>
+          {children}
+        </fieldset>
+      </AccordionContent>
     </AccordionItem>
   );
 }

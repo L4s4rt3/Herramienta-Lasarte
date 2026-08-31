@@ -18,6 +18,7 @@ function controlVacio(): CalidadImportControl {
     id: "c1",
     user_id: "u1",
     fecha: "2026-08-27",
+    fecha_descarga: null,
     estado: "borrador",
     referencia: "",
     nuestra_ref: "",

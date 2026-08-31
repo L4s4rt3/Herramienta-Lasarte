@@ -228,6 +228,7 @@ export type Database = {
           etiquetado: string
           evaluador: string
           fecha: string
+          fecha_descarga: string | null
           firma_path: string | null
           ggn: string
           id: string
@@ -269,6 +270,7 @@ export type Database = {
           etiquetado?: string
           evaluador?: string
           fecha?: string
+          fecha_descarga?: string | null
           firma_path?: string | null
           ggn?: string
           id?: string
@@ -310,6 +312,7 @@ export type Database = {
           etiquetado?: string
           evaluador?: string
           fecha?: string
+          fecha_descarga?: string | null
           firma_path?: string | null
           ggn?: string
           id?: string

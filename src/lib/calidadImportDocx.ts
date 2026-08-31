@@ -1,10 +1,14 @@
 // Generador del "REPORTE DE CALIDAD FRUTA IMPORTACIÓN" en Word (.docx).
 //
 // Replica el formato del informe que calidad hacía a mano: cabecera con el
-// logo en cada página, siete secciones en tablas con la columna de etiquetas
+// logo en cada página, secciones en tablas con la columna de etiquetas
 // sombreada (F2F2F2, Arial), rejilla de fotos a 3 columnas y firma. Las
 // medidas (página carta, márgenes, anchos de columna) están sacadas del
 // document.xml de un informe real para que el resultado sea indistinguible.
+//
+// Regla pedida por la evaluadora (31-08): el informe SOLO imprime lo que se
+// rellenó. Las filas con valor vacío no salen, y una sección sin contenido
+// desaparece entera (las restantes se renumeran de corrido).
 import {
   AlignmentType,
   BorderStyle,
@@ -105,6 +109,11 @@ function filaEtiquetaValor(nombre: string, valor: string, span?: number): TableR
   });
 }
 
+/** Fila solo si el valor tiene contenido: la regla "imprime lo rellenado". */
+function filaSiHayValor(nombre: string, valor: string, span?: number): TableRow[] {
+  return valor.trim() === "" ? [] : [filaEtiquetaValor(nombre, valor.trim(), span)];
+}
+
 function tabla(rows: TableRow[], columnWidths: number[]): Table {
   return new Table({
     columnWidths,
@@ -114,7 +123,7 @@ function tabla(rows: TableRow[], columnWidths: number[]): Table {
   });
 }
 
-function tituloSeccion(numero: number, nombre: string, primera = false): Paragraph {
+function tituloSeccion(numero: number, nombre: string, primera: boolean): Paragraph {
   return new Paragraph({
     spacing: { before: primera ? 0 : 360, after: 240 },
     keepNext: true,
@@ -139,21 +148,64 @@ export function fechaInformeTexto(fechaIso: string): string {
   return `${d}/${m}/${y}`;
 }
 
-function seccionDefectosNoEvolutivos(control: CalidadImportControl): Table {
-  const filaDefectos = (nombre: string, defectos: DefectoImport[]): TableRow => {
-    const conTipo = defectos.filter((d) => d.tipo.trim() !== "");
-    return new TableRow({
+// ─── Secciones (cada una devuelve null si no tiene nada que imprimir) ────────
+
+function seccionProducto(control: CalidadImportControl): Table | null {
+  const filas = [
+    ...filaSiHayValor("Referencia", referenciaInformeTexto(control)),
+    ...filaSiHayValor("Fecha descarga camión", control.fecha_descarga ? fechaInformeTexto(control.fecha_descarga) : ""),
+    ...filaSiHayValor("Proveedor", control.proveedor),
+    ...filaSiHayValor("Barco", control.barco),
+    ...filaSiHayValor("Marca", control.marca),
+    ...filaSiHayValor("Nº Contenedor", control.num_contenedor),
+    ...filaSiHayValor("Kg total contenedor", control.kg_total),
+    ...filaSiHayValor("PUC / Orchard (campo)", control.puc_orchard),
+    ...filaSiHayValor("GGN", control.ggn),
+    ...filaSiHayValor("Tipo de producto", control.tipo_producto),
+    ...filaSiHayValor("Tipo confección", control.tipo_confeccion),
+    ...filaSiHayValor("Origen", control.origen),
+    ...filaSiHayValor("Calibre", control.calibre),
+  ];
+  return filas.length > 0 ? tabla(filas, [MITAD, MITAD]) : null;
+}
+
+function seccionGeneral(control: CalidadImportControl): Table | null {
+  const filas = [
+    ...filaSiHayValor("Etiquetado (OK / NO OK)", control.etiquetado),
+    ...filaSiHayValor("Tratamientos post-cosecha", control.tratamientos),
+    ...filaSiHayValor("Clasificación", control.clasificacion),
+    ...filaSiHayValor("Temperatura", control.temperatura),
+    ...filaSiHayValor("Paletización / cajas", control.paletizacion),
+    ...filaSiHayValor("Peso medio de las cajas", control.peso_medio_cajas),
+    ...filaSiHayValor("Sticker", control.sticker),
+    ...filaSiHayValor("Papel", control.papel),
+  ];
+  return filas.length > 0 ? tabla(filas, [MITAD, MITAD]) : null;
+}
+
+function conTipo(defectos: DefectoImport[]): DefectoImport[] {
+  return defectos.filter((d) => d.tipo.trim() !== "");
+}
+
+function seccionDefectosNoEvolutivos(control: CalidadImportControl): Table | null {
+  const leves = conTipo(control.defectos_leves);
+  const graves = conTipo(control.defectos_graves);
+
+  const filaDefectos = (nombre: string, defectos: DefectoImport[]): TableRow =>
+    new TableRow({
       children: [
         celdaEtiqueta(nombre),
-        celdaValor(lineas(conTipo.map((d) => d.tipo.trim())), { width: CUARTO }),
-        celdaValor(lineas(conTipo.map((d) => d.pct.trim() || "-"), { align: AlignmentType.CENTER }), { width: CUARTO }),
+        celdaValor(lineas(defectos.map((d) => d.tipo.trim())), { width: CUARTO }),
+        celdaValor(lineas(defectos.map((d) => d.pct.trim() || "-"), { align: AlignmentType.CENTER }), { width: CUARTO }),
       ],
     });
-  };
 
-  return tabla(
-    [
-      filaEtiquetaValor("Muestreo (%)", control.muestreo_no_evolutivos, 2),
+  const filas: TableRow[] = [];
+  if (control.muestreo_no_evolutivos.trim() !== "") {
+    filas.push(filaEtiquetaValor("Muestreo (%)", control.muestreo_no_evolutivos.trim(), 2));
+  }
+  if (leves.length > 0 || graves.length > 0) {
+    filas.push(
       new TableRow({
         children: [
           new TableCell({
@@ -166,23 +218,31 @@ function seccionDefectosNoEvolutivos(control: CalidadImportControl): Table {
           celdaValor([texto("%", { bold: true, align: AlignmentType.CENTER })], { width: CUARTO }),
         ],
       }),
-      filaDefectos("Defecto leve", control.defectos_leves),
-      filaDefectos("Defecto grave", control.defectos_graves),
+    );
+    if (leves.length > 0) filas.push(filaDefectos("Defecto leve", leves));
+    if (graves.length > 0) filas.push(filaDefectos("Defecto grave", graves));
+  }
+  if (control.obs_no_evolutivos.trim() !== "") {
+    filas.push(
       new TableRow({
         children: [
           celdaEtiqueta("Observaciones"),
-          celdaValor([texto(control.obs_no_evolutivos, { size: SZ_PEQ })], { columnSpan: 2 }),
+          celdaValor([texto(control.obs_no_evolutivos.trim(), { size: SZ_PEQ })], { columnSpan: 2 }),
         ],
       }),
-    ],
-    [MITAD, CUARTO, CUARTO],
-  );
+    );
+  }
+  return filas.length > 0 ? tabla(filas, [MITAD, CUARTO, CUARTO]) : null;
 }
 
-function seccionDefectosEvolutivos(control: CalidadImportControl): Table {
-  return tabla(
-    [
-      filaEtiquetaValor("Muestreo (%)", control.muestreo_evolutivos),
+function seccionDefectosEvolutivos(control: CalidadImportControl): Table | null {
+  const defectos = conTipo(control.defectos_evolutivos);
+  const filas: TableRow[] = [];
+  if (control.muestreo_evolutivos.trim() !== "") {
+    filas.push(filaEtiquetaValor("Muestreo (%)", control.muestreo_evolutivos.trim()));
+  }
+  if (defectos.length > 0) {
+    filas.push(
       new TableRow({
         children: [
           celdaEtiqueta("Tipo de defecto"),
@@ -191,55 +251,59 @@ function seccionDefectosEvolutivos(control: CalidadImportControl): Table {
       }),
       new TableRow({
         children: [
-          celdaValor(lineas(control.defectos_evolutivos.map((d) => d.tipo))),
-          celdaValor(
-            lineas(control.defectos_evolutivos.filter((d) => d.tipo.trim() !== "").map((d) => d.pct.trim() || "-"), { align: AlignmentType.CENTER }),
-          ),
+          celdaValor(lineas(defectos.map((d) => d.tipo.trim()))),
+          celdaValor(lineas(defectos.map((d) => d.pct.trim() || "-"), { align: AlignmentType.CENTER })),
         ],
       }),
+    );
+  }
+  if (control.obs_evolutivos.trim() !== "") {
+    filas.push(
       new TableRow({
         children: [
           celdaEtiqueta("Observaciones"),
-          celdaValor([texto(control.obs_evolutivos, { size: SZ_PEQ })]),
+          celdaValor([texto(control.obs_evolutivos.trim(), { size: SZ_PEQ })]),
         ],
       }),
-    ],
-    [MITAD, MITAD],
-  );
+    );
+  }
+  return filas.length > 0 ? tabla(filas, [MITAD, MITAD]) : null;
 }
 
-function seccionCalidadInterna(control: CalidadImportControl): Table {
+function seccionCalidadInterna(control: CalidadImportControl): Table | null {
   const muestras = control.muestras_internas;
-  const filaConRef = (nombre: string, valor: string, ref: string): TableRow =>
-    new TableRow({
-      children: [
-        celdaEtiqueta(nombre),
-        celdaValor([texto(valor)], { width: CUARTO }),
-        celdaValor([texto(`Ref. ${ref}`)], { width: CUARTO }),
-      ],
-    });
+  const filaConRef = (nombre: string, valor: string, ref: string): TableRow[] =>
+    valor.trim() === ""
+      ? []
+      : [
+          new TableRow({
+            children: [
+              celdaEtiqueta(nombre),
+              celdaValor([texto(valor)], { width: CUARTO }),
+              celdaValor([texto(`Ref. ${ref}`)], { width: CUARTO }),
+            ],
+          }),
+        ];
 
   const filas = [
-    filaEtiquetaValor("Peso fruta", unirValores(muestras.map((m) => m.peso_fruta)), 2),
-    filaEtiquetaValor("Peso zumo", unirValores(muestras.map((m) => m.peso_zumo)), 2),
-    filaConRef("% Zumo", unirValores(muestras.map((m) => pctZumo(m))), REF_PCT_ZUMO),
-    filaConRef("Brix", unirValores(muestras.map((m) => m.brix)), REF_BRIX),
-    filaConRef("Acidez", unirValores(muestras.map((m) => m.acidez)), REF_ACIDEZ),
-    filaConRef("Índice de madurez", unirValores(muestras.map((m) => indiceMadurez(m))), REF_INDICE_MADUREZ),
+    ...filaSiHayValor("Peso fruta", unirValores(muestras.map((m) => m.peso_fruta)), 2),
+    ...filaSiHayValor("Peso zumo", unirValores(muestras.map((m) => m.peso_zumo)), 2),
+    ...filaConRef("% Zumo", unirValores(muestras.map((m) => pctZumo(m))), REF_PCT_ZUMO),
+    ...filaConRef("Brix", unirValores(muestras.map((m) => m.brix)), REF_BRIX),
+    ...filaConRef("Acidez", unirValores(muestras.map((m) => m.acidez)), REF_ACIDEZ),
+    ...filaConRef("Índice de madurez", unirValores(muestras.map((m) => indiceMadurez(m))), REF_INDICE_MADUREZ),
   ];
-  // La fila de observaciones solo existe si la evaluadora escribió algo,
-  // igual que en sus Word (la mayoría de controles no la llevan).
   if (control.obs_calidad_interna.trim() !== "") {
     filas.push(
       new TableRow({
         children: [
           celdaEtiqueta("Observaciones"),
-          celdaValor([texto(control.obs_calidad_interna, { size: SZ_PEQ })], { columnSpan: 2 }),
+          celdaValor([texto(control.obs_calidad_interna.trim(), { size: SZ_PEQ })], { columnSpan: 2 }),
         ],
       }),
     );
   }
-  return tabla(filas, [MITAD, CUARTO, CUARTO]);
+  return filas.length > 0 ? tabla(filas, [MITAD, CUARTO, CUARTO]) : null;
 }
 
 // Rejilla de fotos a 3 columnas. Cada foto se encaja en una caja de
@@ -261,10 +325,11 @@ function imagenAjustada(foto: ImagenInforme, cajaAncho: number, cajaAlto: number
   });
 }
 
-function seccionFotos(fotos: ImagenInforme[]): Table {
+function seccionFotos(fotos: ImagenInforme[]): Table | null {
+  if (fotos.length === 0) return null;
   const anchoCol = Math.floor(ANCHO_CONTENIDO / FOTOS_POR_FILA);
   const filas: TableRow[] = [];
-  const numFilas = Math.max(1, Math.ceil(fotos.length / FOTOS_POR_FILA));
+  const numFilas = Math.ceil(fotos.length / FOTOS_POR_FILA);
   for (let f = 0; f < numFilas; f++) {
     const celdas: TableCell[] = [];
     for (let c = 0; c < FOTOS_POR_FILA; c++) {
@@ -288,22 +353,35 @@ function seccionFotos(fotos: ImagenInforme[]): Table {
 }
 
 function seccionRealiza(control: CalidadImportControl, firma: ImagenInforme | null): Table {
-  return tabla(
-    [
-      filaEtiquetaValor("Nombre del evaluador", control.evaluador),
-      filaEtiquetaValor("Fecha", fechaInformeTexto(control.fecha)),
+  const filas = [
+    ...filaSiHayValor("Nombre del evaluador", control.evaluador),
+    // La fecha del control siempre existe: Realiza siempre se imprime.
+    filaEtiquetaValor("Fecha", fechaInformeTexto(control.fecha)),
+  ];
+  if (firma) {
+    filas.push(
       new TableRow({
         children: [
           celdaEtiqueta("Firma"),
-          celdaValor([
-            firma
-              ? new Paragraph({ spacing: { after: 0 }, children: [imagenAjustada(firma, 140, 55)] })
-              : texto(""),
-          ]),
+          celdaValor([new Paragraph({ spacing: { after: 0 }, children: [imagenAjustada(firma, 140, 55)] })]),
         ],
       }),
-    ],
-    [MITAD, MITAD],
+    );
+  }
+  return tabla(filas, [MITAD, MITAD]);
+}
+
+function conclusionParrafos(conclusion: string): Paragraph[] {
+  const lineasConclusion = conclusion
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l !== "");
+  return lineasConclusion.map(
+    (linea, indice) =>
+      new Paragraph({
+        spacing: { before: indice === 0 ? 360 : 120, after: 0 },
+        children: [new TextRun({ text: linea, font: FUENTE, size: SZ_CUERPO })],
+      }),
   );
 }
 
@@ -364,6 +442,26 @@ export async function generarInformeCalidadImportBlob(
   firma: ImagenInforme | null,
   logo: ImagenInforme | null,
 ): Promise<Blob> {
+  // Solo entran las secciones con contenido, renumeradas de corrido.
+  const secciones: Array<{ titulo: string; contenido: Table | null }> = [
+    { titulo: "Información del producto", contenido: seccionProducto(control) },
+    { titulo: "Información general", contenido: seccionGeneral(control) },
+    { titulo: "Defectos no evolutivos", contenido: seccionDefectosNoEvolutivos(control) },
+    { titulo: "Defectos evolutivos", contenido: seccionDefectosEvolutivos(control) },
+    { titulo: "Calidad interna", contenido: seccionCalidadInterna(control) },
+    { titulo: "Registro fotográfico", contenido: seccionFotos(fotos) },
+    { titulo: "Realiza", contenido: seccionRealiza(control, firma) },
+  ];
+
+  const cuerpo: Array<Paragraph | Table> = [];
+  let numero = 0;
+  for (const seccion of secciones) {
+    if (!seccion.contenido) continue;
+    numero += 1;
+    cuerpo.push(tituloSeccion(numero, seccion.titulo, numero === 1), seccion.contenido);
+  }
+  cuerpo.push(...conclusionParrafos(control.conclusion));
+
   const doc = new Document({
     styles: {
       default: {
@@ -379,71 +477,10 @@ export async function generarInformeCalidadImportBlob(
           },
         },
         headers: { default: cabecera(logo) },
-        children: [
-          tituloSeccion(1, "Información del producto", true),
-          tabla(
-            [
-              filaEtiquetaValor("Referencia", referenciaInformeTexto(control)),
-              filaEtiquetaValor("Proveedor", control.proveedor),
-              filaEtiquetaValor("Barco", control.barco),
-              filaEtiquetaValor("Marca", control.marca),
-              filaEtiquetaValor("Nº Contenedor", control.num_contenedor),
-              filaEtiquetaValor("Kg total contenedor", control.kg_total),
-              filaEtiquetaValor("PUC / Orchard (campo)", control.puc_orchard),
-              filaEtiquetaValor("GGN", control.ggn),
-              filaEtiquetaValor("Tipo de producto", control.tipo_producto),
-              filaEtiquetaValor("Tipo confección", control.tipo_confeccion),
-              filaEtiquetaValor("Origen", control.origen),
-              filaEtiquetaValor("Calibre", control.calibre),
-            ],
-            [MITAD, MITAD],
-          ),
-          tituloSeccion(2, "Información general"),
-          tabla(
-            [
-              filaEtiquetaValor("Etiquetado (OK / NO OK)", control.etiquetado),
-              filaEtiquetaValor("Tratamientos post-cosecha", control.tratamientos),
-              filaEtiquetaValor("Clasificación", control.clasificacion),
-              filaEtiquetaValor("Temperatura", control.temperatura),
-              filaEtiquetaValor("Paletización / cajas", control.paletizacion),
-              filaEtiquetaValor("Peso medio de las cajas", control.peso_medio_cajas),
-              filaEtiquetaValor("Sticker", control.sticker),
-              filaEtiquetaValor("Papel", control.papel),
-            ],
-            [MITAD, MITAD],
-          ),
-          tituloSeccion(3, "Defectos no evolutivos"),
-          seccionDefectosNoEvolutivos(control),
-          tituloSeccion(4, "Defectos evolutivos"),
-          seccionDefectosEvolutivos(control),
-          tituloSeccion(5, "Calidad interna"),
-          seccionCalidadInterna(control),
-          tituloSeccion(6, "Registro fotográfico"),
-          seccionFotos(fotos),
-          tituloSeccion(7, "Realiza"),
-          seccionRealiza(control, firma),
-          // Dictamen final (si lo hay): párrafos sueltos tras la firma, como
-          // en los Word de la evaluadora ("...estos 3 palets los consideramos
-          // no aptos según nuestras especificaciones organolépticas").
-          ...conclusionParrafos(control.conclusion),
-        ],
+        children: cuerpo,
       },
     ],
   });
 
   return Packer.toBlob(doc);
-}
-
-function conclusionParrafos(conclusion: string): Paragraph[] {
-  const lineasConclusion = conclusion
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l !== "");
-  return lineasConclusion.map(
-    (linea, indice) =>
-      new Paragraph({
-        spacing: { before: indice === 0 ? 360 : 120, after: 0 },
-        children: [new TextRun({ text: linea, font: FUENTE, size: SZ_CUERPO })],
-      }),
-  );
 }

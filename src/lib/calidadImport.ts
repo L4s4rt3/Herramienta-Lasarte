@@ -28,6 +28,8 @@ export interface CalidadImportControl {
   id: string;
   user_id: string;
   fecha: string;
+  /** Fecha de descarga del camión (puede diferir de la del control). */
+  fecha_descarga: string | null;
   estado: CalidadImportEstado;
   // 1. Información del producto
   referencia: string;
@@ -84,6 +86,8 @@ export interface CalidadImportFoto {
   orden: number;
   created_at?: string;
   signedUrl?: string;
+  /** Foto aún sin subir (modo offline): el blob vive en el móvil. */
+  blobLocal?: Blob;
 }
 
 // ─── Referencias de calidad interna (las que imprime el informe) ─────────────

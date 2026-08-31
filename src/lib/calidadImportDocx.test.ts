@@ -14,6 +14,7 @@ const CONTROL_CAT1: CalidadImportControl = {
   id: "c1",
   user_id: "u1",
   fecha: "2026-08-27",
+  fecha_descarga: null,
   estado: "completado",
   referencia: "1184057",
   nuestra_ref: "26082701",
@@ -124,6 +125,12 @@ describe("generarInformeCalidadImportBlob", () => {
     expect(doc).toContain("ENCAJADO 15 KG CARTÓN TELESCÓPICO");
     expect(doc).toContain("IMAZALIL, CERAS E-903 E-904");
 
+    // Regla "solo lo rellenado": las filas vacías (Barco, Nº Contenedor,
+    // PUC) no salen en el informe.
+    expect(doc).not.toContain("Barco");
+    expect(doc).not.toContain("Nº Contenedor");
+    expect(doc).not.toContain("PUC / Orchard");
+
     // Sección 3 y 4: defectos apilados
     expect(doc).toContain("RAMEADO");
     expect(doc).toContain("DEFORMACIÓN");
@@ -176,23 +183,84 @@ describe("generarInformeCalidadImportBlob", () => {
   it("sin observaciones internas ni conclusión, esas piezas no aparecen", async () => {
     const { texto } = await generarYExtraer(CONTROL_CAT1);
     const doc = texto("word/document.xml");
-    // Solo hay filas "Observaciones" en las secciones 3 y 4.
-    expect(doc.match(/Observaciones/g)?.length).toBe(2);
+    // CAT1 solo escribió observaciones en la sección 3 (evolutivos vacía).
+    expect(doc.match(/Observaciones/g)?.length).toBe(1);
   });
 
-  it("un control vacío genera documento igualmente (celdas en blanco)", async () => {
+  it("la fecha de descarga del camión sale en la sección de producto", async () => {
+    const { texto } = await generarYExtraer({ ...CONTROL_CAT1, fecha_descarga: "2026-08-26" });
+    const doc = texto("word/document.xml");
+    expect(doc).toContain("Fecha descarga camión");
+    expect(doc).toContain("26/08/2026");
+  });
+
+  it("las secciones vacías desaparecen y las demás se renumeran de corrido", async () => {
+    const soloProducto: CalidadImportControl = {
+      ...CONTROL_CAT1,
+      etiquetado: "",
+      tratamientos: "",
+      clasificacion: "",
+      temperatura: "",
+      paletizacion: "",
+      peso_medio_cajas: "",
+      sticker: "",
+      papel: "",
+      muestreo_no_evolutivos: "",
+      defectos_leves: [],
+      defectos_graves: [],
+      obs_no_evolutivos: "",
+      muestreo_evolutivos: "",
+      defectos_evolutivos: [],
+      obs_evolutivos: "",
+      muestras_internas: [],
+      conclusion: "",
+    };
+    const { texto } = await generarYExtraer(soloProducto, []);
+    const doc = texto("word/document.xml");
+    expect(doc).toContain("1. Información del producto");
+    // Sin general/defectos/interna/fotos: Realiza pasa a ser la sección 2.
+    expect(doc).toContain("2. Realiza");
+    expect(doc).not.toContain("Información general");
+    expect(doc).not.toContain("Defectos no evolutivos");
+    expect(doc).not.toContain("Registro fotográfico");
+  });
+
+  it("un control totalmente vacío se queda solo con Realiza (la fecha siempre existe)", async () => {
     const vacio: CalidadImportControl = {
       ...CONTROL_CAT1,
       referencia: "",
       nuestra_ref: "",
       proveedor: "",
+      marca: "",
+      kg_total: "",
+      ggn: "",
+      tipo_producto: "",
+      tipo_confeccion: "",
+      origen: "",
+      calibre: "",
+      etiquetado: "",
+      tratamientos: "",
+      clasificacion: "",
+      temperatura: "",
+      paletizacion: "",
+      peso_medio_cajas: "",
+      sticker: "",
+      papel: "",
+      muestreo_no_evolutivos: "",
       defectos_leves: [],
       defectos_graves: [],
+      obs_no_evolutivos: "",
+      muestreo_evolutivos: "",
       defectos_evolutivos: [],
+      obs_evolutivos: "",
       muestras_internas: [],
       evaluador: "",
+      conclusion: "",
     };
     const { texto } = await generarYExtraer(vacio, []);
-    expect(texto("word/document.xml")).toContain("1. Información del producto");
+    const doc = texto("word/document.xml");
+    expect(doc).toContain("1. Realiza");
+    expect(doc).toContain("27/08/2026");
+    expect(doc).not.toContain("Información del producto");
   });
 });
