@@ -48,8 +48,10 @@ function controlVacio(): CalidadImportControl {
     defectos_evolutivos: [],
     obs_evolutivos: "",
     muestras_internas: [],
+    obs_calidad_interna: "",
     evaluador: "",
     firma_path: null,
+    conclusion: "",
     created_at: "",
     updated_at: "",
   };
@@ -176,5 +178,10 @@ describe("estadoSecciones", () => {
   it("las fotos completan la sección 6", () => {
     const secciones = estadoSecciones(controlVacio(), 3);
     expect(secciones[5].completa).toBe(true);
+  });
+
+  it("las observaciones de calidad interna también completan la sección 5", () => {
+    const control = { ...controlVacio(), obs_calidad_interna: "ASPECTO GRANULADO" };
+    expect(estadoSecciones(control, 0)[4].completa).toBe(true);
   });
 });

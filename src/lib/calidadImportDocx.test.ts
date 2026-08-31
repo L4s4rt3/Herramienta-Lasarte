@@ -53,8 +53,10 @@ const CONTROL_CAT1: CalidadImportControl = {
     { peso_fruta: "948", peso_zumo: "402", brix: "12.2", acidez: "0.97" },
     { peso_fruta: "1264", peso_zumo: "510", brix: "10.4", acidez: "0.93" },
   ],
+  obs_calidad_interna: "",
   evaluador: "Raquel Rubio Martín",
   firma_path: null,
+  conclusion: "",
   created_at: "",
   updated_at: "",
 };
@@ -151,6 +153,31 @@ describe("generarInformeCalidadImportBlob", () => {
     const { zip } = await generarYExtraer(CONTROL_CAT1, [FOTO_FALSA, FOTO_FALSA]);
     const media = Object.keys(zip).filter((n) => n.startsWith("word/media/"));
     expect(media.length).toBe(2);
+  });
+
+  it("observaciones de calidad interna y conclusión (control 26083101 de Raquel)", async () => {
+    const control: CalidadImportControl = {
+      ...CONTROL_CAT1,
+      referencia: "1184066",
+      nuestra_ref: "26083101",
+      obs_calidad_interna: "MARCA MALACHITE CAL 4/56 %ZUMO NO ACEPTABLE, ASPECTO INTERIOR GRANULADO",
+      conclusion:
+        "*Calibre 4/56 Marca Malachite presenta problemas internos, por los que estos 3 palets los consideramos no aptos según nuestras especificaciones organolépticas.\n% Zumo de 34.5 y aspecto granuloso.",
+    };
+    const { texto } = await generarYExtraer(control);
+    const doc = texto("word/document.xml");
+    expect(doc).toContain("ASPECTO INTERIOR GRANULADO");
+    expect(doc).toContain("no aptos según nuestras especificaciones organolépticas");
+    expect(doc).toContain("% Zumo de 34.5 y aspecto granuloso.");
+    // La conclusión va DESPUÉS de la tabla de Realiza.
+    expect(doc.indexOf("no aptos según")).toBeGreaterThan(doc.indexOf("Nombre del evaluador"));
+  });
+
+  it("sin observaciones internas ni conclusión, esas piezas no aparecen", async () => {
+    const { texto } = await generarYExtraer(CONTROL_CAT1);
+    const doc = texto("word/document.xml");
+    // Solo hay filas "Observaciones" en las secciones 3 y 4.
+    expect(doc.match(/Observaciones/g)?.length).toBe(2);
   });
 
   it("un control vacío genera documento igualmente (celdas en blanco)", async () => {

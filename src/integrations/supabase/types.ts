@@ -219,6 +219,7 @@ export type Database = {
           barco: string
           calibre: string
           clasificacion: string
+          conclusion: string
           created_at: string
           defectos_evolutivos: Json
           defectos_graves: Json
@@ -237,6 +238,7 @@ export type Database = {
           muestreo_no_evolutivos: string
           num_contenedor: string
           nuestra_ref: string
+          obs_calidad_interna: string
           obs_evolutivos: string
           obs_no_evolutivos: string
           origen: string
@@ -258,6 +260,7 @@ export type Database = {
           barco?: string
           calibre?: string
           clasificacion?: string
+          conclusion?: string
           created_at?: string
           defectos_evolutivos?: Json
           defectos_graves?: Json
@@ -276,6 +279,7 @@ export type Database = {
           muestreo_no_evolutivos?: string
           num_contenedor?: string
           nuestra_ref?: string
+          obs_calidad_interna?: string
           obs_evolutivos?: string
           obs_no_evolutivos?: string
           origen?: string
@@ -297,6 +301,7 @@ export type Database = {
           barco?: string
           calibre?: string
           clasificacion?: string
+          conclusion?: string
           created_at?: string
           defectos_evolutivos?: Json
           defectos_graves?: Json
@@ -315,6 +320,7 @@ export type Database = {
           muestreo_no_evolutivos?: string
           num_contenedor?: string
           nuestra_ref?: string
+          obs_calidad_interna?: string
           obs_evolutivos?: string
           obs_no_evolutivos?: string
           origen?: string

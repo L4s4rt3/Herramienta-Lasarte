@@ -63,9 +63,13 @@ export interface CalidadImportControl {
   obs_evolutivos: string;
   // 5. Calidad interna
   muestras_internas: MuestraInterna[];
+  obs_calidad_interna: string;
   // 7. Realiza
   evaluador: string;
   firma_path: string | null;
+  /** Dictamen libre al pie del informe, después de la firma (p.ej. palets no
+   * aptos por especificaciones organolépticas). Solo se imprime si existe. */
+  conclusion: string;
   created_at: string;
   updated_at: string;
 }
@@ -236,7 +240,7 @@ export function estadoSecciones(control: CalidadImportControl, numFotos: number)
     { numero: 2, titulo: "Información general", completa: hayTexto(control.etiquetado, control.clasificacion, control.temperatura, control.paletizacion, control.peso_medio_cajas) },
     { numero: 3, titulo: "Defectos no evolutivos", completa: hayTexto(control.muestreo_no_evolutivos, control.obs_no_evolutivos) || control.defectos_leves.length > 0 || control.defectos_graves.length > 0 },
     { numero: 4, titulo: "Defectos evolutivos", completa: hayTexto(control.muestreo_evolutivos, control.obs_evolutivos) || control.defectos_evolutivos.length > 0 },
-    { numero: 5, titulo: "Calidad interna", completa: control.muestras_internas.some((m) => hayTexto(m.peso_fruta, m.peso_zumo, m.brix, m.acidez)) },
+    { numero: 5, titulo: "Calidad interna", completa: hayTexto(control.obs_calidad_interna) || control.muestras_internas.some((m) => hayTexto(m.peso_fruta, m.peso_zumo, m.brix, m.acidez)) },
     { numero: 6, titulo: "Registro fotográfico", completa: numFotos > 0 },
     { numero: 7, titulo: "Realiza", completa: hayTexto(control.evaluador) },
   ];

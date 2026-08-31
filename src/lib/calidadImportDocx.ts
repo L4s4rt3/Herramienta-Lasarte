@@ -219,17 +219,27 @@ function seccionCalidadInterna(control: CalidadImportControl): Table {
       ],
     });
 
-  return tabla(
-    [
-      filaEtiquetaValor("Peso fruta", unirValores(muestras.map((m) => m.peso_fruta)), 2),
-      filaEtiquetaValor("Peso zumo", unirValores(muestras.map((m) => m.peso_zumo)), 2),
-      filaConRef("% Zumo", unirValores(muestras.map((m) => pctZumo(m))), REF_PCT_ZUMO),
-      filaConRef("Brix", unirValores(muestras.map((m) => m.brix)), REF_BRIX),
-      filaConRef("Acidez", unirValores(muestras.map((m) => m.acidez)), REF_ACIDEZ),
-      filaConRef("Índice de madurez", unirValores(muestras.map((m) => indiceMadurez(m))), REF_INDICE_MADUREZ),
-    ],
-    [MITAD, CUARTO, CUARTO],
-  );
+  const filas = [
+    filaEtiquetaValor("Peso fruta", unirValores(muestras.map((m) => m.peso_fruta)), 2),
+    filaEtiquetaValor("Peso zumo", unirValores(muestras.map((m) => m.peso_zumo)), 2),
+    filaConRef("% Zumo", unirValores(muestras.map((m) => pctZumo(m))), REF_PCT_ZUMO),
+    filaConRef("Brix", unirValores(muestras.map((m) => m.brix)), REF_BRIX),
+    filaConRef("Acidez", unirValores(muestras.map((m) => m.acidez)), REF_ACIDEZ),
+    filaConRef("Índice de madurez", unirValores(muestras.map((m) => indiceMadurez(m))), REF_INDICE_MADUREZ),
+  ];
+  // La fila de observaciones solo existe si la evaluadora escribió algo,
+  // igual que en sus Word (la mayoría de controles no la llevan).
+  if (control.obs_calidad_interna.trim() !== "") {
+    filas.push(
+      new TableRow({
+        children: [
+          celdaEtiqueta("Observaciones"),
+          celdaValor([texto(control.obs_calidad_interna, { size: SZ_PEQ })], { columnSpan: 2 }),
+        ],
+      }),
+    );
+  }
+  return tabla(filas, [MITAD, CUARTO, CUARTO]);
 }
 
 // Rejilla de fotos a 3 columnas. Cada foto se encaja en una caja de
@@ -412,10 +422,28 @@ export async function generarInformeCalidadImportBlob(
           seccionFotos(fotos),
           tituloSeccion(7, "Realiza"),
           seccionRealiza(control, firma),
+          // Dictamen final (si lo hay): párrafos sueltos tras la firma, como
+          // en los Word de la evaluadora ("...estos 3 palets los consideramos
+          // no aptos según nuestras especificaciones organolépticas").
+          ...conclusionParrafos(control.conclusion),
         ],
       },
     ],
   });
 
   return Packer.toBlob(doc);
+}
+
+function conclusionParrafos(conclusion: string): Paragraph[] {
+  const lineasConclusion = conclusion
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l !== "");
+  return lineasConclusion.map(
+    (linea, indice) =>
+      new Paragraph({
+        spacing: { before: indice === 0 ? 360 : 120, after: 0 },
+        children: [new TextRun({ text: linea, font: FUENTE, size: SZ_CUERPO })],
+      }),
+  );
 }

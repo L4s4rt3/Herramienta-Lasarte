@@ -486,7 +486,13 @@ export default function CalidadImportacionControl() {
 
         {/* ── 5. Calidad interna ── */}
         <SeccionAcordeon numero={5} titulo="Calidad interna" completa={secciones[4].completa}>
-          <MuestrasInternas muestras={control.muestras_internas} onCambio={(v) => cambiar({ muestras_internas: v })} />
+          <div className="space-y-3">
+            <MuestrasInternas muestras={control.muestras_internas} onCambio={(v) => cambiar({ muestras_internas: v })} />
+            <div className="space-y-1">
+              <Label className="text-xs font-medium text-muted-foreground">Observaciones (solo salen en el informe si escribes algo)</Label>
+              <Textarea value={control.obs_calidad_interna} onChange={(evento) => cambiar({ obs_calidad_interna: evento.target.value })} rows={2} className="rounded-xl text-base" placeholder="P.ej. % zumo no aceptable, aspecto interior granulado..." />
+            </div>
+          </div>
         </SeccionAcordeon>
 
         {/* ── 6. Registro fotográfico ── */}
@@ -571,6 +577,16 @@ export default function CalidadImportacionControl() {
                   }}
                 />
               )}
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs font-medium text-muted-foreground">Conclusión (sale al pie del informe, tras la firma)</Label>
+              <Textarea
+                value={control.conclusion}
+                onChange={(evento) => cambiar({ conclusion: evento.target.value })}
+                rows={3}
+                className="rounded-xl text-base"
+                placeholder="P.ej. *Calibre 4/56 marca X presenta problemas internos: estos palets los consideramos no aptos según nuestras especificaciones organolépticas."
+              />
             </div>
           </div>
         </SeccionAcordeon>
