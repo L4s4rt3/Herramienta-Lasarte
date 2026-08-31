@@ -403,13 +403,42 @@ describe("computeMermaLotes — ajuste de stock restando", () => {
     expect(resultado.mermaNaturalKg).toBe(1000 - 950 - 30); // 20
   });
 
-  it("kg_ajuste_stock negativo devuelve stock (reduce lo procesado) y puede dejar el lote como parcial", () => {
+  // Revisado 28-ago-2026 (ver "La foto de stock NEGATIVA no se resta" en la
+  // cabecera de mermaLote.ts). Antes un ajuste negativo restaba, y como la
+  // merma es entrada − procesado − ajuste, la SUMABA: los 12 lotes reales de la
+  // campaña con foto de stock negativa daban mermas de hasta el 169 % de su
+  // propia entrada. Ese negativo es la forma antigua de cancelar una
+  // sobre-atribución del calibrador que `conciliarKgProcesados` ya corrige (y
+  // que ignora el negativo con su propio `Math.max(0, …)`): aplicar los dos
+  // descontaba el mismo exceso dos veces.
+  it("kg_ajuste_stock negativo NO resta: la conciliación ya corrige la sobre-atribución", () => {
     const entradas = [entrada({ lote: "26050101", kg_entrada: 1000, kg_ajuste_stock: -500 })];
     const lotesDia: LoteDiaKgInput[] = [{ lote_codigo: "26050101", kg_peso_total: 980, part_id: "p1" }];
     const [resultado] = computeMermaLotes(entradas, lotesDia, [], []);
-    // 980 + (-500) = 480 -> 48% procesado -> parcial
-    expect(resultado.estado).toBe("parcial");
-    expect(resultado.mermaNaturalKg).toBeNull();
+    // 980 + max(0, -500) = 980 -> 98% procesado -> procesado
+    expect(resultado.estado).toBe("procesado");
+    expect(resultado.kgAjuste).toBe(0);
+    // La merma es la real (1000 - 980), no 1000 - 980 + 500 = 520.
+    expect(resultado.mermaNaturalKg).toBe(20);
+    // El dato crudo no se esconde: sigue disponible con su signo.
+    expect(resultado.kgAjusteBruto).toBe(-500);
+  });
+
+  it("una merma nunca puede superar la entrada por culpa de una foto de stock negativa", () => {
+    // Caso real 26042712: entrada 20.580, el calibrador le atribuyó 33.579 y
+    // la foto de stock traía -33.578,85. Antes salía una merma de 34.778 kg.
+    // Va cerrado a mano porque la conciliación lo deja al 94 % (por debajo del
+    // umbral normal) y sin cierre su merma sería `null`, que es justo lo que
+    // pasa en la campaña real hasta que se le pone la fecha de cierre.
+    const entradas = [entrada({
+      lote: "26042712", kg_entrada: 20580, kg_ajuste_stock: -33578.85,
+      cerrado_at: "2026-08-28", cierre_modo: "con_analisis",
+    })];
+    const lotesDia: LoteDiaKgInput[] = [{ lote_codigo: "26042712", kg_peso_total: 33579, part_id: "p1" }];
+    const conciliado = new Map([["26042712", { kg: 19380.6, ultimaFecha: "2026-07-10" }]]);
+    const [resultado] = computeMermaLotes(entradas, lotesDia, [], [], conciliado);
+    expect(resultado.mermaNaturalKg).toBeCloseTo(20580 - 19380.6, 6);
+    expect(resultado.mermaNaturalKg!).toBeLessThan(resultado.kgEntrada);
   });
 });
 

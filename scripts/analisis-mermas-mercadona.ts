@@ -122,6 +122,39 @@ const numOrNull = (v: unknown): number | null => (v == null ? null : Number(v) |
 const pct = (parte: number | null, total: number | null): number | null =>
   parte == null || total == null || total <= 0 ? null : (parte / total) * 100;
 
+/**
+ * FRUTA DE IMPORTACIÓN — fuera del análisis de campaña (regla del dueño,
+ * 28-ago-2026: "lo único que tenemos ahora es SAF y eso no cuenta ya para este
+ * análisis").
+ *
+ * Este informe mide las mermas y el aprovechamiento de la naranja PROPIA, la
+ * que compramos a productores con finca y parcela. La fruta importada es otro
+ * negocio: no tiene productor al que atribuirle una merma de campo, entra con
+ * su propio coste puesto (fruta + porte) y su rendimiento se juzga contra el
+ * precio de compra, no contra la finca. Mezclarla ensuciaría el ranking de
+ * productores con dos filas que no compiten con las demás.
+ *
+ * Dos familias reales en la BD (verificadas 28-ago-2026):
+ *   - "LASARTE EXPORT S.L. Uria Export", finca "URIA EGIPTO - GG", artículo
+ *     "NARANJA VALENCIA EGIPTO": 10 lotes, 120.574 kg entre abril y agosto.
+ *   - "LASARTE EXPORT S.L. Harrie Goesten", finca "Importacion", artículo
+ *     "NARANJA MIDKNIGHT SAF": el primer camión de SAF (lote 26082701, 27-ago).
+ *
+ * El criterio mira la FINCA y el ARTÍCULO, no el nombre del proveedor: Uria
+ * Export y Harrie Goesten son el canal por el que entra la importación, y si
+ * mañana traen fruta nacional por el mismo canal debe contar como campaña. Se
+ * exponen aparte (`importacion`) para poder informar de sus kg, nunca ocultos.
+ */
+const FINCA_IMPORTACION = /\bimportacion\b|\begipto\b/;
+const ARTICULO_IMPORTACION = /\begipto\b|\bsaf\b/;
+
+function esEntradaImportacion(entrada: { finca?: string | null; articulo?: string | null }): boolean {
+  const finca = String(entrada.finca ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  if (FINCA_IMPORTACION.test(finca)) return true;
+  const articulo = String(entrada.articulo ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  return ARTICULO_IMPORTACION.test(articulo);
+}
+
 /** Espejo de src/lib/fetchAllRows.ts: PostgREST recorta a 1.000 filas en silencio. */
 async function fetchTodas<T>(
   etiqueta: string,
@@ -138,6 +171,29 @@ async function fetchTodas<T>(
       return out;
     }
     if (out.length % 50_000 === 0) console.log(`  ${etiqueta}: ${out.length}…`);
+  }
+}
+
+/**
+ * Reintenta una carga que puede morir por `statement timeout` (código 57014).
+ * `lote_clasificacion_podrido_agg` es una VISTA que reagrega las ~260.000 filas
+ * de lote_clasificacion en cada llamada: lanzada a la vez que las otras ocho
+ * consultas, el servidor la corta de vez en cuando. No es un error de datos —
+ * la misma consulta pasa sola — así que se reintenta con una espera creciente
+ * en vez de tumbar el informe entero.
+ */
+async function conReintento<T>(etiqueta: string, fetcher: () => Promise<T>, intentos = 3): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fetcher();
+    } catch (e) {
+      const codigo = (e as { code?: string }).code;
+      const esTimeout = codigo === "57014" || /statement timeout/i.test(String((e as Error).message ?? ""));
+      if (!esTimeout || i >= intentos) throw e;
+      const espera = i * 5000;
+      console.log(`  ${etiqueta}: timeout del servidor, reintento ${i}/${intentos - 1} en ${espera / 1000}s…`);
+      await new Promise((r) => setTimeout(r, espera));
+    }
   }
 }
 
@@ -181,6 +237,8 @@ interface ClasifRow {
   clase: string | null;
   grupo_destino: string | null;
   peso_kg: number | null;
+  /** Parte al que pertenece el desglose: sirve para saber qué DÍAS de línea tienen mix por lote y cuáles no (ver la hoja "Cobertura del mix"). */
+  part_id: string | null;
 }
 
 // ─── Clases y destinos ───────────────────────────────────────────────────────
@@ -245,7 +303,7 @@ function mixVacio(): MixLote {
 
 async function cargar(db: SupabaseClient) {
   console.log("Cargando campaña completa de Supabase…");
-  const [entradas, lotesDia, partes, anotaciones, boxLineas, camiones, clasifAgg, productores, alias] =
+  const [entradas, lotesDia, partes, anotaciones, boxLineas, camiones, productores, alias] =
     await Promise.all([
       fetchTodas<EntradaRow>("entradas_bascula", (f, t) =>
         db.from("entradas_bascula").select("*").order("fecha", { ascending: false }).order("id", { ascending: false }).range(f, t)),
@@ -267,21 +325,27 @@ async function cargar(db: SupabaseClient) {
         db.from("camara_externa_camiones")
           .select("procedencia, s_ref, lote, fecha_almacenamiento, proveedor, finca, variedad, envases, kg, entrada_lst_1, entrada_lst_2, envases_1, envases_2, venta_directa, nota_entrada, transporte_lst")
           .order("fecha_almacenamiento").order("s_ref").range(f, t))),
-      // Podrido REAL por lote ya agregado en servidor. Si no existiera la vista
-      // el informe falla a propósito: degradar cambiaría el podrido real por
-      // prorrateo en silencio (mismo criterio que informe-semanal).
-      fetchTodas<PodridoAggRow>("lote_clasificacion_podrido_agg", (f, t) =>
-        db.from("lote_clasificacion_podrido_agg").select("lote8, kg_podrido, n_filas").order("lote8").range(f, t)),
       fetchTodas<{ id: string; nombre: string }>("calidad_productores", (f, t) =>
         db.from("calidad_productores").select("id, nombre").order("id").range(f, t)),
       fetchOpcional(() => fetchTodas<{ alias_normalizado: string; productor_id: string }>("productores_alias", (f, t) =>
         db.from("productores_alias").select("alias_normalizado, productor_id").order("productor_id").range(f, t))),
     ]);
 
-  // La clasificación va aparte: son ~260.000 filas y no conviene lanzarla en
-  // paralelo con el resto (el pool de conexiones se resiente y no gana nada).
-  const clasif = await fetchTodas<ClasifRow>("lote_clasificacion", (f, t) =>
-    db.from("lote_clasificacion").select("lote_codigo, producto, clase, grupo_destino, peso_kg").order("id").range(f, t));
+  // Podrido REAL por lote, ya agregado en servidor. Va SECUENCIAL y con
+  // reintento a propósito: es una vista que reagrega las ~260.000 filas de
+  // lote_clasificacion en cada llamada, y lanzada junto a las otras ocho
+  // consultas el servidor la corta por `statement timeout` (pasó el 28-08-2026).
+  // Si la vista no existiera, el informe falla a propósito: degradar cambiaría
+  // el podrido real por prorrateo en silencio (mismo criterio que informe-semanal).
+  const clasifAgg = await conReintento("lote_clasificacion_podrido_agg", () =>
+    fetchTodas<PodridoAggRow>("lote_clasificacion_podrido_agg", (f, t) =>
+      db.from("lote_clasificacion_podrido_agg").select("lote8, kg_podrido, n_filas").order("lote8").range(f, t)));
+
+  // La clasificación completa también va aparte: son ~260.000 filas y no
+  // conviene lanzarla en paralelo con el resto (el pool se resiente y no gana nada).
+  const clasif = await conReintento("lote_clasificacion", () =>
+    fetchTodas<ClasifRow>("lote_clasificacion", (f, t) =>
+      db.from("lote_clasificacion").select("lote_codigo, producto, clase, grupo_destino, peso_kg, part_id").order("id").range(f, t)));
 
   return { entradas, lotesDia, partes, anotaciones, boxLineas, camiones, clasifAgg, productores, alias, clasif };
 }
@@ -296,9 +360,11 @@ function calcularMerma(datos: Awaited<ReturnType<typeof cargar>>, hoy: string) {
   const externas: EntradaRow[] = [];
   const precalibrado: EntradaRow[] = [];
   const campoCit: EntradaRow[] = [];
+  const importacion: EntradaRow[] = [];
   for (const e of entradas) {
     if (esEntradaPrecalibrado(e)) precalibrado.push(e);
     else if (esEntradaCampoCit(e)) campoCit.push(e);
+    else if (esEntradaImportacion(e)) importacion.push(e);
     else externas.push(e);
   }
 
@@ -389,6 +455,8 @@ function calcularMerma(datos: Awaited<ReturnType<typeof cargar>>, hoy: string) {
     lote: e.lote,
     fecha: e.fecha,
     kg_entrada: num(e.kg_entrada),
+    // El clamp del ajuste negativo vive ahora en la lib compartida
+    // (mermaLote.ts, 28-ago-2026): aquí ya no hay que hacer nada especial.
     kg_ajuste_stock: numOrNull(e.kg_ajuste_stock),
     importe_compra: numOrNull(e.importe_compra),
     coste_recoleccion: numOrNull(e.coste_recoleccion),
@@ -413,7 +481,56 @@ function calcularMerma(datos: Awaited<ReturnType<typeof cargar>>, hoy: string) {
     conciliadoPorLote.size > 0 ? conciliadoPorLote : undefined,
   );
 
-  return { mermaLotes, externas, precalibrado, campoCit, conciliacion };
+  // Los INPUTS se devuelven junto al resultado para poder repetir el cálculo
+  // con las mismas piezas (ver `simularCierreDeCampana`): así la simulación usa
+  // exactamente la misma función pura que el número real, sin una segunda
+  // implementación que pueda divergir.
+  const lotesDiaInput = lotesDia.map((l) => ({
+    lote_codigo: l.lote_codigo, kg_peso_total: num(l.kg_peso_total), part_id: l.part_id,
+  }));
+  const clasifInput = mapPodridoAggToClasificacionInput(clasifAgg);
+
+  return {
+    mermaLotes, externas, precalibrado, campoCit, importacion, conciliacion,
+    entradasMerma, lotesDiaInput, clasifInput, partesMerma, conciliadoPorLote,
+  };
+}
+
+/**
+ * "Ya no queda fruta en el almacén": qué saldría si se cerraran los lotes que
+ * el sistema todavía tiene abiertos.
+ *
+ * Un lote sin cerrar no tiene merma calculable (mermaLote.ts devuelve `null`, no
+ * 0: mientras pueda seguir vaciándose desde cámara, restar mezclaría cámara con
+ * pérdida). Al final de campaña eso deja fuera de los totales toda la fruta que
+ * ya no va a procesarse nunca — y el año sale con menos pérdida de la real.
+ *
+ * Esto NO escribe en la base: repite el cálculo con `cerrado_at` puesto en
+ * memoria, con la MISMA `computeMermaLotes` que el número real, para poder
+ * enseñar el impacto y que el dueño decida lote a lote. Cerrar de verdad es una
+ * decisión suya, y además hay dos modos con consecuencias distintas
+ * ("con_analisis" convierte el hueco en pérdida; "sin_registro" lo excluye
+ * porque esa fruta se procesó bajo otro código o se vendió sin pasar por línea).
+ */
+function simularCierreDeCampana(
+  merma: ReturnType<typeof calcularMerma>,
+  hoy: string,
+): { lotes: MermaLote[]; cerrados: Set<string> } {
+  const abiertos = new Set(
+    merma.mermaLotes.filter((l) => l.estado !== "procesado" && !l.cerradoSinRegistro).map((l) => l.lote),
+  );
+  const entradas = merma.entradasMerma.map((e) => {
+    const lote = normalizarLoteCodigo(e.lote) ?? e.lote;
+    if (!abiertos.has(lote) || e.cerrado_at) return e;
+    return { ...e, cerrado_at: hoy, cierre_modo: "con_analisis" as const };
+  });
+  return {
+    lotes: computeMermaLotes(
+      entradas, merma.lotesDiaInput, merma.clasifInput, merma.partesMerma,
+      merma.conciliadoPorLote.size > 0 ? merma.conciliadoPorLote : undefined,
+    ),
+    cerrados: abiertos,
+  };
 }
 
 // ─── Fila por lote (merma + identidad + mix de clasificación) ────────────────
@@ -863,13 +980,38 @@ async function main() {
   const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid" }).format(new Date());
   const datos = await cargar(db);
   console.log("Conciliando kg y calculando merma por lote…");
-  const merma = calcularMerma(datos, hoy);
+  const mermaAbierta = calcularMerma(datos, hoy);
+
+  // ─── LA CAMPAÑA ESTÁ CERRADA (regla del dueño, 28-ago-2026) ───────────────
+  // "Ya no tenemos más lotes, estamos sin naranjas." Físicamente no queda fruta
+  // de campaña en el almacén, así que ningún lote puede seguir vaciándose desde
+  // cámara: lo que no ha pasado por línea ya no va a pasar, y su hueco ES
+  // pérdida. Por eso el informe se calcula con TODOS los lotes cerrados, no con
+  // los que la base tiene marcados — si no, el año saldría corto por abajo y
+  // habría que leerlo con una simulación al lado, que es justo lo que no
+  // quedaba claro.
+  //
+  // Esto NO escribe en la base: `simularCierreDeCampana` repite el cálculo en
+  // memoria con la misma `computeMermaLotes`. La hoja "Cierre pendiente" lista
+  // los lotes a los que todavía hay que ponerles `cerrado_at` para que la app
+  // enseñe estos mismos números.
+  const cierre = simularCierreDeCampana(mermaAbierta, hoy);
+  const merma = { ...mermaAbierta, mermaLotes: cierre.lotes };
   const todasLasFilas = construirFilas(merma, datos);
+
+  // Un lote no puede perder más de lo que entró. Los que salen así tienen un
+  // `kg_ajuste_stock` NEGATIVO (alguien reasignó sus kg a otro lote a mano) y
+  // al cerrarlos meterían "merma" imposible: se apartan del año y se listan
+  // para arreglar el apunte. Ver la hoja "Cierre pendiente".
+  const esImposible = (f: FilaLote): boolean =>
+    f.mermaMedidaKg != null && (f.mermaMedidaKg > f.kgEntrada || f.kgAjuste < 0);
 
   // Los movimientos internos (precalibrado, confección/sobrante) no son
   // productores: fuera de los rankings, contados aparte para poder informarlo.
-  const filas = todasLasFilas.filter((f) => !f.interno);
+  const filas = todasLasFilas.filter((f) => !f.interno && !esImposible(f));
   const internas = todasLasFilas.filter((f) => f.interno);
+  const imposibles = todasLasFilas.filter((f) => !f.interno && esImposible(f));
+  const pendientesDeCerrar = todasLasFilas.filter((f) => cierre.cerrados.has(f.lote) && !f.interno);
 
   const porProductor = agrupar(filas, (f) => f.productorKey, false)
     .sort((a, b) => (pct(b.perdidaKg, b.kgEntradaBase) ?? -1) - (pct(a.perdidaKg, a.kgEntradaBase) ?? -1)
@@ -945,9 +1087,9 @@ async function main() {
 
   // 1. Resumen: la cascada entera de la campaña.
   const cascada: Array<[string, number | null, number | null, string]> = [
-    ["Kg de entrada por báscula", total.kgEntradaTotal, 100, `${total.nLotes} lotes de productores externos (fuera precalibrado, movimientos internos y CAMPO/CIT)`],
-    ["  · de ellos, con merma ya calculable", total.kgEntradaBase, pct(total.kgEntradaBase, total.kgEntradaTotal), `${total.nLotesConMerma} lotes terminados o cerrados: es la base de los % de merma y podrido de tría`],
-    ["  · de ellos, aún sin merma calculable", total.kgEntradaTotal - total.kgEntradaBase, pct(total.kgEntradaTotal - total.kgEntradaBase, total.kgEntradaTotal), `${total.nLotesSinMerma} lotes a medias o en cámara: no se les puede restar nada todavía`],
+    ["Kg de entrada por báscula", total.kgEntradaTotal, 100, `${total.nLotes} lotes de naranja PROPIA. Fuera: ${merma.importacion.length} de importación (Egipto y SAF), ${merma.precalibrado.length} de precalibrado, ${internas.length} movimientos internos, ${merma.campoCit.length} CAMPO/CIT y ${imposibles.length} con el apunte de ajuste roto`],
+    ["  · de ellos, con merma ya calculable", total.kgEntradaBase, pct(total.kgEntradaBase, total.kgEntradaTotal), `${total.nLotesConMerma} lotes: la campaña se cuenta CERRADA (el almacén está vacío), así que es la base de los % de merma y podrido de tría`],
+    ["  · de ellos, aún sin merma calculable", total.kgEntradaTotal - total.kgEntradaBase, pct(total.kgEntradaTotal - total.kgEntradaBase, total.kgEntradaTotal), `${total.nLotesSinMerma} lotes cerrados «sin registro»: su procesado no consta bajo su código (pasó bajo otro, o se vendió sin línea), así que su hueco NO es pérdida`],
     ["  · de ellos, sin ninguna pasada propia", total.kgAjuste, pct(total.kgAjuste, total.kgEntradaTotal), `${total.nLotesTodoAjuste} lotes cuya entrada entera es ajuste de stock (histórico ya contado): su merma es 0 de verdad, y baja el % de su productor`],
     ["MERMA MEDIDA (báscula − procesado)", total.mermaMedidaKg, pct(total.mermaMedidaKg, total.kgEntradaBase), "Lo que la báscula pesó y el calibrador nunca llegó a pesar. Se parte en las dos líneas de abajo"],
     ["  · merma de cámara (deshidratación)", total.mermaCamaraKg, pct(total.mermaCamaraKg, total.kgEntradaBase), `Real donde hay registro de cámara; si no, ${(TASA_MERMA_NATURAL_DIA * 100).toFixed(4)} % de la entrada por cada día en cámara`],
@@ -1042,6 +1184,103 @@ async function main() {
     filas: filasMes,
   });
 
+  // ─── CIERRE PENDIENTE EN EL SISTEMA ───────────────────────────────────────
+  // El año de arriba ya está calculado CON la campaña cerrada (ver el bloque de
+  // `simularCierreDeCampana` en main). Lo que va aquí es la lista de deberes:
+  // a qué lotes hay que ponerles `cerrado_at` en la base para que la app enseñe
+  // exactamente estos mismos números, y con qué modo.
+  const entradaPorLote = new Map(merma.externas.map((e) => [normalizarLoteCodigo(e.lote) ?? e.lote, e]));
+
+  añadirHojaTabla(ctx, {
+    nombreHoja: "Cierre pendiente",
+    titulo: "Lotes a los que falta ponerles la fecha de cierre en el sistema (los números del año ya los dan por cerrados)",
+    columnas: [
+      { header: "Productor", key: "productor", width: 38 },
+      { header: "Finca", key: "finca", width: 26 },
+      { header: "Lote", key: "lote", width: 11 },
+      { header: "Entrada", key: "fecha", width: 11 },
+      kgCol("Kg entrada", "kgEntrada"),
+      kgCol("Kg procesados (conc.)", "kgCalibrador", 18),
+      pctCol("% procesado", "pctProcesado", 12),
+      kgCol("Merma al cerrar", "kgMerma", 15),
+      { header: "Modo de cierre", key: "modo", width: 15 },
+      { header: "Qué pasó con este lote", key: "situacion", width: 74 },
+    ],
+    filas: pendientesDeCerrar
+      .slice()
+      .sort((a, b) => b.kgEntrada - a.kgEntrada)
+      .map((f) => {
+        const e = entradaPorLote.get(f.lote);
+        const roto = esImposible(f);
+        return {
+          productor: f.productor, finca: f.finca, lote: f.lote, fecha: f.fecha,
+          kgEntrada: f.kgEntrada, kgCalibrador: f.kgCalibrador,
+          pctProcesado: pct(f.kgCalibrador + f.kgAjuste, f.kgEntrada),
+          kgMerma: roto ? null : f.mermaMedidaKg,
+          modo: roto ? "ARREGLAR ANTES" : f.kgCalibrador <= 0 ? "sin registro" : "con análisis",
+          situacion: roto
+            ? `Ajuste de stock NEGATIVO (${Math.round(f.kgAjuste).toLocaleString("es-ES")} kg): al cerrarlo la merma saldría ${Math.round(f.kgEntrada - f.kgCalibrador - f.kgAjuste).toLocaleString("es-ES")} kg sobre ${Math.round(f.kgEntrada).toLocaleString("es-ES")} kg de entrada. Imposible: hay que corregir el apunte.`
+            : f.kgCalibrador <= 0
+              ? "Ni una sola pasada bajo su código: se vendió sin procesar o pasó bajo el código de otro lote. Cerrar «sin registro» — su hueco NO es pérdida."
+              : e?.camara_confirmada_nombre
+                ? `Estuvo confirmado en ${e.camara_confirmada_nombre}; ya salió. Cerrar «con análisis»: el hueco es merma real.`
+                : "Pasó parte y el resto no consta. Cerrar «con análisis»: el hueco es merma real.",
+        };
+      }),
+  });
+
+
+  // ─── Cobertura del MIX: qué días de línea traen desglose por lote ─────────
+  // La merma solo necesita kg; el aprovechamiento necesita saber en qué se
+  // convirtió cada lote, y eso solo lo dice el Informe LOTE / el volcado del
+  // Sizer. Si un tramo de campaña no lo trae, sus kg entran en la pérdida pero
+  // NO pueden repartirse entre destinos ni entre los formatos de Mercadona.
+  const partesConMix = new Set(datos.clasif.map((c) => c.part_id).filter(Boolean) as string[]);
+  const fechaDeParte = new Map(datos.partes.map((p) => [p.id, p.date ?? null]));
+  const mixPorMes = new Map<string, { con: number; sin: number }>();
+  for (const l of datos.lotesDia) {
+    const fecha = fechaDeParte.get(l.part_id);
+    if (!fecha) continue;
+    const mes = fecha.slice(0, 7);
+    const acc = mixPorMes.get(mes) ?? { con: 0, sin: 0 };
+    if (partesConMix.has(l.part_id)) acc.con += num(l.kg_peso_total);
+    else acc.sin += num(l.kg_peso_total);
+    mixPorMes.set(mes, acc);
+  }
+  const mesesMix = [...mixPorMes.keys()].sort();
+  const totalSinMix = [...mixPorMes.values()].reduce((s, v) => s + v.sin, 0);
+  const totalConMix = [...mixPorMes.values()].reduce((s, v) => s + v.con, 0);
+
+  añadirHojaTabla(ctx, {
+    nombreHoja: "Cobertura del mix",
+    titulo: "Qué kg procesados tienen desglose por lote (y por tanto aprovechamiento) y cuáles no",
+    columnas: [
+      { header: "Mes de línea", key: "mes", width: 14 },
+      kgCol("Kg procesados", "total", 16),
+      kgCol("Con desglose por lote", "con", 19),
+      kgCol("SIN desglose por lote", "sin", 19),
+      pctCol("% con desglose", "pctCon", 14),
+      { header: "Qué significa", key: "nota", width: 76 },
+    ],
+    filas: [
+      ...mesesMix.map((mes) => {
+        const v = mixPorMes.get(mes)!;
+        return {
+          mes, total: v.con + v.sin, con: v.con, sin: v.sin || null,
+          pctCon: pct(v.con, v.con + v.sin),
+          nota: v.sin > 0 ? "Estos kg cuentan en la pérdida pero NO se pueden repartir entre destinos ni formatos de Mercadona" : "",
+        };
+      }),
+      {
+        mes: "TOTAL", total: totalConMix + totalSinMix, con: totalConMix, sin: totalSinMix || null,
+        pctCon: pct(totalConMix, totalConMix + totalSinMix),
+        nota: totalSinMix > 0
+          ? `${Math.round(totalSinMix).toLocaleString("es-ES")} kg sin desglose: el aprovechamiento del año se calcula sobre el resto`
+          : "Campaña entera con desglose por lote",
+      },
+    ],
+  });
+
   añadirHojaTabla(ctx, {
     nombreHoja: "Detalle lotes",
     titulo: "Una fila por lote: merma, podrido y destino",
@@ -1109,7 +1348,7 @@ async function main() {
 
   // Metodología: lo que hay que leer ANTES de discutir una cifra.
   const metodo: Array<[string, string]> = [
-    ["Qué se cuenta como entrada", `Las ${total.nLotes} entradas de báscula de productores externos. Quedan fuera, por ser movimiento interno o fruta que no entra a línea: ${internas.length} lotes de precalibrado/confección/sobrante, ${merma.precalibrado.length} entradas del almacén de precalibrado y ${merma.campoCit.length} lotes CAMPO/CIT (fruta derivada a Cítrica sin pasar por el calibrador).`],
+    ["Qué se cuenta como entrada", `Las ${total.nLotes} entradas de báscula de naranja PROPIA, la comprada a productores con finca y parcela. Quedan fuera: ${merma.importacion.length} lotes de IMPORTACIÓN (${Math.round(merma.importacion.reduce((s, e) => s + num(e.kg_entrada), 0)).toLocaleString("es-ES")} kg de naranja de Egipto vía Uria Export y el primer camión de SAF de Harrie Goesten) — no tienen productor al que atribuir una merma de campo y su rendimiento se juzga contra el precio de compra, no contra la finca; ${internas.length} movimientos internos de confección/sobrante; ${merma.precalibrado.length} entradas del almacén de precalibrado; y ${merma.campoCit.length} lotes CAMPO/CIT derivados a Cítrica sin pasar por el calibrador.`],
     ["Base de los porcentajes", `La merma (cámara y podrido de tría) va sobre los ${Math.round(total.kgEntradaBase).toLocaleString("es-ES")} kg de los ${total.nLotesConMerma} lotes terminados: un lote a medias todavía puede seguir vaciándose desde cámara, meterlo en el denominador bajaría el % de todo el mundo sin que nadie haya perdido menos fruta. El podrido de calibrador y la PÉRDIDA TOTAL van sobre una base algo mayor (${Math.round(total.kgBasePctPerdida).toLocaleString("es-ES")} kg, columna «Base del % de pérdida»): el podrido de un lote a medio procesar cuenta, así que sus kg ya pasados por línea cuentan también en el denominador. Es la misma regla que usa la app.`],
     ["Lotes sin ninguna pasada propia", `${total.nLotesTodoAjuste} lotes traen toda su entrada como «ajuste de stock» del histórico importado y ni una pasada de calibrador. Su merma sale 0 y es un 0 REAL (no hay nada que restar: esa fruta ya venía contada), pero sus kg sí pesan en la base, así que hunden el % de su productor. La columna «Lotes sin pasada propia» permite localizarlos antes de comparar a nadie.`],
     ["Lotes cerrados «sin registro»", `${total.nLotesSinRegistro} lotes cerrados sin ninguna pasada bajo su código (se procesaron bajo un código compuesto o se vendieron sin pasar por línea). Se excluyen del análisis de merma: darles pérdida real metería millones de kg ficticios.`],
@@ -1125,6 +1364,9 @@ async function main() {
     ["Cómo leer «Podrido por mes»", `De octubre a mayo el «asumido por la resta» y el «esperado por la tasa» coinciden casi clavados, y eso NO es una validación: la tasa de esos meses se calibró justamente con ese residuo. Lo que sí informa es junio en adelante, donde la resta se queda sin hueco. En los meses con pesada real (${filasMes.filter((m) => (m.pesadoTotal ?? 0) > 0).map((m) => `${m.mes}: pesados ${Math.round(m.pesadoTotal ?? 0).toLocaleString("es-ES")} kg frente a ${Math.round(m.asumido ?? 0).toLocaleString("es-ES")} asumidos`).join("; ")}) se ve de un vistazo dónde el informe se queda corto.`],
     ["Lotes sin informe de clasificación", `${total.nLotesSinClasificacion} lotes no tienen ninguna fila de Informe LOTE: su mix es desconocido y sale vacío, nunca 0. Sus kg de entrada SÍ cuentan en la columna de entrada, así que su ausencia baja el % de Mercadona del grupo — está a propósito, para que se vea el hueco.`],
     ["Euros", "El coste por kg de cada lote sale del importe de compra ya contabilizado en Económico. Los lotes sin coste conocido no aportan € (quedan vacíos, no a 0) pero sí aportan kg."],
+    ["La campaña se calcula CERRADA", `El dueño confirmó el 28-ago-2026 que ya no queda naranja de campaña en el almacén. Físicamente eso significa que ningún lote puede seguir vaciándose desde cámara: lo que no ha pasado por línea ya no va a pasar, y su hueco ES pérdida. Por eso los números de este informe se calculan con TODOS los lotes cerrados, no solo con los que la base tiene marcados — si no, el año saldría corto por abajo. El cálculo no escribe en la base: la hoja «Cierre pendiente» lista los ${pendientesDeCerrar.length} lotes a los que falta ponerles la fecha de cierre para que la app enseñe estos mismos números, y con qué modo («con análisis» convierte el hueco en pérdida; «sin registro» lo excluye porque esa fruta se procesó bajo otro código o se vendió sin pasar por línea).`],
+    ["Los lotes con ajuste negativo", `${imposibles.length} lotes traen kg_ajuste_stock NEGATIVO (alguien reasignó sus kg a otro lote a mano). Como la merma es entrada − procesado − ajuste, un ajuste negativo la SUMA: al cerrarlos saldría una merma MAYOR que su propia entrada, que es físicamente imposible. Están FUERA de todos los totales del año (${Math.round(imposibles.reduce((s, f) => s + f.kgEntrada, 0)).toLocaleString("es-ES")} kg de entrada) y listados en «Cierre pendiente» con el modo «ARREGLAR ANTES». Hay que corregir el apunte para poder cerrarlos.`],
+    ["Aprovechamiento: hasta dónde llega", `${Math.round(totalSinMix).toLocaleString("es-ES")} kg procesados (${(pct(totalSinMix, totalConMix + totalSinMix) ?? 0).toFixed(1)} % del año, todo entre el 11 y el 26 de agosto) no tienen desglose por lote: el volcado del calibrador se paró el 11 de agosto y el Informe LOTE el día 10. Esos kg SÍ cuentan en la pérdida (para eso basta con los kg del parte) pero NO se pueden repartir entre destinos ni entre los formatos de Mercadona. Ver la hoja «Cobertura del mix».`],
   ];
   añadirHojaTabla(ctx, {
     nombreHoja: "Metodología",
@@ -1138,7 +1380,19 @@ async function main() {
   });
 
   fs.mkdirSync(path.dirname(SALIDA), { recursive: true });
-  await ctx.workbook.xlsx.writeFile(SALIDA);
+  // Si el informe de hoy está abierto en Excel, Windows bloquea el fichero
+  // (EBUSY). Perder el cálculo entero por eso sería absurdo: se escribe al lado
+  // con la hora, y el nombre real se dice al final.
+  let salida = SALIDA;
+  try {
+    await ctx.workbook.xlsx.writeFile(salida);
+  } catch (e) {
+    if ((e as { code?: string }).code !== "EBUSY") throw e;
+    const hhmm = new Date().toTimeString().slice(0, 5).replace(":", "");
+    salida = SALIDA.replace(/\.xlsx$/, `_${hhmm}.xlsx`);
+    console.log(`  (el fichero de hoy está abierto en Excel: se guarda como ${path.basename(salida)})`);
+    await ctx.workbook.xlsx.writeFile(salida);
+  }
 
   // ─── Cuadres en consola (para poder discutir el informe sin abrirlo) ──────
   // Invariante del módulo: el desglose no puede sumar más ni menos que la merma
@@ -1164,8 +1418,14 @@ async function main() {
     console.log(`  ${LABEL_MDNA[m].padEnd(24)} ${Math.round(total.mdnaAjustado[m]).toLocaleString("es-ES").padStart(11)} (${(pct(total.mdnaAjustado[m], total.kgEntradaTotal) ?? 0).toFixed(2)} %)`);
   }
   console.log(`  ${"sin formato".padEnd(24)} ${Math.round(total.mdnaSinFormatoAjustado).toLocaleString("es-ES").padStart(11)}`);
-  console.log(`Entradas fuera del análisis ${merma.precalibrado.length} de almacén de precalibrado · ${merma.campoCit.length} CAMPO/CIT · ${internas.length} movimientos internos · ${total.nLotesSinRegistro} cerrados sin registro`);
-  console.log(`\nExcel: ${SALIDA}`);
+  console.log(`Fuera del análisis          ${merma.importacion.length} lotes de IMPORTACIÓN (${Math.round(merma.importacion.reduce((s, e) => s + num(e.kg_entrada), 0)).toLocaleString("es-ES")} kg: Egipto + SAF) · ${merma.precalibrado.length} de almacén de precalibrado · ${merma.campoCit.length} CAMPO/CIT · ${internas.length} movimientos internos`);
+  console.log("");
+  console.log("─── Cierre de campaña ───");
+  console.log(`Campaña CERRADA: los ${pendientesDeCerrar.length} lotes que la base tenía abiertos se cuentan como terminados (el almacén está vacío).`);
+  console.log(`Falta ponerles cerrado_at   ${pendientesDeCerrar.length} lotes (${Math.round(pendientesDeCerrar.reduce((s, f) => s + f.kgEntrada, 0)).toLocaleString("es-ES")} kg) → hoja «Cierre pendiente»`);
+  console.log(`Apartados por apunte roto   ${imposibles.length} lotes con ajuste de stock NEGATIVO (${Math.round(imposibles.reduce((s, f) => s + f.kgEntrada, 0)).toLocaleString("es-ES")} kg) fuera del año; de ellos ${pendientesDeCerrar.filter(esImposible).length} están además sin cerrar`);
+  console.log(`Cobertura del mix           ${Math.round(totalConMix).toLocaleString("es-ES")} kg con desglose por lote · ${Math.round(totalSinMix).toLocaleString("es-ES")} kg SIN (${(pct(totalSinMix, totalConMix + totalSinMix) ?? 0).toFixed(1)} % de lo procesado, todo del 11 al 26 de agosto)`);
+  console.log(`\nExcel: ${salida}`);
 }
 
 main().catch((e) => {

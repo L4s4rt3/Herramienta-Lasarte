@@ -163,6 +163,32 @@
  * hacer antes. Sustituir la resta por la tasa sería otra decisión (cambiaría
  * todos los € aguas abajo) y no se ha tomado.
  *
+ * ─── La foto de stock NEGATIVA no se resta (revisado 28-ago-2026) ───────────
+ * `kg_ajuste_stock` es la "foto de stock": kg contados fuera de los partes al
+ * conciliar con el informe de la báscula (ver eventosLote.ts). Doce lotes de la
+ * campaña 2025/26 la traen NEGATIVA, y nueve de ellos con una firma
+ * inconfundible: el ajuste es exactamente −(kg de su primera pasada), esa
+ * pasada es de código SIMPLE, el calibrador les atribuyó entre el 100 % y el
+ * 163 % de su entrada, y los doce se crearon el mismo día (13-jul-2026) por el
+ * mismo import.
+ *
+ * Es decir: ese negativo es la forma ANTIGUA de cancelar una sobre-atribución
+ * del calibrador. Pero `conciliarKgProcesados` (conciliacionKg.ts) ya corrige
+ * eso por su cuenta — capa cada lote a su capacidad y derrama el exceso a sus
+ * hermanos — y de hecho IGNORA el negativo (`kg_preasignado: Math.max(0, …)`).
+ * Aplicar los dos arreglos a la vez descontaba el mismo exceso DOS VECES: como
+ * la merma es entrada − procesado − ajuste, un ajuste negativo la SUMA, y
+ * salían mermas imposibles (26042712: 34.778 kg sobre 20.580 kg de entrada,
+ * el 169 %).
+ *
+ * Desde el 28-ago-2026 se aplica aquí el MISMO criterio que la conciliación:
+ * `kgAjuste = max(0, kg_ajuste_stock)`. Con eso los doce lotes pasan a dar
+ * mermas del 0 % al 6,6 %, dentro de la banda normal de la campaña. El valor
+ * CRUDO se sigue exponiendo en `kgAjusteBruto` (con signo) para que nadie
+ * pierda de vista que la báscula contó de menos: la contradicción
+ * "pasada vs foto de stock" de cicloVidaLote.ts NO depende de este módulo y
+ * sigue marcando esos lotes para comprobación física.
+ *
  * ─── Cierre manual de lote (entradas_bascula.cerrado_at) ────────────────────
  * Hay lotes que se quedan a ~94% para siempre (el hueco es justo ese podrido
  * pre-calibrador no pesado + la merma natural) y sin cierre manual quedarían
@@ -433,7 +459,10 @@ export interface MermaLote {
   cerradoSinRegistro: boolean;
 
   kgEntrada: number;
+  /** Foto de stock EFECTIVA: `max(0, kg_ajuste_stock)` — un negativo no resta (ver cabecera del archivo). Es la que entra en todas las fórmulas de abajo. */
   kgAjuste: number;
+  /** Foto de stock CRUDA, con signo, tal como está en entradas_bascula. Negativa = la báscula contó menos de lo que muestran los partes; se expone para no esconder el dato aunque no se reste. */
+  kgAjusteBruto: number;
   /** Σ kg_peso_total de los lotes_dia de este lote (cruce exacto por normalizarLoteCodigo). */
   kgCalibrador: number;
 
@@ -637,7 +666,11 @@ export function computeMermaLotes(
   return entradas.map((entrada): MermaLote => {
     const lote = normalizarLoteCodigo(entrada.lote) ?? entrada.lote;
     const kgEntrada = Number(entrada.kg_entrada) || 0;
-    const kgAjuste = Number(entrada.kg_ajuste_stock) || 0;
+    // Un ajuste NEGATIVO no resta: la conciliación ya corrige la
+    // sobre-atribución del calibrador y restarlo aquí la contaría dos veces
+    // (ver "La foto de stock NEGATIVA no se resta" en la cabecera).
+    const kgAjusteBruto = Number(entrada.kg_ajuste_stock) || 0;
+    const kgAjuste = Math.max(0, kgAjusteBruto);
     // Con conciliación: el kg del reparto (ausente en el mapa = 0 conciliado,
     // no "sin dato" — la conciliación cubre todas las entradas). Sin ella, la
     // suma cruda de siempre.
@@ -788,6 +821,7 @@ export function computeMermaLotes(
         cerradoSinRegistro,
         kgEntrada,
         kgAjuste,
+      kgAjusteBruto,
         kgCalibrador,
         mermaNaturalKg: null,
         calibradorSuperaEntrada: false,
@@ -824,6 +858,7 @@ export function computeMermaLotes(
       cerradoSinRegistro,
       kgEntrada,
       kgAjuste,
+      kgAjusteBruto,
       kgCalibrador,
       mermaNaturalKg,
       calibradorSuperaEntrada,
