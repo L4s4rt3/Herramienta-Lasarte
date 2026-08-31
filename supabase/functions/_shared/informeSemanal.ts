@@ -105,6 +105,8 @@ export interface OpcionesInformeSemanal {
   mermaSemana?: MermaSemanaInforme | null;
   /** Foto del stock en cámara A DÍA DE HOY (buildStockEntradas). null/ausente = no calculado. */
   stock?: StockInforme | null;
+  /** Kg calibrados en la MISMA semana ISO de la campaña anterior. null/ausente = sin dato. */
+  kgMismaSemanaCampanaAnterior?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -231,6 +233,8 @@ export interface InformeSemanal {
   mermaSemana: MermaSemanaInforme | null;
   /** Foto del stock en cámara a la fecha de generación. null = no calculado. */
   stock: StockInforme | null;
+  /** Kg de la misma semana ISO de la campaña anterior (comparativa). null = sin dato. */
+  kgMismaSemanaCampanaAnterior: number | null;
   /** Datos que faltan / calidad del dato — la sección más valiosa del correo. */
   avisos: string[];
 }
@@ -320,6 +324,7 @@ export function computeInformeSemanal(
     podridoPorProductor: [],
     mermaSemana: opciones.mermaSemana ?? null,
     stock: opciones.stock ?? null,
+    kgMismaSemanaCampanaAnterior: opciones.kgMismaSemanaCampanaAnterior ?? null,
     avisos: [],
   };
 
@@ -575,7 +580,7 @@ export function renderInformeSemanalHtml(inf: InformeSemanal): string {
         <tr><td style="padding:24px 36px 0;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
             <tr>
-              ${kpi("Kg producidos", fmtKg(inf.kgTotal), `${inf.diasConProduccion} día(s) de calibrado`)}
+              ${kpi("Kg producidos", fmtKg(inf.kgTotal), `${inf.diasConProduccion} día(s) de calibrado${inf.kgMismaSemanaCampanaAnterior != null && inf.kgMismaSemanaCampanaAnterior > 0 ? ` · campaña pasada: ${fmtKg(inf.kgMismaSemanaCampanaAnterior)}` : ""}`)}
               <td style="width:10px;">&nbsp;</td>
               ${kpi("Podrido real", fmtPct(inf.pctPodrido), `${fmtKg(inf.kgPodrido)} · clase (J) del calibrador`)}
               <td style="width:10px;">&nbsp;</td>
@@ -652,7 +657,7 @@ export function renderInformeSemanalTexto(inf: InformeSemanal): string {
   const lineas: string[] = [];
   lineas.push(`INFORME SEMANAL ${inf.semana}/${inf.anio} · ${etiquetaRango(inf.fechaInicio, inf.fechaFin)}`);
   lineas.push("");
-  lineas.push(`Kg producidos: ${fmtKg(inf.kgTotal)} en ${inf.diasConProduccion} día(s)`);
+  lineas.push(`Kg producidos: ${fmtKg(inf.kgTotal)} en ${inf.diasConProduccion} día(s)${inf.kgMismaSemanaCampanaAnterior != null && inf.kgMismaSemanaCampanaAnterior > 0 ? ` (misma semana de la campaña pasada: ${fmtKg(inf.kgMismaSemanaCampanaAnterior)})` : ""}`);
   lineas.push(`Podrido real: ${fmtKg(inf.kgPodrido)} (${fmtPct(inf.pctPodrido)}) · industria ${fmtPct(inf.pctIndustria)}`);
   lineas.push(`Trabajadores: ${fmtPersonas(inf.presentesMedios)} de media/día${inf.kgPorPersonaDia != null ? ` · ${fmtKg(inf.kgPorPersonaDia)} por persona y día` : ""}`);
   lineas.push(`Entradas de báscula: ${fmtKg(inf.kgEntradaBascula)} en ${inf.numEntradasBascula} entrada(s)`);

@@ -133,6 +133,8 @@ No se trata de construir "el sistema definitivo" de golpe: cada fase entrega alg
 *Criterio de hecho: José María puede saber si el sistema está bien sin preguntar a nadie.*
 *Nota de estreno: la tarea diaria registra desde su próxima ejecución (07:10) y el receptor desde su próximo reinicio — hasta entonces salen como "sin estrenar", que a propósito no alarma a nadie.*
 
+- ✅ **HECHO 31-08** — **Vigía de NEGOCIO** (edge `vigia-negocio`, diario 14:15) y **cierre mensual** (edge `cierre-mensual`, día 1): el vigilante mira si los trabajos corren; el vigía mira lo que CUENTAN los datos — sobrellenado de malla, camiones SAF sin cuadrar con su Laadbon, dinero parado, fruta parada, mermas fuera de banda, papel sin meter, días rojos de rendimiento y días de calibrado sin detalle. Solo escribe cuando hay algo nuevo (lunes, resumen de pendientes). Reglas y umbrales en `_shared/vigiaNegocio.ts` (30 tests); documentación completa en `docs/VIGIA_NEGOCIO.md`. El primer día en vivo reprodujo solo los dos hallazgos que costó días encontrar a mano: los 297 kg/día de sobrellenado y los 1.790 € de más del alta del camión SAF 1.
+
 #### Copias y restauración: el runbook
 
 - **Dónde están.** `outputs/copias/<fecha>/` (tablas, una carpeta por día) y `outputs/copias/archivos/` (espejo del storage). Como `outputs/` vive dentro de OneDrive, todo está también en la nube de OneDrive: que muera el portátil no pierde ninguna copia.

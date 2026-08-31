@@ -250,6 +250,30 @@ const TRABAJOS: DefTrabajo[] = [
       "falle: hay que revisar el job «vigilante-diario» de pg_cron en Supabase.",
     ),
   },
+  {
+    id: "vigia-negocio",
+    nombre: "Vigía de negocio (corre en Supabase)",
+    queHace: "Revisa cada día a las 14:15 lo que los datos cuentan: sobrellenado de malla, camiones SAF sin cuadrar, albaranes sin factura, fruta parada, mermas fuera de banda, papel sin meter y días rojos de rendimiento. Solo manda correo cuando hay algo nuevo (y los lunes, el resumen de pendientes).",
+    evaluar: periodico(
+      "una vez al día",
+      26 * 60,
+      50 * 60,
+      "Corre en Supabase, no en el portátil: hay que revisar el job «vigia-negocio-diario» de pg_cron " +
+      "y los logs de la edge function vigia-negocio.",
+    ),
+  },
+  {
+    id: "cierre-mensual",
+    nombre: "Cierre mensual (corre en Supabase)",
+    queHace: "El día 1 de cada mes manda el resumen del mes cerrado: entradas, calibrado, destinos, podrido, merma de los lotes terminados y comparación con el mes anterior.",
+    evaluar: periodico(
+      "una vez al mes (el día 1)",
+      33 * 24 * 60,
+      36 * 24 * 60,
+      "Corre en Supabase, no en el portátil: hay que revisar el job «cierre-mensual-dia1» de pg_cron " +
+      "y los logs de la edge function cierre-mensual.",
+    ),
+  },
 ];
 
 export function evaluarTrabajos(latidos: LatidoRow[], ahora: Date): TrabajoSalud[] {

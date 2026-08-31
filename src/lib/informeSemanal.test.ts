@@ -33,6 +33,7 @@ const OPCIONES_SEMANA: OpcionesInformeSemanal = {
   anio: 2026,
   semana: 32,
   fincaPorLote: new Map([["26080301", "LA HOYA"]]),
+  kgMismaSemanaCampanaAnterior: 123_456,
 };
 
 /** Día realista en miniatura: un lote MDNA granel con algo de podrido. */
