@@ -31,9 +31,9 @@ import {
   reglaDineroParado,
   reglaFrutaParada,
   reglaMermaFueraDeBanda,
+  reglaDetalleCalibrador,
   reglaPartes,
   reglaRendimiento,
-  reglaSinDetalleCalibrador,
   reglaSinVender,
   reglaSobrellenadoMalla,
   renderCorreoVigia,
@@ -151,8 +151,10 @@ Deno.serve(async (req) => {
           .gte("date", fechaMenosDias(hoy, VENTANA_PARTES_DIAS))
           .order("date").range(from, to)
       ),
+      // La vista clasificacion_lote mezcla volcado SQL + Excel + DOCX con la
+      // regla de frescura por lote-día (migración 20260831120000).
       fetchTodas<{ fecha: string | null; peso_kg: number | string | null }>((from, to) =>
-        db.from("lote_clasificacion")
+        db.from("clasificacion_lote")
           .select("fecha, peso_kg")
           .gte("fecha", fechaMenosDias(hoy, VENTANA_RENDIMIENTO_DIAS))
           .order("id").range(from, to)
@@ -192,11 +194,15 @@ Deno.serve(async (req) => {
       .filter(([fecha]) => fecha < hoy)
       .map(([fecha, kg]) => ({ fecha, kg, presentes: presentesPorDia.get(fecha) ?? 0 }));
 
-    // ¿Qué días con producción en el parte tienen detalle en lote_clasificacion?
-    const fechasConDetalle = new Set(filasClasif.map((f) => f.fecha).filter((f): f is string => !!f));
+    // El detalle del calibrador (vista, tres fuentes) contra el parte, por día.
+    const kgDetallePorDia = new Map<string, number>();
+    for (const f of filasClasif) {
+      if (!f.fecha) continue;
+      kgDetallePorDia.set(f.fecha, (kgDetallePorDia.get(f.fecha) ?? 0) + toNum(f.peso_kg));
+    }
     const diasDetalle: DiaDetalleCalibrador[] = [...kgPorDia.entries()]
       .filter(([fecha]) => fecha < hoy)
-      .map(([fecha, kgParte]) => ({ fecha, kgParte, tieneDetalle: fechasConDetalle.has(fecha) }));
+      .map(([fecha, kgParte]) => ({ fecha, kgParte, kgDetalle: kgDetallePorDia.get(fecha) ?? 0 }));
 
     const fechasSobrellenado = Array.from(
       { length: VENTANA_SOBRELLENADO_DIAS },
@@ -212,7 +218,7 @@ Deno.serve(async (req) => {
       ...reglaMermaFueraDeBanda(mermaUltimos7),
       ...reglaPartes(partes, hoy),
       ...reglaRendimiento(diasRendimiento),
-      ...reglaSinDetalleCalibrador(diasDetalle),
+      ...reglaDetalleCalibrador(diasDetalle),
     ];
 
     // ── 3. Conciliación con lo ya guardado ──────────────────────────────────

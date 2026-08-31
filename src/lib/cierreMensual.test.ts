@@ -82,6 +82,12 @@ describe("computeCierreMensual", () => {
     expect(c.kgPorPersonaDia).toBeCloseTo(2200, 5);
     expect(c.avisos).toHaveLength(0);
   });
+  it("avisa cuando parte del detalle viene del respaldo DOCX", () => {
+    const c = computeCierreMensual(mes(2026, 8, { kgDetalleDocx: 120_000 }), null, null);
+    expect(c.avisos.some((a) => a.includes("DOCX"))).toBe(true);
+    expect(c.avisos.some((a) => a.includes("120.000 kg"))).toBe(true);
+  });
+
   it("avisa de los huecos en vez de rellenarlos", () => {
     const c = computeCierreMensual(
       mes(2026, 8, { diasConProduccion: 0, kgCalibrado: 0, sumaPresentes: 0, merma: { nLotes: 0, kgEntrada: 0, kgMerma: 0, pctMerma: null, nConDatoARevisar: 2, lotes: [] } }),

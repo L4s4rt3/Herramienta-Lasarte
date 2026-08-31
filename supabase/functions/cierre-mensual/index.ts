@@ -115,13 +115,16 @@ function destinosVacios(): Record<DestinoRentabilidad, number> {
 async function cargarMes(db: Db, ref: MesRef, stockYMerma: StockYMerma): Promise<MesDatos> {
   const { desde, hasta } = rangoMes(ref.anio, ref.mes);
 
+  // La VISTA clasificacion_lote: volcado SQL + Excel + DOCX con la regla de
+  // frescura por lote-día (migración 20260831120000).
   interface FilaConFecha extends FilaClasifRentabilidad {
     fecha: string | null;
+    fuente: string | null;
   }
   const [filas, asistenciaRes, entradasRes, mercadonaKg] = await Promise.all([
     fetchTodas<FilaConFecha>((from, to) =>
-      db.from("lote_clasificacion")
-        .select("fecha, lote_codigo, productor, producto, clase, peso_kg, toneladas_hora, duracion_min")
+      db.from("clasificacion_lote")
+        .select("fecha, fuente, lote_codigo, productor, producto, clase, peso_kg, toneladas_hora, duracion_min")
         .gte("fecha", desde).lte("fecha", hasta).order("id").range(from, to)
     ),
     db.from("asistencia_detalle").select("date").gte("date", desde).lte("date", hasta).eq("presente", true),
@@ -159,6 +162,7 @@ async function cargarMes(db: Db, ref: MesRef, stockYMerma: StockYMerma): Promise
     kgConAsistencia: 0,
     kgMercadona: mercadonaKg,
     merma: null,
+    kgDetalleDocx: filas.reduce((s, f) => s + (f.fuente === "docx" ? toNum(f.peso_kg) : 0), 0),
   };
 
   for (const fecha of fechasConFilas) {

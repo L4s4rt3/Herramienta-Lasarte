@@ -52,9 +52,12 @@ lunes):
 10. **Parte en Borrador** (> 3 días).
 11. **Papel sin meter** (estimaciones pasada su gracia + 2 días).
 12. **Partes sin validar** (> 7 días en Analizado).
-13. **Calibrado sin detalle** (día con producción en el parte y sin filas en
-    `lote_clasificacion`): Rentabilidad y el informe semanal quedan ciegos ese
-    día. Esta regla nació de encontrar el hueco del 11 al 31-08.
+13. **Detalle del calibrador contra el parte, día a día** (tres caras): SIN
+    detalle (ninguna fuente de la vista `clasificacion_lote` tiene el día:
+    Rentabilidad ciega), detalle CORTO (< 85 % de los kg del parte:
+    probablemente falta una pasada) y detalle LARGO (> 115 %: algo se cuenta
+    dos veces — caza regresiones de la propia vista). Esta regla nació de
+    encontrar el hueco del 11 al 31-08.
 
 Los umbrales son constantes exportadas de `vigiaNegocio.ts` — cambiar uno es
 un commit de una línea con su test.
@@ -77,16 +80,25 @@ un commit de una línea con su test.
 - Si no hay nada nuevo, el vigía calla; los lunes manda el resumen de
   pendientes. `force: true` reenvía; `dry_run: true` evalúa sin escribir.
 
-## Hallazgo pendiente de fondo (31-08)
+## El arreglo de fondo de las fuentes del calibrador (31-08, mismo día)
 
-`lote_clasificacion` se llena con el import MANUAL del Excel del calibrador;
-los DOCX del buzón van al espejo `calibrador_*` a propósito (migración
-20260811100000). Al acabar la campaña dejó de importarse el Excel y
-**Rentabilidad, el informe semanal y el cierre mensual no ven la producción
-SAF** (la regla 13 lo mantiene visible). El arreglo de fondo es que esos
-lectores mezclen `lote_clasificacion` + `calibrador_clasificacion` con la
-regla de frescura por lote-día (sin contar dos veces las pasadas repetidas) —
-proyecto aparte, apuntado en la hoja de ruta.
+El hueco del 11 al 31-08 se cerró de raíz en la migración
+`20260831120000_clasificacion_lote_rama_docx`: la vista `clasificacion_lote`
+— de la que cuelgan Rentabilidad, el dossier por productor, el podrido de
+mermas (`lote_clasificacion_podrido_agg`), trazabilidad, CMV y ahora también
+informe semanal, cierre mensual y vigía — ganó su TERCERA rama: los informes
+DOCX del buzón (`batch_id < 0`), solo para los lote-día que no cubren ni el
+volcado SQL ni el import manual del Excel (la misma regla de frescura por
+lote-día que ya usaba la RPC del aprovechamiento). Esas filas van marcadas
+`fuente = 'docx'` y el informe semanal y el cierre lo avisan («X kg del
+detalle salen del respaldo DOCX») porque un DOCX re-guardado solo trae la
+última versión de su pasada.
+
+Verificado el 31-08: +703.192 kg exactos (todo el lado DOCX), del 12-08 al
+31-08, sin alterar un solo kg anterior ni duplicar nada; la semana 35 pasó de
+«sin datos» a 135.393 kg y el hallazgo de ceguera del vigía se resolvió solo.
+Si el import manual del Excel se retoma para un día ya cubierto por DOCX,
+gana el Excel (más completo).
 
 ## Lo que quedó apuntado (no construido)
 

@@ -11,9 +11,9 @@ import {
   reglaDineroParado,
   reglaFrutaParada,
   reglaMermaFueraDeBanda,
+  reglaDetalleCalibrador,
   reglaPartes,
   reglaRendimiento,
-  reglaSinDetalleCalibrador,
   reglaSinVender,
   reglaSobrellenadoMalla,
   renderCorreoVigia,
@@ -293,23 +293,32 @@ describe("reglaRendimiento", () => {
   });
 });
 
-describe("reglaSinDetalleCalibrador", () => {
-  it("agrega los días con producción del parte sin filas en lote_clasificacion", () => {
-    const hallazgos = reglaSinDetalleCalibrador([
-      { fecha: "2026-08-26", kgParte: 14536, tieneDetalle: false },
-      { fecha: "2026-08-28", kgParte: 17147, tieneDetalle: false },
-      { fecha: "2026-08-10", kgParte: 20000, tieneDetalle: true },
+describe("reglaDetalleCalibrador", () => {
+  it("separa ciegos, cortos y largos comparando con el parte", () => {
+    const hallazgos = reglaDetalleCalibrador([
+      // ciego: producción sin detalle en ninguna fuente
+      { fecha: "2026-08-26", kgParte: 14536, kgDetalle: 0 },
+      // corto: menos del 85 % (falta una pasada)
+      { fecha: "2026-08-27", kgParte: 20000, kgDetalle: 12000 },
+      // bien: dentro de banda
+      { fecha: "2026-08-28", kgParte: 17147, kgDetalle: 17147 },
+      // largo: más del 115 % (doble conteo)
+      { fecha: "2026-08-29", kgParte: 10000, kgDetalle: 12500 },
       // restos por debajo del mínimo no molestan
-      { fecha: "2026-08-27", kgParte: 300, tieneDetalle: false },
+      { fecha: "2026-08-30", kgParte: 300, kgDetalle: 0 },
     ]);
-    expect(hallazgos).toHaveLength(1);
-    expect(hallazgos[0].clave).toBe("sin-detalle-calibrador|global");
-    expect(hallazgos[0].titulo).toContain("2 día(s)");
-    expect(hallazgos[0].kg).toBeCloseTo(14536 + 17147, 1);
-    expect(hallazgos[0].detalle).toContain("26-08-2026, 28-08-2026");
+    const claves = hallazgos.map((h) => h.clave).sort();
+    expect(claves).toEqual([
+      "detalle-corto-calibrador|global",
+      "detalle-largo-calibrador|global",
+      "sin-detalle-calibrador|global",
+    ]);
+    const ciego = hallazgos.find((h) => h.regla === "sin-detalle-calibrador")!;
+    expect(ciego.titulo).toContain("1 día(s)");
+    expect(ciego.detalle).toContain("26-08-2026");
   });
   it("con el detalle al día no dice nada", () => {
-    expect(reglaSinDetalleCalibrador([{ fecha: "2026-08-28", kgParte: 17147, tieneDetalle: true }])).toHaveLength(0);
+    expect(reglaDetalleCalibrador([{ fecha: "2026-08-28", kgParte: 17147, kgDetalle: 17100 }])).toHaveLength(0);
   });
 });
 

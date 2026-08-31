@@ -107,6 +107,12 @@ export interface OpcionesInformeSemanal {
   stock?: StockInforme | null;
   /** Kg calibrados en la MISMA semana ISO de la campaña anterior. null/ausente = sin dato. */
   kgMismaSemanaCampanaAnterior?: number | null;
+  /**
+   * Kg del detalle de la semana que salen de informes DOCX del buzón (la vista
+   * clasificacion_lote, fuente 'docx'): el respaldo del volcado SQL parado.
+   * Se avisa para que nadie tome por completo un dato de respaldo.
+   */
+  kgDetalleDocx?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -445,6 +451,12 @@ export function computeInformeSemanal(
   if ((inf.mermaSemana?.nConDatoARevisar ?? 0) > 0) {
     avisos.push(
       `${inf.mermaSemana!.nConDatoARevisar} lote(s) terminados esta semana con el calibrador pesando MÁS que la báscula: dato a revisar en Entradas → Mermas y coste, no es merma real.`,
+    );
+  }
+
+  if ((opciones.kgDetalleDocx ?? 0) > 0) {
+    avisos.push(
+      `${fmtKg(opciones.kgDetalleDocx!)} del detalle de la semana salen de los informes DOCX del buzón (el respaldo del volcado SQL, parado desde el 11-08). Si un DOCX re-guardado pisó a una pasada anterior del mismo día, esos kilos pueden quedarse cortos; el import del Excel en /importar los completa.`,
     );
   }
 

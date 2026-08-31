@@ -79,6 +79,8 @@ export interface MesDatos {
   kgMercadona: number;
   /** Merma de los lotes TERMINADOS en el mes (seleccionarMermaSemana con el rango del mes). */
   merma: MermaSemanaInforme | null;
+  /** Kg del detalle que salen de informes DOCX (respaldo del volcado parado). */
+  kgDetalleDocx?: number | null;
 }
 
 export interface CierreMensual {
@@ -111,6 +113,11 @@ export function computeCierreMensual(
   if ((actual.merma?.nConDatoARevisar ?? 0) > 0) {
     avisos.push(
       `${actual.merma!.nConDatoARevisar} lote(s) terminados en el mes con el calibrador pesando MÁS que la báscula: dato a revisar, no merma real.`,
+    );
+  }
+  if ((actual.kgDetalleDocx ?? 0) > 0) {
+    avisos.push(
+      `${fmtKg(actual.kgDetalleDocx!)} del detalle del mes salen de los informes DOCX del buzón (el respaldo del volcado SQL, parado desde el 11-08): si un DOCX re-guardado pisó a una pasada anterior del mismo día, esos kilos pueden quedarse cortos.`,
     );
   }
   return {

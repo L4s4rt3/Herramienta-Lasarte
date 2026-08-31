@@ -559,42 +559,79 @@ export function reglaRendimiento(dias: DiaRendimientoVigia[]): Hallazgo[] {
 }
 
 // ---------------------------------------------------------------------------
-// Regla 9 — Calibrado sin detalle en lote_clasificacion
+// Regla 9 — El detalle del calibrador contra el parte, día a día
 // ---------------------------------------------------------------------------
-// lote_clasificacion (el desglose calibre × clase que leen Rentabilidad y el
-// informe semanal) se llena con el import MANUAL del Excel; los DOCX del buzón
-// van al espejo calibrador_* a propósito (migración 20260811100000). Si hay
-// producción en el parte (lotes_dia) pero ese día no tiene filas en
-// lote_clasificacion, esas páginas están ciegas para ese día y nadie lo nota
-// — pasó del 11 al 31-08-2026 y se descubrió por casualidad.
+// Desde el 31-08 la vista clasificacion_lote mezcla las tres fuentes (volcado
+// SQL, import manual del Excel y DOCX del buzón) con la regla de frescura por
+// lote-día. Esta regla compara sus kg diarios con los del PARTE (lotes_dia):
+//  - detalle a CERO con producción = alguna fuente nueva se ha vuelto a caer
+//    (así se descubrió el hueco del 11 al 31-08);
+//  - detalle CORTO = falta una pasada (p. ej. un DOCX re-guardado que pisó a
+//    la primera del día);
+//  - detalle LARGO = algo se está contando dos veces (una regresión de la
+//    propia vista, mejor que la cace esto y no un informe).
 
 export const KG_MIN_SIN_DETALLE = 1000;
+/** El detalle por debajo de esta fracción del parte se considera incompleto. */
+export const FRACCION_DETALLE_CORTO = 0.85;
+/** El detalle por encima de esta fracción del parte huele a doble conteo. */
+export const FRACCION_DETALLE_LARGO = 1.15;
 
 export interface DiaDetalleCalibrador {
   fecha: string;
   /** Kg de producción del parte (lotes_dia) ese día. */
   kgParte: number;
-  /** true = ese día tiene filas en lote_clasificacion. */
-  tieneDetalle: boolean;
+  /** Kg de la vista clasificacion_lote ese día (las tres fuentes mezcladas). */
+  kgDetalle: number;
 }
 
-export function reglaSinDetalleCalibrador(dias: DiaDetalleCalibrador[]): Hallazgo[] {
-  const faltan = dias
-    .filter((d) => d.kgParte >= KG_MIN_SIN_DETALLE && !d.tieneDetalle)
-    .sort((a, b) => a.fecha.localeCompare(b.fecha));
-  if (faltan.length === 0) return [];
-  const kg = faltan.reduce((s, d) => s + d.kgParte, 0);
-  const lista = faltan.map((d) => fmtFecha(d.fecha)).join(", ");
+function hallazgoDetalle(
+  regla: string,
+  titulo: (n: number, kg: number) => string,
+  detalle: string,
+  dias: DiaDetalleCalibrador[],
+): Hallazgo[] {
+  if (dias.length === 0) return [];
+  const ordenados = [...dias].sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const kg = ordenados.reduce((s, d) => s + d.kgParte, 0);
+  const lista = ordenados.map((d) => fmtFecha(d.fecha)).join(", ");
   return [{
-    regla: "sin-detalle-calibrador",
-    clave: "sin-detalle-calibrador|global",
+    regla,
+    clave: `${regla}|global`,
     tipo: "estado",
     severidad: "atencion",
-    titulo: `${faltan.length} día(s) con producción en el parte pero SIN detalle en lote_clasificacion (${fmtKg(kg)}): Rentabilidad y el informe semanal están ciegos esos días`,
-    detalle: `Días: ${lista}. El detalle llega con el import del Excel del calibrador en /importar (los DOCX del buzón van al espejo calibrador_*, no a lote_clasificacion).`,
+    titulo: titulo(ordenados.length, kg),
+    detalle: `Días: ${lista}. ${detalle}`,
     eur: null,
     kg,
   }];
+}
+
+export function reglaDetalleCalibrador(dias: DiaDetalleCalibrador[]): Hallazgo[] {
+  const conProduccion = dias.filter((d) => d.kgParte >= KG_MIN_SIN_DETALLE);
+  const ciegos = conProduccion.filter((d) => d.kgDetalle <= 0);
+  const cortos = conProduccion.filter((d) => d.kgDetalle > 0 && d.kgDetalle < d.kgParte * FRACCION_DETALLE_CORTO);
+  const largos = conProduccion.filter((d) => d.kgDetalle > d.kgParte * FRACCION_DETALLE_LARGO);
+  return [
+    ...hallazgoDetalle(
+      "sin-detalle-calibrador",
+      (n, kg) => `${n} día(s) con producción en el parte pero SIN detalle del calibrador (${fmtKg(kg)}): Rentabilidad y el informe semanal están ciegos esos días`,
+      "La vista clasificacion_lote no tiene filas de ninguna fuente (volcado, Excel ni DOCX): revisar el buzón y, si el DOCX no llegó, importar el Excel en /importar.",
+      ciegos,
+    ),
+    ...hallazgoDetalle(
+      "detalle-corto-calibrador",
+      (n) => `${n} día(s) con el detalle del calibrador INCOMPLETO (menos del 85 % de los kg del parte): probablemente falta una pasada`,
+      "Suele ser un DOCX re-guardado que pisó a la primera pasada del día. Importar el Excel de esos días lo completa.",
+      cortos,
+    ),
+    ...hallazgoDetalle(
+      "detalle-largo-calibrador",
+      (n) => `${n} día(s) con MÁS kg en el detalle del calibrador que en el parte (más del 115 %): algo se está contando dos veces`,
+      "Huele a duplicado entre fuentes de la vista clasificacion_lote: revisar antes de fiarse de Rentabilidad esos días.",
+      largos,
+    ),
+  ];
 }
 
 // ---------------------------------------------------------------------------

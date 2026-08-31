@@ -156,15 +156,19 @@ Deno.serve(async (req) => {
     }
 
     // --- Datos de la SEMANA (espejo de useRentabilidadDia) + CAMPAÑA -------
+    // La clasificación sale de la VISTA clasificacion_lote (volcado SQL +
+    // Excel + DOCX con la regla de frescura por lote-día, migración
+    // 20260831120000) — la misma fuente que la página de Rentabilidad.
     interface FilaConFecha extends FilaClasifRentabilidad {
       fecha: string | null;
+      fuente: string | null;
     }
     // Comparativa: la misma semana ISO de la campaña anterior (kg calibrados).
     const fechasAnt = fechasSemanaIso(objetivo.anio - 1, objetivo.semana);
     const [filas, asistenciaRes, trabajadoresRes, entradasSemanaRes, campana, kgCampanaAnterior] = await Promise.all([
       fetchTodas<FilaConFecha>((from, to) =>
-        db.from("lote_clasificacion")
-          .select("fecha, lote_codigo, productor, producto, clase, peso_kg, toneladas_hora, duracion_min")
+        db.from("clasificacion_lote")
+          .select("fecha, fuente, lote_codigo, productor, producto, clase, peso_kg, toneladas_hora, duracion_min")
           .gte("fecha", lunes).lte("fecha", domingo).order("id").range(from, to)
       ),
       db.from("asistencia_detalle").select("date, trabajador_id").gte("date", lunes).lte("date", domingo).eq("presente", true),
@@ -172,7 +176,7 @@ Deno.serve(async (req) => {
       db.from("entradas_bascula").select("fecha, kg_entrada").gte("fecha", lunes).lte("fecha", domingo),
       cargarCampana(db),
       fetchTodas<{ peso_kg: number | null }>((from, to) =>
-        db.from("lote_clasificacion")
+        db.from("clasificacion_lote")
           .select("peso_kg")
           .gte("fecha", fechasAnt[0]).lte("fecha", fechasAnt[6]).order("id").range(from, to)
       ).then((rows) => rows.reduce((s, r) => s + (Number(r.peso_kg) || 0), 0)),
@@ -229,6 +233,8 @@ Deno.serve(async (req) => {
       };
     });
 
+    const kgDetalleDocx = filas.reduce((s, f) => s + (f.fuente === "docx" ? Number(f.peso_kg) || 0 : 0), 0);
+
     const informe = computeInformeSemanal(dias, {
       anio: objetivo.anio,
       semana: objetivo.semana,
@@ -236,6 +242,7 @@ Deno.serve(async (req) => {
       mermaSemana,
       stock: stockInforme,
       kgMismaSemanaCampanaAnterior: kgCampanaAnterior > 0 ? kgCampanaAnterior : null,
+      kgDetalleDocx,
     });
     const asunto = asuntoInformeSemanal(informe);
     const html = renderInformeSemanalHtml(informe);
