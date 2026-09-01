@@ -1,20 +1,28 @@
-// Stock de consumibles, pensado para el móvil del almacén: buscar un artículo,
-// tocar su tarjeta y teclear el recuento nuevo (dos gestos, sin formularios).
-// Nace del inventario del 01-09-2026: el conteo en papel que había que pasar a
-// un Excel dos veces al año pasa a mantenerse aquí en el día a día. Cada cambio
-// de stock queda en el historial (trigger en la base), la lista se imprime en
-// PDF con la marca y cada artículo tiene su CARTEL A4 para pegar en la
-// estantería ("Stiker MI PRIMA LA FEA — 327.000 uds").
+// Stock de consumibles, pensado para el móvil del almacén. Dos formas de usarlo:
 //
-// Los paneles de edición son Dialog (Radix), NO Drawer (vaul): el drawer
-// arrastrable se cerraba solo en el móvil al abrirse el teclado (su gesto de
-// arrastre confunde el cambio de viewport con un "cerrar"), que era
-// exactamente el momento de teclear el recuento. El diálogo va anclado ARRIBA
-// en pantallas pequeñas para que el teclado nunca lo tape.
-import { useEffect, useMemo, useState } from "react";
+// · MODO RECUENTO (el del día a día cuando se apunta): la cifra de cada
+//   artículo es una casilla editable en la propia lista — tecleas, "Siguiente"
+//   en el teclado salta al artículo de abajo con el teclado abierto, y cada
+//   casilla se guarda sola al salir de ella (sin botones ni paneles). Nació de
+//   la queja real del 01-09: abrir un panel por artículo para apuntar 200
+//   recuentos no es agradable.
+// · Tocar la tarjeta (fuera del modo recuento) abre la ficha completa: nota,
+//   precio (admin), historial de cambios, cartel A4 y baja.
+//
+// Cada cambio de stock queda en el historial (trigger en la base), la lista se
+// imprime en PDF con la marca y cada artículo tiene su CARTEL A4 para pegar en
+// la estantería ("Stiker MI PRIMA LA FEA — 327.000 uds").
+//
+// Los paneles son Dialog (Radix), NO Drawer (vaul): el drawer arrastrable se
+// cerraba solo en el móvil al abrirse el teclado (su gesto de arrastre
+// confunde el cambio de viewport con un "cerrar"). El diálogo va anclado
+// ARRIBA en pantallas pequeñas para que el teclado nunca lo tape.
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Boxes,
+  Check,
   History,
+  ListChecks,
   Loader2,
   Plus,
   Printer,
@@ -88,8 +96,13 @@ export default function StockConsumibles() {
   const [editando, setEditando] = useState<StockConsumible | null>(null);
   const [nuevoAbierto, setNuevoAbierto] = useState(false);
   const [modoCarteles, setModoCarteles] = useState(false);
+  const [modoRecuento, setModoRecuento] = useState(false);
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [generando, setGenerando] = useState(false);
+  const [guardadosRecuento, setGuardadosRecuento] = useState(0);
+
+  // Casillas del modo recuento, por id: para que "Siguiente" salte a la de abajo.
+  const casillasRecuento = useRef(new Map<string, HTMLInputElement>());
 
   const activos = useMemo(() => (items ?? []).filter((item) => item.activo), [items]);
 
@@ -128,6 +141,37 @@ export default function StockConsumibles() {
   const pendientes = useMemo(() => activos.filter(esPendiente).length, [activos]);
   const valorTotal = useMemo(() => activos.reduce((suma, item) => suma + (valorItem(item) ?? 0), 0), [activos]);
   const sinPrecio = useMemo(() => activos.filter((item) => item.precio_unitario === null).length, [activos]);
+
+  const empezarRecuento = () => {
+    setModoRecuento((antes) => !antes);
+    setModoCarteles(false);
+    setSeleccion(new Set());
+    setGuardadosRecuento(0);
+  };
+
+  const empezarCarteles = () => {
+    setModoCarteles((antes) => !antes);
+    setModoRecuento(false);
+    setSeleccion(new Set());
+  };
+
+  /** "Siguiente" del teclado: enfoca la casilla del artículo de abajo (el
+   * teclado se mantiene abierto). Devuelve false si ya no hay más. */
+  const enfocarSiguiente = (id: string): boolean => {
+    const ids = filtrados.map((item) => item.id);
+    const siguiente = ids[ids.indexOf(id) + 1];
+    const casilla = siguiente ? casillasRecuento.current.get(siguiente) : undefined;
+    if (!casilla) return false;
+    casilla.focus();
+    casilla.select();
+    casilla.scrollIntoView({ block: "center" });
+    return true;
+  };
+
+  const guardarRecuento = async (id: string, stock: number) => {
+    await actualizar.mutateAsync({ id, cambios: { stock } });
+    setGuardadosRecuento((n) => n + 1);
+  };
 
   const imprimirLista = async () => {
     setGenerando(true);
@@ -176,9 +220,27 @@ export default function StockConsumibles() {
   };
 
   return (
-    <div className={cn("mx-auto w-full max-w-3xl space-y-4 p-3 sm:p-6", modoCarteles && "pb-28")}>
+    <div className={cn("mx-auto w-full max-w-3xl space-y-4 p-3 sm:p-6", (modoCarteles || modoRecuento) && "pb-28")}>
       {/* Acciones principales, a tamaño de pulgar */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Button
+          variant={modoRecuento ? "default" : "outline"}
+          onClick={empezarRecuento}
+          disabled={generando}
+          className="h-12 rounded-2xl text-sm font-semibold"
+        >
+          <ListChecks className="mr-1.5 h-4 w-4" />
+          Recuento
+        </Button>
+        <Button
+          variant={modoCarteles ? "default" : "outline"}
+          onClick={empezarCarteles}
+          disabled={generando}
+          className="h-12 rounded-2xl text-sm font-semibold"
+        >
+          <Tags className="mr-1.5 h-4 w-4" />
+          Carteles
+        </Button>
         <Button
           variant="outline"
           onClick={() => void imprimirLista()}
@@ -188,19 +250,7 @@ export default function StockConsumibles() {
           {generando ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Printer className="mr-1.5 h-4 w-4" />}
           Lista PDF
         </Button>
-        <Button
-          variant={modoCarteles ? "default" : "outline"}
-          onClick={() => {
-            setModoCarteles((antes) => !antes);
-            setSeleccion(new Set());
-          }}
-          disabled={generando}
-          className="h-12 rounded-2xl text-sm font-semibold"
-        >
-          <Tags className="mr-1.5 h-4 w-4" />
-          Carteles
-        </Button>
-        <Button onClick={() => setNuevoAbierto(true)} className="h-12 rounded-2xl text-sm font-semibold">
+        <Button variant="outline" onClick={() => setNuevoAbierto(true)} className="h-12 rounded-2xl text-sm font-semibold">
           <Plus className="mr-1.5 h-4 w-4" />
           Añadir
         </Button>
@@ -265,6 +315,13 @@ export default function StockConsumibles() {
         </p>
       </div>
 
+      {modoRecuento && (
+        <div className="flex items-center gap-2 rounded-xl border border-primary/25 bg-primary/5 px-3 py-2 text-sm">
+          <ListChecks className="h-4 w-4 shrink-0 text-primary" />
+          Modo recuento: teclea la cifra y pulsa «Siguiente» en el teclado; cada casilla se guarda sola.
+        </div>
+      )}
+
       {isLoading && (
         <div className="space-y-3">
           {[1, 2, 3, 4, 5, 6].map((n) => (
@@ -297,10 +354,21 @@ export default function StockConsumibles() {
               <Card
                 key={item.id}
                 className={cn(
-                  "cursor-pointer rounded-2xl transition-colors hover:border-primary/40",
+                  "rounded-2xl transition-colors",
+                  !modoRecuento && "cursor-pointer hover:border-primary/40",
                   modoCarteles && seleccion.has(item.id) && "border-primary bg-primary/5",
                 )}
-                onClick={() => (modoCarteles ? alternarSeleccion(item.id) : setEditando(item))}
+                onClick={() => {
+                  if (modoRecuento) {
+                    const casilla = casillasRecuento.current.get(item.id);
+                    casilla?.focus();
+                    casilla?.select();
+                  } else if (modoCarteles) {
+                    alternarSeleccion(item.id);
+                  } else {
+                    setEditando(item);
+                  }
+                }}
               >
                 <CardContent className="flex items-center gap-3 p-3.5">
                   {modoCarteles && (
@@ -327,12 +395,24 @@ export default function StockConsumibles() {
                       </p>
                     )}
                   </div>
-                  <div className="shrink-0 text-right">
-                    <p className={cn("text-lg font-bold tabular-nums", item.stock === 0 && "text-muted-foreground")}>
-                      {formatStock(item.stock)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{item.unidad}</p>
-                  </div>
+                  {modoRecuento ? (
+                    <CasillaRecuento
+                      item={item}
+                      registrar={(id, el) => {
+                        if (el) casillasRecuento.current.set(id, el);
+                        else casillasRecuento.current.delete(id);
+                      }}
+                      onSiguiente={enfocarSiguiente}
+                      guardar={guardarRecuento}
+                    />
+                  ) : (
+                    <div className="shrink-0 text-right">
+                      <p className={cn("text-lg font-bold tabular-nums", item.stock === 0 && "text-muted-foreground")}>
+                        {formatStock(item.stock)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{item.unidad}</p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             );
@@ -352,19 +432,32 @@ export default function StockConsumibles() {
         </Card>
       )}
 
+      {/* Barra del modo recuento: progreso + salir */}
+      {modoRecuento && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur">
+          <div className="mx-auto flex w-full max-w-3xl items-center gap-3">
+            <p className="flex-1 text-sm text-muted-foreground">
+              {guardadosRecuento === 0 ? (
+                "Sin cambios todavía"
+              ) : (
+                <span className="inline-flex items-center gap-1.5">
+                  <Check className="h-4 w-4 text-success" />
+                  {guardadosRecuento} recuento{guardadosRecuento === 1 ? "" : "s"} guardado{guardadosRecuento === 1 ? "" : "s"}
+                </span>
+              )}
+            </p>
+            <Button className="h-11 rounded-xl px-6 text-sm font-semibold" onClick={empezarRecuento}>
+              Terminar
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Barra de carteles: fija abajo mientras se eligen artículos */}
       {modoCarteles && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur">
           <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-11 w-11 rounded-xl"
-              onClick={() => {
-                setModoCarteles(false);
-                setSeleccion(new Set());
-              }}
-            >
+            <Button variant="ghost" size="icon" className="h-11 w-11 rounded-xl" onClick={empezarCarteles}>
               <X className="h-5 w-5" />
             </Button>
             <Button
@@ -417,7 +510,80 @@ export default function StockConsumibles() {
   );
 }
 
-// ─── Editar un artículo: el gesto central del módulo ─────────────────────────
+// ─── Casilla del modo recuento ────────────────────────────────────────────────
+// Editable en la propia fila y con autoguardado al salir de ella (blur), para
+// que apuntar sea: tocar, teclear, «Siguiente». Solo escribe si la cifra
+// cambió (nada de historial lleno de guardados idénticos). Si el guardado
+// falla (sin cobertura en la nave), el aviso ya lo da el hook y la casilla se
+// reintenta sola la próxima vez que se sale de ella.
+
+function CasillaRecuento(props: {
+  item: StockConsumible;
+  registrar: (id: string, el: HTMLInputElement | null) => void;
+  onSiguiente: (id: string) => boolean;
+  guardar: (id: string, stock: number) => Promise<void>;
+}) {
+  const { item } = props;
+  const [texto, setTexto] = useState(String(item.stock));
+  const [guardadoOk, setGuardadoOk] = useState(false);
+  const confirmado = useRef(item.stock);
+  const enVuelo = useRef(false);
+  const temporizador = useRef<number>();
+
+  useEffect(() => () => window.clearTimeout(temporizador.current), []);
+
+  const confirmar = async () => {
+    if (enVuelo.current) return;
+    const cifra = Number(texto.replace(",", "."));
+    if (!Number.isFinite(cifra) || cifra < 0) {
+      setTexto(String(confirmado.current));
+      return;
+    }
+    if (cifra === confirmado.current) return;
+    enVuelo.current = true;
+    try {
+      await props.guardar(item.id, cifra);
+      confirmado.current = cifra;
+      setGuardadoOk(true);
+      window.clearTimeout(temporizador.current);
+      temporizador.current = window.setTimeout(() => setGuardadoOk(false), 1500);
+    } catch {
+      // El hook ya avisa con su toast; la cifra queda en la casilla y se
+      // reintenta al volver a salir de ella.
+    } finally {
+      enVuelo.current = false;
+    }
+  };
+
+  return (
+    <div className="flex shrink-0 items-center gap-1.5" onClick={(evento) => evento.stopPropagation()}>
+      {guardadoOk && <Check className="h-4 w-4 text-success" />}
+      <div className="flex flex-col items-end gap-0.5">
+        <Input
+          ref={(el) => props.registrar(item.id, el)}
+          value={texto}
+          onChange={(evento) => setTexto(evento.target.value)}
+          inputMode="decimal"
+          autoComplete="off"
+          enterKeyHint="next"
+          onFocus={(evento) => evento.target.select()}
+          onBlur={() => void confirmar()}
+          onKeyDown={(evento) => {
+            if (evento.key !== "Enter") return;
+            evento.preventDefault();
+            // Enfocar la siguiente casilla dispara el blur de esta (que es
+            // quien guarda); en la última, se cierra el teclado y también guarda.
+            if (!props.onSiguiente(item.id)) (evento.target as HTMLInputElement).blur();
+          }}
+          className="h-11 w-24 rounded-xl px-2 text-right text-base font-bold tabular-nums"
+        />
+        <span className="text-[10px] text-muted-foreground">{item.unidad}</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Editar un artículo: la ficha completa ────────────────────────────────────
 
 function EditarDialog(props: {
   item: StockConsumible | null;
