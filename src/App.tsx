@@ -13,7 +13,14 @@ import { ScrollToTop } from "@/components/ScrollToTop";
 import AppLayout from "@/components/AppLayout";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/queryClient";
-import { pageLoaders } from "@/lib/routePreload";
+import { pageLoaders as pageLoadersCrudos } from "@/lib/routePreload";
+import { envolverCargadoresConRecarga } from "@/lib/recargaTrasDeploy";
+
+// Si el import de una página falla (un deploy invalidó los chunks de esta
+// pestaña), se recarga una vez en vez de romper — ver recargaTrasDeploy.ts.
+// El evento vite:preloadError de main.tsx no cubre los chunks sin
+// dependencias propias: esta envoltura sí.
+const pageLoaders = envolverCargadoresConRecarga(pageLoadersCrudos);
 
 const Auth = lazy(pageLoaders.auth);
 const Dashboard = lazy(pageLoaders.dashboard);
