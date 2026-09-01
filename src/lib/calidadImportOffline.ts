@@ -184,8 +184,48 @@ export function sinConexion(): boolean {
   return typeof navigator !== "undefined" && navigator.onLine === false;
 }
 
+const NOMBRE_TIMEOUT_RED = "TiempoDeRedAgotado";
+
+/**
+ * El caso que de verdad bloqueaba en la nave: wifi conectado pero SIN
+ * internet. Ahí navigator.onLine miente (true) y fetch no falla: se queda
+ * COLGADO para siempre — imágenes que no cargan, "Guardando..." eterno,
+ * botones girando. Toda operación de red del módulo pasa por aquí: si no
+ * responde a tiempo, se trata como error de red (⇒ outbox/caché local).
+ */
+export function conTimeout<T>(promesa: PromiseLike<T>, ms: number, etiqueta = "la red"): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const error = new Error(`Sin respuesta de ${etiqueta} en ${Math.round(ms / 1000)}s`);
+      error.name = NOMBRE_TIMEOUT_RED;
+      reject(error);
+    }, ms);
+    promesa.then(
+      (valor) => {
+        clearTimeout(timer);
+        resolve(valor);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 export function esErrorDeRed(error: unknown): boolean {
   if (sinConexion()) return true;
+  if (error instanceof Error && error.name === NOMBRE_TIMEOUT_RED) return true;
   const mensaje = error instanceof Error ? error.message : String(error);
   return /Failed to fetch|NetworkError|Load failed|ERR_INTERNET|fetch failed/i.test(mensaje);
+}
+
+/**
+ * ¿La copia local (outbox) es más nueva que la fila que devolvió la base?
+ * Antes el outbox SIEMPRE pisaba a la red: una entrada rezagada enseñaba un
+ * control viejo ("Control sin referencia") aunque la base ya tuviera el bueno.
+ */
+export function outboxMasNuevo(entry: ControlOutboxEntry, updatedAtServidor: string | undefined | null): boolean {
+  if (!updatedAtServidor) return true;
+  return entry.updatedLocal > new Date(updatedAtServidor).toISOString();
 }

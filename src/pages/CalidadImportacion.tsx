@@ -54,7 +54,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import type { CalidadImportFoto } from "@/lib/calidadImport";
 import { fechaInformeTexto } from "@/lib/calidadImportDocx";
-import { controlCacheado, esErrorDeRed } from "@/lib/calidadImportOffline";
+import { conTimeout, controlCacheado, esErrorDeRed } from "@/lib/calidadImportOffline";
 import { cn } from "@/lib/utils";
 
 function tituloControl(control: ControlConFotos): string {
@@ -98,11 +98,11 @@ export default function CalidadImportacion() {
     try {
       let fotos: CalidadImportFoto[];
       try {
-        const { data, error } = await supabase
-          .from("calidad_import_fotos")
-          .select("*")
-          .eq("control_id", control.id)
-          .order("orden");
+        const { data, error } = await conTimeout(
+          supabase.from("calidad_import_fotos").select("*").eq("control_id", control.id).order("orden"),
+          8000,
+          "la base de datos",
+        );
         if (error) throw error;
         fotos = (data ?? []) as unknown as CalidadImportFoto[];
       } catch (error) {

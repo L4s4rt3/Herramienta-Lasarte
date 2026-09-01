@@ -28,6 +28,7 @@ import { generarInformeCalidadImportBlob, type ImagenInforme } from "@/lib/calid
 import {
   cachearControl,
   cachearLista,
+  conTimeout,
   controlCacheado,
   controlesPendientes,
   controlPendiente,
@@ -35,7 +36,9 @@ import {
   encolarFotoPendiente,
   esErrorDeRed,
   fotosPendientes,
+  hayPendientes,
   listaCacheada,
+  outboxMasNuevo,
   quitarControlCacheado,
   quitarControlPendiente,
   quitarFotoPendiente,
@@ -138,8 +141,12 @@ export function controlNuevo(id: string, userId: string, prefill?: ControlPatch)
 function mergeConPendientes(base: ControlConFotos[]): ControlConFotos[] {
   const porId = new Map(base.map((c) => [c.id, c]));
   for (const entry of controlesPendientes()) {
+    const previo = porId.get(entry.row.id);
+    // El outbox solo pisa a la base si su copia es MÁS NUEVA: una entrada
+    // rezagada no debe enseñar un control viejo ("Control sin referencia")
+    // cuando la base ya tiene el bueno.
+    if (previo && !outboxMasNuevo(entry, previo.updated_at)) continue;
     const parseado = rowToControl(entry.row as unknown as FilaControl);
-    const previo = porId.get(parseado.id);
     porId.set(parseado.id, { ...parseado, num_fotos: previo?.num_fotos ?? 0 });
   }
   return [...porId.values()].sort(
@@ -155,14 +162,20 @@ export function useCalidadImportControles() {
     queryFn: async (): Promise<ControlConFotos[]> => {
       try {
         // Sin acotar ⇒ fetchAllRows (PostgREST recorta a 1.000 en silencio).
-        const filas = await fetchAllRows<FilaControl & { calidad_import_fotos: Array<{ count: number }> }>(
-          (from, to) =>
-            supabase
-              .from("calidad_import_controles")
-              .select("*, calidad_import_fotos(count)")
-              .order("fecha", { ascending: false })
-              .order("created_at", { ascending: false })
-              .range(from, to) as never,
+        // conTimeout: con wifi sin internet fetch no falla, se CUELGA — y la
+        // lista se quedaba en esqueleto para siempre.
+        const filas = await conTimeout(
+          fetchAllRows<FilaControl & { calidad_import_fotos: Array<{ count: number }> }>(
+            (from, to) =>
+              supabase
+                .from("calidad_import_controles")
+                .select("*, calidad_import_fotos(count)")
+                .order("fecha", { ascending: false })
+                .order("created_at", { ascending: false })
+                .range(from, to) as never,
+          ),
+          9000,
+          "la base de datos",
         );
         const parseadas = filas.map((fila) => ({
           ...rowToControl(fila),
@@ -215,7 +228,9 @@ function fotoPendienteAFoto(pendiente: FotoPendiente): CalidadImportFoto {
 async function bundleOffline(id: string): Promise<ControlBundle> {
   const cacheado = controlCacheado<ControlBundle>(id);
   const pendiente = controlPendiente(id);
-  const control = pendiente
+  // Manda la copia más nueva: la local pendiente de subir o la última vista.
+  const usarPendiente = pendiente && (!cacheado || outboxMasNuevo(pendiente, cacheado.control.updated_at));
+  const control = usarPendiente
     ? rowToControl(pendiente.row as unknown as FilaControl)
     : cacheado?.control;
   if (!control) throw new Error("Este control no está disponible sin conexión.");
@@ -239,26 +254,54 @@ export function useCalidadImportControl(id: string | undefined) {
     queryKey: calidadImportControlKey(id ?? ""),
     queryFn: async (): Promise<ControlBundle> => {
       try {
-        const [controlRes, fotosRes] = await Promise.all([
-          supabase.from("calidad_import_controles").select("*").eq("id", id!).maybeSingle(),
-          supabase.from("calidad_import_fotos").select("*").eq("control_id", id!).order("orden").order("created_at"),
-        ]);
+        const [controlRes, fotosRes] = await conTimeout(
+          Promise.all([
+            supabase.from("calidad_import_controles").select("*").eq("id", id!).maybeSingle(),
+            supabase.from("calidad_import_fotos").select("*").eq("control_id", id!).order("orden").order("created_at"),
+          ]),
+          8000,
+          "la base de datos",
+        );
         if (controlRes.error) throw controlRes.error;
         if (fotosRes.error) throw fotosRes.error;
         // Recién creado offline: todavía no está en la base.
         if (!controlRes.data) return bundleOffline(id!);
 
-        const control = rowToControl(controlRes.data as unknown as FilaControl);
-        const fotos = await Promise.all(
-          ((fotosRes.data ?? []) as unknown as CalidadImportFoto[]).map(async (foto) => {
-            const { data } = await supabase.storage.from(BUCKET).createSignedUrl(foto.file_path, 60 * 60);
-            return { ...foto, signedUrl: data?.signedUrl };
-          }),
-        );
+        let control = rowToControl(controlRes.data as unknown as FilaControl);
+        // Hay una copia local aún sin subir MÁS NUEVA que la base: gana la
+        // copia local (es lo último que tecleó la evaluadora).
+        const pendienteLocal = controlPendiente(id!);
+        if (pendienteLocal && outboxMasNuevo(pendienteLocal, control.updated_at)) {
+          control = rowToControl(pendienteLocal.row as unknown as FilaControl);
+        }
+
+        // Las URLs firmadas de las fotos son COSMÉTICA: si el storage no
+        // responde a tiempo, el control se abre igual (miniaturas en gris),
+        // nunca se queda la página colgada por las imágenes.
+        const filasFotos = (fotosRes.data ?? []) as unknown as CalidadImportFoto[];
+        let fotos: CalidadImportFoto[] = filasFotos;
         let firmaUrl: string | null = null;
-        if (control.firma_path) {
-          const { data } = await supabase.storage.from(BUCKET).createSignedUrl(control.firma_path, 60 * 60);
-          firmaUrl = data?.signedUrl ?? null;
+        try {
+          fotos = await conTimeout(
+            Promise.all(
+              filasFotos.map(async (foto) => {
+                const { data } = await supabase.storage.from(BUCKET).createSignedUrl(foto.file_path, 60 * 60);
+                return { ...foto, signedUrl: data?.signedUrl };
+              }),
+            ),
+            6000,
+            "las imágenes",
+          );
+          if (control.firma_path) {
+            const { data } = await conTimeout(
+              supabase.storage.from(BUCKET).createSignedUrl(control.firma_path, 60 * 60),
+              4000,
+              "la firma",
+            );
+            firmaUrl = data?.signedUrl ?? null;
+          }
+        } catch {
+          // Sin miniaturas: los datos del control mandan.
         }
         const bundle: ControlBundle = { control, fotos, firmaUrl };
         cachearControl(id!, bundle);
@@ -312,13 +355,17 @@ export function useCalidadImportMutations() {
       let evaluador = prefill?.evaluador ?? "";
       if (!evaluador && !sinConexion()) {
         try {
-          const { data } = await supabase
-            .from("calidad_import_controles")
-            .select("evaluador")
-            .neq("evaluador", "")
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
+          const { data } = await conTimeout(
+            supabase
+              .from("calidad_import_controles")
+              .select("evaluador")
+              .neq("evaluador", "")
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle(),
+            4000,
+            "la base de datos",
+          );
           evaluador = (data as { evaluador?: string } | null)?.evaluador ?? "";
         } catch {
           evaluador = "";
@@ -331,10 +378,17 @@ export function useCalidadImportMutations() {
         cachearControl(control.id, { control, fotos: [], firmaUrl: null });
         return { id: control.id, offline: true };
       }
-      const { error } = await supabase
-        .from("calidad_import_controles")
-        .insert(row as unknown as TablesInsert<"calidad_import_controles">);
-      if (error) {
+      try {
+        const { error } = await conTimeout(
+          supabase
+            .from("calidad_import_controles")
+            .insert(row as unknown as TablesInsert<"calidad_import_controles">),
+          8000,
+          "la base de datos",
+        );
+        if (error) throw error;
+        return { id: control.id, offline: false };
+      } catch (error) {
         if (esErrorDeRed(error)) {
           encolarControl(row);
           cachearControl(control.id, { control, fotos: [], firmaUrl: null });
@@ -342,7 +396,6 @@ export function useCalidadImportMutations() {
         }
         throw error;
       }
-      return { id: control.id, offline: false };
     },
     onSuccess: () => invalidar(),
     onError: (error: Error) =>
@@ -360,18 +413,25 @@ export function useCalidadImportMutations() {
         encolarControl(row);
         return { offline: true };
       }
-      const { error } = await supabase
-        .from("calidad_import_controles")
-        .upsert(row as unknown as TablesInsert<"calidad_import_controles">);
-      if (error) {
+      try {
+        const { error } = await conTimeout(
+          supabase
+            .from("calidad_import_controles")
+            .upsert(row as unknown as TablesInsert<"calidad_import_controles">),
+          8000,
+          "la base de datos",
+        );
+        if (error) throw error;
+        quitarControlPendiente(control.id);
+        return { offline: false };
+      } catch (error) {
+        // Red caída o colgada: el cambio NO se pierde, va al outbox.
         if (esErrorDeRed(error)) {
           encolarControl(row);
           return { offline: true };
         }
         throw error;
       }
-      quitarControlPendiente(control.id);
-      return { offline: false };
     },
     onSuccess: (_resultado, control) => {
       queryClient.setQueryData(
@@ -394,16 +454,21 @@ export function useCalidadImportMutations() {
       for (const pendiente of await fotosPendientes(control.id)) {
         await quitarFotoPendiente(pendiente.key);
       }
-      const { data: fotosData } = await supabase
-        .from("calidad_import_fotos")
-        .select("file_path")
-        .eq("control_id", control.id);
+      const { data: fotosData } = await conTimeout(
+        supabase.from("calidad_import_fotos").select("file_path").eq("control_id", control.id),
+        8000,
+        "la base de datos",
+      );
       const paths = ((fotosData ?? []) as Array<{ file_path: string }>).map((f) => f.file_path);
       if (control.firma_path) paths.push(control.firma_path);
       if (paths.length > 0) {
-        await supabase.storage.from(BUCKET).remove(paths).catch(() => undefined);
+        await conTimeout(supabase.storage.from(BUCKET).remove(paths), 8000, "el almacén").catch(() => undefined);
       }
-      const { error } = await supabase.from("calidad_import_controles").delete().eq("id", control.id);
+      const { error } = await conTimeout(
+        supabase.from("calidad_import_controles").delete().eq("id", control.id),
+        8000,
+        "la base de datos",
+      );
       if (error) throw error;
     },
     onSuccess: () => {
@@ -469,8 +534,12 @@ export function useCalidadImportMutations() {
         await quitarFotoPendiente(foto.id.slice("pendiente-".length));
         return foto;
       }
-      await supabase.storage.from(BUCKET).remove([foto.file_path]).catch(() => undefined);
-      const { error } = await supabase.from("calidad_import_fotos").delete().eq("id", foto.id);
+      await conTimeout(supabase.storage.from(BUCKET).remove([foto.file_path]), 8000, "el almacén").catch(() => undefined);
+      const { error } = await conTimeout(
+        supabase.from("calidad_import_fotos").delete().eq("id", foto.id),
+        8000,
+        "la base de datos",
+      );
       if (error) throw error;
       return foto;
     },
@@ -526,36 +595,47 @@ async function subirFotoAlServidor(pendiente: FotoPendiente, extension?: string)
   // La 1ª carpeta DEBE ser el uid (política de insert del bucket). La clave
   // local como nombre hace el reintento idempotente.
   const path = `${pendiente.userId}/calidad-import/${pendiente.controlId}/${pendiente.key}.${ext}`;
-  const { error: uploadError } = await supabase.storage
-    .from(BUCKET)
-    .upload(path, pendiente.blob, { contentType: pendiente.mime, upsert: true });
+  // 20s de margen (una foto comprimida con poca señal tarda): pasado eso, la
+  // foto va al outbox en lugar de dejar el botón girando para siempre.
+  const { error: uploadError } = await conTimeout(
+    supabase.storage.from(BUCKET).upload(path, pendiente.blob, { contentType: pendiente.mime, upsert: true }),
+    20000,
+    "el almacén de fotos",
+  );
   if (uploadError) throw uploadError;
-  const { error } = await supabase.from("calidad_import_fotos").insert({
-    control_id: pendiente.controlId,
-    user_id: pendiente.userId,
-    file_name: pendiente.fileName,
-    file_path: path,
-    mime_type: pendiente.mime,
-    file_size: pendiente.blob.size,
-    orden: pendiente.orden,
-  });
+  const { error } = await conTimeout(
+    supabase.from("calidad_import_fotos").insert({
+      control_id: pendiente.controlId,
+      user_id: pendiente.userId,
+      file_name: pendiente.fileName,
+      file_path: path,
+      mime_type: pendiente.mime,
+      file_size: pendiente.blob.size,
+      orden: pendiente.orden,
+    }),
+    8000,
+    "la base de datos",
+  );
   // Path duplicado = reintento de algo ya subido: no es un error.
   if (error && !/duplicate|unique/i.test(error.message)) throw error;
 }
 
 async function subirFirmaAlServidor(pendiente: FotoPendiente, firmaAnterior: string | null) {
   if (firmaAnterior) {
-    await supabase.storage.from(BUCKET).remove([firmaAnterior]).catch(() => undefined);
+    await conTimeout(supabase.storage.from(BUCKET).remove([firmaAnterior]), 5000, "el almacén").catch(() => undefined);
   }
   const path = `${pendiente.userId}/calidad-import/${pendiente.controlId}/firma-${pendiente.key}.png`;
-  const { error: uploadError } = await supabase.storage
-    .from(BUCKET)
-    .upload(path, pendiente.blob, { contentType: "image/png", upsert: true });
+  const { error: uploadError } = await conTimeout(
+    supabase.storage.from(BUCKET).upload(path, pendiente.blob, { contentType: "image/png", upsert: true }),
+    15000,
+    "el almacén de fotos",
+  );
   if (uploadError) throw uploadError;
-  const { error } = await supabase
-    .from("calidad_import_controles")
-    .update({ firma_path: path })
-    .eq("id", pendiente.controlId);
+  const { error } = await conTimeout(
+    supabase.from("calidad_import_controles").update({ firma_path: path }).eq("id", pendiente.controlId),
+    8000,
+    "la base de datos",
+  );
   if (error) throw error;
 }
 
@@ -597,10 +677,16 @@ export async function sincronizarPendientes(): Promise<number> {
   let subidos = 0;
   try {
     for (const entry of controlesPendientes()) {
-      const { error } = await supabase
-        .from("calidad_import_controles")
-        .upsert(entry.row as unknown as TablesInsert<"calidad_import_controles">);
-      if (error) {
+      try {
+        const { error } = await conTimeout(
+          supabase
+            .from("calidad_import_controles")
+            .upsert(entry.row as unknown as TablesInsert<"calidad_import_controles">),
+          8000,
+          "la base de datos",
+        );
+        if (error) throw error;
+      } catch (error) {
         if (esErrorDeRed(error)) return subidos; // sin red otra vez: se reintenta luego
         continue; // otro error (p.ej. permisos): se conserva y no bloquea el resto
       }
@@ -657,13 +743,21 @@ export function useCalidadImportSync() {
 
   useEffect(() => {
     if (!user || !online) return;
-    void sincronizarPendientes().then((subidos) => {
-      if (subidos > 0) {
-        toast({ title: "Cambios sincronizados", description: "Lo guardado sin conexión ya está subido." });
-        void queryClient.invalidateQueries({ queryKey: calidadImportListaKey });
-        void queryClient.invalidateQueries({ queryKey: CONTROL_KEY_PREFIX });
-      }
-    });
+    const sincronizar = () =>
+      void sincronizarPendientes().then((subidos) => {
+        if (subidos > 0) {
+          toast({ title: "Cambios sincronizados", description: "Lo guardado sin conexión ya está subido." });
+          void queryClient.invalidateQueries({ queryKey: calidadImportListaKey });
+          void queryClient.invalidateQueries({ queryKey: CONTROL_KEY_PREFIX });
+        }
+      });
+    sincronizar();
+    // El wifi-sin-internet no dispara el evento "online" al recuperarse: si
+    // queda algo pendiente, se reintenta solo cada 45s mientras dure.
+    const timer = window.setInterval(() => {
+      if (hayPendientes()) sincronizar();
+    }, 45_000);
+    return () => window.clearInterval(timer);
   }, [user, online, queryClient]);
 
   useEffect(() => {
@@ -732,9 +826,13 @@ async function blobAImagenInforme(blob: Blob, tipo: "jpg" | "png"): Promise<Imag
 }
 
 async function descargarDeStorage(path: string): Promise<Blob | null> {
-  const { data, error } = await supabase.storage.from(BUCKET).download(path);
-  if (error || !data) return null;
-  return data;
+  try {
+    const { data, error } = await conTimeout(supabase.storage.from(BUCKET).download(path), 15000, "el almacén de fotos");
+    if (error || !data) return null;
+    return data;
+  } catch {
+    return null;
+  }
 }
 
 /** En iPhone/iPad y Android la hoja de compartir nativa es el camino cómodo
@@ -776,10 +874,11 @@ export async function generarYDescargarInforme(
   control: CalidadImportControl,
   fotos: CalidadImportFoto[],
 ): Promise<string | null> {
-  // Logo corporativo (si falla la carga, el informe sale con "LASARTE" en texto).
+  // Logo corporativo (si falla o tarda, el informe sale con "LASARTE" en
+  // texto; con la PWA instalada el logo está precacheado y va offline).
   let logo: ImagenInforme | null = null;
   try {
-    const respuesta = await fetch(LOGO_PATH);
+    const respuesta = await conTimeout(fetch(LOGO_PATH), 5000, "el logo");
     if (respuesta.ok) logo = await blobAImagenInforme(await respuesta.blob(), "jpg");
   } catch {
     logo = null;
