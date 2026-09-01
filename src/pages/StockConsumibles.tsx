@@ -5,6 +5,12 @@
 // de stock queda en el historial (trigger en la base), la lista se imprime en
 // PDF con la marca y cada artículo tiene su CARTEL A4 para pegar en la
 // estantería ("Stiker MI PRIMA LA FEA — 327.000 uds").
+//
+// Los paneles de edición son Dialog (Radix), NO Drawer (vaul): el drawer
+// arrastrable se cerraba solo en el móvil al abrirse el teclado (su gesto de
+// arrastre confunde el cambio de viewport con un "cerrar"), que era
+// exactamente el momento de teclear el recuento. El diálogo va anclado ARRIBA
+// en pantallas pequeñas para que el teclado nunca lo tape.
 import { useEffect, useMemo, useState } from "react";
 import {
   Boxes,
@@ -27,13 +33,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -59,6 +64,11 @@ import {
 } from "@/lib/stockConsumibles";
 import { generarCartelesPdf, generarListaStockPdf } from "@/lib/stockConsumiblesPdf";
 import { cn } from "@/lib/utils";
+
+/** Clases del diálogo en móvil: pegado arriba (el teclado sale por abajo y no
+ * lo tapa) y con scroll interno; en pantallas grandes, centrado normal. */
+const DIALOGO_MOVIL =
+  "top-3 translate-y-0 sm:top-1/2 sm:-translate-y-1/2 w-[calc(100vw-1.25rem)] sm:w-full max-h-[88dvh] overflow-y-auto rounded-2xl p-4 sm:p-6";
 
 function fechaCorta(iso: string): string {
   const fecha = new Date(iso);
@@ -166,7 +176,7 @@ export default function StockConsumibles() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 p-3 sm:p-6">
+    <div className={cn("mx-auto w-full max-w-3xl space-y-4 p-3 sm:p-6", modoCarteles && "pb-28")}>
       {/* Acciones principales, a tamaño de pulgar */}
       <div className="grid grid-cols-3 gap-2">
         <Button
@@ -202,6 +212,7 @@ export default function StockConsumibles() {
           value={filtro}
           onChange={(evento) => setFiltro(evento.target.value)}
           placeholder="Buscar artículo, familia o nota..."
+          autoComplete="off"
           className="h-11 rounded-xl pl-9 text-base"
         />
       </div>
@@ -343,7 +354,7 @@ export default function StockConsumibles() {
 
       {/* Barra de carteles: fija abajo mientras se eligen artículos */}
       {modoCarteles && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-3 backdrop-blur">
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur">
           <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
             <Button
               variant="ghost"
@@ -375,7 +386,7 @@ export default function StockConsumibles() {
         </div>
       )}
 
-      <EditarDrawer
+      <EditarDialog
         item={editando}
         esAdmin={esAdmin}
         guardando={actualizar.isPending}
@@ -390,7 +401,7 @@ export default function StockConsumibles() {
         onCartel={(item) => void imprimirCarteles([item])}
       />
 
-      <NuevoDrawer
+      <NuevoDialog
         abierto={nuevoAbierto}
         familias={familias}
         esAdmin={esAdmin}
@@ -408,7 +419,7 @@ export default function StockConsumibles() {
 
 // ─── Editar un artículo: el gesto central del módulo ─────────────────────────
 
-function EditarDrawer(props: {
+function EditarDialog(props: {
   item: StockConsumible | null;
   esAdmin: boolean;
   guardando: boolean;
@@ -460,85 +471,94 @@ function EditarDrawer(props: {
   };
 
   return (
-    <Drawer open={item !== null} onOpenChange={(abierto) => !abierto && props.onCerrar()}>
-      <DrawerContent>
+    <Dialog open={item !== null} onOpenChange={(abierto) => !abierto && props.onCerrar()}>
+      <DialogContent className={DIALOGO_MOVIL}>
         {item && (
-          <>
-            <DrawerHeader className="pb-2 text-left">
-              <DrawerTitle className="text-base leading-snug">{item.nombre}</DrawerTitle>
-              <DrawerDescription>
+          <div className="space-y-3">
+            <DialogHeader className="space-y-1 pr-6 text-left">
+              <DialogTitle className="text-base leading-snug">{item.nombre}</DialogTitle>
+              <DialogDescription>
                 {item.familia}
                 {item.almacen === "exterior" ? " · almacén exterior" : ""} · ahora {formatStock(item.stock)} {item.unidad}
-              </DrawerDescription>
-            </DrawerHeader>
-            <div className="space-y-3 overflow-y-auto px-4">
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="stock-nuevo" className="text-sm">
+                Recuento actual ({item.unidad})
+              </Label>
+              <Input
+                id="stock-nuevo"
+                value={stockTexto}
+                onChange={(evento) => setStockTexto(evento.target.value)}
+                inputMode="decimal"
+                autoComplete="off"
+                enterKeyHint="done"
+                onFocus={(evento) => evento.target.select()}
+                onKeyDown={(evento) => {
+                  if (evento.key === "Enter") void guardar();
+                }}
+                className="h-14 rounded-xl text-center text-2xl font-bold tabular-nums"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="nota" className="text-sm">
+                Nota (avisos, "falta precio", pedidos en camino...)
+              </Label>
+              <Textarea
+                id="nota"
+                value={notaTexto}
+                onChange={(evento) => setNotaTexto(evento.target.value)}
+                rows={2}
+                className="rounded-xl text-sm"
+              />
+            </div>
+            {esAdmin && (
               <div className="space-y-1.5">
-                <Label htmlFor="stock-nuevo" className="text-sm">
-                  Recuento actual ({item.unidad})
+                <Label htmlFor="precio" className="text-sm">
+                  Precio (€/{item.unidad}) — solo admin
                 </Label>
                 <Input
-                  id="stock-nuevo"
-                  value={stockTexto}
-                  onChange={(evento) => setStockTexto(evento.target.value)}
+                  id="precio"
+                  value={precioTexto}
+                  onChange={(evento) => setPrecioTexto(evento.target.value)}
                   inputMode="decimal"
-                  autoFocus
-                  onFocus={(evento) => evento.target.select()}
-                  className="h-14 rounded-xl text-center text-2xl font-bold tabular-nums"
+                  autoComplete="off"
+                  placeholder="Sin precio"
+                  className="h-11 rounded-xl text-base tabular-nums"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="nota" className="text-sm">
-                  Nota (avisos, "falta precio", pedidos en camino...)
-                </Label>
-                <Textarea
-                  id="nota"
-                  value={notaTexto}
-                  onChange={(evento) => setNotaTexto(evento.target.value)}
-                  rows={2}
-                  className="rounded-xl text-sm"
-                />
-              </div>
-              {esAdmin && (
-                <div className="space-y-1.5">
-                  <Label htmlFor="precio" className="text-sm">
-                    Precio (€/{item.unidad}) — solo admin
-                  </Label>
-                  <Input
-                    id="precio"
-                    value={precioTexto}
-                    onChange={(evento) => setPrecioTexto(evento.target.value)}
-                    inputMode="decimal"
-                    placeholder="Sin precio"
-                    className="h-11 rounded-xl text-base tabular-nums"
-                  />
-                </div>
-              )}
+            )}
 
-              <button
-                type="button"
-                onClick={() => setVerHistorial((antes) => !antes)}
-                className="flex items-center gap-1.5 text-sm text-muted-foreground underline-offset-2 hover:underline"
+            <button
+              type="button"
+              onClick={() => setVerHistorial((antes) => !antes)}
+              className="flex items-center gap-1.5 text-sm text-muted-foreground underline-offset-2 hover:underline"
+            >
+              <History className="h-4 w-4" />
+              {verHistorial ? "Ocultar historial" : "Ver historial de cambios"}
+            </button>
+            {verHistorial && (
+              <div className="space-y-1 rounded-xl border p-3 text-sm">
+                {(historial ?? []).length === 0 && <p className="text-muted-foreground">Sin cambios registrados aún.</p>}
+                {(historial ?? []).map((cambio) => (
+                  <p key={cambio.id} className="flex justify-between gap-2 tabular-nums">
+                    <span className="text-muted-foreground">{fechaCorta(cambio.created_at)}</span>
+                    <span>
+                      {cambio.stock_anterior === null ? "—" : formatStock(Number(cambio.stock_anterior))} →{" "}
+                      <strong>{formatStock(Number(cambio.stock_nuevo))}</strong>
+                    </span>
+                  </p>
+                ))}
+              </div>
+            )}
+
+            <div className="space-y-2 pt-1">
+              <Button
+                onClick={() => void guardar()}
+                disabled={props.guardando}
+                className="h-12 w-full rounded-xl text-base font-semibold"
               >
-                <History className="h-4 w-4" />
-                {verHistorial ? "Ocultar historial" : "Ver historial de cambios"}
-              </button>
-              {verHistorial && (
-                <div className="space-y-1 rounded-xl border p-3 text-sm">
-                  {(historial ?? []).length === 0 && <p className="text-muted-foreground">Sin cambios registrados aún.</p>}
-                  {(historial ?? []).map((cambio) => (
-                    <p key={cambio.id} className="flex justify-between gap-2 tabular-nums">
-                      <span className="text-muted-foreground">{fechaCorta(cambio.created_at)}</span>
-                      <span>
-                        {cambio.stock_anterior === null ? "—" : formatStock(Number(cambio.stock_anterior))} →{" "}
-                        <strong>{formatStock(Number(cambio.stock_nuevo))}</strong>
-                      </span>
-                    </p>
-                  ))}
-                </div>
-              )}
-            </div>
-            <DrawerFooter className="gap-2 pt-3">
-              <Button onClick={() => void guardar()} disabled={props.guardando} className="h-12 rounded-xl text-base font-semibold">
                 {props.guardando && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Guardar recuento
               </Button>
@@ -573,17 +593,17 @@ function EditarDrawer(props: {
                   </Button>
                 )}
               </div>
-            </DrawerFooter>
-          </>
+            </div>
+          </div>
         )}
-      </DrawerContent>
-    </Drawer>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 // ─── Alta de un artículo nuevo ────────────────────────────────────────────────
 
-function NuevoDrawer(props: {
+function NuevoDialog(props: {
   abierto: boolean;
   familias: string[];
   esAdmin: boolean;
@@ -639,19 +659,21 @@ function NuevoDrawer(props: {
   };
 
   return (
-    <Drawer open={props.abierto} onOpenChange={(abierto) => !abierto && props.onCerrar()}>
-      <DrawerContent>
-        <DrawerHeader className="pb-2 text-left">
-          <DrawerTitle>Añadir consumible</DrawerTitle>
-          <DrawerDescription>Un artículo nuevo del catálogo de consumibles.</DrawerDescription>
-        </DrawerHeader>
-        <div className="space-y-3 overflow-y-auto px-4">
+    <Dialog open={props.abierto} onOpenChange={(abierto) => !abierto && props.onCerrar()}>
+      <DialogContent className={DIALOGO_MOVIL}>
+        <div className="space-y-3">
+          <DialogHeader className="space-y-1 pr-6 text-left">
+            <DialogTitle>Añadir consumible</DialogTitle>
+            <DialogDescription>Un artículo nuevo del catálogo de consumibles.</DialogDescription>
+          </DialogHeader>
+
           <div className="space-y-1.5">
             <Label className="text-sm">Nombre</Label>
             <Input
               value={nombre}
               onChange={(evento) => setNombre(evento.target.value)}
               placeholder='p. ej. "Caja cartón 15 Kg. MPF"'
+              autoComplete="off"
               className="h-11 rounded-xl text-base"
             />
           </div>
@@ -677,6 +699,7 @@ function NuevoDrawer(props: {
                 value={unidad}
                 onChange={(evento) => setUnidad(evento.target.value)}
                 placeholder="uds, kg, L, m..."
+                autoComplete="off"
                 className="h-11 rounded-xl text-base"
               />
             </div>
@@ -688,6 +711,7 @@ function NuevoDrawer(props: {
                 value={stockTexto}
                 onChange={(evento) => setStockTexto(evento.target.value)}
                 inputMode="decimal"
+                autoComplete="off"
                 className="h-11 rounded-xl text-base tabular-nums"
               />
             </div>
@@ -711,22 +735,28 @@ function NuevoDrawer(props: {
                 value={precioTexto}
                 onChange={(evento) => setPrecioTexto(evento.target.value)}
                 inputMode="decimal"
+                autoComplete="off"
                 placeholder="Sin precio (se marcará en la nota)"
                 className="h-11 rounded-xl text-base tabular-nums"
               />
             </div>
           )}
+
+          <div className="space-y-2 pt-1">
+            <Button
+              onClick={() => void crear()}
+              disabled={props.guardando}
+              className="h-12 w-full rounded-xl text-base font-semibold"
+            >
+              {props.guardando && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Añadir artículo
+            </Button>
+            <Button variant="outline" onClick={props.onCerrar} className="h-11 w-full rounded-xl text-sm">
+              Cancelar
+            </Button>
+          </div>
         </div>
-        <DrawerFooter className="gap-2 pt-3">
-          <Button onClick={() => void crear()} disabled={props.guardando} className="h-12 rounded-xl text-base font-semibold">
-            {props.guardando && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Añadir artículo
-          </Button>
-          <Button variant="outline" onClick={props.onCerrar} className="h-11 rounded-xl text-sm">
-            Cancelar
-          </Button>
-        </DrawerFooter>
-      </DrawerContent>
-    </Drawer>
+      </DialogContent>
+    </Dialog>
   );
 }
