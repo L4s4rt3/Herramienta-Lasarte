@@ -341,7 +341,13 @@ export default function CalidadImportacionControl() {
     setGenerando(true);
     try {
       if (sucioRef.current) await guardar(control);
-      const filename = await generarYDescargarInforme(control, bundle?.fotos ?? []);
+      // Cinturón extra: si la copia local no conoce la firma (p.ej. la firmó
+      // otro usuario o en otra sesión), vale la del último fetch del control.
+      const controlParaInforme = {
+        ...control,
+        firma_path: control.firma_path ?? bundle?.control.firma_path ?? null,
+      };
+      const filename = await generarYDescargarInforme(controlParaInforme, bundle?.fotos ?? []);
       if (filename) toast({ title: "Informe generado", description: filename });
     } catch (error) {
       toast({
@@ -606,7 +612,16 @@ export default function CalidadImportacionControl() {
                   guardando={guardarFirma.isPending}
                   etiqueta={bundle?.firmaUrl ? "Rehacer firma" : "Firmar"}
                   onGuardar={(blob) => {
-                    void guardarFirma.mutateAsync({ control, blob }).then(() => setRehacerFirma(false));
+                    void guardarFirma.mutateAsync({ control, blob }).then((resultado) => {
+                      setRehacerFirma(false);
+                      // La copia local del editor debe conocer la ruta nueva:
+                      // el Word se genera desde ella (sin marcar sucio — la
+                      // base ya está actualizada y la firma no viaja en el
+                      // autoguardado).
+                      if (resultado.firmaPath) {
+                        setControl((previo) => (previo ? { ...previo, firma_path: resultado.firmaPath } : previo));
+                      }
+                    });
                   }}
                 />
               )}

@@ -78,14 +78,17 @@ function patchARow(patch: ControlPatch): Record<string, unknown> {
   return row;
 }
 
-/** Fila COMPLETA para upsert (el formato que guarda el outbox offline). */
-function controlARowCompleta(control: CalidadImportControl): Record<string, unknown> & { id: string; user_id: string } {
-  const { created_at: _c, updated_at: _u, ...resto } = control;
+/** Fila COMPLETA para upsert (el formato que guarda el outbox offline).
+ * OJO: firma_path se queda FUERA a propósito. La firma la escribe solo
+ * guardarFirma (o su replay offline); si viajara aquí, la copia local del
+ * editor —hidratada antes de firmar— la machacaría a null en el siguiente
+ * autoguardado (el bug de "la firma no sale en el Word"). */
+export function controlARowCompleta(control: CalidadImportControl): Record<string, unknown> & { id: string; user_id: string } {
+  const { created_at: _c, updated_at: _u, firma_path: _f, ...resto } = control;
   return {
     ...patchARow(resto),
     id: control.id,
     user_id: control.user_id,
-    firma_path: control.firma_path,
   } as Record<string, unknown> & { id: string; user_id: string };
 }
 
@@ -147,7 +150,13 @@ function mergeConPendientes(base: ControlConFotos[]): ControlConFotos[] {
     // cuando la base ya tiene el bueno.
     if (previo && !outboxMasNuevo(entry, previo.updated_at)) continue;
     const parseado = rowToControl(entry.row as unknown as FilaControl);
-    porId.set(parseado.id, { ...parseado, num_fotos: previo?.num_fotos ?? 0 });
+    porId.set(parseado.id, {
+      ...parseado,
+      // El outbox no lleva firma_path (lo escribe solo guardarFirma): se
+      // conserva el que ya se conocía.
+      firma_path: parseado.firma_path ?? previo?.firma_path ?? null,
+      num_fotos: previo?.num_fotos ?? 0,
+    });
   }
   return [...porId.values()].sort(
     (a, b) => b.fecha.localeCompare(a.fecha) || (b.created_at ?? "").localeCompare(a.created_at ?? ""),
@@ -231,7 +240,10 @@ async function bundleOffline(id: string): Promise<ControlBundle> {
   // Manda la copia más nueva: la local pendiente de subir o la última vista.
   const usarPendiente = pendiente && (!cacheado || outboxMasNuevo(pendiente, cacheado.control.updated_at));
   const control = usarPendiente
-    ? rowToControl(pendiente.row as unknown as FilaControl)
+    ? {
+        ...rowToControl(pendiente.row as unknown as FilaControl),
+        firma_path: cacheado?.control.firma_path ?? null,
+      }
     : cacheado?.control;
   if (!control) throw new Error("Este control no está disponible sin conexión.");
   const pendientes = await fotosPendientes(id);
@@ -272,7 +284,8 @@ export function useCalidadImportControl(id: string | undefined) {
         // copia local (es lo último que tecleó la evaluadora).
         const pendienteLocal = controlPendiente(id!);
         if (pendienteLocal && outboxMasNuevo(pendienteLocal, control.updated_at)) {
-          control = rowToControl(pendienteLocal.row as unknown as FilaControl);
+          // El outbox no lleva firma_path: se mantiene el de la base.
+          control = { ...rowToControl(pendienteLocal.row as unknown as FilaControl), firma_path: control.firma_path };
         }
 
         // Las URLs firmadas de las fotos son COSMÉTICA: si el storage no
@@ -548,9 +561,11 @@ export function useCalidadImportMutations() {
       toast({ title: "No se pudo borrar la foto", description: error.message, variant: "destructive" }),
   });
 
-  /** Guarda la firma dibujada (PNG del canvas); sin red, al outbox. */
+  /** Guarda la firma dibujada (PNG del canvas); sin red, al outbox.
+   * Devuelve la ruta subida para que el editor refresque su copia local
+   * (si no, su firma_path se queda atrás y el Word saldría sin firma). */
   const guardarFirma = useMutation({
-    mutationFn: async (input: { control: CalidadImportControl; blob: Blob }): Promise<{ offline: boolean }> => {
+    mutationFn: async (input: { control: CalidadImportControl; blob: Blob }): Promise<{ offline: boolean; firmaPath: string | null }> => {
       if (!user) throw new Error("Debes iniciar sesión.");
       const pendiente: FotoPendiente = {
         key: crypto.randomUUID(),
@@ -564,15 +579,15 @@ export function useCalidadImportMutations() {
       };
       if (sinConexion()) {
         await encolarFotoPendiente(pendiente);
-        return { offline: true };
+        return { offline: true, firmaPath: null };
       }
       try {
-        await subirFirmaAlServidor(pendiente, input.control.firma_path);
-        return { offline: false };
+        const firmaPath = await subirFirmaAlServidor(pendiente, input.control.firma_path);
+        return { offline: false, firmaPath };
       } catch (error) {
         if (esErrorDeRed(error)) {
           await encolarFotoPendiente(pendiente);
-          return { offline: true };
+          return { offline: true, firmaPath: null };
         }
         throw error;
       }
@@ -620,7 +635,7 @@ async function subirFotoAlServidor(pendiente: FotoPendiente, extension?: string)
   if (error && !/duplicate|unique/i.test(error.message)) throw error;
 }
 
-async function subirFirmaAlServidor(pendiente: FotoPendiente, firmaAnterior: string | null) {
+async function subirFirmaAlServidor(pendiente: FotoPendiente, firmaAnterior: string | null): Promise<string> {
   if (firmaAnterior) {
     await conTimeout(supabase.storage.from(BUCKET).remove([firmaAnterior]), 5000, "el almacén").catch(() => undefined);
   }
@@ -637,6 +652,7 @@ async function subirFirmaAlServidor(pendiente: FotoPendiente, firmaAnterior: str
     "la base de datos",
   );
   if (error) throw error;
+  return path;
 }
 
 /** Campos que se copian al duplicar un control para la otra categoría del
