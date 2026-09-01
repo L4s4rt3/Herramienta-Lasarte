@@ -23,6 +23,7 @@
 import {
   AlertTriangle,
   BarChart3,
+  Boxes,
   Building2,
   Citrus,
   ClipboardCheck,
@@ -187,6 +188,9 @@ export const NAV_GROUPS: Array<{ label: string; workspace: WorkspaceId; items: N
       { to: "/produccion", label: "Panel de planta", icon: LayoutDashboard, match: (p) => p === "/produccion" },
       { to: "/partes", label: "Parte del día", icon: FileText, match: (p) => p.startsWith("/partes") },
       { to: "/entradas", label: "Entradas y stock", icon: Truck },
+      // Inventario continuo de consumibles (cajas, mallas, etiquetas...):
+      // editable desde el móvil del almacén, con lista y carteles en PDF.
+      { to: "/consumibles", label: "Stock consumibles", icon: Boxes },
       { to: "/calidad", label: "Calidad", icon: ClipboardCheck },
       // Controles de la fruta de importación (contenedores/camiones de fuera):
       // página aparte de /calidad porque contesta a OTRA pregunta (¿cómo viene

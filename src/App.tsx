@@ -39,6 +39,7 @@ const MapaHerramienta = lazy(pageLoaders.mapa);
 const EntradasBascula = lazy(pageLoaders.entradas);
 const TrazabilidadLote = lazy(pageLoaders.trazabilidad);
 const LimpiezaBox = lazy(pageLoaders.limpiezaBox);
+const StockConsumibles = lazy(pageLoaders.stockConsumibles);
 const ComunicacionesCampo = lazy(pageLoaders.comunicacionesCampo);
 const ExcelViewerPage = lazy(() => import("@/pages/ExcelViewerPage"));
 
@@ -99,6 +100,9 @@ const App = () => (
                       <Route path="/partes" element={<PartesList />} />
                       <Route path="/partes/:id" element={<PartDetail />} />
                       <Route path="/limpieza" element={<LimpiezaBox />} />
+                      {/* Stock de consumibles: el inventario continuo del almacén,
+                          pensado para editarse desde el móvil (conteo del 01-09-2026). */}
+                      <Route path="/consumibles" element={<StockConsumibles />} />
                       <Route path="/datos/fuentes" element={<DatosFuentes />} />
                       <Route path="/importar" element={<DatosImportar />} />
                       <Route path="/costes/asistencia" element={<RrhhAsistencia />} />

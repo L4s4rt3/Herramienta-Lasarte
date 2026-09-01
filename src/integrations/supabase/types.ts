@@ -123,6 +123,174 @@ export type Database = {
         }
         Relationships: []
       }
+      calibrador_batch: {
+        Row: {
+          batch_id: number
+          batch_name: string | null
+          bins: number | null
+          fin: string | null
+          finalizado: boolean | null
+          grower_code: string | null
+          inicio: string | null
+          lote: string
+          outlet_reject_kg: number | null
+          presort_reject_kg: number | null
+          productor: string | null
+          sincronizado_at: string
+          total_reject_kg: number | null
+          variedad: string | null
+        }
+        Insert: {
+          batch_id: number
+          batch_name?: string | null
+          bins?: number | null
+          fin?: string | null
+          finalizado?: boolean | null
+          grower_code?: string | null
+          inicio?: string | null
+          lote: string
+          outlet_reject_kg?: number | null
+          presort_reject_kg?: number | null
+          productor?: string | null
+          sincronizado_at?: string
+          total_reject_kg?: number | null
+          variedad?: string | null
+        }
+        Update: {
+          batch_id?: number
+          batch_name?: string | null
+          bins?: number | null
+          fin?: string | null
+          finalizado?: boolean | null
+          grower_code?: string | null
+          inicio?: string | null
+          lote?: string
+          outlet_reject_kg?: number | null
+          presort_reject_kg?: number | null
+          productor?: string | null
+          sincronizado_at?: string
+          total_reject_kg?: number | null
+          variedad?: string | null
+        }
+        Relationships: []
+      }
+      calibrador_clasificacion: {
+        Row: {
+          batch_id: number
+          calidad: string
+          cartons: number | null
+          clase: string
+          grupo_destino: string | null
+          lote: string | null
+          pct_cartons: number | null
+          pct_peso: number | null
+          pct_piezas: number | null
+          peso_kg: number | null
+          piezas: number | null
+          producto: string
+          tamano: string
+        }
+        Insert: {
+          batch_id: number
+          calidad?: string
+          cartons?: number | null
+          clase: string
+          grupo_destino?: string | null
+          lote?: string | null
+          pct_cartons?: number | null
+          pct_peso?: number | null
+          pct_piezas?: number | null
+          peso_kg?: number | null
+          piezas?: number | null
+          producto: string
+          tamano: string
+        }
+        Update: {
+          batch_id?: number
+          calidad?: string
+          cartons?: number | null
+          clase?: string
+          grupo_destino?: string | null
+          lote?: string | null
+          pct_cartons?: number | null
+          pct_peso?: number | null
+          pct_piezas?: number | null
+          peso_kg?: number | null
+          piezas?: number | null
+          producto?: string
+          tamano?: string
+        }
+        Relationships: []
+      }
+      calibrador_informe: {
+        Row: {
+          batch_id: number | null
+          bins_ejecutados: number | null
+          bins_hora: number | null
+          cartons: number | null
+          cartons_hora: number | null
+          comienzo: string
+          commodity: string | null
+          conteo_fruta_medio: number | null
+          fecha: string | null
+          fichero: string | null
+          lote: string
+          peso_fruta_media_g: number | null
+          productor: string | null
+          productor_codigo: string | null
+          rechazo_pct: number | null
+          recibido_at: string
+          tiempo_lote: string | null
+          tiempo_maquina: string | null
+          toneladas_hora: number | null
+          utilizacion_pct: number | null
+        }
+        Insert: {
+          batch_id?: number | null
+          bins_ejecutados?: number | null
+          bins_hora?: number | null
+          cartons?: number | null
+          cartons_hora?: number | null
+          comienzo: string
+          commodity?: string | null
+          conteo_fruta_medio?: number | null
+          fecha?: string | null
+          fichero?: string | null
+          lote: string
+          peso_fruta_media_g?: number | null
+          productor?: string | null
+          productor_codigo?: string | null
+          rechazo_pct?: number | null
+          recibido_at?: string
+          tiempo_lote?: string | null
+          tiempo_maquina?: string | null
+          toneladas_hora?: number | null
+          utilizacion_pct?: number | null
+        }
+        Update: {
+          batch_id?: number | null
+          bins_ejecutados?: number | null
+          bins_hora?: number | null
+          cartons?: number | null
+          cartons_hora?: number | null
+          comienzo?: string
+          commodity?: string | null
+          conteo_fruta_medio?: number | null
+          fecha?: string | null
+          fichero?: string | null
+          lote?: string
+          peso_fruta_media_g?: number | null
+          productor?: string | null
+          productor_codigo?: string | null
+          rechazo_pct?: number | null
+          recibido_at?: string
+          tiempo_lote?: string | null
+          tiempo_maquina?: string | null
+          toneladas_hora?: number | null
+          utilizacion_pct?: number | null
+        }
+        Relationships: []
+      }
       calibres_dia: {
         Row: {
           calibre: string
@@ -164,6 +332,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "calibres_dia_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "palets"
+            referencedColumns: ["part_id"]
+          },
           {
             foreignKeyName: "calibres_dia_part_id_fkey"
             columns: ["part_id"]
@@ -237,8 +412,8 @@ export type Database = {
           muestras_internas: Json
           muestreo_evolutivos: string
           muestreo_no_evolutivos: string
-          num_contenedor: string
           nuestra_ref: string
+          num_contenedor: string
           obs_calidad_interna: string
           obs_evolutivos: string
           obs_no_evolutivos: string
@@ -279,8 +454,8 @@ export type Database = {
           muestras_internas?: Json
           muestreo_evolutivos?: string
           muestreo_no_evolutivos?: string
-          num_contenedor?: string
           nuestra_ref?: string
+          num_contenedor?: string
           obs_calidad_interna?: string
           obs_evolutivos?: string
           obs_no_evolutivos?: string
@@ -321,8 +496,8 @@ export type Database = {
           muestras_internas?: Json
           muestreo_evolutivos?: string
           muestreo_no_evolutivos?: string
-          num_contenedor?: string
           nuestra_ref?: string
+          num_contenedor?: string
           obs_calidad_interna?: string
           obs_evolutivos?: string
           obs_no_evolutivos?: string
@@ -533,6 +708,8 @@ export type Database = {
       }
       calidad_productores: {
         Row: {
+          codigo_erp: string | null
+          creado_automaticamente: boolean
           created_at: string
           id: string
           nombre: string
@@ -540,6 +717,8 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          codigo_erp?: string | null
+          creado_automaticamente?: boolean
           created_at?: string
           id?: string
           nombre: string
@@ -547,6 +726,8 @@ export type Database = {
           user_id: string
         }
         Update: {
+          codigo_erp?: string | null
+          creado_automaticamente?: boolean
           created_at?: string
           id?: string
           nombre?: string
@@ -604,6 +785,75 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      camara_externa_camiones: {
+        Row: {
+          created_at: string
+          entrada_lst_1: string | null
+          entrada_lst_2: string | null
+          envases: number | null
+          envases_1: number | null
+          envases_2: number | null
+          fecha_almacenamiento: string
+          finca: string | null
+          id: string
+          kg: number
+          lote: string | null
+          nota_entrada: string | null
+          procedencia: string
+          proveedor: string | null
+          s_ref: string
+          transporte_lst: string | null
+          updated_at: string
+          user_id: string | null
+          variedad: string | null
+          venta_directa: string | null
+        }
+        Insert: {
+          created_at?: string
+          entrada_lst_1?: string | null
+          entrada_lst_2?: string | null
+          envases?: number | null
+          envases_1?: number | null
+          envases_2?: number | null
+          fecha_almacenamiento: string
+          finca?: string | null
+          id?: string
+          kg?: number
+          lote?: string | null
+          nota_entrada?: string | null
+          procedencia: string
+          proveedor?: string | null
+          s_ref: string
+          transporte_lst?: string | null
+          updated_at?: string
+          user_id?: string | null
+          variedad?: string | null
+          venta_directa?: string | null
+        }
+        Update: {
+          created_at?: string
+          entrada_lst_1?: string | null
+          entrada_lst_2?: string | null
+          envases?: number | null
+          envases_1?: number | null
+          envases_2?: number | null
+          fecha_almacenamiento?: string
+          finca?: string | null
+          id?: string
+          kg?: number
+          lote?: string | null
+          nota_entrada?: string | null
+          procedencia?: string
+          proveedor?: string | null
+          s_ref?: string
+          transporte_lst?: string | null
+          updated_at?: string
+          user_id?: string | null
+          variedad?: string | null
+          venta_directa?: string | null
+        }
+        Relationships: []
       }
       chat_conversations: {
         Row: {
@@ -698,6 +948,45 @@ export type Database = {
           origen?: string | null
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      cierre_mensual_envios: {
+        Row: {
+          anio: number
+          asunto: string
+          destinatarios: string[]
+          detalle: string | null
+          enviado_at: string
+          estado: string
+          id: string
+          kg_calibrado: number | null
+          kg_entrada: number | null
+          mes: number
+        }
+        Insert: {
+          anio: number
+          asunto: string
+          destinatarios: string[]
+          detalle?: string | null
+          enviado_at?: string
+          estado?: string
+          id?: string
+          kg_calibrado?: number | null
+          kg_entrada?: number | null
+          mes: number
+        }
+        Update: {
+          anio?: number
+          asunto?: string
+          destinatarios?: string[]
+          detalle?: string | null
+          enviado_at?: string
+          estado?: string
+          id?: string
+          kg_calibrado?: number | null
+          kg_entrada?: number | null
+          mes?: number
         }
         Relationships: []
       }
@@ -1163,6 +1452,8 @@ export type Database = {
         Row: {
           agricultor: string | null
           articulo: string | null
+          camara_confirmada_fecha: string | null
+          camara_confirmada_nombre: string | null
           cerrado_at: string | null
           certificada: boolean
           certificado_ggn: string | null
@@ -1173,6 +1464,7 @@ export type Database = {
           created_at: string
           envases: number | null
           fecha: string
+          fecha_salida_camara: string | null
           finca: string | null
           id: string
           importe_comision: number | null
@@ -1180,8 +1472,10 @@ export type Database = {
           importe_total: number | null
           importe_transporte: number | null
           kg_ajuste_stock: number
+          kg_bruto_bascula: number | null
           kg_entrada: number
           lote: string
+          merma_camara_kg: number | null
           num_entrada: string | null
           origen: string
           parcela: string | null
@@ -1196,6 +1490,8 @@ export type Database = {
         Insert: {
           agricultor?: string | null
           articulo?: string | null
+          camara_confirmada_fecha?: string | null
+          camara_confirmada_nombre?: string | null
           cerrado_at?: string | null
           certificada?: boolean
           certificado_ggn?: string | null
@@ -1206,6 +1502,7 @@ export type Database = {
           created_at?: string
           envases?: number | null
           fecha: string
+          fecha_salida_camara?: string | null
           finca?: string | null
           id?: string
           importe_comision?: number | null
@@ -1213,8 +1510,10 @@ export type Database = {
           importe_total?: number | null
           importe_transporte?: number | null
           kg_ajuste_stock?: number
+          kg_bruto_bascula?: number | null
           kg_entrada?: number
           lote: string
+          merma_camara_kg?: number | null
           num_entrada?: string | null
           origen?: string
           parcela?: string | null
@@ -1229,6 +1528,8 @@ export type Database = {
         Update: {
           agricultor?: string | null
           articulo?: string | null
+          camara_confirmada_fecha?: string | null
+          camara_confirmada_nombre?: string | null
           cerrado_at?: string | null
           certificada?: boolean
           certificado_ggn?: string | null
@@ -1239,6 +1540,7 @@ export type Database = {
           created_at?: string
           envases?: number | null
           fecha?: string
+          fecha_salida_camara?: string | null
           finca?: string | null
           id?: string
           importe_comision?: number | null
@@ -1246,8 +1548,10 @@ export type Database = {
           importe_total?: number | null
           importe_transporte?: number | null
           kg_ajuste_stock?: number
+          kg_bruto_bascula?: number | null
           kg_entrada?: number
           lote?: string
+          merma_camara_kg?: number | null
           num_entrada?: string | null
           origen?: string
           parcela?: string | null
@@ -1299,6 +1603,7 @@ export type Database = {
           cliente: string | null
           cliente_codigo: string | null
           codigo_sscc: string | null
+          comercial: boolean
           fecha: string
           fecha_factura: string | null
           fecha_venta: string | null
@@ -1306,7 +1611,7 @@ export type Database = {
           kg_brutos: number | null
           kg_netos: number | null
           linea_venta: number | null
-          lote_confeccion: string
+          lote_confeccion: string | null
           num_albaran_venta: string | null
           num_cajas: number | null
           num_factura: string | null
@@ -1320,6 +1625,7 @@ export type Database = {
           cliente?: string | null
           cliente_codigo?: string | null
           codigo_sscc?: string | null
+          comercial?: boolean
           fecha: string
           fecha_factura?: string | null
           fecha_venta?: string | null
@@ -1327,7 +1633,7 @@ export type Database = {
           kg_brutos?: number | null
           kg_netos?: number | null
           linea_venta?: number | null
-          lote_confeccion: string
+          lote_confeccion?: string | null
           num_albaran_venta?: string | null
           num_cajas?: number | null
           num_factura?: string | null
@@ -1341,6 +1647,7 @@ export type Database = {
           cliente?: string | null
           cliente_codigo?: string | null
           codigo_sscc?: string | null
+          comercial?: boolean
           fecha?: string
           fecha_factura?: string | null
           fecha_venta?: string | null
@@ -1348,13 +1655,79 @@ export type Database = {
           kg_brutos?: number | null
           kg_netos?: number | null
           linea_venta?: number | null
-          lote_confeccion?: string
+          lote_confeccion?: string | null
           num_albaran_venta?: string | null
           num_cajas?: number | null
           num_factura?: string | null
           numero?: string
           referencia?: string | null
           serie_albaran_venta?: string | null
+          sincronizado_at?: string
+        }
+        Relationships: []
+      }
+      erp_palets_foto: {
+        Row: {
+          dia: string
+          kg_campo: number
+          kg_egipto: number
+          kg_mayor_palet: number | null
+          kg_netos: number
+          palets: number
+          sin_valorar: number
+          tomada_a: string
+        }
+        Insert: {
+          dia: string
+          kg_campo?: number
+          kg_egipto?: number
+          kg_mayor_palet?: number | null
+          kg_netos: number
+          palets: number
+          sin_valorar?: number
+          tomada_a?: string
+        }
+        Update: {
+          dia?: string
+          kg_campo?: number
+          kg_egipto?: number
+          kg_mayor_palet?: number | null
+          kg_netos?: number
+          palets?: number
+          sin_valorar?: number
+          tomada_a?: string
+        }
+        Relationships: []
+      }
+      erp_precalibrado_origen: {
+        Row: {
+          articulo: string | null
+          casado: string
+          kg_atribuidos: number
+          kg_traza: number
+          lote_confeccion: string | null
+          lote_origen: string
+          lote_reentrada: string
+          sincronizado_at: string
+        }
+        Insert: {
+          articulo?: string | null
+          casado?: string
+          kg_atribuidos: number
+          kg_traza: number
+          lote_confeccion?: string | null
+          lote_origen: string
+          lote_reentrada: string
+          sincronizado_at?: string
+        }
+        Update: {
+          articulo?: string | null
+          casado?: string
+          kg_atribuidos?: number
+          kg_traza?: number
+          lote_confeccion?: string | null
+          lote_origen?: string
+          lote_reentrada?: string
           sincronizado_at?: string
         }
         Relationships: []
@@ -1398,10 +1771,59 @@ export type Database = {
             foreignKeyName: "gstock_entries_part_id_fkey"
             columns: ["part_id"]
             isOneToOne: false
+            referencedRelation: "palets"
+            referencedColumns: ["part_id"]
+          },
+          {
+            foreignKeyName: "gstock_entries_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
             referencedRelation: "partes_diarios"
             referencedColumns: ["id"]
           },
         ]
+      }
+      informe_semanal_envios: {
+        Row: {
+          anio: number
+          asunto: string
+          avisos: Json
+          beneficio_eur: number | null
+          destinatarios: string[]
+          detalle: string | null
+          enviado_at: string
+          estado: string
+          id: string
+          kg_total: number | null
+          semana: number
+        }
+        Insert: {
+          anio: number
+          asunto: string
+          avisos?: Json
+          beneficio_eur?: number | null
+          destinatarios: string[]
+          detalle?: string | null
+          enviado_at?: string
+          estado?: string
+          id?: string
+          kg_total?: number | null
+          semana: number
+        }
+        Update: {
+          anio?: number
+          asunto?: string
+          avisos?: Json
+          beneficio_eur?: number | null
+          destinatarios?: string[]
+          detalle?: string | null
+          enviado_at?: string
+          estado?: string
+          id?: string
+          kg_total?: number | null
+          semana?: number
+        }
+        Relationships: []
       }
       limpieza_parte_trabajadores: {
         Row: {
@@ -1585,6 +2007,13 @@ export type Database = {
             foreignKeyName: "lote_clasificacion_part_id_fkey"
             columns: ["part_id"]
             isOneToOne: false
+            referencedRelation: "palets"
+            referencedColumns: ["part_id"]
+          },
+          {
+            foreignKeyName: "lote_clasificacion_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
             referencedRelation: "partes_diarios"
             referencedColumns: ["id"]
           },
@@ -1598,6 +2027,8 @@ export type Database = {
           id: string
           kg_industria: number
           kg_peso_total: number
+          kg_precalibrado_z1: number | null
+          kg_precalibrado_z2: number | null
           lote_codigo: string | null
           notas: string | null
           part_id: string
@@ -1616,6 +2047,8 @@ export type Database = {
           id?: string
           kg_industria?: number
           kg_peso_total?: number
+          kg_precalibrado_z1?: number | null
+          kg_precalibrado_z2?: number | null
           lote_codigo?: string | null
           notas?: string | null
           part_id: string
@@ -1634,6 +2067,8 @@ export type Database = {
           id?: string
           kg_industria?: number
           kg_peso_total?: number
+          kg_precalibrado_z1?: number | null
+          kg_precalibrado_z2?: number | null
           lote_codigo?: string | null
           notas?: string | null
           part_id?: string
@@ -1646,6 +2081,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "lotes_dia_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "palets"
+            referencedColumns: ["part_id"]
+          },
           {
             foreignKeyName: "lotes_dia_part_id_fkey"
             columns: ["part_id"]
@@ -1889,6 +2331,13 @@ export type Database = {
             foreignKeyName: "palets_dia_part_id_fkey"
             columns: ["part_id"]
             isOneToOne: false
+            referencedRelation: "palets"
+            referencedColumns: ["part_id"]
+          },
+          {
+            foreignKeyName: "palets_dia_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
             referencedRelation: "partes_diarios"
             referencedColumns: ["id"]
           },
@@ -1933,6 +2382,13 @@ export type Database = {
             foreignKeyName: "partes_archivos_part_id_fkey"
             columns: ["part_id"]
             isOneToOne: false
+            referencedRelation: "palets"
+            referencedColumns: ["part_id"]
+          },
+          {
+            foreignKeyName: "partes_archivos_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
             referencedRelation: "partes_diarios"
             referencedColumns: ["id"]
           },
@@ -1940,6 +2396,10 @@ export type Database = {
       }
       partes_diarios: {
         Row: {
+          box_reciclaje: number | null
+          box_reciclaje_z1: number | null
+          box_reciclaje_z2: number | null
+          campos_estimados: Json | null
           created_at: string
           date: string
           estado: Database["public"]["Enums"]["parte_estado"]
@@ -1951,19 +2411,27 @@ export type Database = {
           kg_palets_brutos: number
           kg_palets_campo: number
           kg_palets_egipto: number
+          kg_podrido_bateas: number | null
           kg_podrido_bolsa_basura: number | null
           kg_podrido_calibrador_auto: number | null
           kg_produccion_calibrador: number
           kg_reciclado_malla_z1: number
+          kg_reciclado_malla_z1_bruto: number | null
           kg_reciclado_malla_z2: number
+          kg_reciclado_malla_z2_bruto: number | null
           notas_generales: string | null
           notas_inventario: string | null
+          origen_calibrador: string | null
           resumen_analisis: Json | null
           resumen_ia: Json | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          box_reciclaje?: number | null
+          box_reciclaje_z1?: number | null
+          box_reciclaje_z2?: number | null
+          campos_estimados?: Json | null
           created_at?: string
           date: string
           estado?: Database["public"]["Enums"]["parte_estado"]
@@ -1975,19 +2443,27 @@ export type Database = {
           kg_palets_brutos?: number
           kg_palets_campo?: number
           kg_palets_egipto?: number
+          kg_podrido_bateas?: number | null
           kg_podrido_bolsa_basura?: number | null
           kg_podrido_calibrador_auto?: number | null
           kg_produccion_calibrador?: number
           kg_reciclado_malla_z1?: number
+          kg_reciclado_malla_z1_bruto?: number | null
           kg_reciclado_malla_z2?: number
+          kg_reciclado_malla_z2_bruto?: number | null
           notas_generales?: string | null
           notas_inventario?: string | null
+          origen_calibrador?: string | null
           resumen_analisis?: Json | null
           resumen_ia?: Json | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          box_reciclaje?: number | null
+          box_reciclaje_z1?: number | null
+          box_reciclaje_z2?: number | null
+          campos_estimados?: Json | null
           created_at?: string
           date?: string
           estado?: Database["public"]["Enums"]["parte_estado"]
@@ -1999,17 +2475,157 @@ export type Database = {
           kg_palets_brutos?: number
           kg_palets_campo?: number
           kg_palets_egipto?: number
+          kg_podrido_bateas?: number | null
           kg_podrido_bolsa_basura?: number | null
           kg_podrido_calibrador_auto?: number | null
           kg_produccion_calibrador?: number
           kg_reciclado_malla_z1?: number
+          kg_reciclado_malla_z1_bruto?: number | null
           kg_reciclado_malla_z2?: number
+          kg_reciclado_malla_z2_bruto?: number | null
           notas_generales?: string | null
           notas_inventario?: string | null
+          origen_calibrador?: string | null
           resumen_analisis?: Json | null
           resumen_ia?: Json | null
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      pasada_anotaciones: {
+        Row: {
+          codigo_extra: string
+          created_at: string
+          id: string
+          lote_dia_id: string
+          nota: string | null
+          user_id: string
+        }
+        Insert: {
+          codigo_extra: string
+          created_at?: string
+          id?: string
+          lote_dia_id: string
+          nota?: string | null
+          user_id: string
+        }
+        Update: {
+          codigo_extra?: string
+          created_at?: string
+          id?: string
+          lote_dia_id?: string
+          nota?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pasada_anotaciones_lote_dia_id_fkey"
+            columns: ["lote_dia_id"]
+            isOneToOne: false
+            referencedRelation: "lotes_dia"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pasada_box_lineas: {
+        Row: {
+          box: number | null
+          box_tamano: string
+          created_at: string
+          id: string
+          lote_codigo: string | null
+          lote_dia_id: string
+          nota: string | null
+          posicion: number
+          prec_fecha: string | null
+          tipo: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          box?: number | null
+          box_tamano?: string
+          created_at?: string
+          id?: string
+          lote_codigo?: string | null
+          lote_dia_id: string
+          nota?: string | null
+          posicion: number
+          prec_fecha?: string | null
+          tipo: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          box?: number | null
+          box_tamano?: string
+          created_at?: string
+          id?: string
+          lote_codigo?: string | null
+          lote_dia_id?: string
+          nota?: string | null
+          posicion?: number
+          prec_fecha?: string | null
+          tipo?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pasada_box_lineas_lote_dia_id_fkey"
+            columns: ["lote_dia_id"]
+            isOneToOne: false
+            referencedRelation: "lotes_dia"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      podrido_inspecciones: {
+        Row: {
+          created_at: string
+          fecha: string
+          id: string
+          kg_por_box: number | null
+          lote: string
+          naranjas_inspeccionadas: number
+          naranjas_podridas: number
+          naranjas_por_box: number | null
+          notas: string | null
+          pct_podrido: number
+          peso_naranja_g: number | null
+          podridas_por_box: Json
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          fecha?: string
+          id?: string
+          kg_por_box?: number | null
+          lote: string
+          naranjas_inspeccionadas: number
+          naranjas_podridas: number
+          naranjas_por_box?: number | null
+          notas?: string | null
+          pct_podrido: number
+          peso_naranja_g?: number | null
+          podridas_por_box?: Json
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          fecha?: string
+          id?: string
+          kg_por_box?: number | null
+          lote?: string
+          naranjas_inspeccionadas?: number
+          naranjas_podridas?: number
+          naranjas_por_box?: number | null
+          notas?: string | null
+          pct_podrido?: number
+          peso_naranja_g?: number | null
+          podridas_por_box?: Json
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -2048,6 +2664,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "production_runs_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "palets"
+            referencedColumns: ["part_id"]
+          },
           {
             foreignKeyName: "production_runs_part_id_fkey"
             columns: ["part_id"]
@@ -2102,6 +2725,13 @@ export type Database = {
             foreignKeyName: "producto_dia_part_id_fkey"
             columns: ["part_id"]
             isOneToOne: false
+            referencedRelation: "palets"
+            referencedColumns: ["part_id"]
+          },
+          {
+            foreignKeyName: "producto_dia_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
             referencedRelation: "partes_diarios"
             referencedColumns: ["id"]
           },
@@ -2141,6 +2771,95 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      productos_alias: {
+        Row: {
+          alias: string
+          alias_clave: string
+          created_at: string
+          id: string
+          origen: string
+          producto_id: string
+        }
+        Insert: {
+          alias: string
+          alias_clave: string
+          created_at?: string
+          id?: string
+          origen?: string
+          producto_id: string
+        }
+        Update: {
+          alias?: string
+          alias_clave?: string
+          created_at?: string
+          id?: string
+          origen?: string
+          producto_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "productos_alias_producto_id_fkey"
+            columns: ["producto_id"]
+            isOneToOne: false
+            referencedRelation: "productos_catalogo"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      productos_catalogo: {
+        Row: {
+          activo: boolean
+          clave: string
+          coste_material_bulto: number | null
+          coste_material_pieza: number | null
+          created_at: string
+          editado_at: string | null
+          editado_por: string | null
+          id: string
+          indice_confeccion: number | null
+          kg_por_bulto: number | null
+          metodo_venta: string | null
+          nombre: string
+          notas: string | null
+          precio_venta_eur_kg: number | null
+          zona_override: string | null
+        }
+        Insert: {
+          activo?: boolean
+          clave?: string
+          coste_material_bulto?: number | null
+          coste_material_pieza?: number | null
+          created_at?: string
+          editado_at?: string | null
+          editado_por?: string | null
+          id?: string
+          indice_confeccion?: number | null
+          kg_por_bulto?: number | null
+          metodo_venta?: string | null
+          nombre: string
+          notas?: string | null
+          precio_venta_eur_kg?: number | null
+          zona_override?: string | null
+        }
+        Update: {
+          activo?: boolean
+          clave?: string
+          coste_material_bulto?: number | null
+          coste_material_pieza?: number | null
+          created_at?: string
+          editado_at?: string | null
+          editado_por?: string | null
+          id?: string
+          indice_confeccion?: number | null
+          kg_por_bulto?: number | null
+          metodo_venta?: string | null
+          nombre?: string
+          notas?: string | null
+          precio_venta_eur_kg?: number | null
+          zona_override?: string | null
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
@@ -2419,6 +3138,48 @@ export type Database = {
           },
         ]
       }
+      saf_camiones: {
+        Row: {
+          cajas: number
+          created_at: string
+          eur_caja: number
+          fecha: string | null
+          kg_neto_laadbon: number | null
+          laadbon_ref: string | null
+          lote: string
+          notas: string | null
+          porte_eur: number | null
+          proveedor: string
+          updated_at: string
+        }
+        Insert: {
+          cajas: number
+          created_at?: string
+          eur_caja: number
+          fecha?: string | null
+          kg_neto_laadbon?: number | null
+          laadbon_ref?: string | null
+          lote: string
+          notas?: string | null
+          porte_eur?: number | null
+          proveedor?: string
+          updated_at?: string
+        }
+        Update: {
+          cajas?: number
+          created_at?: string
+          eur_caja?: number
+          fecha?: string | null
+          kg_neto_laadbon?: number | null
+          laadbon_ref?: string | null
+          lote?: string
+          notas?: string | null
+          porte_eur?: number | null
+          proveedor?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       sesiones_consumo: {
         Row: {
           agua_drencher_l: number
@@ -2463,6 +3224,143 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      sistema_ejecuciones: {
+        Row: {
+          datos: Json
+          detalle: string | null
+          equipo: string | null
+          estado: string
+          fin: string
+          id: number
+          inicio: string | null
+          trabajo: string
+        }
+        Insert: {
+          datos?: Json
+          detalle?: string | null
+          equipo?: string | null
+          estado: string
+          fin?: string
+          id?: never
+          inicio?: string | null
+          trabajo: string
+        }
+        Update: {
+          datos?: Json
+          detalle?: string | null
+          equipo?: string | null
+          estado?: string
+          fin?: string
+          id?: never
+          inicio?: string | null
+          trabajo?: string
+        }
+        Relationships: []
+      }
+      sistema_latidos: {
+        Row: {
+          detalle: string | null
+          equipo: string | null
+          estado: string
+          trabajo: string
+          visto_a: string
+        }
+        Insert: {
+          detalle?: string | null
+          equipo?: string | null
+          estado?: string
+          trabajo: string
+          visto_a?: string
+        }
+        Update: {
+          detalle?: string | null
+          equipo?: string | null
+          estado?: string
+          trabajo?: string
+          visto_a?: string
+        }
+        Relationships: []
+      }
+      stock_consumibles: {
+        Row: {
+          activo: boolean
+          almacen: string
+          creado_por: string | null
+          created_at: string
+          familia: string
+          id: string
+          nombre: string
+          nota: string | null
+          precio_unitario: number | null
+          stock: number
+          unidad: string
+          updated_at: string
+        }
+        Insert: {
+          activo?: boolean
+          almacen?: string
+          creado_por?: string | null
+          created_at?: string
+          familia?: string
+          id?: string
+          nombre: string
+          nota?: string | null
+          precio_unitario?: number | null
+          stock?: number
+          unidad?: string
+          updated_at?: string
+        }
+        Update: {
+          activo?: boolean
+          almacen?: string
+          creado_por?: string | null
+          created_at?: string
+          familia?: string
+          id?: string
+          nombre?: string
+          nota?: string | null
+          precio_unitario?: number | null
+          stock?: number
+          unidad?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      stock_consumibles_historial: {
+        Row: {
+          cambiado_por: string | null
+          consumible_id: string
+          created_at: string
+          id: string
+          stock_anterior: number | null
+          stock_nuevo: number
+        }
+        Insert: {
+          cambiado_por?: string | null
+          consumible_id: string
+          created_at?: string
+          id?: string
+          stock_anterior?: number | null
+          stock_nuevo: number
+        }
+        Update: {
+          cambiado_por?: string | null
+          consumible_id?: string
+          created_at?: string
+          id?: string
+          stock_anterior?: number | null
+          stock_nuevo?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_consumibles_historial_consumible_id_fkey"
+            columns: ["consumible_id"]
+            isOneToOne: false
+            referencedRelation: "stock_consumibles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       trabajadores: {
         Row: {
@@ -2775,8 +3673,128 @@ export type Database = {
         }
         Relationships: []
       }
+      ventas_mercadona_envios: {
+        Row: {
+          anio: number
+          asunto: string
+          cajas: number | null
+          destinatarios: string[]
+          detalle: string | null
+          enviado_at: string
+          estado: string
+          id: string
+          kg: number | null
+          palets: number | null
+          semana: number
+        }
+        Insert: {
+          anio: number
+          asunto: string
+          cajas?: number | null
+          destinatarios: string[]
+          detalle?: string | null
+          enviado_at?: string
+          estado?: string
+          id?: string
+          kg?: number | null
+          palets?: number | null
+          semana: number
+        }
+        Update: {
+          anio?: number
+          asunto?: string
+          cajas?: number | null
+          destinatarios?: string[]
+          detalle?: string | null
+          enviado_at?: string
+          estado?: string
+          id?: string
+          kg?: number | null
+          palets?: number | null
+          semana?: number
+        }
+        Relationships: []
+      }
+      vigia_hallazgos: {
+        Row: {
+          actualizado_at: string
+          clave: string
+          creado_at: string
+          detalle: string | null
+          eur: number | null
+          id: string
+          kg: number | null
+          regla: string
+          resuelto_at: string | null
+          severidad: string
+          tipo: string
+          titulo: string
+        }
+        Insert: {
+          actualizado_at?: string
+          clave: string
+          creado_at?: string
+          detalle?: string | null
+          eur?: number | null
+          id?: string
+          kg?: number | null
+          regla: string
+          resuelto_at?: string | null
+          severidad: string
+          tipo: string
+          titulo: string
+        }
+        Update: {
+          actualizado_at?: string
+          clave?: string
+          creado_at?: string
+          detalle?: string | null
+          eur?: number | null
+          id?: string
+          kg?: number | null
+          regla?: string
+          resuelto_at?: string | null
+          severidad?: string
+          tipo?: string
+          titulo?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
+      clasificacion_lote: {
+        Row: {
+          archivo_id: string | null
+          batch_id: number | null
+          calidad: string | null
+          cartons: number | null
+          clase: string | null
+          created_at: string | null
+          duracion_min: number | null
+          fecha: string | null
+          fraccion_productor: number | null
+          fuente: string | null
+          grupo_destino: string | null
+          id: string | null
+          lote_codigo: string | null
+          lote_codigo_base: string | null
+          lote_dia_id: string | null
+          part_id: string | null
+          pct_cartons: number | null
+          pct_peso: number | null
+          pct_piezas: number | null
+          peso_fruta_promedio_g: number | null
+          peso_kg: number | null
+          piezas: number | null
+          producto: string | null
+          productor: string | null
+          productor_id: string | null
+          tamano: string | null
+          toneladas_hora: number | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
       dashboard_produccion_mensual: {
         Row: {
           ano: number | null
@@ -2821,6 +3839,49 @@ export type Database = {
         }
         Relationships: []
       }
+      palets: {
+        Row: {
+          campo: boolean | null
+          cliente: string | null
+          cliente_codigo: string | null
+          codigo_sscc: string | null
+          comercial: boolean | null
+          destino: string | null
+          dia_cerrado: boolean | null
+          egipto: boolean | null
+          fecha: string | null
+          fecha_factura: string | null
+          fecha_venta: string | null
+          importe_venta: number | null
+          kg_brutos: number | null
+          kg_neto: number | null
+          linea_venta: number | null
+          lote_codigo: string | null
+          n_cajas: number | null
+          num_albaran_venta: string | null
+          num_factura: string | null
+          palet_id: string | null
+          part_id: string | null
+          precalibrado: boolean | null
+          producto: string | null
+          referencia: string | null
+          serie_albaran_venta: string | null
+          sincronizado_at: string | null
+          situacion: string | null
+          vendido: boolean | null
+        }
+        Relationships: []
+      }
+      palets_dia_cerrado: {
+        Row: {
+          cerrado: boolean | null
+          dia: string | null
+          kg_mayor_palet: number | null
+          sin_valorar: number | null
+          ultima_foto: string | null
+        }
+        Relationships: []
+      }
       precios_dashboard_mensual: {
         Row: {
           ano: number | null
@@ -2833,6 +3894,24 @@ export type Database = {
           precio_medio: number | null
           productos: number | null
           refreshed_at: string | null
+        }
+        Relationships: []
+      }
+      productor_lote: {
+        Row: {
+          fraccion: number | null
+          lote: string | null
+          productor: string | null
+          productor_id: string | null
+        }
+        Relationships: []
+      }
+      productor_lote_dominante: {
+        Row: {
+          fraccion: number | null
+          lote: string | null
+          productor: string | null
+          productor_id: string | null
         }
         Relationships: []
       }
@@ -2998,67 +4077,98 @@ export type Database = {
       }
     }
     Functions: {
-      can_access_comunicaciones_campo: { Args: never; Returns: boolean }
-      can_access_ventas_categoria: { Args: never; Returns: boolean }
       calibrador_aprovechamiento_productor: {
-        Args: { desde?: string | null; hasta?: string | null }
+        Args: { desde?: string; hasta?: string }
         Returns: {
-          productor_id: string | null
-          productor: string
-          lotes: number
-          kg_total: number
           kg_exportacion: number
-          kg_no_exportacion: number
           kg_industria: number
           kg_mujeres: number
+          kg_no_exportacion: number
           kg_otros: number
-          pct_exportacion: number | null
-          kg_provisional: number | null
-        }[]
-      }
-      clasificacion_productor_periodo: {
-        Args: { desde?: string | null; hasta?: string | null }
-        Returns: Json
-      }
-      calibrador_desglose_sin_repartir: {
-        Args: { desde?: string | null; hasta?: string | null }
-        Returns: {
-          pasadas: number
-          kg: number
-          pasadas_varios_lotes: number
+          kg_provisional: number
+          kg_total: number
+          lotes: number
+          pct_exportacion: number
+          productor: string
+          productor_id: string
         }[]
       }
       calibrador_capacidad_lotes: {
-        Args: Record<string, never>
+        Args: never
         Returns: {
-          lote: string
-          kg_entrada: number
           kg_atribuido_simple: number
+          kg_entrada: number
+          lote: string
+        }[]
+      }
+      calibrador_desglose_sin_repartir: {
+        Args: { desde?: string; hasta?: string }
+        Returns: {
+          kg: number
+          pasadas: number
+          pasadas_varios_lotes: number
+        }[]
+      }
+      calibrador_kg_por_pasada: {
+        Args: never
+        Returns: {
+          dia: string
+          kg: number
+          lote: string
+          pasadas: number
+          productor: string
+          productor_id: string
         }[]
       }
       calibrador_pasadas_con_desglose: {
-        Args: { desde?: string | null; hasta?: string | null }
+        Args: { desde?: string; hasta?: string }
         Returns: {
           batch_id: number
           batch_name: string
-          lote: string
           fecha: string
-          kg_total: number
           kg_exportacion: number
-          kg_no_exportacion: number
           kg_industria: number
           kg_mujeres: number
+          kg_no_exportacion: number
           kg_otros: number
+          kg_total: number
+          lote: string
         }[]
       }
-      productor_por_lote: {
-        Args: { lotes: string[] }
+      can_access_comunicaciones_campo: { Args: never; Returns: boolean }
+      can_access_ventas_categoria: { Args: never; Returns: boolean }
+      clasificacion_productor_periodo: {
+        Args: { desde?: string; hasta?: string }
+        Returns: Json
+      }
+      copia_archivos_manifiesto: {
+        Args: never
         Returns: {
-          lote: string
-          productor_id: string | null
-          productor: string | null
-          fraccion: number
+          actualizado: string
+          bytes: number
+          cubo: string
+          nombre: string
         }[]
+      }
+      copia_manifiesto: {
+        Args: never
+        Returns: {
+          filas: number
+          pk: string[]
+          tabla: string
+        }[]
+      }
+      copia_version_esquema: { Args: never; Returns: string }
+      empaques_habituales: {
+        Args: { nombres: string[] }
+        Returns: {
+          empaque: string
+          nombre: string
+        }[]
+      }
+      es_movimiento_interno_productor: {
+        Args: { nombre: string }
+        Returns: boolean
       }
       has_role:
         | {
@@ -3069,7 +4179,63 @@ export type Database = {
             Returns: boolean
           }
         | { Args: { _role: string; _user_id: string }; Returns: boolean }
+      lote_clasificacion_detalle_por_partes: {
+        Args: { p_part_ids: string[] }
+        Returns: Json
+      }
+      lote_clasificacion_productor_agg_rango: {
+        Args: { p_desde: string; p_hasta: string }
+        Returns: Json
+      }
+      normalizar_clave_producto: { Args: { nombre: string }; Returns: string }
       normalizar_nombre_productor: { Args: { nombre: string }; Returns: string }
+      palets_kg_por_dia: {
+        Args: never
+        Returns: {
+          cerrado: boolean
+          dia: string
+          kg_campo: number
+          kg_comercial: number
+          kg_egipto: number
+          kg_precalibrado: number
+          kg_sin_precalibrado: number
+          kg_total: number
+          palets: number
+        }[]
+      }
+      productor_por_lote: {
+        Args: { lotes: string[] }
+        Returns: {
+          fraccion: number
+          lote: string
+          productor: string
+          productor_id: string
+        }[]
+      }
+      productores_sin_casar: {
+        Args: never
+        Returns: {
+          filas: number
+          kg: number
+          productor: string
+        }[]
+      }
+      restauracion_cargar: {
+        Args: { filas: Json; tabla: string }
+        Returns: number
+      }
+      restauracion_comparar: {
+        Args: { tabla_pedida: string }
+        Returns: {
+          filas_publico: number
+          filas_restauradas: number
+          huella_publico: string
+          huella_restaurada: string
+          tabla: string
+        }[]
+      }
+      restauracion_limpiar: { Args: never; Returns: undefined }
+      restauracion_preparar: { Args: { tablas: string[] }; Returns: undefined }
       search_code: {
         Args: {
           match_count?: number
@@ -3225,7 +4391,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "operario" | "ventas" | "rrhh"
-      data_source: "manual" | "ia"
+      data_source: "manual" | "ia" | "calibrador"
       parte_archivo_tipo:
         | "GSTOCK"
         | "Produccion"
@@ -3361,7 +4527,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "operario", "ventas", "rrhh"],
-      data_source: ["manual", "ia"],
+      data_source: ["manual", "ia", "calibrador"],
       parte_archivo_tipo: [
         "GSTOCK",
         "Produccion",

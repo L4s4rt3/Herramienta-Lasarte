@@ -70,6 +70,12 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/produccion",
     parentLabel: "Planta",
   },
+  "/consumibles": {
+    label: "Stock consumibles",
+    subtitle: "Inventario continuo de cajas, mallas, etiquetas y postcosecha, con lista y carteles en PDF",
+    parent: "/produccion",
+    parentLabel: "Planta",
+  },
   "/analisis/diario": {
     label: "Análisis por día",
     subtitle: "Qué pasó un día concreto: lotes, calibres y destinos",

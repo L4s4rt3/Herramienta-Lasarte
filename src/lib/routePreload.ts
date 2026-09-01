@@ -43,6 +43,7 @@ export const pageLoaders = {
   trazabilidad: () => import("@/pages/TrazabilidadLote"),
   calibrador: () => import("@/pages/Calibrador"),
   limpiezaBox: () => import("@/pages/LimpiezaBox"),
+  stockConsumibles: () => import("@/pages/StockConsumibles"),
   historicoImport: () => import("@/pages/HistoricoImport"),
   importarBandeja: () => import("@/pages/ImportarBandeja"),
   // ─── Rediseño 13-08-2026: páginas que alojan varias vistas en pestañas ───
@@ -68,6 +69,7 @@ const preloadByPath: Record<string, () => Promise<unknown>> = {
   "/partes": pageLoaders.partesList,
   "/costes/consumos": pageLoaders.economicoCostesPanel,
   "/limpieza": pageLoaders.limpiezaBox,
+  "/consumibles": pageLoaders.stockConsumibles,
   "/historico": pageLoaders.datosImportar,
   "/importar": pageLoaders.datosImportar,
   "/datos/fuentes": pageLoaders.datosFuentes,

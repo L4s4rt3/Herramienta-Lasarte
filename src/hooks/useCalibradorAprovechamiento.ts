@@ -83,8 +83,8 @@ export function useCalibradorAprovechamiento(desde?: string | null, hasta?: stri
     queryKey: ["calibrador-desglose-sin-repartir", desde ?? null, hasta ?? null],
     queryFn: async (): Promise<DesgloseSinRepartir | null> => {
       const { data, error } = await supabase.rpc("calibrador_desglose_sin_repartir", {
-        desde: desde ?? null,
-        hasta: hasta ?? null,
+        desde: desde ?? undefined,
+        hasta: hasta ?? undefined,
       });
       if (error) throw new Error(error.message);
       const r = data?.[0];
@@ -101,8 +101,8 @@ export function useCalibradorAprovechamiento(desde?: string | null, hasta?: stri
     queryKey: ["calibrador-aprovechamiento", desde ?? null, hasta ?? null],
     queryFn: async (): Promise<AprovechamientoProductor[]> => {
       const { data, error } = await supabase.rpc("calibrador_aprovechamiento_productor", {
-        desde: desde ?? null,
-        hasta: hasta ?? null,
+        desde: desde ?? undefined,
+        hasta: hasta ?? undefined,
       });
       if (error) throw new Error(error.message);
       return (data ?? []).map((r) => ({
@@ -127,8 +127,8 @@ export function useCalibradorAprovechamiento(desde?: string | null, hasta?: stri
     queryKey: ["calibrador-reparto", desde ?? null, hasta ?? null],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("calibrador_pasadas_con_desglose", {
-        desde: desde ?? null,
-        hasta: hasta ?? null,
+        desde: desde ?? undefined,
+        hasta: hasta ?? undefined,
       });
       if (error) throw new Error(error.message);
       const pasadas: PasadaConDesglose[] = (data ?? []).map((p) => ({

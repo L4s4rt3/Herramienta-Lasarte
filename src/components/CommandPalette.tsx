@@ -32,6 +32,7 @@ import {
   Cog,
   Upload,
   Brush,
+  Boxes,
   History,
   Send,
 } from "lucide-react";
@@ -71,6 +72,7 @@ const PAGES = [
   { to: "/productores?vista=calibrador", label: "Aprovechamiento (calibrador)", icon: Cog, keywords: "calibrador sizer compac aprovechamiento productor exportacion industria clasificacion maquina" },
   { to: "/calidad", label: "Calidad", icon: ClipboardCheck, keywords: "calidad lotes notas aerobotics finca productor jornada" },
   { to: "/calidad/importacion", label: "Calidad importación", icon: ClipboardCheck, keywords: "calidad importacion control contenedor camion saf sudafrica reporte informe word defectos zumo brix" },
+  { to: "/consumibles", label: "Stock consumibles", icon: Boxes, keywords: "consumibles inventario stock cajas mallas etiquetas stiker palets postcosecha almacen conteo recuento carteles" },
   { to: "/partes", label: "Parte del día", icon: FileText, keywords: "partes produccion diario diarios" },
   { to: "/analisis/diario", label: "Análisis por día", icon: BarChart3, keywords: "analisis diario lotes calibres" },
   { to: "/productores", label: "Análisis por productor", icon: Sprout, keywords: "productores proveedores origen eficiencia" },
