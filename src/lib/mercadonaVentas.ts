@@ -95,6 +95,7 @@ export function parseNumeroVentas(value: unknown): number | null {
   if (!text) return null;
 
   // Quita espacios (incluidos los "no-break") usados como separador de miles.
+  // eslint-disable-next-line no-irregular-whitespace -- el NBSP literal es el separador que trae el Excel de Mercadona
   text = text.replace(/[\s ]/g, "");
   if (!text) return null;
 

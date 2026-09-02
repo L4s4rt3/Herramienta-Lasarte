@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// (necesita DOM: el proyecto "logica" de vitest corre src/lib en node)
 // Tests de la recuperación automática cuando un deploy invalida los chunks
 // en diferido ("Failed to fetch dynamically imported module").
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

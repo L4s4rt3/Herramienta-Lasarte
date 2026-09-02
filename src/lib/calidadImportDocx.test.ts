@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// (necesita DOM: el proyecto "logica" de vitest corre src/lib en node)
 import { describe, expect, it } from "vitest";
 import { unzipSync, strFromU8 } from "fflate";
 import {

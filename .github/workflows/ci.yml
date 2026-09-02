@@ -1,0 +1,52 @@
+# CI de la Herramienta Lasarte.
+#
+# POR QUÉ (02-09-2026). Había 121 ficheros de test, typecheck en verde y lint
+# configurado, y NADA los ejecutaba solo: se corrían a mano cuando alguien se
+# acordaba. Un cambio que rompiera un cálculo de merma o de semana ISO llegaba
+# a producción sin que nadie lo viera. Esto convierte todo ese trabajo en una
+# red de seguridad real: cada push y cada pull request pasa por lint,
+# typecheck y la suite completa.
+#
+# El deploy a Vercel es aparte (lo hace Vercel al detectar el push): este
+# workflow no despliega nada, solo dice si el código está bien.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: lint + typecheck + tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
+  edge:
+    # Las edge functions son Deno: TypeScript aparte del de la app. `deno check`
+    # las compila sin desplegar. En el portátil de la oficina no hay Deno (y
+    # correrlo dentro del repo ensucia node_modules), así que esta es la única
+    # comprobación que tienen antes del deploy.
+    name: edge functions (deno check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno check supabase/functions/*/index.ts
