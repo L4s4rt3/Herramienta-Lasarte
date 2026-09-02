@@ -47,6 +47,7 @@ const EntradasBascula = lazy(pageLoaders.entradas);
 const TrazabilidadLote = lazy(pageLoaders.trazabilidad);
 const LimpiezaBox = lazy(pageLoaders.limpiezaBox);
 const StockConsumibles = lazy(pageLoaders.stockConsumibles);
+const SafCamiones = lazy(pageLoaders.safCamiones);
 const ComunicacionesCampo = lazy(pageLoaders.comunicacionesCampo);
 const ExcelViewerPage = lazy(() => import("@/pages/ExcelViewerPage"));
 
@@ -111,6 +112,9 @@ const App = () => (
                           pensado para editarse desde el móvil (conteo del 01-09-2026). */}
                       <Route path="/consumibles" element={<StockConsumibles />} />
                       <Route path="/datos/fuentes" element={<DatosFuentes />} />
+                      {/* Importación SAF: el Laadbon de cada camión y el cuadre con el ERP
+                          (02-09-2026). Admin por el prefijo /datos (ADMIN_ONLY_PATHS). */}
+                      <Route path="/datos/saf" element={<SafCamiones />} />
                       <Route path="/importar" element={<DatosImportar />} />
                       <Route path="/costes/asistencia" element={<RrhhAsistencia />} />
                       <Route path="/productores" element={<AnalisisPorProductor />} />

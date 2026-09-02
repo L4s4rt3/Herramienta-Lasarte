@@ -38,6 +38,7 @@ import {
   ShoppingCart,
   Sprout,
   Tags,
+  Ship,
   Truck,
   Upload,
   UserRound,
@@ -275,6 +276,10 @@ export const NAV_GROUPS: Array<{ label: string; workspace: WorkspaceId; items: N
     workspace: "datos",
     items: [
       { to: "/datos/fuentes", label: "Estado de las fuentes", icon: AlertTriangle },
+      // Importación SAF (02-09-2026): el Laadbon de cada camión y las
+      // discrepancias ERP ↔ app que el vigía cuenta. Era el último dato del
+      // flujo SAF que se tecleaba en SQL.
+      { to: "/datos/saf", label: "Importación SAF", icon: Ship },
       { to: "/importar", label: "Importar", icon: Upload, match: (p) => p.startsWith("/importar") || p.startsWith("/historico") },
     ],
   },

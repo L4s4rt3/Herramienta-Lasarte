@@ -56,6 +56,7 @@ export const pageLoaders = {
   comercialVentasCategoria: () => import("@/pages/ComercialVentasCategoria"),
   datosImportar: () => import("@/pages/DatosImportar"),
   datosFuentes: () => import("@/pages/DatosFuentes"),
+  safCamiones: () => import("@/pages/SafCamiones"),
 };
 
 const preloadByPath: Record<string, () => Promise<unknown>> = {
@@ -73,6 +74,7 @@ const preloadByPath: Record<string, () => Promise<unknown>> = {
   "/historico": pageLoaders.datosImportar,
   "/importar": pageLoaders.datosImportar,
   "/datos/fuentes": pageLoaders.datosFuentes,
+  "/datos/saf": pageLoaders.safCamiones,
   "/costes/asistencia": pageLoaders.rrhhAsistencia,
   "/costes/asistencia/comparativa": pageLoaders.rrhhAsistencia,
   "/productores": pageLoaders.analisisPorProductor,
