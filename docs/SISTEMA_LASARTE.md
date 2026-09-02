@@ -39,7 +39,7 @@ Leyenda: ✅ en producción y estable · 🟡 funciona pero con riesgos o cabos 
 | Merma y podrido | ✅ | Pérdida de campaña 3,74 % (739.936 kg / 368.585 €). Podrido manual es pre-calibrador (decisión del dueño 06-08). Tasa de cámara 0,0466 %/día. |
 | Precalibrado conectado a productores | 🟡 | Vía `agri_produc_mp_pt` del ERP. Cobertura 27 % (límite físico: lo apartado no siempre se pesa). |
 | Reparto de pasadas multi-lote | 🟡 | 114 pasadas (8,9 % de la campaña) atribuyen todo al primer lote; la vía para las 77 pendientes es la regla de `conciliacionKg`. |
-| Parte con origen calibrador | 🟡 | En curso ahora mismo (migración `20260814093000` + scripts sin commitear). |
+| Parte con origen calibrador | ✅ | Migración `20260814072803_parte_origen_calibrador` aplicada y scripts commiteados (ago-2026). |
 
 ### 2.2 Calidad
 
@@ -135,12 +135,23 @@ No se trata de construir "el sistema definitivo" de golpe: cada fase entrega alg
 
 - ✅ **HECHO 31-08** — **Vigía de NEGOCIO** (edge `vigia-negocio`, diario 14:15) y **cierre mensual** (edge `cierre-mensual`, día 1): el vigilante mira si los trabajos corren; el vigía mira lo que CUENTAN los datos — sobrellenado de malla, camiones SAF sin cuadrar con su Laadbon, dinero parado, fruta parada, mermas fuera de banda, papel sin meter, días rojos de rendimiento y días de calibrado sin detalle. Solo escribe cuando hay algo nuevo (lunes, resumen de pendientes). Reglas y umbrales en `_shared/vigiaNegocio.ts` (30 tests); documentación completa en `docs/VIGIA_NEGOCIO.md`. El primer día en vivo reprodujo solo los dos hallazgos que costó días encontrar a mano: los 297 kg/día de sobrellenado y los 1.790 € de más del alta del camión SAF 1.
 
+- ✅ **HECHO 02-09** — **Auditoría de robustez y sus arreglos** (verificados en producción):
+  - *Seguridad*: las vistas `palets`, `productor_lote`, `palets_dia_cerrado`, `clasificacion_lote` y los agregados se leían **sin iniciar sesión** con la anon key (corrían como su dueño y saltaban la RLS). Ahora llevan `security_invoker` y `anon` no tiene ningún privilegio en `public` (ni por defecto para lo nuevo). `saf_camiones` solo la escribe admin. Migración `20260902085430`.
+  - *Historial de migraciones* cuadrado con el repo (ver el runbook de abajo).
+  - *El correo diario de rendimiento* sale de `tmp/` (fuera de git) a `scripts/informe-produccion/`, entra en `arreglar-tareas.ps1` y en el catálogo de salud junto con el ensayo de restauración: antes latían y nadie los miraba.
+  - *El vigilante ya no es un punto ciego*: late también cuando falla, cuenta su propio error del día anterior y el vigía de negocio comprueba a las 14:15 que haya dado señal hoy (y avisa si no). Un fallo de envío es `error`, no `aviso`.
+  - *CI* (`.github/workflows/ci.yml`): lint + typecheck + los 122 ficheros de test en cada push, y `deno check` de las edge functions. La suite pasa de >10 min a ~3 en el portátil (la lógica pura corre en node, sin jsdom).
+  - *Tipado real*: fuera los 48 `supabase as unknown as SupabaseClient<any>`; el cliente tipado destapó un insert de bajas laborales sin `user_id` que no podía entrar. Las tablas con nombre variable usan `supabaseLibre` (client.ts), a propósito y visible.
+  - *Semana ISO única* en `_shared/semanaIso.ts` (antes tres copias iguales que decidían qué semana manda el correo del lunes), con tests del borde de año.
+  - *PartDetail*: ningún `{ data }` sin `error`; el motivo de un fallo de subida va al toast, no a la consola.
+
 #### Copias y restauración: el runbook
 
 - **Dónde están.** `outputs/copias/<fecha>/` (tablas, una carpeta por día) y `outputs/copias/archivos/` (espejo del storage). Como `outputs/` vive dentro de OneDrive, todo está también en la nube de OneDrive: que muera el portátil no pierde ninguna copia.
 - **Cómo saber que funcionan.** Sin hacer nada: la fila "Copia de seguridad diaria" de Datos → Estado de las fuentes, y el vigilante avisa por correo si lleva 2 días sin correr.
 - **Ensayo de restauración** (recomendado 1 vez por trimestre, o tras cambios grandes de esquema): `node scripts/restaurar-copia.mjs` — carga la última copia entera en un esquema aparte, compara recuentos y huellas, y lo limpia. Éxito = "todas cuadran".
 - **Desastre de verdad** (proyecto de Supabase perdido): crear proyecto nuevo → aplicar las migraciones del repo (`supabase db push` o el MCP) → `node scripts/restaurar-copia.mjs --de-verdad` (se niega a escribir sobre tablas con datos) → subir el espejo de archivos al storage. Los usuarios de Auth se recrean a mano (son ~8) y las claves (`.env`, secretos de las funciones) salen del gestor de contraseñas.
+- **El historial de migraciones tiene que cuadrar con el repo, o el paso anterior no funciona.** El 02-09-2026 se descubrió que NO cuadraba: la base registraba 101 versiones (las aplicadas por el MCP llevan la hora del servidor, p. ej. `20260831074325`) y el repo tenía 113 ficheros con otros números, tres de ellos con el prefijo repetido, y dos migraciones aplicadas que nunca llegaron al repo. Se arregló renombrando 40 ficheros a su versión real, reconstruyendo las 2 que faltaban desde la base y marcando como aplicadas (`supabase migration repair`) las 14 que la base no tenía apuntadas. **Comprobación**: `supabase migration list --linked` tiene que mostrar las dos columnas rellenas en TODAS las filas. **Regla desde entonces**: una migración se aplica con el MCP (`apply_migration`) y el fichero del repo se nombra con la versión que quedó registrada en `supabase_migrations.schema_migrations`, nunca con un número inventado. Falta una prueba de reconstrucción desde cero (hace falta Docker o una rama de Supabase; en el portátil no hay Docker).
 - **Qué NO cubre.** Los usuarios/contraseñas de Auth (pocos y recreables) y los secretos de las funciones edge (viven en Supabase y en el `.env` del portátil). Las copias internas de Supabase siguen existiendo aparte, como primera línea.
 
 ### Fase 2 — Independencia: que el PC de Luis deje de ser imprescindible
@@ -263,7 +274,7 @@ Los que ya rigen (y se mantienen):
 - **Fuentes canónicas**: calibrador y ERP mandan; el papel y el Excel son respaldo.
 - **Cada página responde una pregunta**: Entradas=fruta/stock, Trazabilidad=lote, Productores=quién, Análisis diario=tiempo.
 - **Incertidumbre con dos cifras** (probada/estimada), nunca una métrica sobre la calidad del dato.
-- **Estándar kg/persona POR RÉGIMEN de plantilla** (dueño, 27-08): media plantilla (≤35 presentes, régimen de agosto) suelo 2.200 / objetivo 2.600; plantilla completa (aunque haya faltas) suelo 1.700 / objetivo 2.100. Vive en `tmp/informe-produccion/estandar.json` y lo usan el semáforo del correo diario de rendimiento, los informes de la encargada y el análisis por tipo de día — mismo número, misma fuente. Revisar cada 4-6 semanas.
+- **Estándar kg/persona POR RÉGIMEN de plantilla** (dueño, 27-08): media plantilla (≤35 presentes, régimen de agosto) suelo 2.200 / objetivo 2.600; plantilla completa (aunque haya faltas) suelo 1.700 / objetivo 2.100. Vive en `scripts/informe-produccion/estandar.json` (hasta el 02-09-2026 vivía en `tmp/`, fuera de git) y lo usan el semáforo del correo diario de rendimiento, los informes de la encargada y el análisis por tipo de día — mismo número, misma fuente. Revisar cada 4-6 semanas.
 
 Los nuevos, a partir de ahora, para **cada** pieza que se construya o toque:
 
@@ -294,7 +305,9 @@ La medición de uso de la herramienta (qué páginas se abren) entra en la Fase 
 
 ## 8. Pendientes concretos ya identificados (lista corta)
 
-- [ ] Committear el trabajo en curso: parte con origen calibrador + fix bandeja de rentabilidad.
+- [x] Committear el trabajo en curso: parte con origen calibrador + fix bandeja de rentabilidad — hecho (árbol limpio el 02-09).
+- [ ] Prueba de reconstrucción de la base desde cero con las migraciones del repo (hace falta Docker o una rama de Supabase; el historial ya cuadra desde el 02-09).
+- [ ] `.env.example` completo (~52 variables reales) y README con el deploy (Vercel, `supabase functions deploy`, migraciones, pg_cron, tareas del portátil): sin eso el runbook de recuperación no se puede ejecutar.
 - [ ] Reparto de las 77 pasadas multi-lote vía `conciliacionKg`.
 - [x] Importador del Informe PRODUCTO (CMV) — disuelto: generación automática (14-08) + empaque habitual (17-08).
 - [ ] Catálogo de productos del Sizer (empaque de productos NUEVOS): bloqueado por las credenciales `SIZER_*` del visor.
