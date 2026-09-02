@@ -193,8 +193,8 @@ comprobar("sin registro no se inventa nada", informesSinSubir(null, new Set()).l
 
 const pend = componerAviso({ ...BASE, sinSubir: nada });
 comprobar("informes sin subir SI dan problema", pend.hayProblema === true);
-comprobar("y dicen el lote y como recuperarlos",
-  /26051905/.test(pend.cuerpo) && /subir-informes-calibrador\.mjs --aplicar/.test(pend.cuerpo));
+comprobar("y dicen el lote y que la tarea los reintenta sola (ya no se le pide el script a nadie)",
+  /26051905/.test(pend.cuerpo) && /reintenta sola cada ma/.test(pend.cuerpo) && !/--aplicar/.test(pend.cuerpo));
 comprobar("sin pendientes no hay alarma", componerAviso({ ...BASE, sinSubir: [] }).hayProblema === false);
 
 // desfaseDatos solo se pone cuando NINGUNA de las dos vias (volcado SQL o

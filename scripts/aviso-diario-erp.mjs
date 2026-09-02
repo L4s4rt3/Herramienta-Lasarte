@@ -29,6 +29,8 @@ import { cuadrar } from "./rehacer-parte.mjs";
 import { estimarPartesPendientes } from "./estimar-manuales-parte.mjs";
 import { detectarCierre, inventarioSinAlta, diaLocal } from "./lib-cierre-alta.mjs";
 import { anotarEjecucion, salirConError } from "./lib-registro-ejecuciones.mjs";
+import { parsearInformeCalibrador, validarBloques } from "./lib-informe-calibrador.mjs";
+import { subirInforme } from "./lib-subir-informe-calibrador.mjs";
 
 try { process.loadEnvFile(path.resolve(".env")); } catch { /* entorno */ }
 
@@ -179,6 +181,8 @@ async function calibradorSinSubir(supabase) {
         entradas.push({
           recibido: ev.recibido ?? ev.leido, lote: inf.lote,
           comienzo: inf.comienzo ?? null, motivo: subida.motivo,
+          // El .docx sigue en disco junto al registro: es lo que se reintenta.
+          fichero: a.fichero ? path.join(path.dirname(registro), a.fichero) : null,
         });
       }
     }
@@ -199,6 +203,41 @@ async function calibradorSinSubir(supabase) {
     new Set(filas.map((f) => `${f.lote}|${f.comienzo}`)),
     new Set(filas.map((f) => f.lote)),
   );
+}
+
+/**
+ * Reintenta, uno a uno, los informes que llegaron y no entraron en la base.
+ *
+ * Hasta el 02-09-2026 el correo le pedía a una persona que lanzara
+ * subir-informes-calibrador.mjs --aplicar, que re-sube los 45+ ficheros de
+ * outputs/calibrador (y reescribe recibido_at de todos, lo que puede cambiar
+ * qué pasada gana en pasadasDocxFrescas). Aquí solo se tocan los pendientes
+ * de verdad (0 o 1 al día), con el fichero que anotó el buzón o el receptor.
+ * Un informe que no cuadra consigo mismo NO se sube (misma regla que el
+ * script): se anota el motivo y seguirá saliendo en el correo hasta que
+ * alguien lo mire. Nunca lanza: cada fallo es una incidencia, no un abort.
+ */
+async function recuperarInformesSinSubir(supabase, pendientes, incidencias) {
+  const recuperados = [];
+  for (const p of pendientes ?? []) {
+    const etiqueta = `lote ${p.lote}${p.comienzo ? ` (${p.comienzo})` : ""}`;
+    if (!p.fichero) { incidencias.push(`Informe sin subir ${etiqueta}: el registro no dice qué fichero era; no se puede reintentar.`); continue; }
+    if (!fs.existsSync(p.fichero)) { incidencias.push(`Informe sin subir ${etiqueta}: el fichero ya no está en ${p.fichero}.`); continue; }
+    try {
+      const informe = parsearInformeCalibrador(fs.readFileSync(p.fichero));
+      const descuadres = validarBloques(informe.bloques);
+      if (descuadres.length) {
+        incidencias.push(`Informe sin subir ${etiqueta}: ${descuadres.length} bloque(s) no cuadran con sus totales; no se sube hasta que alguien lo mire.`);
+        continue;
+      }
+      const res = await subirInforme(supabase, informe, path.relative(path.resolve("outputs"), p.fichero));
+      recuperados.push({ lote: res.lote, fecha: res.fecha, lineas: res.lineas });
+      incidencias.push(`Recuperado el informe del calibrador ${etiqueta}: ${res.lineas} líneas en la base (${res.fecha}).`);
+    } catch (e) {
+      incidencias.push(`ERROR: reintentando el informe ${etiqueta}: ${e.message}`);
+    }
+  }
+  return recuperados;
 }
 
 /**
@@ -440,6 +479,17 @@ async function main() {
   // calibre ni por destino, que es justo lo que el analisis venia avisando.
   // Mismo criterio que el GSTOCK: se fabrica el fichero, no se escriben los
   // kilos por detras. Ver generar-informes-parte.mjs.
+  // Antes, lo que llegó del calibrador y no entró en la base: se reintenta
+  // AQUÍ, antes de fabricar los informes del parte, para que el lote recuperado
+  // entre en el análisis de hoy (generarYSubirInformes lo verá y marcará el
+  // día como rehecho, y el análisis se fuerza más abajo).
+  try {
+    const pendientes = await calibradorSinSubir(supabase);
+    await recuperarInformesSinSubir(supabase, pendientes ?? [], incidencias);
+  } catch (e) {
+    incidencias.push(`ERROR: reintento de informes del calibrador sin subir: ${e.message}`);
+  }
+
   const informesSubidos = [];
   for (const f of ventanaDias(ayer, VENTANA_RECUPERACION)) {
     try {

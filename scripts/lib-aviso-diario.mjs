@@ -157,6 +157,9 @@ export function informesSinSubir(entradas, clavesEnBase, lotesEnBase = new Set()
       comienzo: e.comienzo ?? null,
       motivo: e.motivo ?? "sin motivo anotado",
       recibido: e.recibido ?? null,
+      // Ruta del .docx en disco, para que la tarea diaria pueda reintentarlo
+      // ella misma (desde el 02-09-2026; antes se lo pedia a una persona).
+      fichero: e.fichero ?? null,
     });
   }
   return pendientes;
@@ -534,8 +537,9 @@ export function componerAviso({
   if (sinSubir?.length) {
     const n = sinSubir.length;
     avisos.push(`${n} informe(s) del calibrador llegaron (correo o receptor) pero NO estan en la` +
-      " Herramienta. El fichero esta a salvo en outputs/: los del buzon se reintentan solos," +
-      " y los del receptor se recuperan con node scripts/subir-informes-calibrador.mjs --aplicar");
+      " Herramienta. El fichero esta a salvo en outputs/ y la tarea de las 07:10 los reintenta sola" +
+      " cada mañana; si sigue aqui, el motivo dice por que (un informe que no cuadra consigo mismo" +
+      " no se sube nunca: hay que mirarlo):");
     for (const p of sinSubir.slice(0, 6)) {
       avisos.push(`  lote ${p.lote}${p.comienzo ? ` (${p.comienzo})` : ""}: ${p.motivo}`);
     }
