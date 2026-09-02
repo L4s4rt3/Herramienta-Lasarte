@@ -144,6 +144,13 @@ No se trata de construir "el sistema definitivo" de golpe: cada fase entrega alg
   - *Tipado real*: fuera los 48 `supabase as unknown as SupabaseClient<any>`; el cliente tipado destapó un insert de bajas laborales sin `user_id` que no podía entrar. Las tablas con nombre variable usan `supabaseLibre` (client.ts), a propósito y visible.
   - *Semana ISO única* en `_shared/semanaIso.ts` (antes tres copias iguales que decidían qué semana manda el correo del lunes), con tests del borde de año.
   - *PartDetail*: ningún `{ data }` sin `error`; el motivo de un fallo de subida va al toast, no a la consola.
+- ✅ **HECHO 02-09 (tarde)** — **Automatizaciones de la auditoría**:
+  - *Reintento* para los tres cron de correo que no lo tenían (ventas Mercadona 10:25, vigía 14:40, cierre mensual 08:15 del día 1; migración `20260902093957`). Los tres son idempotentes.
+  - *Ensayo de restauración programado*: tarea «Lasarte - Ensayo restauracion», el día 2 de enero/abril/julio/octubre a las 22:45, con latido `prueba-restauracion` vigilado (100/130 días). `arreglar-tareas.ps1` la crea si no existe.
+  - *Informes del calibrador sin subir*: la tarea de las 07:10 los reintenta ella misma (solo los pendientes, con el fichero que anotó el buzón o el receptor) antes de fabricar los informes del parte. El correo ya no le pide a nadie que ejecute `subir-informes-calibrador.mjs`.
+  - *Correcciones ERP ↔ app*: de un CSV diario que nadie abría a la tabla `erp_correcciones` (foto actual, con `detectada_en`), regla `correccion-erp` del vigía (un estado por lote) y posibilidad de ACEPTAR una diferencia conocida (p. ej. importación por neto vs báscula) desde la app.
+  - *Estimaciones del parte*: al guardar, un campo con otro valor deja de ser estimado al momento; y el banner tiene el botón «El papel ya está metido: quitar las marcas» para el caso valor real = valor estimado (industria 0), que la comparación no distinguía y exigía SQL.
+  - *Pantalla Datos → Importación SAF* (`/datos/saf`, admin): alta y edición del Laadbon de cada camión con €/kg puesto y cuadre contra el alta del ERP (misma cuenta que el vigía), más las discrepancias ERP ↔ app con «Aceptar» / «Volver a vigilar». Era el último dato del flujo SAF que se tecleaba en SQL.
 
 #### Copias y restauración: el runbook
 
@@ -200,6 +207,20 @@ cambia el sitio donde ocurre el silencio.
       petición, no que el otro lado respondiera. Al vigilante le pasaba justo lo
       que venía a vigilar. **Un cron en verde no prueba que su función corra.**
 - [ ] Partir el aviso: ERP en la LAN, el resto en `pg_cron` → edge.
+      **Lectura del 02-09-2026 (antes de tocar nada):** el corte NO es limpio en
+      un solo punto. Cruzan la costura CUATRO datos que hoy viajan en memoria y
+      no están en Supabase, no uno: (1) los `sospechosos` del GSTOCK (palets
+      > 10.000 kg, `generar-gstock-erp.mjs`); (2) `faltaban` de los GSTOCK
+      rehechos (kg del ERP − kg del parte); (3) `parte.paletsErp` (n y kg de
+      palets del día, `paletsDelDia`, que a propósito NO se escribe en el parte
+      y alimenta la sección PRODUCCIÓN y `hayActividad`); (4) `parte.erpCaido`.
+      Y "crear el parte del día" (`repasarPartes`) abre conexión MySQL por
+      `paletsDelDia`, así que no es nube pura. El gancho más barato para
+      persistir los cuatro es `sistema_ejecuciones.datos` (JSON; ya se usa así
+      en el aviso y en el buzón). El paso 1 sigue siendo válido, pero incluye
+      escribir esos cuatro datos desde la mitad ERP y leerlos desde la mitad
+      nube. El reintento de informes del calibrador (02-09) pertenece a la
+      mitad nube: solo habla con Supabase.
 
 #### El corte del aviso, para no re-deducirlo
 
