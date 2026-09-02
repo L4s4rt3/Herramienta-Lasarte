@@ -258,7 +258,7 @@ correo lo recalcula leyendo `erp_palet`.
 pasos "por adelantar trabajo".*
 - [ ] **Runbook de recuperación**: "si este portátil muere, así se monta otro en
       una hora", probado de verdad una vez. Sigue haciendo falta, encendido o no.
-- [ ] Cerrar la incidencia Compac (si el auto-envío funciona, sobra una pieza).
+- [x] Cerrar la incidencia Compac — cerrada: el auto-envío funciona por Gmail desde el 18-08 y es la vía única desde el 26-08 (el receptor LAN queda de respaldo, ver §8).
 
 *Criterio de hecho: Luis puede irse dos semanas y, si algo se para, el correo lo
 dice el mismo día.*
@@ -328,7 +328,9 @@ La medición de uso de la herramienta (qué páginas se abren) entra en la Fase 
 
 - [x] Committear el trabajo en curso: parte con origen calibrador + fix bandeja de rentabilidad — hecho (árbol limpio el 02-09).
 - [ ] Prueba de reconstrucción de la base desde cero con las migraciones del repo (hace falta Docker o una rama de Supabase; el historial ya cuadra desde el 02-09).
-- [ ] `.env.example` completo (~52 variables reales) y README con el deploy (Vercel, `supabase functions deploy`, migraciones, pg_cron, tareas del portátil): sin eso el runbook de recuperación no se puede ejecutar.
+- [x] `.env.example` completo (inventario de las tres capas: app, scripts, secretos edge) y README con el deploy (Vercel, `supabase functions deploy`, migraciones, pg_cron, tareas del portátil) — hecho 02-09.
+- [x] Higiene 02-09: fuera los 16 `.mjs` de un solo uso de la raíz y 9 one-shot de `scripts/`, 8 dependencias sin uso (y 3 componentes `ui/` sin consumidores), las 5 dependencias de los scripts del portátil pasan a `dependencies`, el `tsconfig.json` raíz deja de contradecir al de la app. El ErrorBoundary se reinicia al navegar, tiene «Volver a intentar» y deja rastro en `app_errores` (antes los crashes de producción eran invisibles).
+- [ ] Pantalla «Sección pendiente de activar» en `MercadonaPrevision.tsx`: decidir si se activa o se retira.
 - [ ] Reparto de las 77 pasadas multi-lote vía `conciliacionKg`.
 - [x] Importador del Informe PRODUCTO (CMV) — disuelto: generación automática (14-08) + empaque habitual (17-08).
 - [ ] Catálogo de productos del Sizer (empaque de productos NUEVOS): bloqueado por las credenciales `SIZER_*` del visor.
