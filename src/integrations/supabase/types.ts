@@ -39,6 +39,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_errores: {
+        Row: {
+          agente: string | null
+          componente: string | null
+          creado_at: string
+          id: number
+          mensaje: string
+          pila: string | null
+          ruta: string | null
+          user_id: string | null
+          version_app: string | null
+        }
+        Insert: {
+          agente?: string | null
+          componente?: string | null
+          creado_at?: string
+          id?: never
+          mensaje: string
+          pila?: string | null
+          ruta?: string | null
+          user_id?: string | null
+          version_app?: string | null
+        }
+        Update: {
+          agente?: string | null
+          componente?: string | null
+          creado_at?: string
+          id?: never
+          mensaje?: string
+          pila?: string | null
+          ruta?: string | null
+          user_id?: string | null
+          version_app?: string | null
+        }
+        Relationships: []
+      }
       asistencia_bajas_laborales: {
         Row: {
           created_at: string

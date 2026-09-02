@@ -1,6 +1,7 @@
+import type { ReactNode } from "react";
 import { lazy, Suspense } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { BrowserRouter, Route, Routes, Navigate, useLocation } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -72,6 +73,16 @@ const LoadingFallback = () => (
   </div>
 );
 
+/**
+ * El ErrorBoundary con key = ruta: un crash de render en una página se reinicia
+ * solo al navegar a otra (antes el estado de error se quedaba pegado hasta
+ * recargar) y el error se registra con la ruta en la que pasó.
+ */
+function LimiteDeErroresPorRuta({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation();
+  return <ErrorBoundary key={pathname} ruta={pathname}>{children}</ErrorBoundary>;
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -82,7 +93,7 @@ const App = () => (
           <BrowserRouter>
           <ScrollToTop />
           <AuthProvider>
-            <ErrorBoundary>
+            <LimiteDeErroresPorRuta>
               <Suspense fallback={<LoadingFallback />}>
                 <Routes>
                   <Route path="/auth" element={<Auth />} />
@@ -181,7 +192,7 @@ const App = () => (
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </Suspense>
-            </ErrorBoundary>
+            </LimiteDeErroresPorRuta>
           </AuthProvider>
         </BrowserRouter>
         </ThemeProvider>
