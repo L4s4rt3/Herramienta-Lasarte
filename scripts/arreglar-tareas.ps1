@@ -75,7 +75,23 @@ $tareas = @(
   # de git) y fuera de esta lista hasta el 02-09-2026: era la unica tarea sin
   # recuperacion ni ajuste de bateria. Ahora el codigo esta en scripts/.
   @{ nombre = "Lasarte - Informe rendimiento diario"; vbs = "informe-produccion\correo-diario.vbs"; despierta = $false }
+  # Ensayo trimestral de restauracion (02-09-2026): la copia se vigilaba, pero
+  # que SIGUIERA siendo restaurable se comprobaba a mano (una vez, el 14-08).
+  # Despierta el equipo: a las 22:45 puede estar en reposo moderno.
+  @{ nombre = "Lasarte - Ensayo restauracion";  vbs = "restaurar-copia.vbs";    despierta = $true;  crear = @("/SC", "MONTHLY", "/M", "JAN,APR,JUL,OCT", "/D", "2", "/ST", "22:45") }
 )
+
+# Las tareas nacieron con schtasks a mano; las que llevan `crear` se dan de alta
+# aqui si no existen (idempotente: si ya esta, se salta y se arregla abajo).
+foreach ($t in $tareas) {
+  if (-not $t.crear) { continue }
+  if (Get-ScheduledTask -TaskName $t.nombre -ErrorAction SilentlyContinue) { continue }
+  $ruta = Join-Path $repo "scripts\$($t.vbs)"
+  if (-not (Test-Path $ruta)) { throw "no existe $ruta" }
+  $args = @("/Create", "/TN", $t.nombre, "/TR", "wscript.exe `"$ruta`"", "/F") + $t.crear
+  & schtasks.exe @args | Out-Null
+  Write-Host "  $($t.nombre): CREADA ($($t.crear -join ' '))"
+}
 
 # Temporizadores de reactivacion con corriente alterna: 1 = habilitar. Sin esto,
 # WakeToRun en la tarea no sirve de nada.
