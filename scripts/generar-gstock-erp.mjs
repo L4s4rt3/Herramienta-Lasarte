@@ -220,12 +220,20 @@ export async function generarYSubir(supabase, conn, fecha, { aplicar = false, re
     // palets dos veces, en silencio. Al reves, lo peor que pasa es que el parte
     // se quede un rato sin GSTOCK: el correo lo dice y la siguiente pasada lo
     // vuelve a generar.
+    // Primero la FILA (con reintento: el analisis del parte puede tener
+    // bloqueada lote_clasificacion, cuya FK a partes_archivos hace esperar al
+    // DELETE, ver generar-informes-parte.mjs) y despues el fichero: al reves,
+    // un timeout dejaba la fila apuntando a un fichero que ya no existia.
+    let errFila = null;
+    for (let intento = 1; intento <= 3; intento++) {
+      ({ error: errFila } = await supabase.from("partes_archivos").delete().in("id", viejos.map((a) => a.id)));
+      if (!errFila || !/statement timeout|57014|lock/i.test(errFila.message ?? "")) break;
+      await new Promise((r) => setTimeout(r, 5000 * intento));
+    }
+    if (errFila) throw new Error(`borrando la fila del GSTOCK viejo: ${errFila.message}`);
     const { error: errBorra } = await supabase.storage.from("partes-archivos")
       .remove(viejos.map((a) => a.file_path));
-    if (errBorra) throw new Error(`borrando el GSTOCK viejo: ${errBorra.message}`);
-    const { error: errFila } = await supabase.from("partes_archivos")
-      .delete().in("id", viejos.map((a) => a.id));
-    if (errFila) throw new Error(`borrando la fila del GSTOCK viejo: ${errFila.message}`);
+    if (errBorra) console.warn(`[gstock] la fila se borro pero el fichero viejo sigue en el storage: ${errBorra.message}`);
   }
 
   if (!aplicar) return { fecha, accion: "subiria", palets: filas.length, kg, sospechosos };

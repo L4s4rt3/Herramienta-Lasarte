@@ -330,10 +330,24 @@ export async function generarYSubirInformes(supabase, fecha, { aplicar = false }
   // Fuera los viejos antes de subir: si se subiera primero y algo fallara en
   // medio, el parte tendria dos copias del mismo informe y el analisis leeria
   // una de las dos al azar. Sin ellos, la siguiente pasada los regenera.
+  //
+  // PRIMERO LAS FILAS, LUEGO LOS FICHEROS, Y CON REINTENTO (02-09-2026). El
+  // analisis del parte (edge analizar-parte, que tambien lanza el buzon al
+  // importar un informe a las :15) escribe lote_clasificacion, cuya FK a
+  // partes_archivos hace que este DELETE espere su bloqueo; con el timeout de 8 s
+  // de PostgREST moria cada mañana ("canceling statement due to statement
+  // timeout"). Y como el storage se borraba ANTES, el timeout dejaba filas que
+  // apuntaban a ficheros que ya no existian. Ahora: si las filas no se pueden
+  // borrar, no se toca nada y el parte conserva sus informes de antes.
   if (yaHay?.length) {
-    await supabase.storage.from("partes-archivos").remove(yaHay.map((a) => a.file_path));
-    const { error } = await supabase.from("partes_archivos").delete().in("id", yaHay.map((a) => a.id));
+    let error = null;
+    for (let intento = 1; intento <= 3; intento++) {
+      ({ error } = await supabase.from("partes_archivos").delete().in("id", yaHay.map((a) => a.id)));
+      if (!error || !/statement timeout|57014|lock/i.test(error.message ?? "")) break;
+      await new Promise((r) => setTimeout(r, 5000 * intento));
+    }
     if (error) throw new Error(`borrando informes viejos: ${error.message}`);
+    await supabase.storage.from("partes-archivos").remove(yaHay.map((a) => a.file_path));
   }
 
   for (const inf of informes) {
