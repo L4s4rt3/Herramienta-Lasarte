@@ -26,11 +26,13 @@ guardan por separado: solo validan el total de punta.
 - Con el papel delante, una **fila en blanco es un 0 real** (no "sin dato").
 - El arrastre: `kg_inventario_anterior_sin_alta` del día siguiente = la punta
   de este día. Con fin de semana en medio, arrastra al siguiente día laborable.
-- Tras escribir el dato real, `node scripts/estimar-manuales-parte.mjs
-  --aplicar` retira las marcas ámbar de estimación. Ojo: si el valor real
-  coincide con el estimado (p. ej. industria 0), la marca no se considera
-  "pisada" y hay que limpiar `campos_estimados` a mano — el papel presente
-  convierte ese 0 en dato confirmado.
+- Tras escribir el dato real y guardar, la marca ámbar del campo se retira al
+  momento si el valor cambió (desde el 02-09-2026; antes, en la pasada de la
+  mañana siguiente). Si el valor real coincide con el estimado (p. ej.
+  industria 0), la comparación no puede saber que se leyó del papel: en el
+  banner ámbar del parte está el botón **«El papel ya está metido: quitar las
+  marcas»**, que convierte esos valores en dato confirmado. Ya no hay que
+  limpiar `campos_estimados` a mano.
 
 ## 2. El cuaderno "PRODUCCIÓN dd/mm/aaaa" — los lotes y sus apuntes
 

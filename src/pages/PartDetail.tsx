@@ -200,6 +200,7 @@ async function buildVisionWeightCrops(files: Archivo[]): Promise<VisionCropPaylo
 // 20260721140000 pendiente de regenerar tipos): se añade a mano, mismo
 // patrón que cerrado_at/cierre_modo en useEntradasBascula.ts.
 type ParteUpdatePayload = TablesUpdate<"partes_diarios"> & {
+  campos_estimados?: Parte["campos_estimados"];
   box_reciclaje?: number;
   kg_podrido_bateas?: number | null;
   kg_reciclado_malla_z1_bruto?: number;
@@ -640,6 +641,22 @@ export default function PartDetail() {
       const abs = Math.abs(cascade.dsj_pct);
       payload.estado = abs > 3 ? "Con descuadre" : abs >= 1 ? "Analizado" : "Validado";
     }
+    // Estimaciones: un campo que la persona guarda con OTRO valor deja de ser
+    // estimado ahora mismo, no en la pasada de mañana. Si guarda el MISMO valor
+    // no se puede saber si lo leyó del papel o lo dejó pasar: para eso está el
+    // botón «El papel ya está metido» del banner (quitarMarcasEstimacion).
+    const marcas = parte.campos_estimados?.campos;
+    if (marcas) {
+      const restantes = Object.fromEntries(
+        Object.entries(marcas).filter(([campo, m]) => {
+          const actual = (payload as Record<string, unknown>)[campo];
+          return typeof actual !== "number" || Math.abs(actual - Number(m.valor)) <= 0.5;
+        }),
+      );
+      if (Object.keys(restantes).length !== Object.keys(marcas).length) {
+        payload.campos_estimados = Object.keys(restantes).length > 0 ? { ...parte.campos_estimados, campos: restantes } : null;
+      }
+    }
     let { error } = await supabase.from("partes_diarios").update(payload as TablesUpdate<"partes_diarios">).eq("id", parte.id);
     // Degradado: si la columna box_reciclaje aún no existe en la BD
     // (migración 20260721140000 sin aplicar), reintenta sin ella para no
@@ -666,7 +683,23 @@ export default function PartDetail() {
     if (error) return toast({ title: "Error", description: error.message, variant: "destructive" });
     toast({ title: "Guardado" });
     void queryClient.invalidateQueries({ queryKey: PARTES_QUERY_KEY });
-    if (typeof payload.estado === "string" && payload.estado !== parte.estado) load();
+    if ((typeof payload.estado === "string" && payload.estado !== parte.estado) || "campos_estimados" in payload) load();
+  }
+
+  /**
+   * «El papel ya está metido»: retira TODAS las marcas de estimación del parte.
+   * Es la única forma de cerrar el caso valor real == valor estimado (industria
+   * 0 estimado y 0 leído del papel), que la comparación por valor no distingue
+   * y que hasta el 02-09-2026 exigía limpiar campos_estimados a mano en SQL
+   * (docs/CUADERNO-ENCARGADA.md).
+   */
+  async function quitarMarcasEstimacion() {
+    if (!parte) return;
+    const { error } = await supabase.from("partes_diarios").update({ campos_estimados: null }).eq("id", parte.id);
+    if (error) return toast({ title: "No se pudieron quitar las marcas", description: error.message, variant: "destructive" });
+    toast({ title: "Marcas de estimación retiradas", description: "Los valores del parte se toman ahora como dato de papel." });
+    void queryClient.invalidateQueries({ queryKey: PARTES_QUERY_KEY });
+    load();
   }
 
   async function toggleEstado() {
@@ -1237,8 +1270,19 @@ export default function PartDetail() {
                 </p>
                 <p className="mt-0.5 text-muted-foreground">
                   Si el papel dice otra cosa, corrige el campo y guarda: el dato real gana y la marca se
-                  retira sola en la pasada de la mañana siguiente. No valides el parte sin revisarlos.
+                  retira al guardar. Si el papel dice lo mismo que la estimación, confírmalo con el botón.
+                  No valides el parte sin revisarlos.
                 </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-2"
+                  disabled={readOnly}
+                  onClick={() => void quitarMarcasEstimacion()}
+                >
+                  El papel ya está metido: quitar las marcas
+                </Button>
               </div>
             );
           })()}
