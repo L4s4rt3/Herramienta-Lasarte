@@ -6,7 +6,7 @@
  *
  * IMPORTANTE: rrhh_justificantes es una tabla NUEVA que NO existe todavia en
  * src/integrations/supabase/types.ts (infraestructura pendiente de aplicar/
- * regenerar tipos). Se usa el cast `SUPA` de mas abajo, copiando el patron
+ * regenerar tipos). Se usa el cast `supabase` de mas abajo, copiando el patron
  * exacto de src/hooks/useMercadonaVentas.ts: cuando se regeneren los tipos,
  * sustituir los `as any` por `Tables<"rrhh_justificantes">` y eliminar el cast.
  *
@@ -17,7 +17,6 @@
  */
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { endOfWeek, parseISO, startOfWeek } from "date-fns";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
@@ -28,7 +27,6 @@ import type { AsistenciaBajaLaboralRow, TrabajadorRow } from "@/lib/types";
 
 // Cast local: la tabla rrhh_justificantes aun no esta en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const BUCKET = "rrhh-docs";
 
@@ -179,7 +177,7 @@ export function useRrhhAusencias({ desde, hasta }: RrhhAusenciasFiltros) {
   const justificantesQuery = useQuery({
     queryKey: [...baseKey, "justificantes"],
     queryFn: async (): Promise<RrhhJustificanteRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("rrhh_justificantes")
         .select("*")
         .gte("fecha", desde)
@@ -248,7 +246,7 @@ export function useRrhhAusencias({ desde, hasta }: RrhhAusenciasFiltros) {
         if (uploadError) throw toError(uploadError);
       }
 
-      const { error: insertError } = await SUPA.from("rrhh_justificantes").insert({
+      const { error: insertError } = await supabase.from("rrhh_justificantes").insert({
         trabajador_id: input.trabajadorId,
         fecha: input.fecha,
         notas: input.notas.trim() || null,

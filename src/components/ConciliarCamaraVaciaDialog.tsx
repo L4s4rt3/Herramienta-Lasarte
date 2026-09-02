@@ -24,7 +24,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { AlertTriangle, ChevronDown, Loader2, Snowflake } from "lucide-react";
 import { GlassDatePicker } from "@/components/GlassDatePicker";
 import { toast } from "@/hooks/use-toast";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import type { CamionCamaraExternaRow } from "@/hooks/useCamarasExternas";
@@ -92,9 +91,8 @@ export function ConciliarCamaraVaciaDialog({
       // que el import del Excel de mermas (CardMermaCamara.tsx) — columna de
       // la migración 20260721150000, sin cast tipado hasta regenerar types.ts.
       const conEntrada = preview.pendientes.filter((p) => p.entradaId != null);
-      const SUPA_LOCAL = supabase as unknown as SupabaseClient;
       for (const p of conEntrada) {
-        const { error } = await SUPA_LOCAL
+        const { error } = await supabase
           .from("entradas_bascula")
           .update({ fecha_salida_camara: fecha })
           .eq("id", p.entradaId as string);

@@ -13,7 +13,6 @@
  */
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/fetchAllRows";
@@ -22,7 +21,6 @@ import { claveProducto } from "@/lib/productosCanonicos";
 import type { FichaProducto } from "@/lib/cmvProducto";
 
 // productos_catalogo / productos_alias son posteriores al Database generado.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const PERMISSION_ERROR_CODES = new Set(["42501", "PGRST301", "PGRST302"]);
 
@@ -76,10 +74,10 @@ export function useProductosCatalogo() {
     queryFn: async (): Promise<{ fichas: ProductoCatalogoRow[]; alias: AliasRow[] }> => {
       const [fichas, alias] = await Promise.all([
         fetchAllRows<ProductoCatalogoRow>((from, to) =>
-          SUPA.from("productos_catalogo").select("*").order("id").range(from, to),
+          supabase.from("productos_catalogo").select("*").order("id").range(from, to),
         ),
         fetchAllRows<AliasRow>((from, to) =>
-          SUPA.from("productos_alias").select("producto_id, alias_clave").order("id").range(from, to),
+          supabase.from("productos_alias").select("producto_id, alias_clave").order("id").range(from, to),
         ),
       ]);
       return { fichas, alias };
@@ -124,7 +122,7 @@ export function useProductosCatalogo() {
   const guardar = useMutation({
     mutationFn: async ({ id, patch }: { id: string; patch: FichaProductoPatch }) => {
       if (!user) throw new Error("Debes iniciar sesión para editar una ficha de producto.");
-      const { error } = await SUPA
+      const { error } = await supabase
         .from("productos_catalogo")
         .update({ ...patch, editado_por: user.id, editado_at: new Date().toISOString() })
         .eq("id", id);
@@ -145,13 +143,13 @@ export function useProductosCatalogo() {
       if (!user) throw new Error("Debes iniciar sesión para crear una ficha de producto.");
       const limpio = nombre.trim().replace(/\s+/g, " ");
       if (!claveProducto(limpio)) throw new Error("El nombre del producto está vacío.");
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("productos_catalogo")
         .insert({ nombre: limpio })
         .select("id, clave")
         .single();
       if (error) throw toError(error);
-      const { error: errAlias } = await SUPA
+      const { error: errAlias } = await supabase
         .from("productos_alias")
         .insert({ producto_id: data.id, alias_clave: data.clave, alias: limpio, origen: "auto" });
       // Un alias duplicado (23505) significa que la clave ya estaba resuelta:

@@ -309,10 +309,14 @@ export default function PartDetail() {
       if (prev) {
         const prevInv = Number(prev.kg_inventario_sin_alta) || 0;
         if (prevInv !== Number(p.kg_inventario_anterior_sin_alta)) {
-          await supabase.from("partes_diarios")
+          const { error: errInv } = await supabase.from("partes_diarios")
             .update({ kg_inventario_anterior_sin_alta: prevInv })
             .eq("id", id);
-          p.kg_inventario_anterior_sin_alta = prevInv;
+          if (errInv) {
+            toast({ title: "No se pudo actualizar el inventario anterior", description: errInv.message, variant: "destructive" });
+          } else {
+            p.kg_inventario_anterior_sin_alta = prevInv;
+          }
         }
       }
 
@@ -361,11 +365,15 @@ export default function PartDetail() {
     queryKey: ["parte-detail", parte?.id, "calibres"],
     enabled: Boolean(parte?.id),
     queryFn: async () => {
-      const { data: calibres } = await supabase
+      // Acotado por parte (un día son decenas de filas, nunca miles): sin
+      // .limit() falso — un límite > 1.000 no protege del recorte de PostgREST
+      // (ver fetchAllRows.ts). Y el error se propaga: "sin datos" y "falló la
+      // consulta" no pueden verse igual.
+      const { data: calibres, error } = await supabase
         .from("calibres_dia")
         .select("calibre, clase, grupo_destino, kg")
-        .eq("part_id", parte!.id)
-        .limit(100000);
+        .eq("part_id", parte!.id);
+      if (error) throw new Error(error.message);
 
       if (!calibres || calibres.length === 0) return null;
 
@@ -407,13 +415,12 @@ export default function PartDetail() {
     queryKey: ["parte-detail", parte?.id, "lotes"],
     enabled: Boolean(parte?.id),
     queryFn: async () => {
-      // kg_precalibrado_z1/z2 (migración 20260722100000) aún sin tipos
-      // generados: cast puntual, mismo patrón que useEntradasBascula.
-      const { data } = await (supabase as unknown as import("@supabase/supabase-js").SupabaseClient<Record<string, never>>)
+      const { data, error } = await supabase
         .from("lotes_dia")
         .select("id, lote_codigo, productor, producto, kg_peso_total, toneladas_hora, duracion_min, kg_industria, kg_precalibrado_z1, kg_precalibrado_z2, notas")
         .eq("part_id", parte!.id)
         .order("created_at", { ascending: true });
+      if (error) throw new Error(error.message);
       return (data ?? []) as unknown as import("@/components/PartDetailLotes").LoteDelDia[];
     },
   });
@@ -452,10 +459,11 @@ export default function PartDetail() {
     queryKey: ["parte-detail", parte?.id, "producto"],
     enabled: Boolean(parte?.id),
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("producto_dia")
         .select("linea, producto, formato_caja, kg, grupo_destino")
         .eq("part_id", parte!.id);
+      if (error) throw new Error(error.message);
       return data ?? [];
     },
   });
@@ -467,10 +475,11 @@ export default function PartDetail() {
     queryFn: async () => {
       // nombre es imprescindible: calcularRendimientoZonasAlmacen empareja la
       // plantilla por nombre; sin él, ninguna zona detecta a sus presentes.
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("trabajadores")
         .select("id, nombre, zona, activo, computa_kg_persona")
         .eq("activo", true);
+      if (error) throw new Error(error.message);
       return data ?? [];
     },
   });
@@ -480,10 +489,11 @@ export default function PartDetail() {
     queryKey: ["parte-detail", parte?.id, "asistencia", parte?.date],
     enabled: Boolean(parte?.date),
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("asistencia_detalle")
         .select("trabajador_id, presente")
         .eq("date", parte!.date);
+      if (error) throw new Error(error.message);
       return data ?? [];
     },
   });
@@ -569,7 +579,8 @@ export default function PartDetail() {
     queryKey: ["parte-detail", parte?.id, "calidad", parte?.date],
     enabled: Boolean(parte?.date),
     queryFn: async () => {
-      const { data } = await supabase.from("calidad_lotes").select("*").eq("fecha", parte!.date).order("created_at", { ascending: true });
+      const { data, error } = await supabase.from("calidad_lotes").select("*").eq("fecha", parte!.date).order("created_at", { ascending: true });
+      if (error) throw new Error(error.message);
       return (data ?? []) as CalidadLote[];
     },
   });
@@ -582,7 +593,8 @@ export default function PartDetail() {
     queryKey: ["parte-detail", parte?.id, "calidad-adjuntos", parte?.date],
     enabled: Boolean(calidadDelDia && calidadDelDia.length > 0),
     queryFn: async () => {
-      const { data } = await supabase.from("calidad_adjuntos").select("*").in("lote_id", (calidadDelDia ?? []).map((l) => l.id));
+      const { data, error } = await supabase.from("calidad_adjuntos").select("*").in("lote_id", (calidadDelDia ?? []).map((l) => l.id));
+      if (error) throw new Error(error.message);
       return (data ?? []) as CalidadAdjunto[];
     },
   });
@@ -685,6 +697,7 @@ export default function PartDetail() {
     if (list.length === 0) return;
     setUploadingCat(cat);
     let ok = 0, fail = 0;
+    const fallos: string[] = [];
     // Resultados del parseo autom\u00e1tico de "Informes por lote" (solo aplica a esa categor\u00eda).
     const loteResultados: Array<{ ok: true; lote_codigo: string; kg_total: number } | { ok: false; error: string }> = [];
     for (const file of list) {
@@ -693,12 +706,18 @@ export default function PartDetail() {
         .replace(/[^a-zA-Z0-9._-]/g, "_");
       const path = `${user.id}/${parte.id}/${cat}/${crypto.randomUUID()}-${safeName}`;
       const { error: upErr } = await supabase.storage.from("partes-archivos").upload(path, file);
-      if (upErr) { fail++; console.error(upErr); continue; }
+      if (upErr) { fail++; fallos.push(`${file.name}: ${upErr.message}`); continue; }
       const { data: inserted, error: dbErr } = await supabase.from("partes_archivos").insert({
         part_id: parte.id, user_id: user.id, file_name: file.name, file_path: path,
         file_type: cat, mime_type: file.type, file_size: file.size,
       }).select("id").single();
-      if (dbErr || !inserted) { fail++; console.error(dbErr); continue; }
+      if (dbErr || !inserted) {
+        fail++;
+        fallos.push(`${file.name}: ${dbErr?.message ?? "no se pudo registrar el archivo"}`);
+        // El fichero ya está en el storage sin fila: se retira para no dejar huérfanos.
+        await supabase.storage.from("partes-archivos").remove([path]);
+        continue;
+      }
       ok++;
 
       // Informes por lote: se parsean solos al subir, sin esperar a "Analizar parte".
@@ -725,7 +744,9 @@ export default function PartDetail() {
     }
     setUploadingCat(null);
 
-    let description: string | undefined;
+    // El motivo de cada fallo va al toast: antes moría en la consola y el
+    // usuario solo veía "1 con error" sin saber por qué ni qué fichero.
+    let description: string | undefined = fallos.length > 0 ? fallos.join("; ") : undefined;
     let variant: "destructive" | undefined = fail > 0 ? "destructive" : undefined;
     if (loteResultados.length > 0) {
       const buenos = loteResultados.filter((r): r is { ok: true; lote_codigo: string; kg_total: number } => r.ok);
@@ -749,9 +770,17 @@ export default function PartDetail() {
 
   async function handleDeleteFile(a: Archivo) {
     if (!a.file_path) return;
-    await supabase.storage.from("partes-archivos").remove([a.file_path]);
-    await supabase.from("partes_archivos").delete().eq("id", a.id);
-    toast({ title: "Archivo eliminado" });
+    // Primero la fila, luego el fichero: si falla el storage queda un fichero
+    // huérfano (inofensivo); al revés quedaría una fila que apunta a nada.
+    const { error: errFila } = await supabase.from("partes_archivos").delete().eq("id", a.id);
+    if (errFila) {
+      toast({ title: "No se pudo eliminar el archivo", description: errFila.message, variant: "destructive" });
+      return;
+    }
+    const { error: errStorage } = await supabase.storage.from("partes-archivos").remove([a.file_path]);
+    toast(errStorage
+      ? { title: "Archivo eliminado del parte", description: `El fichero sigue en el almacenamiento: ${errStorage.message}`, variant: "destructive" }
+      : { title: "Archivo eliminado" });
     load();
   }
 

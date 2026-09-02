@@ -11,7 +11,6 @@
 // multipasada la rentabilidad se calculaba sobre kilos cortos.
 import { useQuery } from "@tanstack/react-query";
 import { getISOWeek, getISOWeekYear } from "date-fns";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { normalizarLoteCodigo } from "@/lib/loteCodigo";
@@ -20,7 +19,6 @@ import { preciosMdnaDesdeSemana } from "@/lib/rentabilidadDia";
 
 // Cast local para las vistas que no están en el Database generado
 // (clasificacion_lote) — mismo patrón que useProductores.ts/useMermaLote.ts.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 // trabajadores.coste_hora no está en el Database generado (mismo cast local
 // que useCostePersonal.ts — ver su cabecera).
@@ -51,7 +49,7 @@ export function useUltimaFechaConInformes() {
   return useQuery({
     queryKey: ["rentabilidad-dia", "ultima-fecha"],
     queryFn: async (): Promise<string | null> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("clasificacion_lote")
         .select("fecha")
         .not("fecha", "is", null)
@@ -111,7 +109,7 @@ export function useRentabilidadDia(fecha: string | null) {
       // 1) Clasificación del día (un día ronda las 1.000-1.500 filas: paginado
       //    con fetchAllRows por la regla max-rows del repo).
       const filas = await fetchAllRows<FilaClasifRentabilidad>((from, to) =>
-        SUPA
+        supabase
           .from("clasificacion_lote")
           .select("lote_codigo, productor, producto, clase, peso_kg, toneladas_hora, duracion_min")
           .eq("fecha", dia)

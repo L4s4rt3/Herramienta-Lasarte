@@ -19,14 +19,12 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getISOWeek, getISOWeekYear, startOfISOWeek } from "date-fns";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { toISODateLocal } from "@/lib/format";
 
 // Cast local: la vista `palets` (migración 20260813070342) no está en el
 // Database generado — mismo patrón que useProductores.ts/useMermaLote.ts.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const IN_CHUNK_SIZE = 200;
 
@@ -93,7 +91,7 @@ async function fetchPaletsEdekaEnChunks(partIds: string[]): Promise<PaletRow[]> 
   for (let i = 0; i < partIds.length; i += IN_CHUNK_SIZE) {
     const chunk = partIds.slice(i, i + IN_CHUNK_SIZE);
     const chunkRows = await fetchAllRows<PaletRow>((from, to) =>
-      SUPA
+      supabase
         .from("palets")
         .select("part_id, palet_id, producto, destino, kg_neto, n_cajas, situacion")
         .eq("comercial", true)

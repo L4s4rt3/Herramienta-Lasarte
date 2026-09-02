@@ -34,11 +34,9 @@ import {
   SUMINISTROS_DIA_DEFECTO_EUR,
 } from "@/lib/rentabilidadDia";
 import { useProductosCatalogo } from "@/hooks/useProductosCatalogo";
-import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Cast local: cmv_costes_mensuales no está en el Database generado (mismo
 // patrón que useCmv.ts / useEmpaquePrecios.ts — ver sus cabeceras).
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 // trabajadores.coste_hora no está en el Database generado (mismo cast local
 // que useCostePersonal.ts / useRentabilidadDia.ts — ver sus cabeceras).
@@ -252,7 +250,7 @@ export function useEstructuraPeriodo(desde: string | null, hasta: string | null)
         m = next;
       }
 
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("cmv_costes_mensuales")
         .select("mes, tipo, importe")
         .in("mes", [...meses])
@@ -312,7 +310,7 @@ export function useDatosRangoProducto(desde: string | null, hasta: string | null
       // Una semana ronda las 7.000 filas de clasificación: fetchAllRows
       // obligatorio (PostgREST recorta a 1.000 en silencio, regla del repo).
       const filasRaw = await fetchAllRows<FilaClasifProducto & { fecha: string | null }>((from, to) =>
-        SUPA
+        supabase
           .from("clasificacion_lote")
           .select("lote_codigo, producto, clase, peso_kg, fecha")
           .gte("fecha", desde!)

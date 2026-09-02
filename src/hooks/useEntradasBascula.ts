@@ -6,7 +6,6 @@
  */
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
@@ -57,7 +56,6 @@ import type { Tables } from "@/integrations/supabase/types";
 // falta); los .update() de cerrarLote/reabrirLote/cerrarLotesEnBloque sí lo
 // necesitan para poder pedir esas columnas con degradado si la migración aún
 // no se aplicó. Mismo patrón que useTrazabilidadLote.ts / useProductoresCatalogo.ts.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 /**
  * entradas_bascula.* tipado + columnas nuevas aún no generadas: cerrado_at/
@@ -150,7 +148,7 @@ export function useEntradasBascula() {
       const fetchPartes = async (): Promise<ParteReciclaje[]> => {
         try {
           return await fetchAllRows<ParteReciclaje>((from, to) =>
-            SUPA.from("partes_diarios").select("id, date, kg_reciclado_malla_z1, kg_reciclado_malla_z2, box_reciclaje").order("id").range(from, to),
+            supabase.from("partes_diarios").select("id, date, kg_reciclado_malla_z1, kg_reciclado_malla_z2, box_reciclaje").order("id").range(from, to),
           );
         } catch (e) {
           if (!esErrorTablaOColumnaInexistente(e)) throw e;
@@ -211,7 +209,7 @@ export function useEntradasBascula() {
     queryFn: async (): Promise<PasadaAnotacionRow[]> => {
       try {
         return await fetchAllRows<PasadaAnotacionRow>((from, to) =>
-          SUPA.from("pasada_anotaciones")
+          supabase.from("pasada_anotaciones")
             .select("id, user_id, lote_dia_id, codigo_extra, nota, created_at")
             .order("created_at")
             .order("id")
@@ -314,7 +312,7 @@ export function useEntradasBascula() {
   // 20260716120000 pendientes de aplicar).
   const cerrarLote = useMutation({
     mutationFn: async ({ id, cierreModo }: { id: string; cierreModo: CierreModo }) => {
-      const { error } = await SUPA
+      const { error } = await supabase
         .from("entradas_bascula")
         .update({ cerrado_at: new Date().toISOString(), cierre_modo: cierreModo })
         .eq("id", id);
@@ -332,7 +330,7 @@ export function useEntradasBascula() {
     mutationFn: async (id: string) => {
       // Reabrir limpia AMBOS campos: un lote reabierto y vuelto a cerrar más
       // adelante no debe heredar un cierre_modo obsoleto de la vez anterior.
-      const { error } = await SUPA.from("entradas_bascula").update({ cerrado_at: null, cierre_modo: null }).eq("id", id);
+      const { error } = await supabase.from("entradas_bascula").update({ cerrado_at: null, cierre_modo: null }).eq("id", id);
       if (error) {
         if (esErrorTablaOColumnaInexistente(error)) throw new Error(MENSAJE_MIGRACION_CIERRE);
         throw toError(error);
@@ -376,7 +374,7 @@ export function useEntradasBascula() {
           // ver esCandidatoCierreAutomatico), que en su primera pasada puede
           // tener que cerrar hasta ~819 lotes atrasados de golpe — el mismo
           // riesgo de "statement timeout" que el import histórico.
-          const { error } = await escribirConReintentos(() => SUPA
+          const { error } = await escribirConReintentos(() => supabase
             .from("entradas_bascula")
             .update({ cerrado_at: ahora, cierre_modo: cierreModo })
             .in("id", chunk));
@@ -416,7 +414,7 @@ export function useEntradasBascula() {
 
       for (let i = 0; i < ids.length; i += CHUNK) {
         const chunk = ids.slice(i, i + CHUNK);
-        const { error } = await SUPA
+        const { error } = await supabase
           .from("entradas_bascula")
           .update({ cerrado_at: null, cierre_modo: null })
           .in("id", chunk);
@@ -472,7 +470,7 @@ export function useEntradasBascula() {
       for (const { nombre, fecha, ids } of grupos.values()) {
         for (let i = 0; i < ids.length; i += CHUNK) {
           const chunk = ids.slice(i, i + CHUNK);
-          const { error } = await escribirConReintentos(() => SUPA
+          const { error } = await escribirConReintentos(() => supabase
             .from("entradas_bascula")
             .update({ camara_confirmada_nombre: nombre, camara_confirmada_fecha: fecha })
             .in("id", chunk));
@@ -508,7 +506,7 @@ export function useEntradasBascula() {
       const notaLimpia = nota && nota.trim() ? nota.trim() : null;
       let agregados = 0;
       for (const codigo of codigos) {
-        const { error } = await escribirConReintentos(() => SUPA
+        const { error } = await escribirConReintentos(() => supabase
           .from("pasada_anotaciones")
           .insert({ user_id: user.id, lote_dia_id: loteDiaId, codigo_extra: codigo, nota: notaLimpia }));
         if (error) {
@@ -530,7 +528,7 @@ export function useEntradasBascula() {
 
   const quitarAnotacion = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await escribirConReintentos(() => SUPA.from("pasada_anotaciones").delete().eq("id", id));
+      const { error } = await escribirConReintentos(() => supabase.from("pasada_anotaciones").delete().eq("id", id));
       if (error) {
         if (esErrorTablaOColumnaInexistente(error)) throw new Error(MENSAJE_MIGRACION_ANOTACIONES);
         throw toError(error);

@@ -75,7 +75,13 @@ const ESPERA_REINTENTO_MS = 1500;
  *   `toError` u otro tratamiento.
  */
 export async function fetchAllRows<T>(
-  buildQuery: (from: number, to: number) => PromiseLike<FetchAllRowsPage<T>>,
+  // El resultado de la página se acepta con filas `unknown`: el llamador fija
+  // T (la forma que ESPERA de su select) y el cliente tipado de supabase-js
+  // infiere la suya del string del select; casarlas fila a fila obligaría a
+  // repetir el tipo dos veces. Desde el 02-09-2026 los hooks usan el cliente
+  // tipado (antes un `SupabaseClient<any>` lo tapaba todo), y aquí es donde
+  // se encuentra esa costura.
+  buildQuery: (from: number, to: number) => PromiseLike<FetchAllRowsPage<unknown>>,
   pageSize = 1000,
 ): Promise<T[]> {
   if (pageSize <= 0) throw new Error("fetchAllRows: pageSize debe ser > 0");
@@ -95,7 +101,7 @@ export async function fetchAllRows<T>(
     }
     if (error) throw error;
 
-    const page = data ?? [];
+    const page = (data ?? []) as T[];
     allRows.push(...page);
 
     // Página incompleta (o vacía) = no hay más filas. No hace falta un COUNT

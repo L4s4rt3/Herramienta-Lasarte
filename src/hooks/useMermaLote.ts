@@ -20,7 +20,6 @@
  */
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/fetchAllRows";
@@ -42,8 +41,7 @@ import {
 // Cast local: lote_clasificacion_podrido_agg (migración
 // 20260717120000_vistas_agregadas_clasificacion.sql, pendiente de aplicar)
 // aún no está en el Database generado — mismo patrón que useProductores.ts
-// (SUPA) para las tablas/vistas nuevas.
-const SUPA = supabase as unknown as SupabaseClient<any>;
+// (supabase) para las tablas/vistas nuevas.
 
 function toNum(value: unknown): number {
   return Number(value) || 0;
@@ -103,7 +101,7 @@ export function useMermaLotes() {
       // agrupación de la vista (una fila por valor, sin empates posibles).
       try {
         const rows = await fetchAllRows<PodridoAggRow>((from, to) =>
-          SUPA
+          supabase
             .from("lote_clasificacion_podrido_agg")
             .select("lote8, kg_podrido, n_filas")
             .order("lote8")
@@ -120,7 +118,7 @@ export function useMermaLotes() {
           err,
         );
         const rows = await fetchAllRows<{ lote_codigo: string | null; clase: string | null; peso_kg: number }>(
-          (from, to) => SUPA.from("clasificacion_lote").select("lote_codigo, clase, peso_kg").order("id").range(from, to),
+          (from, to) => supabase.from("clasificacion_lote").select("lote_codigo, clase, peso_kg").order("id").range(from, to),
         );
         return rows.map((c) => ({
           lote_codigo: c.lote_codigo ?? null,

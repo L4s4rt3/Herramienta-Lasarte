@@ -14,20 +14,19 @@
  * IMPORTANTE: contactos_campo y comunicaciones_campo son tablas NUEVAS que
  * todavía no están en src/integrations/supabase/types.ts (la migración
  * 20260717150000_comunicaciones_campo.sql la aplica el orquestador). Se usa
- * el mismo cast local `SUPA` que el resto de hooks con infraestructura
+ * el mismo cast local `supabase` que el resto de hooks con infraestructura
  * pendiente y se degrada con esErrorTablaOColumnaInexistente.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json, TablesUpdate } from "@/integrations/supabase/types";
 import { toError } from "@/lib/errorMessage";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
 import { normalizarEmail, type ContactoCampoImportado, type ContactoCampoTipo } from "@/lib/contactosCampo";
 
 // Cast local: tablas y RPC aún no están en el Database generado (ver cabecera).
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -103,7 +102,7 @@ export function useComunicacionesCampoAccess() {
     queryKey: ["comunicaciones-campo", "access", user?.email, role],
     queryFn: async () => {
       if (role === "admin") return true;
-      const { data, error } = await SUPA.rpc("can_access_comunicaciones_campo");
+      const { data, error } = await supabase.rpc("can_access_comunicaciones_campo");
       if (error) {
         // Migración pendiente: la función todavía no existe → sin acceso, sin error crudo.
         if (esErrorTablaOColumnaInexistente(error)) return false;
@@ -140,7 +139,7 @@ export function useComunicacionesCampo() {
       // fetchAllRows con order estable (regla PostgREST max-rows): la agenda
       // puede crecer por encima del recorte silencioso de 1.000 filas.
       fetchAllRows<ContactoCampoRow>((from, to) =>
-        SUPA
+        supabase
           .from("contactos_campo")
           .select("*")
           .order("nombre", { ascending: true })
@@ -155,7 +154,7 @@ export function useComunicacionesCampo() {
     queryKey: ["comunicaciones-campo", "historial"],
     queryFn: async (): Promise<ComunicacionCampoRow[]> =>
       fetchAllRows<ComunicacionCampoRow>((from, to) =>
-        SUPA
+        supabase
           .from("comunicaciones_campo")
           .select("*")
           .order("created_at", { ascending: false })
@@ -182,7 +181,7 @@ export function useComunicacionesCampo() {
       const email = normalizarEmail(input.email);
       if (!nombre) throw new Error("Escribe el nombre del contacto.");
       if (!email) throw new Error("Escribe el email del contacto.");
-      const { error } = await SUPA.from("contactos_campo").insert({
+      const { error } = await supabase.from("contactos_campo").insert({
         user_id: user?.id ?? null,
         nombre,
         email,
@@ -207,7 +206,7 @@ export function useComunicacionesCampo() {
       if (input.email !== undefined) patch.email = normalizarEmail(input.email);
       if (input.tipo !== undefined) patch.tipo = input.tipo;
       if (input.notas !== undefined) patch.notas = input.notas?.trim() || null;
-      const { error } = await SUPA.from("contactos_campo").update(patch).eq("id", input.id);
+      const { error } = await supabase.from("contactos_campo").update(patch as TablesUpdate<"contactos_campo">).eq("id", input.id);
       if (error) throw toError(error);
     },
     onSuccess: invalidateContactos,
@@ -216,7 +215,7 @@ export function useComunicacionesCampo() {
   /** Alta/baja lógica: los contactos desactivados se conservan (y se pueden reactivar). */
   const setContactoActivo = useMutation({
     mutationFn: async (input: { id: string; activo: boolean }) => {
-      const { error } = await SUPA.from("contactos_campo").update({ activo: input.activo }).eq("id", input.id);
+      const { error } = await supabase.from("contactos_campo").update({ activo: input.activo }).eq("id", input.id);
       if (error) throw toError(error);
     },
     onSuccess: invalidateContactos,
@@ -234,7 +233,7 @@ export function useComunicacionesCampo() {
         notas: c.notas,
         activo: true,
       }));
-      const { error } = await SUPA.from("contactos_campo").upsert(filas, { onConflict: "email" });
+      const { error } = await supabase.from("contactos_campo").upsert(filas, { onConflict: "email" });
       if (error) throw toError(error);
       return filas.length;
     },
@@ -292,15 +291,16 @@ export function useComunicacionesCampo() {
         estado = enviados > 0 ? "enviada" : fallidos.length > 0 ? "error" : "enviada";
       }
 
-      const { error: insertError } = await SUPA.from("comunicaciones_campo").insert({
+      const { error: insertError } = await supabase.from("comunicaciones_campo").insert({
         user_id: user?.id ?? null,
         asunto: input.asunto,
         cuerpo: input.cuerpo,
-        destinatarios: input.destinatarios,
+        // Columnas jsonb: el tipo generado es Json, el nuestro es más concreto.
+        destinatarios: input.destinatarios as unknown as Json,
         enviados,
-        fallidos: fallidos.length > 0 ? fallidos : null,
+        fallidos: (fallidos.length > 0 ? fallidos : null) as unknown as Json,
         estado,
-        provider_ids: providerIds,
+        provider_ids: providerIds as unknown as Json,
       });
       if (insertError) throw toError(insertError);
 

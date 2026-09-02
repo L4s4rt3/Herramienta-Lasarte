@@ -7,7 +7,6 @@
  * señales del resto de la app (pasadas de calibrador, salidas de cámara).
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
@@ -17,7 +16,6 @@ import type { CamionCamaraExterna } from "@/lib/camarasExternas";
 
 // camara_externa_camiones aún no está en los tipos generados (types.ts):
 // mismo patrón de cast puntual que useEntradasBascula.ts.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 export type CamionCamaraExternaRow = CamionCamaraExterna & { id: string };
 
@@ -33,7 +31,7 @@ export function useCamarasExternas() {
     queryFn: async (): Promise<CamionCamaraExternaRow[]> => {
       try {
         return await fetchAllRows<CamionCamaraExternaRow>((from, to) =>
-          SUPA
+          supabase
             .from("camara_externa_camiones")
             .select("*")
             .order("fecha_almacenamiento", { ascending: true })
@@ -56,7 +54,7 @@ export function useCamarasExternas() {
       if (registros.length === 0) throw new Error("El archivo no contiene camiones importables.");
       for (let i = 0; i < registros.length; i += CHUNK) {
         const chunk = registros.slice(i, i + CHUNK).map((r) => ({ ...r, user_id: user.id, updated_at: new Date().toISOString() }));
-        const { error } = await SUPA
+        const { error } = await supabase
           .from("camara_externa_camiones")
           .upsert(chunk, { onConflict: "procedencia,s_ref" });
         if (error) {
@@ -86,7 +84,7 @@ export function useCamarasExternas() {
     mutationFn: async (items: Array<{ id: string; notaEntrada: string; entradaLst1?: string }>) => {
       if (!user) throw new Error("No auth");
       for (const item of items) {
-        const { error } = await SUPA
+        const { error } = await supabase
           .from("camara_externa_camiones")
           .update({
             nota_entrada: item.notaEntrada,

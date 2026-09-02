@@ -21,7 +21,6 @@
  * existe en la base de datos.
  */
 import { useQuery } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
 import { normalizarLoteCodigo } from "@/lib/entradasBascula";
@@ -63,7 +62,6 @@ import type { Tables } from "@/integrations/supabase/types";
 // select("*") en entradas_bascula no necesita cast (una columna nueva
 // simplemente no aparece); el select explicito de lotes_dia si necesita este
 // cast para poder pedir "productor_id" con degradado si falla.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 /** entradas_bascula.* tipado + productor_id / cerrado_at (columnas nuevas, aun no generadas). */
 export type EntradaBasculaRow = Tables<"entradas_bascula"> & { productor_id?: string | null; cerrado_at?: string | null };
@@ -262,14 +260,14 @@ interface LotesDiaProcesadoRawRow {
 async function fetchLotesDiaConProductorId(
   codigo: string,
 ): Promise<{ data: LotesDiaProcesadoRawRow[] | null; error: unknown }> {
-  const conId = await SUPA
+  const conId = await supabase
     .from("lotes_dia")
     .select(`${LOTES_DIA_COLUMNAS_BASE}, productor_id`)
     .ilike("lote_codigo", `%${codigo}%`)
     .limit(200);
   if (!conId.error) return conId;
   if (!esErrorTablaOColumnaInexistente(conId.error)) return conId;
-  return SUPA.from("lotes_dia").select(LOTES_DIA_COLUMNAS_BASE).ilike("lote_codigo", `%${codigo}%`).limit(200);
+  return supabase.from("lotes_dia").select(LOTES_DIA_COLUMNAS_BASE).ilike("lote_codigo", `%${codigo}%`).limit(200);
 }
 
 interface PaletDiaExpedicionRawRow {
@@ -288,7 +286,7 @@ interface PaletDiaExpedicionRawRow {
  * confección para el cruce de coherencia (ver fetchOrigenConfeccion).
  */
 async function fetchExpedicionLote(codigo: string): Promise<{ expedicion: ExpedicionLote | null; partIds: string[] }> {
-  const { data, error } = await SUPA
+  const { data, error } = await supabase
     .from("palets")
     .select("cliente, kg_neto, n_cajas, producto, part_id")
     .eq("comercial", true)
@@ -370,7 +368,7 @@ async function fetchOrigenConfeccion(
   const partIds = (partes ?? []).map((p) => p.id as string);
   if (partIds.length === 0) return { motivo, fecha: fechas[0], numeroDelDia, volcados: [] };
 
-  const { data: lotes, error: lotesError } = await SUPA
+  const { data: lotes, error: lotesError } = await supabase
     .from("lotes_dia")
     .select("lote_codigo, productor, producto, kg_peso_total, hora_inicio, created_at, kg_industria, notas")
     .in("part_id", partIds)
@@ -490,7 +488,7 @@ export function useTrazabilidadLote(loteInput: string | null) {
       const [entradaRes, lotesRes, clasifRes, calidadRes, expedicionRes] = await Promise.all([
         supabase.from("entradas_bascula").select("*").eq("lote", codigo).maybeSingle(),
         fetchLotesDiaConProductorId(codigo),
-        SUPA.from("clasificacion_lote").select("clase, grupo_destino, tamano, peso_kg, lote_codigo, lote_codigo_base").or(`lote_codigo_base.eq.${codigo},lote_codigo.ilike.%${codigo}%`).limit(5000),
+        supabase.from("clasificacion_lote").select("clase, grupo_destino, tamano, peso_kg, lote_codigo, lote_codigo_base").or(`lote_codigo_base.eq.${codigo},lote_codigo.ilike.%${codigo}%`).limit(5000),
         supabase.from("calidad_lotes").select("numero_lote, fecha, hora, calidad, defectos, observacion, productor_finca_nombre, variedad, cantidad").ilike("numero_lote", `%${codigo}%`).order("fecha", { ascending: false }).limit(50),
         fetchExpedicionLote(codigo),
       ]);

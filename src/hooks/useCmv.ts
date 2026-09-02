@@ -14,12 +14,11 @@
 //     gestoría, transporte de salida, estructura, otros).
 //
 // IMPORTANTE: cmv_costes_mensuales es una tabla NUEVA que no está en
-// src/integrations/supabase/types.ts. Mismo patrón de cast local SUPA que
+// src/integrations/supabase/types.ts. Mismo patrón de cast local supabase que
 // useEconomico.ts/useEmpaquePrecios.ts; si la migración aún no está aplicada
 // se expone `tablesMissing` y el CMV se calcula con 0 € manuales (avisando).
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
@@ -61,7 +60,6 @@ import { esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
 import { isPermissionError } from "@/lib/supabaseErrors";
 
 // Cast local: cmv_costes_mensuales aún no está en el Database generado.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 // isPermissionError/esErrorTablaOColumnaInexistente: antes vivían como copias
 // locales de este módulo (hallazgo #10). Se sustituyen por las versiones
@@ -117,7 +115,7 @@ export function useCmvCostesMensuales() {
       // Orden estable: mes desc (histórico reciente primero) + id como
       // desempate, para que la paginación no duplique/salte filas.
       return fetchAllRows<CmvCosteMensualRow>((from, to) =>
-        SUPA
+        supabase
           .from("cmv_costes_mensuales")
           .select("*")
           .order("mes", { ascending: false })
@@ -137,7 +135,7 @@ export function useCmvCostesMensuales() {
   const crear = useMutation({
     mutationFn: async (input: NuevoCmvCosteMensualInput) => {
       if (!user) throw new Error("Debes iniciar sesión para registrar un coste.");
-      const { error } = await SUPA.from("cmv_costes_mensuales").insert({
+      const { error } = await supabase.from("cmv_costes_mensuales").insert({
         user_id: user.id,
         mes: input.mes,
         tipo: input.tipo,
@@ -155,7 +153,7 @@ export function useCmvCostesMensuales() {
   const editar = useMutation({
     mutationFn: async (input: EditarCmvCosteMensualInput) => {
       const { id, ...patch } = input;
-      const { error } = await SUPA
+      const { error } = await supabase
         .from("cmv_costes_mensuales")
         .update({
           mes: patch.mes,
@@ -174,7 +172,7 @@ export function useCmvCostesMensuales() {
 
   const borrar = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await SUPA.from("cmv_costes_mensuales").delete().eq("id", id);
+      const { error } = await supabase.from("cmv_costes_mensuales").delete().eq("id", id);
       if (error) throw toError(error);
     },
     onSuccess: () => {

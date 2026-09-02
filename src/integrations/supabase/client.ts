@@ -19,3 +19,16 @@ export const supabase = createClient<Database>(
     }
   }
 );
+
+/**
+ * El MISMO cliente (misma sesión, misma conexión) visto sin el tipo `Database`.
+ *
+ * SOLO para consultas cuyo nombre de tabla o de columna es una VARIABLE (la
+ * conciliación de productores recorre una lista de tablas; el estado de las
+ * fuentes pregunta a cada tabla por su última fecha). Ahí el tipado generado no
+ * puede ayudar y antes cada hook se fabricaba su propio
+ * `supabase as unknown as SupabaseClient<any>` — 48 copias que, de paso,
+ * anulaban el tipado también en las consultas normales del fichero. Desde el
+ * 02-09-2026 esas consultas usan `supabase` (tipado) y las dinámicas, esto.
+ */
+export const supabaseLibre = supabase as unknown as import("@supabase/supabase-js").SupabaseClient;

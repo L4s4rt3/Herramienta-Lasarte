@@ -9,13 +9,12 @@
  * trabajadores / asistencia_detalle / asistencia_bajas_laborales /
  * partes_diarios ya están en el Database generado (tipos normales, sin
  * cast). Las tablas rrhh_* tienen RLS restringido a rrhh/admin: se usa el
- * mismo cast local `SUPA` + patrón `sinPermiso` que
+ * mismo cast local `supabase` + patrón `sinPermiso` que
  * src/hooks/useRrhhPersonas.ts y src/hooks/useRrhhDocs.ts para que el panel
  * degrade con un aviso en vez de romperse cuando el usuario no tiene ese rol.
  */
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
@@ -40,7 +39,6 @@ import {
 
 // Cast local: las tablas rrhh_* aun conviven con RLS estricta rrhh/admin.
 // Mismo patron que useRrhhPersonas.ts / useRrhhDocs.ts.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const BAJA_LABORAL_MOTIVO = "baja_laboral";
 const PERMISSION_DENIED_CODES = new Set(["42501", "PGRST301"]);
@@ -167,7 +165,7 @@ export function useRrhhDashboard() {
   const justificantesQuery = useQuery({
     queryKey: ["rrhh-dashboard", "justificantes", comparativaDesde],
     queryFn: async () => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("rrhh_justificantes")
         .select("trabajador_id, fecha")
         .gte("fecha", comparativaDesde);
@@ -181,7 +179,7 @@ export function useRrhhDashboard() {
   const amonestacionesQuery = useQuery({
     queryKey: ["rrhh-dashboard", "amonestaciones"],
     queryFn: async () => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("rrhh_amonestaciones")
         .select("id, trabajador_id, fecha, motivo, gravedad")
         .order("fecha", { ascending: false })
@@ -196,7 +194,7 @@ export function useRrhhDashboard() {
   const vacacionesQuery = useQuery({
     queryKey: ["rrhh-dashboard", "vacaciones"],
     queryFn: async () => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("rrhh_vacaciones_periodos")
         .select("id, trabajador_id, fecha_inicio, fecha_fin, dias_naturales")
         .order("fecha_inicio", { ascending: true });

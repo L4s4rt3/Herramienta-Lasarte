@@ -4,7 +4,6 @@
  * src/lib/podridoInspecciones.ts; aquí solo lectura por lote y alta/baja.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
@@ -13,7 +12,6 @@ import { normalizarLoteCodigo } from "@/lib/loteCodigo";
 import type { InspeccionPodridoCalculo } from "@/lib/podridoInspecciones";
 
 // Tabla nueva sin tipos generados: mismo cast puntual que el resto de hooks.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 export interface InspeccionPodridoRow {
   id: string;
@@ -40,7 +38,7 @@ export function useInspeccionesPodrido(lote: string) {
     queryKey: key,
     queryFn: async (): Promise<InspeccionPodridoRow[]> => {
       try {
-        const { data, error } = await SUPA
+        const { data, error } = await supabase
           .from("podrido_inspecciones")
           .select("*")
           .eq("lote", lote8)
@@ -78,7 +76,7 @@ export function useInspeccionesPodrido(lote: string) {
       notas: string | null;
     }) => {
       if (!user) throw new Error("No auth");
-      const { error } = await SUPA.from("podrido_inspecciones").insert({
+      const { error } = await supabase.from("podrido_inspecciones").insert({
         user_id: user.id,
         lote: lote8,
         fecha: params.fecha,
@@ -105,7 +103,7 @@ export function useInspeccionesPodrido(lote: string) {
 
   const eliminar = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await SUPA.from("podrido_inspecciones").delete().eq("id", id);
+      const { error } = await supabase.from("podrido_inspecciones").delete().eq("id", id);
       if (error) throw toError(error);
     },
     onSuccess: () => {

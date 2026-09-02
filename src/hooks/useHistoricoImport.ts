@@ -84,7 +84,6 @@
  * inserta nada.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
@@ -114,7 +113,6 @@ const NOTA_LOTE_REPARADO_INFORME = "Procesado reconstruido desde Informe LOTE (i
 // palets_dia.lote_codigo todavía no está en el Database generado (migración
 // 20260715110000_palets_dia_lote_codigo.sql pendiente de aplicar). Mismo
 // patrón de cast que src/hooks/useTrazabilidadLote.ts.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 // ─── Helpers compartidos por producción y palets ────────────────────────────
 
@@ -560,7 +558,7 @@ export interface ImportarHistoricoPaletsResumen {
 
 /** Comprueba que la columna palets_dia.lote_codigo ya existe (migración 20260715110000); si no, falla con un mensaje claro en vez de un error críptico a mitad de import. */
 async function asegurarColumnaLoteCodigo(): Promise<void> {
-  const { error } = await SUPA.from("palets_dia").select("lote_codigo").limit(1);
+  const { error } = await supabase.from("palets_dia").select("lote_codigo").limit(1);
   if (error) {
     if (esErrorTablaOColumnaInexistente(error)) {
       throw new Error(
@@ -626,7 +624,7 @@ export function useHistoricoImportPalets() {
         // (39.716 palets / ~207 partes ≈ 192 de media por día): se pagina
         // cada chunk con fetchAllRows en vez de confiar en el .in() a secas.
         const data = await fetchAllRows<{ id: string; part_id: string; palet_id: string | null; lote_codigo: string | null }>(
-          (from, to) => SUPA
+          (from, to) => supabase
             .from("palets_dia")
             .select("id, part_id, palet_id, lote_codigo")
             .in("part_id", chunk)
@@ -692,7 +690,7 @@ export function useHistoricoImportPalets() {
           if (reemplazarSinId && sinCasarDia.length > 0 && anonimos.length > 0) {
             const idsABorrar = anonimos.map((a) => a.id);
             for (let j = 0; j < idsABorrar.length; j += CHUNK) {
-              const { error } = await SUPA.from("palets_dia").delete().in("id", idsABorrar.slice(j, j + CHUNK));
+              const { error } = await supabase.from("palets_dia").delete().in("id", idsABorrar.slice(j, j + CHUNK));
               if (error) throw toError(error);
             }
             const partIdDestino = anonimos[0].part_id;
@@ -709,7 +707,7 @@ export function useHistoricoImportPalets() {
               lote_codigo: f.lote_codigo,
             }));
             for (let j = 0; j < rows.length; j += CHUNK) {
-              const { error } = await SUPA.from("palets_dia").insert(rows.slice(j, j + CHUNK));
+              const { error } = await supabase.from("palets_dia").insert(rows.slice(j, j + CHUNK));
               if (error) throw toError(error);
             }
             paletsReemplazadosEliminados += idsABorrar.length;
@@ -745,7 +743,7 @@ export function useHistoricoImportPalets() {
 
         for (let j = 0; j < paletsRows.length; j += CHUNK) {
           const chunk = paletsRows.slice(j, j + CHUNK);
-          const { error: insertError } = await SUPA.from("palets_dia").insert(chunk);
+          const { error: insertError } = await supabase.from("palets_dia").insert(chunk);
           if (insertError) throw toError(insertError);
         }
 
@@ -755,7 +753,7 @@ export function useHistoricoImportPalets() {
       for (const [loteCodigo, ids] of idsPorLote) {
         for (let i = 0; i < ids.length; i += CHUNK) {
           const chunk = ids.slice(i, i + CHUNK);
-          const { error } = await SUPA.from("palets_dia").update({ lote_codigo: loteCodigo }).in("id", chunk);
+          const { error } = await supabase.from("palets_dia").update({ lote_codigo: loteCodigo }).in("id", chunk);
           if (error) throw toError(error);
         }
       }

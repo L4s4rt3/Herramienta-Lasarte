@@ -7,7 +7,6 @@
  * lleva ≤3 días → mira qué se procesó y expidió el X−1..X−3".
  */
 import { useQuery } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
 import { numeroDeCodigoLote, ordenarVolcadosCandidatos, type VolcadoCandidato } from "@/lib/origenConfeccion";
@@ -15,7 +14,6 @@ import { esErrorTablaOColumnaInexistente, esPaletPrecalibrado, esProductorPrecal
 
 // palets_dia.lote_codigo puede no existir aún (migración 20260715110000):
 // mismo patrón de cast/degradado que useTrazabilidadLote.ts.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 export interface ExpedicionClienteDia {
   cliente: string;
@@ -72,11 +70,11 @@ export function useDiaTrazabilidad(fecha: string | null) {
       }
 
       const [lotesRes, paletsRes] = await Promise.all([
-        SUPA.from("lotes_dia")
+        supabase.from("lotes_dia")
           .select("lote_codigo, productor, producto, kg_peso_total, hora_inicio, created_at, kg_industria, notas")
           .in("part_id", partIds)
           .limit(500),
-        SUPA.from("palets")
+        supabase.from("palets")
           .select("lote_codigo, cliente, kg_neto, n_cajas, producto")
           .eq("comercial", true)
           .in("part_id", partIds)

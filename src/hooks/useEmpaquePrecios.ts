@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
@@ -14,7 +13,6 @@ import {
   type TipoMalla,
 } from "@/lib/costeEmpaque";
 
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const PERMISSION_ERROR_CODES = new Set(["42501", "PGRST301", "PGRST302"]);
 
@@ -58,7 +56,7 @@ export function useEmpaquePrecios() {
   const query = useQuery({
     queryKey: baseKey,
     queryFn: async (): Promise<EmpaquePrecioRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("empaque_precios")
         .select("*")
         .order("tipo_malla", { ascending: true })
@@ -119,7 +117,7 @@ export function useEmpaquePrecios() {
   const crear = useMutation({
     mutationFn: async (input: NuevoEmpaquePrecioInput) => {
       if (!user) throw new Error("Debes iniciar sesion para registrar un precio de envasado.");
-      const { error } = await SUPA.from("empaque_precios").insert({
+      const { error } = await supabase.from("empaque_precios").insert({
         user_id: user.id,
         tipo_malla: input.tipo_malla,
         componente: input.componente,
@@ -137,7 +135,7 @@ export function useEmpaquePrecios() {
   const editar = useMutation({
     mutationFn: async (input: EmpaquePrecioRow) => {
       const { id } = input;
-      const { error } = await SUPA
+      const { error } = await supabase
         .from("empaque_precios")
         .update({
           tipo_malla: input.tipo_malla,
@@ -156,7 +154,7 @@ export function useEmpaquePrecios() {
 
   const borrar = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await SUPA.from("empaque_precios").delete().eq("id", id);
+      const { error } = await supabase.from("empaque_precios").delete().eq("id", id);
       if (error) throw toError(error);
     },
     onSuccess: () => {

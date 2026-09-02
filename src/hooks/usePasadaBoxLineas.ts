@@ -20,7 +20,6 @@
  */
 import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
@@ -43,7 +42,6 @@ export type { PasadaBoxLineaRow };
 
 // pasada_box_lineas aún no está en el Database generado (migración pendiente
 // de aplicar): cliente sin esquema tipado, mismo patrón que pasada_anotaciones.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 export const MENSAJE_MIGRACION_BOX_LINEAS =
   "La tabla pasada_box_lineas todavía no existe: aplica primero la migración 20260806120000_pasada_box_lineas.sql.";
@@ -64,7 +62,7 @@ export const PASADA_BOX_LINEAS_KEY = ["pasada_box_lineas"] as const;
 export async function fetchPasadaBoxLineas(): Promise<PasadaBoxLineaRow[]> {
   try {
     return await fetchAllRows<PasadaBoxLineaRow>((from, to) =>
-      SUPA.from("pasada_box_lineas")
+      supabase.from("pasada_box_lineas")
         .select("id, user_id, lote_dia_id, posicion, tipo, lote_codigo, prec_fecha, box, box_tamano, nota")
         .order("lote_dia_id")
         .order("posicion")
@@ -168,7 +166,7 @@ export function usePasadaBoxLineas() {
       if (!user) throw new Error("No auth");
 
       const { error: errorBorrado } = await escribirConReintentos(() =>
-        SUPA.from("pasada_box_lineas").delete().eq("lote_dia_id", loteDiaId),
+        supabase.from("pasada_box_lineas").delete().eq("lote_dia_id", loteDiaId),
       );
       if (errorBorrado) {
         if (esErrorTablaOColumnaInexistente(errorBorrado)) throw new Error(MENSAJE_MIGRACION_BOX_LINEAS);
@@ -189,7 +187,7 @@ export function usePasadaBoxLineas() {
         nota: l.nota?.trim() ? l.nota.trim() : null,
       }));
 
-      const { error } = await escribirConReintentos(() => SUPA.from("pasada_box_lineas").insert(filas));
+      const { error } = await escribirConReintentos(() => supabase.from("pasada_box_lineas").insert(filas));
       if (error) {
         if (esErrorTablaOColumnaInexistente(error)) throw new Error(MENSAJE_MIGRACION_BOX_LINEAS);
         throw toError(error);

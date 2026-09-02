@@ -2,12 +2,8 @@
  * useTrabajadoresAlias — alias aprendidos para el resolutor de nombres de
  * asistencia (src/lib/asistenciaTrabajadores.ts).
  *
- * IMPORTANTE: la tabla trabajadores_alias (id, trabajador_id fk, alias text
- * UNIQUE, user_id) aun no esta en src/integrations/supabase/types.ts. Se usa
- * el mismo patron de cast que src/hooks/useMercadonaVentas.ts
- * (`supabase as unknown as SupabaseClient<any>`) hasta que se regeneren los
- * tipos; cuando se apliquen, sustituir por `Tables<"trabajadores_alias">` y
- * quitar el cast SUPA de aqui.
+ * (02-09-2026) Los tipos generados ya incluyen estas tablas y el cast local a
+ * SupabaseClient<any> se retiró: aquí se usa el cliente tipado `supabase`.
  *
  * El Map expuesto usa como clave el alias ya normalizado (mismo formato que
  * normalizeTrabajadorName/tokenSetKey en asistenciaTrabajadores.ts: sin
@@ -16,14 +12,10 @@
  */
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
 
-// Cast local: la tabla trabajadores_alias aun no esta en el Database generado.
-// Ver comentario de cabecera para el plan de retirada de este cast.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 export interface TrabajadorAliasRow {
   id: string;
@@ -50,7 +42,7 @@ export function useTrabajadoresAlias() {
   const aliasQuery = useQuery({
     queryKey: baseKey,
     queryFn: async (): Promise<TrabajadorAliasRow[]> => {
-      const { data, error } = await SUPA.from("trabajadores_alias").select("*");
+      const { data, error } = await supabase.from("trabajadores_alias").select("*");
       if (error) throw toError(error);
       return (data ?? []) as TrabajadorAliasRow[];
     },
@@ -72,7 +64,7 @@ export function useTrabajadoresAlias() {
       const alias = input.alias.trim();
       if (!alias) throw new Error("El alias no puede estar vacio.");
 
-      const { error } = await SUPA
+      const { error } = await supabase
         .from("trabajadores_alias")
         .upsert(
           { trabajador_id: input.trabajadorId, alias, user_id: user.id },

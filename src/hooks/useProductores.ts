@@ -1,6 +1,5 @@
 // src/hooks/useProductores.ts
 import { useCallback, useEffect, useState } from "react";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import type { CalidadEstado, CalidadInformeEstado } from "@/lib/calidad";
 import { detectarTipoClasificacion } from "@/lib/destinoClasificacion";
@@ -17,7 +16,6 @@ import { esProductoMdna } from "@/hooks/useMercadona";
 // Cast local: productores_alias y lotes_dia.productor_id aun no estan en el
 // Database generado (migracion 20260714090000_productores_canonicos.sql
 // pendiente de aplicar). Ver useProductoresCatalogo.ts para el plan de retirada.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -357,7 +355,7 @@ async function fetchPctMdnaPorDia(desde: string, hasta: string): Promise<Map<str
  */
 async function fetchAliasPorNombreNormalizado(): Promise<Map<string, string>> {
   try {
-    const { data, error } = await SUPA.from("productores_alias").select("alias_normalizado, productor_id");
+    const { data, error } = await supabase.from("productores_alias").select("alias_normalizado, productor_id");
     if (error) throw error;
     return new Map((data ?? []).map((r: any) => [r.alias_normalizado as string, r.productor_id as string]));
   } catch (e) {
@@ -456,7 +454,7 @@ export function useProductores(desde: string, hasta: string) {
           //    agregar la vista entera (~4 s). El dossier tardaba minutos.
           //    Devuelve jsonb a propósito: 16.585 filas las recortaría el
           //    max-rows de PostgREST en silencio (ver fetchAllRows).
-          const { data, error } = await SUPA.rpc("clasificacion_productor_periodo", {
+          const { data, error } = await supabase.rpc("clasificacion_productor_periodo", {
             desde,
             hasta,
           });
@@ -479,7 +477,7 @@ export function useProductores(desde: string, hasta: string) {
       async function clasificacionDesdeVista(): Promise<ClasificacionRow[]> {
         try {
           const aggRows = await fetchAllRows<ProductorAggRow>((from, to) =>
-            SUPA
+            supabase
               .from("lote_clasificacion_productor_agg")
               .select("productor, grupo_destino, clase, tamano, fecha, peso_kg, piezas, cartons")
               .gte("fecha", desde)
@@ -499,7 +497,7 @@ export function useProductores(desde: string, hasta: string) {
             aggErr,
           );
           return await fetchAllRows<ClasificacionRow>((from, to) =>
-            SUPA
+            supabase
               .from("clasificacion_lote")
               .select("productor, grupo_destino, clase, peso_kg, tamano, piezas, cartons")
               .gte("fecha", desde)

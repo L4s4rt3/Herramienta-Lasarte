@@ -7,21 +7,19 @@
  *
  * IMPORTANTE: la tabla mercadona_previsiones NO esta todavia en
  * src/integrations/supabase/types.ts (analogo a mercadona_semanas en
- * useMercadonaVentas.ts): se usa el mismo cast `SUPA` y el mismo patron
+ * useMercadonaVentas.ts): se usa el mismo cast `supabase` y el mismo patron
  * `tablesMissing` para degradar con gracia si la migracion aun no esta aplicada
  * en este entorno. Cuando se regeneren los tipos, sustituir por
  * `Tables<"mercadona_previsiones">` y eliminar el cast.
  */
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
 
 // Cast local: la tabla mercadona_previsiones aun no esta en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 export interface MercadonaPrevisionRow {
   id: string;
@@ -61,7 +59,7 @@ export function useMercadonaPrevisiones() {
   const previsionesQuery = useQuery({
     queryKey: baseKey,
     queryFn: async (): Promise<MercadonaPrevisionRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("mercadona_previsiones")
         .select("*")
         .order("anio", { ascending: true })
@@ -81,7 +79,7 @@ export function useMercadonaPrevisiones() {
   const guardarPrevision = useMutation({
     mutationFn: async (input: MercadonaPrevisionInput) => {
       if (!user) throw new Error("Debes iniciar sesión para guardar la previsión.");
-      const { error } = await SUPA
+      const { error } = await supabase
         .from("mercadona_previsiones")
         .upsert(
           {
@@ -103,7 +101,7 @@ export function useMercadonaPrevisiones() {
 
   const borrarPrevision = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await SUPA.from("mercadona_previsiones").delete().eq("id", id);
+      const { error } = await supabase.from("mercadona_previsiones").delete().eq("id", id);
       if (error) throw toError(error);
     },
     onSuccess: () => {

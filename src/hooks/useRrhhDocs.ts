@@ -2,11 +2,8 @@
  * useRrhhDocs — acceso a las tablas rrhh_amonestaciones / rrhh_nominas y al
  * bucket privado "rrhh-docs" (documentos firmados / nóminas escaneadas).
  *
- * IMPORTANTE: estas tablas NO existen todavia en src/integrations/supabase/types.ts
- * (infraestructura pendiente de aplicar por el orquestador). Se usa el mismo
- * patron que src/hooks/useMercadonaVentas.ts / useCmrDocumentos.ts: cast local
- * `SUPA` a SupabaseClient<any>. Cuando se apliquen las migraciones y se
- * regeneren los tipos, sustituir los `as any`/`SUPA` por `Tables<"rrhh_...">`.
+ * (02-09-2026) Los tipos generados ya incluyen estas tablas y el cast local a
+ * SupabaseClient<any> se retiró: aquí se usa el cliente tipado `supabase`.
  *
  * RLS: estas tablas solo son visibles/editables por RRHH y administración.
  * Si el usuario actual no tiene el rol correspondiente, Postgres devuelve un
@@ -16,7 +13,6 @@
  */
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { PDFDocument } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
 // Worker de pdfjs empaquetado por Vite como asset propio (?url) en vez de
@@ -34,7 +30,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
 // Cast local: las tablas rrhh_* aun no estan en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const BUCKET = "rrhh-docs";
 
@@ -103,7 +98,7 @@ export function useRrhhAmonestaciones() {
   const query = useQuery({
     queryKey: baseKey,
     queryFn: async (): Promise<RrhhAmonestacionRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("rrhh_amonestaciones")
         .select("*")
         .order("fecha", { ascending: false });
@@ -130,7 +125,7 @@ export function useRrhhAmonestaciones() {
         archivo_nombre = input.file.name;
       }
 
-      const { error } = await SUPA.from("rrhh_amonestaciones").insert({
+      const { error } = await supabase.from("rrhh_amonestaciones").insert({
         user_id: user.id,
         trabajador_id: input.trabajador_id,
         fecha: input.fecha,
@@ -153,7 +148,7 @@ export function useRrhhAmonestaciones() {
         // Best-effort: si falla el borrado del storage no bloqueamos el borrado de la fila.
         await supabase.storage.from(BUCKET).remove([row.archivo_path]).catch(() => undefined);
       }
-      const { error } = await SUPA.from("rrhh_amonestaciones").delete().eq("id", row.id);
+      const { error } = await supabase.from("rrhh_amonestaciones").delete().eq("id", row.id);
       if (error) throw toError(error);
     },
     onSuccess: () => {
@@ -259,7 +254,7 @@ export function useRrhhNominas(anio: number) {
   const query = useQuery({
     queryKey: baseKey,
     queryFn: async (): Promise<RrhhNominaRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("rrhh_nominas")
         .select("*")
         .eq("anio", anio);
@@ -294,7 +289,7 @@ export function useRrhhNominas(anio: number) {
         await supabase.storage.from(BUCKET).remove([existente.archivo_path]).catch(() => undefined);
       }
 
-      const { error } = await SUPA.from("rrhh_nominas").upsert(
+      const { error } = await supabase.from("rrhh_nominas").upsert(
         {
           user_id: user.id,
           trabajador_id: input.trabajador_id,
@@ -316,7 +311,7 @@ export function useRrhhNominas(anio: number) {
   const eliminar = useMutation({
     mutationFn: async (row: RrhhNominaRow) => {
       await supabase.storage.from(BUCKET).remove([row.archivo_path]).catch(() => undefined);
-      const { error } = await SUPA.from("rrhh_nominas").delete().eq("id", row.id);
+      const { error } = await supabase.from("rrhh_nominas").delete().eq("id", row.id);
       if (error) throw toError(error);
     },
     onSuccess: () => {
@@ -365,7 +360,7 @@ export function useRrhhNominas(anio: number) {
             await supabase.storage.from(BUCKET).remove([existente.archivo_path]).catch(() => undefined);
           }
 
-          const { error } = await SUPA.from("rrhh_nominas").upsert(
+          const { error } = await supabase.from("rrhh_nominas").upsert(
             {
               user_id: user.id,
               trabajador_id: asignacion.trabajadorId,

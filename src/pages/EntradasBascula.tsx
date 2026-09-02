@@ -7,7 +7,6 @@
 // completa: finca → entrada → lote → procesado → clasificación → destino.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import * as XLSX from "xlsx";
@@ -346,9 +345,8 @@ function MermasCosteTab() {
       // merma_camara_kg / fecha_salida_camara: columnas de la migración
       // 20260721150000, aún no reflejadas en los tipos generados (types.ts).
       // Cliente sin esquema tipado (Database=any) hasta regenerar los tipos.
-      const SUPA_LOCAL = supabase as unknown as SupabaseClient;
       for (const c of casados) {
-        const { error } = await SUPA_LOCAL
+        const { error } = await supabase
           .from("entradas_bascula")
           .update({ merma_camara_kg: c.registro.mermaKg, fecha_salida_camara: c.registro.fechaSalida })
           .eq("id", c.id);

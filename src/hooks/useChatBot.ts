@@ -12,7 +12,6 @@
  * - Aprendizaje continuo
  */
 import { useState, useCallback, useRef } from "react";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { callChatFunction, DOMAIN_PROMPT, ChatContent } from "@/lib/gemini";
@@ -34,7 +33,6 @@ import {
 // Cast local: lote_clasificacion_productor_agg (migración
 // 20260717120000_vistas_agregadas_clasificacion.sql, pendiente de aplicar)
 // aún no está en el Database generado — mismo patrón que useProductores.ts.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -232,7 +230,7 @@ type ClasifMesRow = { productor: string | null; grupo_destino: string | null; pe
 async function fetchClasificacionMes(monthStart: string): Promise<ClasifMesRow[]> {
   try {
     return await fetchAllRows<ClasifMesRow>((from, to) =>
-      SUPA
+      supabase
         .from("lote_clasificacion_productor_agg")
         .select("productor, grupo_destino, peso_kg")
         .gte("fecha", monthStart)
@@ -250,7 +248,7 @@ async function fetchClasificacionMes(monthStart: string): Promise<ClasifMesRow[]
       err,
     );
     return fetchAllRows<ClasifMesRow>((from, to) =>
-      SUPA.from("clasificacion_lote").select("productor, grupo_destino, peso_kg").gte("fecha", monthStart).order("id").range(from, to),
+      supabase.from("clasificacion_lote").select("productor, grupo_destino, peso_kg").gte("fecha", monthStart).order("id").range(from, to),
     );
   }
 }

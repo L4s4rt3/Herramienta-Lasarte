@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { calcularTphOperativa } from "@/lib/velocidadOperativa";
@@ -16,7 +15,6 @@ import { mapClasifDetalleCompacto, type ClasifDetalleFila } from "@/lib/clasific
 // (migracion 20260714090000_productores_canonicos.sql). Mismo patron que
 // useProductores.ts / useTrazabilidadLote.ts para poder pedir esa columna con
 // degradado si el select explicito falla por no existir todavia.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -392,7 +390,7 @@ async function fetchClasificacionDetalleRpc(partIds: string[]): Promise<ClasifDe
       const i = siguiente;
       siguiente += 1;
       if (i >= chunks.length) return;
-      const { data, error } = await SUPA.rpc("lote_clasificacion_detalle_por_partes", { p_part_ids: chunks[i] });
+      const { data, error } = await supabase.rpc("lote_clasificacion_detalle_por_partes", { p_part_ids: chunks[i] });
       if (error) throw error;
       porChunk[i] = mapClasifDetalleCompacto(data);
     }
@@ -610,7 +608,7 @@ export function useAnalisisDiario(desde: string, hasta: string) {
       try {
         try {
           lotesRaw = await fetchAllRows<LoteDiaAnalisisRow>((from, to) =>
-            SUPA
+            supabase
               .from("lotes_dia")
               .select(`${LOTES_DIA_COLUMNAS_ANALISIS}, productor_id`)
               .in("part_id", partIds)
@@ -620,7 +618,7 @@ export function useAnalisisDiario(desde: string, hasta: string) {
         } catch (conIdErr) {
           if (!esErrorTablaOColumnaInexistente(conIdErr)) throw conIdErr;
           lotesRaw = await fetchAllRows<LoteDiaAnalisisRow>((from, to) =>
-            SUPA
+            supabase
               .from("lotes_dia")
               .select(LOTES_DIA_COLUMNAS_ANALISIS)
               .in("part_id", partIds)
@@ -668,7 +666,7 @@ export function useAnalisisDiario(desde: string, hasta: string) {
             // sabemos que el rango está por debajo del techo.
             console.warn("RPC de detalle de clasificación no disponible; se usa el SELECT paginado.");
             clasifRaw = await fetchAllRows<ClasifDetalleFila>((from, to) =>
-              SUPA
+              supabase
                 .from("clasificacion_lote")
                 .select("lote_codigo, lote_codigo_base, productor, producto, calidad, clase, grupo_destino, tamano, piezas, pct_piezas, peso_kg, pct_peso, cartons, pct_cartons, part_id")
                 .in("part_id", partIds)

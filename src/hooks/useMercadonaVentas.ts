@@ -7,7 +7,7 @@
  * el orquestador; cuando se aplique y se regeneren los tipos, sustituir los `as any`
  * de aqui por `Tables<"mercadona_semanas">` / `Tables<"mercadona_semana_metodos">`
  * igual que hace useVentasCategoria.ts con Tables<"ventas_categoria_resumen">, y
- * eliminar el cast `SUPA` de mas abajo).
+ * eliminar el cast `supabase` de mas abajo).
  *
  * Mientras tanto, cualquier query falla con "relation does not exist" (Postgres
  * 42P01) o similar: se detecta ese caso y se expone `tablesMissing` para que la
@@ -25,7 +25,6 @@
  */
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
@@ -34,7 +33,6 @@ import type { ParsedSemana } from "@/lib/mercadonaVentas";
 
 // Cast local: las tablas mercadona_* aun no estan en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 export interface MercadonaMetodoRow {
   id: string;
@@ -107,7 +105,7 @@ export function useMercadonaVentas() {
   const semanasQuery = useQuery({
     queryKey: [...baseKey, "semanas"],
     queryFn: async (): Promise<MercadonaSemanaConMetodos[]> => {
-      const { data: semanas, error } = await SUPA
+      const { data: semanas, error } = await supabase
         .from("mercadona_semanas")
         .select("*")
         .order("anio", { ascending: true })
@@ -117,7 +115,7 @@ export function useMercadonaVentas() {
       const semanaIds = (semanas ?? []).map((s: MercadonaSemanaRow) => s.id);
       let metodos: MercadonaMetodoRow[] = [];
       if (semanaIds.length > 0) {
-        const { data: metodosData, error: metodosError } = await SUPA
+        const { data: metodosData, error: metodosError } = await supabase
           .from("mercadona_semana_metodos")
           .select("*")
           .in("semana_id", semanaIds);
@@ -154,7 +152,7 @@ export function useMercadonaVentas() {
       let actualizadas = 0;
 
       for (const semana of parsed) {
-        const { data: existente, error: existenteError } = await SUPA
+        const { data: existente, error: existenteError } = await supabase
           .from("mercadona_semanas")
           .select("id")
           .eq("anio", semana.anio)
@@ -186,7 +184,7 @@ export function useMercadonaVentas() {
         const idPatch = existente ? { id: existente.id } : {};
         let saved: { id: string } | null = null;
         try {
-          const { data, error } = await SUPA
+          const { data, error } = await supabase
             .from("mercadona_semanas")
             .upsert({ ...idPatch, ...payloadBase, ...payloadV2 }, { onConflict: "anio,semana" })
             .select("id")
@@ -196,7 +194,7 @@ export function useMercadonaVentas() {
         } catch (error) {
           if (!isColumnMissingError(error)) throw error;
           // La migracion v2 aun no esta aplicada: reintenta sin las columnas nuevas.
-          const { data, error: retryError } = await SUPA
+          const { data, error: retryError } = await supabase
             .from("mercadona_semanas")
             .upsert({ ...idPatch, ...payloadBase }, { onConflict: "anio,semana" })
             .select("id")
@@ -209,7 +207,7 @@ export function useMercadonaVentas() {
         else creadas += 1;
 
         const semanaId = saved.id as string;
-        const { error: deleteError } = await SUPA
+        const { error: deleteError } = await supabase
           .from("mercadona_semana_metodos")
           .delete()
           .eq("semana_id", semanaId);
@@ -232,14 +230,14 @@ export function useMercadonaVentas() {
           }));
 
           try {
-            const { error: insertError } = await SUPA
+            const { error: insertError } = await supabase
               .from("mercadona_semana_metodos")
               .insert(metodosBase.map((m, i) => ({ ...m, ...metodosV2[i] })));
             if (insertError) throw insertError;
           } catch (error) {
             if (!isColumnMissingError(error)) throw error;
             // Idem: reintenta sin lineas/base_iva si la migracion v2 no esta aplicada.
-            const { error: retryError } = await SUPA
+            const { error: retryError } = await supabase
               .from("mercadona_semana_metodos")
               .insert(metodosBase);
             if (retryError) throw retryError;
@@ -256,7 +254,7 @@ export function useMercadonaVentas() {
 
   const updatePlanificadoSemana = useMutation({
     mutationFn: async (input: { id: string; planificado_semana_kg: number }) => {
-      const { error } = await SUPA
+      const { error } = await supabase
         .from("mercadona_semanas")
         .update({ planificado_semana_kg: input.planificado_semana_kg })
         .eq("id", input.id);
@@ -285,7 +283,7 @@ export function useMercadonaVentas() {
     }) => {
       const { id, ...patch } = input;
       try {
-        const { error } = await SUPA.from("mercadona_semanas").update(patch).eq("id", id);
+        const { error } = await supabase.from("mercadona_semanas").update(patch).eq("id", id);
         if (error) throw error;
       } catch (error) {
         if (!isColumnMissingError(error)) throw toError(error);
@@ -293,7 +291,7 @@ export function useMercadonaVentas() {
         // "clasicas" (planificado_semana_kg), descartando antequera_*/rango.
         const { planificado_semana_kg } = patch;
         if (planificado_semana_kg === undefined) throw toError(error);
-        const { error: retryError } = await SUPA
+        const { error: retryError } = await supabase
           .from("mercadona_semanas")
           .update({ planificado_semana_kg })
           .eq("id", id);

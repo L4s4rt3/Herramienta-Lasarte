@@ -13,13 +13,11 @@
  * vacía y eso no es una avería — ver la memoria asistencia-volcado-semanal).
  */
 import { useQuery } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, supabaseLibre } from "@/integrations/supabase/client";
 import { evaluarTrabajos, type LatidoRow, type TrabajoSalud } from "@/lib/saludTrabajos";
 
 export type { TrabajoSalud } from "@/lib/saludTrabajos";
 
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 export type EstadoFuente = "al-dia" | "con-retraso" | "parada" | "sin-datos";
 
@@ -100,7 +98,7 @@ export function useEstadoFuentes() {
     queryKey: ["estado-fuentes"],
     queryFn: async (): Promise<FilaFuente[]> => {
       const filas = await Promise.all(FUENTES.map(async (f): Promise<FilaFuente> => {
-        const { data, error } = await SUPA
+        const { data, error } = await supabaseLibre
           .from(f.tabla).select(f.campo).order(f.campo, { ascending: false }).limit(1);
         // Una tabla que falla NO se pinta como "al día": se pinta como sin
         // datos, que es lo honesto cuando no se ha podido mirar.
@@ -135,7 +133,7 @@ export function useTrabajosAutomaticos() {
   return useQuery({
     queryKey: ["estado-fuentes", "trabajos"],
     queryFn: async (): Promise<TrabajoSalud[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("sistema_latidos")
         .select("trabajo, visto_a, estado, detalle, equipo");
       if (error) throw new Error(error.message);
@@ -164,7 +162,7 @@ export function useDesviacionesFuentes() {
 
       // Nombres de productor que el catálogo canónico no reconoce: son los que
       // hacían que dos páginas contestasen distinto a la misma pregunta.
-      const { data: sinCasar, error: e1 } = await SUPA.rpc("productores_sin_casar");
+      const { data: sinCasar, error: e1 } = await supabase.rpc("productores_sin_casar");
       if (!e1) {
         const n = (sinCasar ?? []).length;
         filas.push({
@@ -180,7 +178,7 @@ export function useDesviacionesFuentes() {
 
       // Días de palets que el ERP todavía puede mover: es normal que haya uno o
       // dos (el día en curso y el anterior hasta las 09:00), no más.
-      const { data: palets, error: e2 } = await SUPA.rpc("palets_kg_por_dia");
+      const { data: palets, error: e2 } = await supabase.rpc("palets_kg_por_dia");
       if (!e2) {
         const abiertos = (palets ?? []).filter((p: { cerrado: boolean }) => !p.cerrado).length;
         filas.push({

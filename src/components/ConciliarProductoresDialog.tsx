@@ -27,7 +27,6 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import * as XLSX from "xlsx";
 import { useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   AlertTriangle, CheckCircle2, ChevronDown, FileSpreadsheet, Loader2, Upload, UserPlus, Link2, Link2Off,
 } from "lucide-react";
@@ -61,12 +60,11 @@ import { formatKgCompact as formatKg, formatNumber } from "@/lib/format";
 import { normalizarLoteCodigo } from "@/lib/loteCodigo";
 import { esErrorTablaOColumnaInexistente, normalizeProductorName } from "@/lib/productoresCanonicos";
 import { supabase } from "@/integrations/supabase/client";
+import type { TablesUpdate } from "@/integrations/supabase/types";
 import { cn } from "@/lib/utils";
 
 // Cast local: productores_alias y las columnas productor_id aún no están en el
 // Database generado (mismo patrón que useProductoresCatalogo.ts).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const CHUNK = 200;
 
@@ -144,10 +142,10 @@ export function ConciliarProductoresDialog({ open, onOpenChange }: ConciliarProd
       // pasadas del calibrador alimentan el ranking de Productores.
       const [entradasRows, lotesDiaRaw] = await Promise.all([
         fetchAllRows<FilaConciliacion>((from, to) =>
-          SUPA.from("entradas_bascula").select("id, lote, agricultor, productor_id").order("id").range(from, to),
+          supabase.from("entradas_bascula").select("id, lote, agricultor, productor_id").order("id").range(from, to),
         ),
         fetchAllRows<{ id: string; lote_codigo: string | null; productor: string | null; productor_id: string | null }>((from, to) =>
-          SUPA.from("lotes_dia").select("id, lote_codigo, productor, productor_id").order("id").range(from, to),
+          supabase.from("lotes_dia").select("id, lote_codigo, productor, productor_id").order("id").range(from, to),
         ),
       ]);
 
@@ -256,12 +254,12 @@ export function ConciliarProductoresDialog({ open, onOpenChange }: ConciliarProd
       // alias en cualquier UPDATE que lo deje a NULL (ver cabecera).
       if (desdeCero) {
         {
-          const { error } = await SUPA.from("productores_alias").delete().not("id", "is", null);
+          const { error } = await supabase.from("productores_alias").delete().not("id", "is", null);
           if (error && !String(errorMessage(error)).includes("does not exist")) throw toError(error);
           avanza(1);
         }
         for (const tabla of ["entradas_bascula", "lotes_dia"] as const) {
-          const { error } = await SUPA.from(tabla).update({ productor_id: null }).not("productor_id", "is", null);
+          const { error } = await supabase.from(tabla).update({ productor_id: null }).not("productor_id", "is", null);
           if (error) throw toError(error);
           avanza(1);
         }
@@ -270,14 +268,14 @@ export function ConciliarProductoresDialog({ open, onOpenChange }: ConciliarProd
       // ─── 1. Crear productores nuevos (con su código ERP) y resolver ids ──
       const idPorCodigo = new Map<string, string>();
       if (nuevos.length > 0) {
-        let res = await SUPA
+        let res = await supabase
           .from("calidad_productores")
           .insert(nuevos.map((n) => ({ user_id: user.id, nombre: n.nombre, codigo_erp: n.codigo })))
           .select("id, nombre");
         if (res.error && esErrorTablaOColumnaInexistente(res.error)) {
           // Migración 20260721120000 sin aplicar: crear sin código y avisar al final.
           migracionCodigoPendiente = true;
-          res = await SUPA
+          res = await supabase
             .from("calidad_productores")
             .insert(nuevos.map((n) => ({ user_id: user.id, nombre: n.nombre })))
             .select("id, nombre");
@@ -297,11 +295,11 @@ export function ConciliarProductoresDialog({ open, onOpenChange }: ConciliarProd
         const patch: Record<string, unknown> = migracionCodigoPendiente ? {} : { codigo_erp: f.codigo };
         if (f.nombreNuevo) patch.nombre = f.nombreNuevo;
         if (Object.keys(patch).length > 0) {
-          let { error } = await SUPA.from("calidad_productores").update(patch).eq("id", f.productorId);
+          let { error } = await supabase.from("calidad_productores").update(patch as TablesUpdate<"calidad_productores">).eq("id", f.productorId);
           if (error && esErrorTablaOColumnaInexistente(error)) {
             migracionCodigoPendiente = true;
             if (f.nombreNuevo) {
-              const retry = await SUPA.from("calidad_productores").update({ nombre: f.nombreNuevo }).eq("id", f.productorId);
+              const retry = await supabase.from("calidad_productores").update({ nombre: f.nombreNuevo }).eq("id", f.productorId);
               error = retry.error;
             } else {
               error = null;
@@ -313,7 +311,7 @@ export function ConciliarProductoresDialog({ open, onOpenChange }: ConciliarProd
         if (f.nombreNuevo) {
           const norm = normalizeProductorName(f.nombreAnterior);
           if (norm) {
-            const { error } = await SUPA.from("productores_alias").upsert(
+            const { error } = await supabase.from("productores_alias").upsert(
               { productor_id: f.productorId, alias: f.nombreAnterior, alias_normalizado: norm, origen: "manual" },
               { onConflict: "alias_normalizado", ignoreDuplicates: true },
             );
@@ -339,14 +337,14 @@ export function ConciliarProductoresDialog({ open, onOpenChange }: ConciliarProd
       }));
       for (let i = 0; i < upserts.length; i += CHUNK) {
         const chunk = upserts.slice(i, i + CHUNK);
-        const { error } = await SUPA.from("productores_alias").upsert(chunk, { onConflict: "alias_normalizado" });
+        const { error } = await supabase.from("productores_alias").upsert(chunk, { onConflict: "alias_normalizado" });
         if (error) throw toError(error);
         avanza(chunk.length);
       }
       const aEliminar = aliasEliminar.map((a) => a.aliasNormalizado);
       for (let i = 0; i < aEliminar.length; i += CHUNK) {
         const chunk = aEliminar.slice(i, i + CHUNK);
-        const { error } = await SUPA.from("productores_alias").delete().in("alias_normalizado", chunk);
+        const { error } = await supabase.from("productores_alias").delete().in("alias_normalizado", chunk);
         if (error) throw toError(error);
         avanza(chunk.length);
       }
@@ -366,7 +364,7 @@ export function ConciliarProductoresDialog({ open, onOpenChange }: ConciliarProd
         for (const [targetId, ids] of idsPorTarget) {
           for (let i = 0; i < ids.length; i += CHUNK) {
             const chunk = ids.slice(i, i + CHUNK);
-            const { error } = await SUPA.from(tabla).update({ productor_id: targetId }).in("id", chunk);
+            const { error } = await supabase.from(tabla).update({ productor_id: targetId }).in("id", chunk);
             if (error) throw toError(error);
             avanza(chunk.length);
           }

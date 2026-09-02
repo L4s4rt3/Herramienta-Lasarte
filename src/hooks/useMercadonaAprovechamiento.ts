@@ -12,7 +12,6 @@
  *    NO de venta: sobrestima el vendido ~15%.
  */
 import { useQuery } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { mercadonaWeekDateRange } from "@/lib/mercadonaVentas";
@@ -20,7 +19,6 @@ import { kgMercadonaEstimado, type PaletAprovechamiento } from "@/lib/mercadonaA
 
 // Cast local: la vista `palets` (migración 20260813070342) no está en el
 // Database generado — mismo patrón que useProductores.ts/useMermaLote.ts.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const IN_CHUNK_SIZE = 200;
 
@@ -48,7 +46,7 @@ async function fetchPaletsInChunks(partIds: string[]): Promise<PaletAprovechamie
   for (let i = 0; i < partIds.length; i += IN_CHUNK_SIZE) {
     const chunk = partIds.slice(i, i + IN_CHUNK_SIZE);
     const chunkRows = await fetchAllRows<PaletAprovechamiento>((from, to) =>
-      SUPA.from("palets").select("cliente, producto, kg_neto").eq("comercial", true).in("part_id", chunk).order("palet_id").range(from, to),
+      supabase.from("palets").select("cliente, producto, kg_neto").eq("comercial", true).in("part_id", chunk).order("palet_id").range(from, to),
     );
     rows.push(...chunkRows);
   }

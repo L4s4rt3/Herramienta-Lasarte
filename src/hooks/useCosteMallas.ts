@@ -3,11 +3,8 @@
  * rotas" por zona) y cálculo del gasto de un periodo cruzando esa config con
  * el reciclado de malla de partes_diarios (`kg_reciclado_malla_z1`/`_z2`).
  *
- * IMPORTANTE: economico_mallas_config es una tabla NUEVA que NO existe todavia
- * en src/integrations/supabase/types.ts. Se usa el mismo patron que
- * useEconomico.ts (usePreciosRecursos): cast local `SUPA` a
- * SupabaseClient<any>. Cuando se regeneren los tipos, sustituir los
- * `as any`/`SUPA` por `Tables<"economico_mallas_config">` y eliminar el cast.
+ * (02-09-2026) Los tipos generados ya incluyen estas tablas y el cast local a
+ * SupabaseClient<any> se retiró: aquí se usa el cliente tipado `supabase`.
  *
  * RLS: economico_mallas_config SOLO es legible/editable por administración
  * (igual que economico_precios) — se detecta con `isPermissionError` y las
@@ -24,7 +21,6 @@
  */
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
@@ -47,7 +43,6 @@ import { mondayOfLocal } from "@/lib/economico";
 
 // Cast local: la tabla economico_mallas_config aun no esta en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const PERMISSION_ERROR_CODES = new Set(["42501", "PGRST301", "PGRST302"]);
 
@@ -97,7 +92,7 @@ export function useMallasConfig() {
   const query = useQuery({
     queryKey: baseKey,
     queryFn: async (): Promise<EconomicoMallaConfigRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("economico_mallas_config")
         .select("*")
         .order("zona", { ascending: true })
@@ -119,7 +114,7 @@ export function useMallasConfig() {
   const empaqueQuery = useQuery({
     queryKey: ["empaque-precios"],
     queryFn: async (): Promise<EmpaquePrecioInput[]> => {
-      const { data, error } = await SUPA.from("empaque_precios").select("*");
+      const { data, error } = await supabase.from("empaque_precios").select("*");
       if (error) throw error;
       return (data ?? []) as EmpaquePrecioInput[];
     },
@@ -196,7 +191,7 @@ export function useMallasConfig() {
   const crear = useMutation({
     mutationFn: async (input: NuevaMallaConfigInput) => {
       if (!user) throw new Error("Debes iniciar sesion para registrar la config de mallas.");
-      const { error } = await SUPA.from("economico_mallas_config").insert({
+      const { error } = await supabase.from("economico_mallas_config").insert({
         user_id: user.id,
         zona: input.zona,
         tipo_malla: input.tipo_malla,
@@ -250,7 +245,7 @@ export function useCosteMallas(desde: string, hasta: string): CosteMallasPeriodo
   const configQuery = useQuery({
     queryKey: ["economico-mallas-config"],
     queryFn: async (): Promise<EconomicoMallaConfigRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("economico_mallas_config")
         .select("*");
       if (error) throw error;
@@ -286,7 +281,7 @@ export function useCosteMallas(desde: string, hasta: string): CosteMallasPeriodo
   const empaqueQuery = useQuery({
     queryKey: ["empaque-precios"],
     queryFn: async (): Promise<EmpaquePrecioInput[]> => {
-      const { data, error } = await SUPA.from("empaque_precios").select("*");
+      const { data, error } = await supabase.from("empaque_precios").select("*");
       if (error) throw error;
       return (data ?? []) as EmpaquePrecioInput[];
     },

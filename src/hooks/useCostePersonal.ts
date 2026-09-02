@@ -9,11 +9,8 @@
 // dentro del rango, kg producidos del periodo) y delega el cálculo puro en
 // `agruparCostePersonalPorZona`.
 //
-// IMPORTANTE: `trabajadores.coste_hora` es una columna NUEVA que aún no está
-// en src/integrations/supabase/types.ts. Se usa el mismo cast local `SUPA` a
-// SupabaseClient<any> que el resto de hooks de Económico/RRHH
-// (useEconomico.ts, useRrhhPersonas.ts): cuando se regeneren los tipos,
-// sustituir por `Tables<"trabajadores">` y eliminar el cast.
+// (02-09-2026) Los tipos generados ya incluyen estas tablas y el cast local a
+// SupabaseClient<any> se retiró: aquí se usa el cliente tipado `supabase`.
 //
 // RLS: coste_hora es un dato económico, igual que economico_precios, así que
 // se asume el mismo criterio de acceso restringido a administración. Si el
@@ -24,7 +21,6 @@
 // useCostesPeriodo en useEconomico.ts).
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
@@ -37,7 +33,6 @@ import { kgProducidosParte, type ParteKgInput } from "@/lib/consumosFisicos";
 
 // Cast local: trabajadores.coste_hora aun no esta en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const PERMISSION_ERROR_CODES = new Set(["42501", "PGRST301", "PGRST302"]);
 
@@ -88,7 +83,7 @@ export function useCostePersonal(desde: string, hasta: string): CostePersonal {
   const trabajadoresQuery = useQuery({
     queryKey: ["coste-personal-trabajadores", user?.id],
     queryFn: async (): Promise<TrabajadorCosteHoraRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("trabajadores")
         .select("id, nombre, zona, activo, coste_hora")
         .eq("activo", true);
@@ -104,7 +99,7 @@ export function useCostePersonal(desde: string, hasta: string): CostePersonal {
   const asistenciaQuery = useQuery({
     queryKey: ["coste-personal-asistencia", user?.id, desde, hasta],
     queryFn: async (): Promise<AsistenciaPresenteRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("asistencia_detalle")
         .select("trabajador_id")
         .eq("presente", true)

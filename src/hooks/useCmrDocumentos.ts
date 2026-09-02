@@ -7,21 +7,20 @@
  * IMPORTANTE: la tabla cmr_documentos NO existe todavia en
  * src/integrations/supabase/types.ts (infraestructura ya aplicada en la base
  * por el orquestador, pendiente solo de regenerar tipos). Mientras tanto se
- * usa el cast `SUPA` de mas abajo, copiando el patron exacto de
+ * usa el cast `supabase` de mas abajo, copiando el patron exacto de
  * src/hooks/useMercadonaVentas.ts: cuando se regeneren los tipos, sustituir
  * los `as any` por `Tables<"cmr_documentos">` y eliminar el cast.
  */
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import { toError } from "@/lib/errorMessage";
 import { idCortoStorage, parseArchivoNombre, sanearNombreArchivo } from "@/lib/cmrArchivo";
 
 // Cast local: la tabla cmr_documentos aun no esta en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const BUCKET = "logistics-templates";
 const PAGE_SIZE = 50;
@@ -216,7 +215,7 @@ export function useCmrDocumentosRegistrados(tipo: CmrTipo) {
   const query = useQuery({
     queryKey: ["cmr-documentos", tipo],
     queryFn: async (): Promise<CmrDocumentoRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("cmr_documentos")
         .select("*")
         .eq("tipo", tipo)
@@ -257,7 +256,7 @@ export function useCmrDocumentos() {
       const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file);
       if (uploadError) throw toError(uploadError);
 
-      const { error: insertError } = await SUPA.from("cmr_documentos").insert({
+      const { error: insertError } = await supabase.from("cmr_documentos").insert({
         user_id: user.id,
         tipo,
         origen: "subido",
@@ -293,7 +292,7 @@ export function useCmrDocumentos() {
         .upload(path, new Blob([pdfBytes], { type: "application/pdf" }), { contentType: "application/pdf" });
       if (uploadError) throw toError(uploadError);
 
-      const { error: insertError } = await SUPA.from("cmr_documentos").insert({
+      const { error: insertError } = await supabase.from("cmr_documentos").insert({
         user_id: user.id,
         tipo,
         origen: "generado",
@@ -304,7 +303,7 @@ export function useCmrDocumentos() {
         matricula: metadatos?.matricula ?? null,
         destino: metadatos?.destino ?? null,
         notas: metadatos?.notas ?? null,
-        datos,
+        datos: datos as Json,
         archivo_path: path,
         archivo_nombre: nombre,
       });

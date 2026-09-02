@@ -25,12 +25,10 @@
  * no existe (relation/table does not exist), devolviendo listas vacias o
  * ignorando el guardado en vez de lanzar.
  */
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
 // Cast local: la tabla chat_memoria aun no esta en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 export interface RecuerdoExtraido {
   clave: string;
@@ -115,7 +113,7 @@ export async function guardarRecuerdos(
 
   for (const { clave, contenido } of recuerdos) {
     try {
-      const { error } = await SUPA
+      const { error } = await supabase
         .from("chat_memoria")
         .upsert(
           {
@@ -138,7 +136,7 @@ export async function guardarRecuerdos(
 /** Carga las memorias activas, más recientes primero (cap 50). Lista vacía si la tabla no existe. */
 export async function cargarMemorias(): Promise<MemoriaRow[]> {
   try {
-    const { data, error } = await SUPA
+    const { data, error } = await supabase
       .from("chat_memoria")
       .select("*")
       .eq("activa", true)
@@ -157,7 +155,7 @@ export async function cargarMemorias(): Promise<MemoriaRow[]> {
 
 /** Olvido selectivo: marca la memoria como inactiva (soft delete, conserva trazabilidad). */
 export async function olvidarMemoria(id: string): Promise<void> {
-  const { error } = await SUPA
+  const { error } = await supabase
     .from("chat_memoria")
     .update({ activa: false })
     .eq("id", id);

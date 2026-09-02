@@ -6,7 +6,7 @@
  * IMPORTANTE: limpieza_partes y limpieza_parte_trabajadores NO están todavía
  * en src/integrations/supabase/types.ts (la migración
  * supabase/migrations/20260714120000_limpieza_box.sql está pendiente de
- * aplicar por el orquestador). Mientras tanto se usa el cast SUPA de más
+ * aplicar por el orquestador). Mientras tanto se usa el cast supabase de más
  * abajo (mismo patrón que useMercadonaVentas.ts) y cualquier query puede
  * fallar con "relation does not exist": se detecta con
  * esErrorTablaOColumnaInexistente y se expone `tablaPendiente` para que la
@@ -21,7 +21,6 @@
  */
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
@@ -30,7 +29,6 @@ import { agregarLimpiezaCoste, type LimpiezaCostePeriodo } from "@/lib/limpiezaB
 
 // Cast local: las tablas limpieza_* aún no están en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 export interface LimpiezaParteTrabajadorRow {
   id: string;
@@ -89,7 +87,7 @@ interface LimpiezaPartesData {
 }
 
 async function fetchPartes(): Promise<LimpiezaPartesData> {
-  const { data: partes, error } = await SUPA
+  const { data: partes, error } = await supabase
     .from("limpieza_partes")
     .select("*")
     .order("fecha", { ascending: false })
@@ -108,7 +106,7 @@ async function fetchPartes(): Promise<LimpiezaPartesData> {
   let trabajadores: LimpiezaParteTrabajadorRow[] = [];
   if (ids.length > 0) {
     // Join manual en dos queries + ensamblado, como el resto de hooks del repo.
-    const { data: hijos, error: hijosError } = await SUPA
+    const { data: hijos, error: hijosError } = await supabase
       .from("limpieza_parte_trabajadores")
       .select("*")
       .in("parte_id", ids)
@@ -141,7 +139,7 @@ async function insertarTrabajadores(parteId: string, trabajadores: LimpiezaTraba
       horas: t.horas,
     }));
   if (filas.length === 0) return;
-  const { error } = await SUPA.from("limpieza_parte_trabajadores").insert(filas);
+  const { error } = await supabase.from("limpieza_parte_trabajadores").insert(filas);
   if (error) throw toError(error);
 }
 
@@ -160,7 +158,7 @@ export function useLimpiezaBox() {
   const crearParte = useMutation({
     mutationFn: async (input: LimpiezaParteInput) => {
       if (!user) throw new Error("Debes iniciar sesión para guardar un parte.");
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("limpieza_partes")
         .insert({
           user_id: user.id,
@@ -188,7 +186,7 @@ export function useLimpiezaBox() {
 
   const editarParte = useMutation({
     mutationFn: async (input: LimpiezaParteInput & { id: string }) => {
-      const { error } = await SUPA
+      const { error } = await supabase
         .from("limpieza_partes")
         .update({
           fecha: input.fecha,
@@ -203,7 +201,7 @@ export function useLimpiezaBox() {
         .eq("id", input.id);
       if (error) throw toError(error);
       // Hijos: delete + insert (aceptado para listas cortas como esta).
-      const { error: delError } = await SUPA.from("limpieza_parte_trabajadores").delete().eq("parte_id", input.id);
+      const { error: delError } = await supabase.from("limpieza_parte_trabajadores").delete().eq("parte_id", input.id);
       if (delError) throw toError(delError);
       await insertarTrabajadores(input.id, input.trabajadores);
     },
@@ -213,7 +211,7 @@ export function useLimpiezaBox() {
   const eliminarParte = useMutation({
     mutationFn: async (id: string) => {
       // ON DELETE CASCADE en limpieza_parte_trabajadores borra los hijos solo.
-      const { error } = await SUPA.from("limpieza_partes").delete().eq("id", id);
+      const { error } = await supabase.from("limpieza_partes").delete().eq("id", id);
       if (error) throw toError(error);
     },
     onSuccess: invalidar,
@@ -251,7 +249,7 @@ export function useLimpiezaBoxCostePeriodo(desde: string, hasta: string): Limpie
   const trabajadoresQuery = useQuery({
     queryKey: ["limpieza-box", "coste-trabajadores", user?.id],
     queryFn: async (): Promise<{ id: string; coste_hora: number | null }[]> => {
-      const { data, error } = await SUPA.from("trabajadores").select("id, coste_hora").eq("activo", true);
+      const { data, error } = await supabase.from("trabajadores").select("id, coste_hora").eq("activo", true);
       if (error) throw toError(error);
       return (data ?? []) as { id: string; coste_hora: number | null }[];
     },
@@ -295,7 +293,7 @@ export function useUltimoParteLimpieza() {
   const query = useQuery({
     queryKey: ["limpieza-box", "ultimo-parte"] as const,
     queryFn: async (): Promise<{ fecha: string; box: number } | null> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("limpieza_partes")
         .select("fecha, box")
         .order("fecha", { ascending: false })

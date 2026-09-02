@@ -10,7 +10,7 @@
  *
  * IMPORTANTE: rrhh_comunicaciones es una tabla NUEVA que todavía no está en
  * src/integrations/supabase/types.ts (infraestructura pendiente de aplicar/
- * regenerar tipos). Se usa el mismo cast local `SUPA` que el resto de hooks
+ * regenerar tipos). Se usa el mismo cast local `supabase` que el resto de hooks
  * rrhh (useRrhhVacaciones.ts, useRrhhAusencias.ts, useRrhhDocs.ts). Las
  * columnas email/telefono/dni de trabajadores tampoco están en el Database
  * generado todavía, así que se leen por el mismo cast.
@@ -22,16 +22,15 @@
  */
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import { toError } from "@/lib/errorMessage";
 import { saldoVacaciones, type PeriodoVacaciones } from "@/lib/rrhhVacaciones";
 import { today } from "@/lib/format";
 
 // Cast local: rrhh_comunicaciones y las columnas email/telefono/dni de
 // trabajadores aun no estan en el Database generado. Ver comentario de cabecera.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const PERMISSION_DENIED_CODES = new Set(["42501", "PGRST301"]);
 
@@ -124,7 +123,7 @@ export function useRrhhComunicaciones() {
   const trabajadoresQuery = useQuery({
     queryKey: ["rrhh-comunicaciones", "trabajadores"],
     queryFn: async (): Promise<TrabajadorRawRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("trabajadores")
         .select("id, nombre, email, zona, activo, fecha_alta, vacaciones_dias_anuales")
         .eq("activo", true)
@@ -139,7 +138,7 @@ export function useRrhhComunicaciones() {
   const horasQuery = useQuery({
     queryKey: ["rrhh-comunicaciones", "horas"],
     queryFn: async (): Promise<HoraRawRow[]> => {
-      const { data, error } = await SUPA.from("rrhh_horas").select("trabajador_id, horas");
+      const { data, error } = await supabase.from("rrhh_horas").select("trabajador_id, horas");
       if (error) throw error;
       return (data ?? []) as HoraRawRow[];
     },
@@ -150,7 +149,7 @@ export function useRrhhComunicaciones() {
   const periodosQuery = useQuery({
     queryKey: ["rrhh-comunicaciones", "periodos"],
     queryFn: async (): Promise<(PeriodoVacaciones & { trabajador_id: string })[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("rrhh_vacaciones_periodos")
         .select("trabajador_id, fecha_inicio, fecha_fin, dias_naturales");
       if (error) throw error;
@@ -163,12 +162,12 @@ export function useRrhhComunicaciones() {
   const historialQuery = useQuery({
     queryKey: ["rrhh-comunicaciones", "historial"],
     queryFn: async (): Promise<RrhhComunicacionRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("rrhh_comunicaciones")
         .select("*")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as RrhhComunicacionRow[];
+      return (data ?? []) as unknown as RrhhComunicacionRow[];
     },
     enabled: Boolean(user),
     retry: (failureCount, error) => (isPermissionDeniedError(error) ? false : failureCount < 2),
@@ -308,13 +307,13 @@ export function useRrhhComunicaciones() {
         estado = fallidos.length === 0 ? "enviado" : enviados > 0 ? "parcial" : "error";
       }
 
-      const { error: insertError } = await SUPA.from("rrhh_comunicaciones").insert({
+      const { error: insertError } = await supabase.from("rrhh_comunicaciones").insert({
         tipo: input.tipo,
         asunto: input.asunto,
         cuerpo: input.cuerpo,
-        destinatarios: input.destinatarios,
+        destinatarios: input.destinatarios as unknown as Json,
         estado,
-        detalle_envio: { enviados, fallidos, motivo: motivo ?? null, error: errorInvocacion },
+        detalle_envio: { enviados, fallidos, motivo: motivo ?? null, error: errorInvocacion } as unknown as Json,
         enviado_at: estado === "enviado" || estado === "parcial" ? new Date().toISOString() : null,
       });
       if (insertError) throw toError(insertError);

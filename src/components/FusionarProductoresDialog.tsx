@@ -19,7 +19,6 @@
 // conciliación con el ERP, ese es el del nombre oficial del informe).
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { AlertTriangle, CheckCircle2, Loader2, Merge, Plus, X } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -44,13 +43,11 @@ import {
   type DeteccionDuplicados, type FusionPar, type ProductorFusionInput,
 } from "@/lib/fusionProductores";
 import { esErrorTablaOColumnaInexistente, normalizeProductorName } from "@/lib/productoresCanonicos";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, supabaseLibre } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
 // Cast local: columnas productor_id aún no están en el Database generado
 // (mismo patrón que useProductoresCatalogo.ts).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 /** Tablas cuyo vínculo al productor se re-apunta al fusionar. Las marcadas opcionales pueden no existir aún (migración pendiente): se toleran. */
 const TABLAS_REFERENCIA: Array<{ tabla: string; columna: string; opcional: boolean }> = [
@@ -93,10 +90,10 @@ export function FusionarProductoresDialog({ open, onOpenChange }: FusionarProduc
       try {
         const [entradas, lotes] = await Promise.all([
           fetchAllRows<{ id: string; productor_id: string | null }>((from, to) =>
-            SUPA.from("entradas_bascula").select("id, productor_id").order("id").range(from, to),
+            supabase.from("entradas_bascula").select("id, productor_id").order("id").range(from, to),
           ),
           fetchAllRows<{ id: string; productor_id: string | null }>((from, to) =>
-            SUPA.from("lotes_dia").select("id, productor_id").order("id").range(from, to),
+            supabase.from("lotes_dia").select("id, productor_id").order("id").range(from, to),
           ),
         ]);
         const conteo = new Map<string, number>();
@@ -202,7 +199,7 @@ export function FusionarProductoresDialog({ open, onOpenChange }: FusionarProduc
       for (const { dup, canon } of fusiones) {
         // 1. Re-apuntar todas las referencias del duplicado al canónico.
         for (const { tabla, columna, opcional } of TABLAS_REFERENCIA) {
-          const { error } = await SUPA.from(tabla).update({ [columna]: canon.id }).eq(columna, dup.id);
+          const { error } = await supabaseLibre.from(tabla).update({ [columna]: canon.id }).eq(columna, dup.id);
           if (error && !(opcional && esErrorTablaOColumnaInexistente(error))) throw toError(error);
           avanza();
         }
@@ -210,7 +207,7 @@ export function FusionarProductoresDialog({ open, onOpenChange }: FusionarProduc
         //    texto no tiene ya un alias, p. ej. uno re-apuntado en el paso 1).
         const norm = normalizeProductorName(dup.nombre);
         if (norm) {
-          const { error } = await SUPA.from("productores_alias").upsert(
+          const { error } = await supabase.from("productores_alias").upsert(
             { productor_id: canon.id, alias: dup.nombre, alias_normalizado: norm, origen: "manual" },
             { onConflict: "alias_normalizado", ignoreDuplicates: true },
           );
@@ -221,16 +218,16 @@ export function FusionarProductoresDialog({ open, onOpenChange }: FusionarProduc
         //    no, se traspasa (liberando antes el del duplicado: índice único).
         const dupCodigo = codigoPorId.get(dup.id);
         if (dupCodigo && !codigoPorId.get(canon.id)) {
-          const libera = await SUPA.from("calidad_productores").update({ codigo_erp: null }).eq("id", dup.id);
+          const libera = await supabase.from("calidad_productores").update({ codigo_erp: null }).eq("id", dup.id);
           if (!libera.error) {
-            const traspasa = await SUPA.from("calidad_productores").update({ codigo_erp: dupCodigo }).eq("id", canon.id);
+            const traspasa = await supabase.from("calidad_productores").update({ codigo_erp: dupCodigo }).eq("id", canon.id);
             if (traspasa.error && !esErrorTablaOColumnaInexistente(traspasa.error)) throw toError(traspasa.error);
           } else if (!esErrorTablaOColumnaInexistente(libera.error)) {
             throw toError(libera.error);
           }
         }
         // 4. Borrar el duplicado del catálogo.
-        const { error: delError } = await SUPA.from("calidad_productores").delete().eq("id", dup.id);
+        const { error: delError } = await supabase.from("calidad_productores").delete().eq("id", dup.id);
         if (delError) throw toError(delError);
         avanza();
       }

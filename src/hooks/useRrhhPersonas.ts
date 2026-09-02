@@ -6,9 +6,9 @@
  *
  * IMPORTANTE: ninguna de las tablas rrhh_* (ni las columnas nuevas de
  * `trabajadores`) existe todavia en src/integrations/supabase/types.ts. Se usa
- * el cast `SUPA` local, copiando el patron exacto de
+ * el cast `supabase` local, copiando el patron exacto de
  * src/hooks/useMercadonaVentas.ts: cuando se regeneren los tipos, sustituir los
- * `as any`/`SUPA` por los tipos generados (`Tables<"rrhh_...">`) y eliminar el
+ * `as any`/`supabase` por los tipos generados (`Tables<"rrhh_...">`) y eliminar el
  * cast.
  *
  * Las tablas rrhh_* tienen RLS restringido a rrhh/admin. Si el usuario actual
@@ -18,7 +18,6 @@
  */
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
@@ -26,7 +25,6 @@ import { normalizeAsistenciaGroup, sanitizeAsistenciaGroups } from "@/lib/asiste
 
 // Cast local: las tablas/columnas rrhh_* aun no estan en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const RRHH_DOCS_BUCKET = "rrhh-docs";
 const PERMISSION_DENIED_CODES = new Set(["42501", "PGRST301"]);
@@ -172,7 +170,7 @@ export function useRrhhPlantilla() {
   const query = useQuery({
     queryKey,
     queryFn: async (): Promise<TrabajadorPlantillaRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("trabajadores")
         .select("*")
         .order("nombre", { ascending: true });
@@ -190,7 +188,7 @@ export function useRrhhPlantilla() {
   const bajasQuery = useQuery({
     queryKey: bajasQueryKey,
     queryFn: async (): Promise<BajaAbiertaRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("asistencia_bajas_laborales")
         .select("id, trabajador_id, fecha_inicio, motivo")
         .is("fecha_fin", null);
@@ -254,7 +252,7 @@ export function useRrhhPlantilla() {
         patch.nombre = nombre;
       }
       await withDuplicateNombreError(async () => {
-        const { error } = await SUPA.from("trabajadores").update(patch).eq("id", id);
+        const { error } = await supabase.from("trabajadores").update(patch).eq("id", id);
         if (error) throw toError(error);
       });
     },
@@ -282,7 +280,7 @@ export function useRrhhPlantilla() {
       if (!zona) throw new Error("La zona / puesto no puede quedar vacío.");
       if (!user) throw new Error("Sesión no válida.");
       await withDuplicateNombreError(async () => {
-        const { error } = await SUPA.from("trabajadores").insert({
+        const { error } = await supabase.from("trabajadores").insert({
           user_id: user.id,
           nombre,
           zona,
@@ -306,7 +304,7 @@ export function useRrhhPlantilla() {
 
   const setActivo = useMutation({
     mutationFn: async (input: { id: string; activo: boolean }) => {
-      const { error } = await SUPA.from("trabajadores").update({ activo: input.activo }).eq("id", input.id);
+      const { error } = await supabase.from("trabajadores").update({ activo: input.activo }).eq("id", input.id);
       if (error) throw toError(error);
     },
     onSuccess: () => {
@@ -316,7 +314,11 @@ export function useRrhhPlantilla() {
 
   const darDeBaja = useMutation({
     mutationFn: async (input: { trabajador_id: string; fecha_inicio: string; motivo?: string | null }) => {
-      const { error } = await SUPA.from("asistencia_bajas_laborales").insert({
+      // user_id es NOT NULL y la política de insert exige el propio uid: sin
+      // él la fila no entraba. Lo destapó el cliente tipado el 02-09-2026.
+      if (!user) throw new Error("Sesión no válida.");
+      const { error } = await supabase.from("asistencia_bajas_laborales").insert({
+        user_id: user.id,
         trabajador_id: input.trabajador_id,
         fecha_inicio: input.fecha_inicio,
         fecha_fin: null,
@@ -329,7 +331,7 @@ export function useRrhhPlantilla() {
 
   const darDeAlta = useMutation({
     mutationFn: async (input: { id: string; fecha_fin: string }) => {
-      const { error } = await SUPA.from("asistencia_bajas_laborales").update({ fecha_fin: input.fecha_fin }).eq("id", input.id);
+      const { error } = await supabase.from("asistencia_bajas_laborales").update({ fecha_fin: input.fecha_fin }).eq("id", input.id);
       if (error) throw toError(error);
     },
     onSuccess: invalidateAll,
@@ -348,7 +350,7 @@ export function useRrhhPlantilla() {
       if (!nuevo) throw new Error("El nuevo nombre no puede quedar vacío.");
       if (nuevo === actual) return;
 
-      const { error } = await SUPA.from("trabajadores").update({ zona: nuevo }).eq("zona", actual);
+      const { error } = await supabase.from("trabajadores").update({ zona: nuevo }).eq("zona", actual);
       if (error) throw toError(error);
     },
     onSuccess: invalidateAll,
@@ -359,7 +361,7 @@ export function useRrhhPlantilla() {
       const grupo = normalizeAsistenciaGroup(input.grupo);
       if (!grupo) throw new Error("El grupo no es válido.");
 
-      const { error } = await SUPA.from("trabajadores").update({ zona: null }).eq("zona", grupo);
+      const { error } = await supabase.from("trabajadores").update({ zona: null }).eq("zona", grupo);
       if (error) throw toError(error);
     },
     onSuccess: invalidateAll,
@@ -392,38 +394,38 @@ export function useRrhhFichaPersona(trabajadorId: string | null) {
       if (!trabajadorId) return FICHA_VACIA;
 
       const [faltasRes, bajasRes, justRes, amonRes, vacRes, horasRes, nomRes] = await Promise.all([
-        SUPA
+        supabase
           .from("asistencia_detalle")
           .select("trabajador_id, date, presente, motivo_ausencia")
           .eq("trabajador_id", trabajadorId)
           .eq("presente", false)
           .order("date", { ascending: false }),
-        SUPA
+        supabase
           .from("asistencia_bajas_laborales")
           .select("id, trabajador_id, fecha_inicio, fecha_fin, motivo")
           .eq("trabajador_id", trabajadorId)
           .order("fecha_inicio", { ascending: false }),
-        SUPA
+        supabase
           .from("rrhh_justificantes")
           .select("*")
           .eq("trabajador_id", trabajadorId)
           .order("fecha", { ascending: false }),
-        SUPA
+        supabase
           .from("rrhh_amonestaciones")
           .select("*")
           .eq("trabajador_id", trabajadorId)
           .order("fecha", { ascending: false }),
-        SUPA
+        supabase
           .from("rrhh_vacaciones_periodos")
           .select("*")
           .eq("trabajador_id", trabajadorId)
           .order("fecha_inicio", { ascending: false }),
-        SUPA
+        supabase
           .from("rrhh_horas")
           .select("*")
           .eq("trabajador_id", trabajadorId)
           .order("fecha", { ascending: false }),
-        SUPA
+        supabase
           .from("rrhh_nominas")
           .select("*")
           .eq("trabajador_id", trabajadorId)

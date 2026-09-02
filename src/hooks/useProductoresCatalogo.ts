@@ -17,22 +17,20 @@
  *    todavía), que es la cola correcta: sin la migración no hay ningún
  *    nombre vinculado aún. calidad_lotes.productor_finca_id SÍ existe desde
  *    antes, así que ahí el filtro real ya funciona.
- * Cuando se aplique y se regeneren los tipos, sustituir el cast SUPA por
+ * Cuando se aplique y se regeneren los tipos, sustituir el cast supabase por
  * `Tables<"productores_alias">` y las columnas nuevas por sus tipos generados,
  * y quitar `esErrorTablaOColumnaInexistente` de aquí (ya no hará falta).
  */
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, supabaseLibre } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
 import { esAgricultorMovimientoInterno, esErrorTablaOColumnaInexistente, normalizeProductorName } from "@/lib/productoresCanonicos";
 import type { Tables } from "@/integrations/supabase/types";
 
 // Cast local: productores_alias y las columnas productor_id aun no estan en
 // el Database generado. Ver comentario de cabecera para el plan de retirada.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 // creado_automaticamente aún no está en los tipos generados de Supabase
 // (migración 20260803100000_productores_autocreacion.sql, pendiente de
@@ -77,11 +75,11 @@ const CHUNK = 200;
  * Si la tabla en sí no existe, devuelve [].
  */
 async function fetchFilasSinVincular(tabla: string, columnas: string, idColumna: string): Promise<any[]> {
-  const conFiltro = await SUPA.from(tabla).select(columnas).is(idColumna, null).limit(LIMIT_FILAS);
+  const conFiltro = await supabaseLibre.from(tabla).select(columnas).is(idColumna, null).limit(LIMIT_FILAS);
   if (!conFiltro.error) return conFiltro.data ?? [];
   if (!esErrorTablaOColumnaInexistente(conFiltro.error)) throw toError(conFiltro.error);
 
-  const sinFiltro = await SUPA.from(tabla).select(columnas).limit(LIMIT_FILAS);
+  const sinFiltro = await supabaseLibre.from(tabla).select(columnas).limit(LIMIT_FILAS);
   if (sinFiltro.error) {
     if (esErrorTablaOColumnaInexistente(sinFiltro.error)) return [];
     throw toError(sinFiltro.error);
@@ -116,7 +114,7 @@ export function useProductoresCatalogo() {
   const aliasQuery = useQuery({
     queryKey: aliasKey,
     queryFn: async (): Promise<{ rows: ProductorAliasRow[]; disponible: boolean }> => {
-      const { data, error } = await SUPA.from("productores_alias").select("*");
+      const { data, error } = await supabase.from("productores_alias").select("*");
       if (error) {
         if (esErrorTablaOColumnaInexistente(error)) {
           console.warn("useProductoresCatalogo: productores_alias aún no existe (migración 20260714090000 pendiente de aplicar).", error);
@@ -216,7 +214,7 @@ export function useProductoresCatalogo() {
       const normalizado = normalizeProductorName(alias);
       if (!normalizado) throw new Error("El nombre a vincular no es válido.");
 
-      const { error: aliasError } = await SUPA
+      const { error: aliasError } = await supabase
         .from("productores_alias")
         .upsert(
           { productor_id: input.productorId, alias, alias_normalizado: normalizado, origen: "manual" },
@@ -238,7 +236,7 @@ export function useProductoresCatalogo() {
           .map((f) => f.id as string);
         for (let i = 0; i < ids.length; i += CHUNK) {
           const chunk = ids.slice(i, i + CHUNK);
-          const { error: updError } = await SUPA.from(tabla).update({ [idColumna]: input.productorId }).in("id", chunk);
+          const { error: updError } = await supabaseLibre.from(tabla).update({ [idColumna]: input.productorId }).in("id", chunk);
           if (updError && !esErrorTablaOColumnaInexistente(updError)) throw toError(updError);
         }
       }

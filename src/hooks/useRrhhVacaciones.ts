@@ -3,15 +3,11 @@
  * vacaciones disfrutados (rrhh_vacaciones_periodos) y bolsa de horas
  * (rrhh_horas), cruzados con la plantilla activa (trabajadores).
  *
- * IMPORTANTE: rrhh_vacaciones_periodos / rrhh_horas son tablas NUEVAS que
- * todavia no estan en src/integrations/supabase/types.ts (pendientes de
- * migracion + regeneracion de tipos). Se usa el mismo cast local que
- * useMercadonaVentas.ts (`SUPA = supabase as unknown as SupabaseClient<any>`)
- * hasta que existan los tipos generados; cuando se apliquen, sustituir por
- * `Tables<"rrhh_vacaciones_periodos">` / `Tables<"rrhh_horas">` y retirar el cast.
+ * (02-09-2026) Los tipos generados ya incluyen estas tablas y el cast local a
+ * SupabaseClient<any> se retiró: aquí se usa el cliente tipado `supabase`.
  * Ademas, trabajadores.fecha_alta / trabajadores.vacaciones_dias_anuales son
  * columnas nuevas que tampoco estan en el Database generado: se leen via el
- * mismo SUPA para no chocar con el tipo estrecho de `trabajadores` ya generado.
+ * mismo supabase para no chocar con el tipo estrecho de `trabajadores` ya generado.
  *
  * RLS: estas tablas solo son legibles/editables por rrhh/admin. Si el usuario
  * no tiene permiso, Postgres devuelve 42501 (o PostgREST envuelve el mensaje
@@ -20,14 +16,12 @@
  */
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
 
 // Cast local: rrhh_vacaciones_periodos / rrhh_horas y las columnas nuevas de
 // trabajadores aun no estan en el Database generado. Ver comentario de cabecera.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const PERMISSION_DENIED_CODES = new Set(["42501", "PGRST301"]);
 
@@ -85,7 +79,7 @@ export function useRrhhVacaciones() {
   const trabajadoresQuery = useQuery({
     queryKey: [...baseKey, "trabajadores"],
     queryFn: async (): Promise<RrhhTrabajadorRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("trabajadores")
         .select("id, nombre, activo, fecha_alta, vacaciones_dias_anuales")
         .eq("activo", true)
@@ -101,7 +95,7 @@ export function useRrhhVacaciones() {
   const periodosQuery = useQuery({
     queryKey: [...baseKey, "periodos"],
     queryFn: async (): Promise<RrhhVacacionesPeriodoRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("rrhh_vacaciones_periodos")
         .select("*")
         .order("fecha_inicio", { ascending: false });
@@ -116,7 +110,7 @@ export function useRrhhVacaciones() {
   const horasQuery = useQuery({
     queryKey: [...baseKey, "horas"],
     queryFn: async (): Promise<RrhhHoraRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("rrhh_horas")
         .select("*")
         .order("fecha", { ascending: false });
@@ -161,7 +155,7 @@ export function useRrhhVacaciones() {
         notas: input.notas ?? null,
       }));
       if (rows.length === 0) return;
-      const { error } = await SUPA.from("rrhh_vacaciones_periodos").insert(rows);
+      const { error } = await supabase.from("rrhh_vacaciones_periodos").insert(rows);
       if (error) throw toError(error);
     },
     onSuccess: invalidateAll,
@@ -169,7 +163,7 @@ export function useRrhhVacaciones() {
 
   const borrarPeriodo = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await SUPA.from("rrhh_vacaciones_periodos").delete().eq("id", id);
+      const { error } = await supabase.from("rrhh_vacaciones_periodos").delete().eq("id", id);
       if (error) throw toError(error);
     },
     onSuccess: invalidateAll,
@@ -190,7 +184,7 @@ export function useRrhhVacaciones() {
         motivo: input.motivo ?? null,
       }));
       if (rows.length === 0) return;
-      const { error } = await SUPA.from("rrhh_horas").insert(rows);
+      const { error } = await supabase.from("rrhh_horas").insert(rows);
       if (error) throw toError(error);
     },
     onSuccess: invalidateAll,
@@ -198,7 +192,7 @@ export function useRrhhVacaciones() {
 
   const borrarHoras = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await SUPA.from("rrhh_horas").delete().eq("id", id);
+      const { error } = await supabase.from("rrhh_horas").delete().eq("id", id);
       if (error) throw toError(error);
     },
     onSuccess: invalidateAll,

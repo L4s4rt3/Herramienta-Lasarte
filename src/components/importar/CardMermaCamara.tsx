@@ -6,7 +6,6 @@
 // exactos/aproximados/ambiguos/sin casar ANTES de confirmar.
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { AlertTriangle, Snowflake } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,9 +53,8 @@ export function CardMermaCamara({ archivos, entradasBascula }: Props) {
       // merma_camara_kg / fecha_salida_camara: columnas de la migración
       // 20260721150000, aún no reflejadas en los tipos generados (mismo
       // patrón de cast que EntradasBascula.tsx).
-      const SUPA_LOCAL = supabase as unknown as SupabaseClient;
       for (const c of casado.casados) {
-        const { error } = await SUPA_LOCAL
+        const { error } = await supabase
           .from("entradas_bascula")
           .update({ merma_camara_kg: c.registro.mermaKg, fecha_salida_camara: c.registro.fechaSalida })
           .eq("id", c.id);

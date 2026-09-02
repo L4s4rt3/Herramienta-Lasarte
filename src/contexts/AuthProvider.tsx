@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useReducer, ReactNode } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
 
 export type Role = "admin" | "operario" | "ventas" | "rrhh" | null;
 
@@ -63,10 +64,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let active = true;
 
     const applyRole = async (userId: string) => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", userId);
+      // Si la consulta falla (red, RLS), resolveRole(null) degrada a "operario":
+      // un admin vería la app recortada sin saber por qué. Se deja rastro y se
+      // avisa; el rol degradado se mantiene como fallback seguro (menos permisos,
+      // nunca más).
+      if (error) {
+        console.error(`[auth] no se pudo leer el rol de ${userId}: ${error.message}`);
+        toast({
+          title: "No se pudo comprobar tu rol",
+          description: "Verás la aplicación con permisos básicos. Recarga la página; si sigue igual, avisa a soporte.",
+          variant: "destructive",
+        });
+      }
       // Evita escribir un rol obsoleto si el componente se desmontó o cambió el usuario.
       if (active) dispatch({ type: "SET_ROLE", role: resolveRole(data) });
     };

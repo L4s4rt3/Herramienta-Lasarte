@@ -3,11 +3,8 @@
  * "modo económico") y cálculo de costes de un periodo cruzando esas tarifas
  * con los consumos físicos ya existentes.
  *
- * IMPORTANTE: economico_precios es una tabla NUEVA que NO existe todavia en
- * src/integrations/supabase/types.ts. Se usa el mismo patron que
- * src/hooks/useMercadonaVentas.ts / src/hooks/useRrhhDocs.ts: cast local
- * `SUPA` a SupabaseClient<any>. Cuando se regeneren los tipos, sustituir los
- * `as any`/`SUPA` por `Tables<"economico_precios">` y eliminar el cast.
+ * (02-09-2026) Los tipos generados ya incluyen estas tablas y el cast local a
+ * SupabaseClient<any> se retiró: aquí se usa el cliente tipado `supabase`.
  *
  * RLS: economico_precios SOLO es legible/editable por administración (incluso
  * el SELECT esta restringido). Si el usuario actual no es admin, Postgres
@@ -31,7 +28,6 @@
  */
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
@@ -68,7 +64,6 @@ import { useVentasCategoria } from "@/hooks/useVentasCategoria";
 
 // Cast local: la tabla economico_precios aun no esta en el Database generado.
 // Ver comentario de cabecera para el plan de retirada de este cast.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 const PERMISSION_ERROR_CODES = new Set(["42501", "PGRST301", "PGRST302"]);
 
@@ -124,7 +119,7 @@ export function usePreciosRecursos() {
   const query = useQuery({
     queryKey: baseKey,
     queryFn: async (): Promise<EconomicoPrecioRow[]> => {
-      const { data, error } = await SUPA
+      const { data, error } = await supabase
         .from("economico_precios")
         .select("*")
         .order("recurso", { ascending: true })
@@ -177,7 +172,7 @@ export function usePreciosRecursos() {
   const crear = useMutation({
     mutationFn: async (input: NuevaTarifaInput) => {
       if (!user) throw new Error("Debes iniciar sesion para registrar una tarifa.");
-      const { error } = await SUPA.from("economico_precios").insert({
+      const { error } = await supabase.from("economico_precios").insert({
         user_id: user.id,
         recurso: input.recurso,
         unidad: input.unidad,
@@ -196,7 +191,7 @@ export function usePreciosRecursos() {
   const editar = useMutation({
     mutationFn: async (input: EditarTarifaInput) => {
       const { id, ...patch } = input;
-      const { error } = await SUPA
+      const { error } = await supabase
         .from("economico_precios")
         .update({
           recurso: patch.recurso,
@@ -215,7 +210,7 @@ export function usePreciosRecursos() {
 
   const borrar = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await SUPA.from("economico_precios").delete().eq("id", id);
+      const { error } = await supabase.from("economico_precios").delete().eq("id", id);
       if (error) throw toError(error);
     },
     onSuccess: () => {
@@ -414,7 +409,7 @@ export interface CosteFrutaPeriodo extends AgregadoCosteFruta {
  * suma de sus componentes en caso contrario (ver `importeEntradaFruta` en
  * src/lib/economico.ts). entradas_bascula ya está en el Database generado
  * (a diferencia de economico_precios/economico_mallas_config), así que no
- * hace falta el cast `SUPA`.
+ * hace falta el cast `supabase`.
  *
  * CRITERIO stock_inicial: las filas sembradas desde el informe de stock
  * (`origen='stock_inicial'`, migración 20260713100000_entradas_bascula_origen.sql)

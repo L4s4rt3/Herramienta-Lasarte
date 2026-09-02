@@ -8,7 +8,7 @@
  * IMPORTANTE: calidad_referencias_productor NO está todavía en
  * src/integrations/supabase/types.ts (la migración supabase/migrations/
  * 20260715120000_calidad_referencias_productor.sql está pendiente de aplicar
- * por el orquestador). Mientras tanto se usa el cast SUPA de más abajo (mismo
+ * por el orquestador). Mientras tanto se usa el cast supabase de más abajo (mismo
  * patrón que useLimpiezaBox.ts / useProductoresCatalogo.ts) y cualquier query
  * puede fallar con "relation does not exist": se detecta con
  * esErrorTablaOColumnaInexistente y se expone `migracionPendiente` para que
@@ -22,7 +22,6 @@
  * propio (o todo a un admin).
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toError } from "@/lib/errorMessage";
@@ -30,7 +29,6 @@ import { esErrorTablaOColumnaInexistente } from "@/lib/productoresCanonicos";
 
 // Cast local: calidad_referencias_productor aún no está en el Database
 // generado. Ver comentario de cabecera para el plan de retirada.
-const SUPA = supabase as unknown as SupabaseClient<any>;
 
 /** Fuente por defecto (única existente hoy): el informe de tamaños/clase/calidad del calibrador. */
 export const FUENTE_INFORME_CALIBRADOR = "informe_calibrador";
@@ -69,7 +67,7 @@ interface CalidadReferenciasData {
 }
 
 async function fetchReferencias(): Promise<CalidadReferenciasData> {
-  const { data, error } = await SUPA
+  const { data, error } = await supabase
     .from("calidad_referencias_productor")
     .select("*")
     .order("productor_nombre", { ascending: true })
@@ -100,7 +98,7 @@ export function useCalidadReferencias() {
   const guardarReferencia = useMutation({
     mutationFn: async (input: CalidadReferenciaInput) => {
       if (!user) throw new Error("Debes iniciar sesión para guardar una referencia.");
-      const { error } = await SUPA
+      const { error } = await supabase
         .from("calidad_referencias_productor")
         .upsert(
           {
@@ -138,7 +136,7 @@ export function useCalidadReferencias() {
 
   const eliminarReferencia = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await SUPA.from("calidad_referencias_productor").delete().eq("id", id);
+      const { error } = await supabase.from("calidad_referencias_productor").delete().eq("id", id);
       if (error) throw toError(error);
     },
     onSuccess: invalidar,
