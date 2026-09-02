@@ -7,6 +7,7 @@ import {
   costePuestoDesdeCamiones,
   diasEntre,
   fechaMenosDias,
+  reglaCorreccionesErp,
   reglaCuadreSaf,
   reglaDineroParado,
   reglaFrutaParada,
@@ -143,6 +144,44 @@ describe("reglaCuadreSaf", () => {
     const hallazgos = reglaCuadreSaf([CAMION_1], [], HOY);
     expect(hallazgos).toHaveLength(1);
     expect(hallazgos[0].regla).toBe("saf-sin-entrada");
+  });
+});
+
+describe("reglaCorreccionesErp", () => {
+  it("un estado por lote, con los campos listados y los euros del importe", () => {
+    const filas = [
+      { lote: "26081203", fecha: "2026-08-12", campo: "importe_compra", en_la_app: "1200", en_el_erp: "1450.5", detectada_en: "2026-08-25T05:10:00Z" },
+      { lote: "26081203", fecha: "2026-08-12", campo: "tipo_envase", en_la_app: "BOX", en_el_erp: "PALOT", detectada_en: "2026-08-28T05:10:00Z" },
+      { lote: "26082901", fecha: "2026-08-29", campo: "kg_entrada", en_la_app: "22067", en_el_erp: "24488", detectada_en: "2026-09-01T05:10:00Z" },
+    ];
+    const h = reglaCorreccionesErp(filas, "2026-09-03");
+    expect(h).toHaveLength(2);
+    expect(h[0].clave).toBe("correccion-erp|26081203");
+    expect(h[0].tipo).toBe("estado");
+    expect(h[0].severidad).toBe("aviso");
+    expect(h[0].eur).toBeCloseTo(250.5);
+    expect(h[0].titulo).toContain("2 campos");
+    expect(h[0].titulo).toContain("desde hace 9 días");
+    expect(h[0].detalle).toContain("importe_compra");
+    expect(h[0].detalle).toContain("tipo_envase");
+    expect(h[1].severidad).toBe("atencion");
+    expect(h[1].kg).toBe(2421);
+    expect(h[1].eur).toBeNull();
+  });
+
+  it("sin discrepancias no dice nada", () => {
+    expect(reglaCorreccionesErp([], HOY)).toEqual([]);
+  });
+
+  it("una diferencia aceptada (importación por neto vs báscula) no se cuenta", () => {
+    const filas = [
+      { lote: "26082901", fecha: "2026-08-29", campo: "kg_entrada", en_la_app: "22067", en_el_erp: "24488", detectada_en: "2026-09-01T05:10:00Z", aceptada_en: "2026-09-02T10:00:00Z" },
+      { lote: "26082901", fecha: "2026-08-29", campo: "importe_compra", en_la_app: "19860.3", en_el_erp: "22039.2", detectada_en: "2026-09-01T05:10:00Z", aceptada_en: null },
+    ];
+    const h = reglaCorreccionesErp(filas, HOY);
+    expect(h).toHaveLength(1);
+    expect(h[0].titulo).toContain("1 campo");
+    expect(h[0].kg).toBeNull();
   });
 });
 

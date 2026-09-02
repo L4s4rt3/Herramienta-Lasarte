@@ -491,6 +491,31 @@ async function main() {
     console.log(`Correcciones volcadas en ${destino}`);
   }
 
+  // Y a la base (desde el 02-09-2026): el CSV era una foto diaria que nadie
+  // abria. En erp_correcciones vive la foto ACTUAL — upsert de lo detectado
+  // hoy (detectada_en se conserva: dice desde cuando dura) y borrado de lo que
+  // ya no se detecta (se arreglo en el ERP o en la app). El vigia de negocio
+  // la lee y lo cuenta como pendiente hasta que desaparezca. Solo con
+  // --aplicar: la simulacion no escribe nada, tampoco esto.
+  if (aplicar && supabase) {
+    const inicioPasada = new Date().toISOString();
+    const filas = correcciones.map((c) => ({
+      lote: c.lote, fecha: c.fecha ?? null, campo: c.campo,
+      en_la_app: c.en_la_app == null ? null : String(c.en_la_app),
+      en_el_erp: c.en_el_erp == null ? null : String(c.en_el_erp),
+      vista_en: inicioPasada,
+    }));
+    for (let i = 0; i < filas.length; i += 200) {
+      const { error } = await supabase.from("erp_correcciones")
+        .upsert(filas.slice(i, i + 200), { onConflict: "lote,campo" });
+      if (error) { console.log(`  aviso -> no se pudieron guardar las correcciones en la base: ${error.message}`); break; }
+    }
+    const { error: errBorrado, count } = await supabase.from("erp_correcciones")
+      .delete({ count: "exact" }).lt("vista_en", inicioPasada);
+    if (errBorrado) console.log(`  aviso -> no se pudieron cerrar las correcciones resueltas: ${errBorrado.message}`);
+    else console.log(`Correcciones en la base: ${filas.length} vigentes, ${count ?? 0} resueltas desde la pasada anterior`);
+  }
+
   if (!aplicar) {
     if (nuevas.length) {
       console.log("\nSimulacion: no se ha escrito nada. Primeras altas que entrarian:");

@@ -28,6 +28,7 @@ import {
   conciliarHallazgos,
   costePuestoDesdeCamiones,
   fechaMenosDias,
+  reglaCorreccionesErp,
   reglaCuadreSaf,
   reglaDineroParado,
   reglaFrutaParada,
@@ -42,6 +43,7 @@ import {
   type DiaDetalleCalibrador,
   type DiaRendimientoVigia,
   type EntradaSafVigiaRow,
+  type ErpCorreccionRow,
   type Hallazgo,
   type HallazgoGuardadoRow,
   type PaletVigiaRow,
@@ -129,7 +131,7 @@ Deno.serve(async (req) => {
     const esLunes = esLunesMadrid();
 
     // ── 1. Datos ─────────────────────────────────────────────────────────────
-    const [palets, camionesSaf, entradasSaf, partes, filasClasif, asistencia, campana] = await Promise.all([
+    const [palets, camionesSaf, entradasSaf, partes, filasClasif, asistencia, campana, correccionesErp] = await Promise.all([
       fetchTodas<PaletVigiaRow>((from, to) =>
         db.from("erp_palet")
           .select("fecha, articulo, cliente, num_cajas, kg_netos, num_albaran_venta, num_factura, fecha_venta, importe_venta")
@@ -168,6 +170,13 @@ Deno.serve(async (req) => {
           .order("date").range(from, to)
       ),
       cargarCampana(db),
+      // Discrepancias ERP ↔ app que el sincronizador de las 07:10 no pisa
+      // (migración 20260902094925): foto actual, así que se lee entera.
+      fetchTodas<ErpCorreccionRow>((from, to) =>
+        db.from("erp_correcciones")
+          .select("lote, fecha, campo, en_la_app, en_el_erp, detectada_en, aceptada_en")
+          .order("lote").order("campo").range(from, to)
+      ),
     ]);
 
     // ── 2. Reglas ────────────────────────────────────────────────────────────
@@ -213,6 +222,7 @@ Deno.serve(async (req) => {
     const actuales: Hallazgo[] = [
       ...reglaSobrellenadoMalla(palets, fechasSobrellenado, costePuestoDesdeCamiones(camionesSaf)),
       ...reglaCuadreSaf(camionesSaf, entradasSaf, hoy),
+      ...reglaCorreccionesErp(correccionesErp, hoy),
       ...reglaDineroParado(palets, hoy),
       ...reglaSinVender(palets, hoy),
       ...reglaFrutaParada(stockInforme),

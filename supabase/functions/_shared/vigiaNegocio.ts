@@ -282,6 +282,66 @@ export function reglaCuadreSaf(
   }
   return out;
 }
+// ---------------------------------------------------------------------------
+// Regla 2b: correcciones ERP ↔ app pendientes de revisar
+// ---------------------------------------------------------------------------
+// sincronizar-entradas-erp.mjs no pisa una entrada cuando el ERP y la app
+// tienen dato distinto: lo deja en erp_correcciones (foto actual, ver la
+// migración 20260902094925). Cada lote con discrepancias es UN estado: se avisa
+// al aparecer, se recuerda los lunes y se cierra solo cuando el sincronizador
+// deja de verlo (alguien corrigió el ERP o la app).
+
+export interface ErpCorreccionRow {
+  lote: string;
+  fecha: string | null;
+  campo: string;
+  en_la_app: string | null;
+  en_el_erp: string | null;
+  detectada_en: string;
+  /** Alguien (admin) la dio por diferencia conocida: el vigía no la cuenta. */
+  aceptada_en?: string | null;
+}
+
+/** Campos cuyo choque se traduce a euros o kilos en el hallazgo. */
+const CAMPOS_EUR = new Set(["importe_compra", "importe_transporte"]);
+const CAMPOS_KG = new Set(["kg_entrada", "kg_bruto_bascula"]);
+
+export function reglaCorreccionesErp(filas: ErpCorreccionRow[], hoy: string): Hallazgo[] {
+  const porLote = new Map<string, ErpCorreccionRow[]>();
+  for (const f of filas) {
+    if (f.aceptada_en) continue;
+    if (!porLote.has(f.lote)) porLote.set(f.lote, []);
+    porLote.get(f.lote)!.push(f);
+  }
+  const out: Hallazgo[] = [];
+  for (const [lote, difs] of [...porLote.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    difs.sort((a, b) => a.campo.localeCompare(b.campo));
+    const desde = difs.map((d) => d.detectada_en.slice(0, 10)).sort()[0];
+    const dias = diasEntre(desde, hoy);
+    let eur = 0;
+    let kg = 0;
+    for (const d of difs) {
+      const dif = toNum(d.en_el_erp) - toNum(d.en_la_app);
+      if (CAMPOS_EUR.has(d.campo)) eur += dif;
+      if (CAMPOS_KG.has(d.campo)) kg += dif;
+    }
+    const fecha = difs[0].fecha;
+    const lista = difs.map((d) => `${d.campo}: app «${d.en_la_app ?? "—"}» / ERP «${d.en_el_erp ?? "—"}»`).join(" · ");
+    out.push({
+      regla: "correccion-erp",
+      clave: `correccion-erp|${lote}`,
+      tipo: "estado",
+      severidad: eur !== 0 ? "aviso" : "atencion",
+      titulo: `La entrada ${lote}${fecha ? ` (${fmtFecha(fecha)})` : ""} no dice lo mismo en el ERP que en la Herramienta: ${difs.length} campo${difs.length === 1 ? "" : "s"}` +
+        (dias > 0 ? `, desde hace ${dias} día${dias === 1 ? "" : "s"}` : ""),
+      detalle: `${lista}. La sincronización no pisa un dato que ya existe: hay que decidir cuál de los dos es el bueno y corregirlo donde toque — o, si es una diferencia conocida (p. ej. importación por neto vs báscula), aceptarla en Datos → Importación SAF.`,
+      eur: eur !== 0 ? eur : null,
+      kg: kg !== 0 ? kg : null,
+    });
+  }
+  return out;
+}
+
 
 // ---------------------------------------------------------------------------
 // Regla 3 — Dinero parado: albaranes de venta viejos sin factura
