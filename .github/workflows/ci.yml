@@ -34,7 +34,15 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run lint
       - run: npm run typecheck
+      # El cliente de Supabase (src/integrations/supabase/client.ts) se niega a
+      # arrancar sin estas dos variables, y 10 ficheros de test lo importan.
+      # En el portátil salen del .env; aquí valen unos valores de relleno: los
+      # tests no hablan con la red. Primer run real (02-09): 10 ficheros rojos
+      # por esto.
       - run: npm test
+        env:
+          VITE_SUPABASE_URL: https://ci.invalid.supabase.co
+          VITE_SUPABASE_ANON_KEY: ci-sin-clave
 
   edge:
     # Las edge functions son Deno: TypeScript aparte del de la app. `deno check`
@@ -49,4 +57,12 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - run: deno check supabase/functions/*/index.ts
+      # esm.sh a veces devuelve 408 al bajar los tipos de supabase-js (pasó en
+      # el primer run): se reintenta hasta tres veces antes de dar por rota la
+      # comprobación.
+      - run: |
+          for intento in 1 2 3; do
+            deno check supabase/functions/*/index.ts && exit 0
+            echo "deno check falló (intento $intento), reintentando en 20 s…"; sleep 20
+          done
+          exit 1
