@@ -57,12 +57,13 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      # esm.sh a veces devuelve 408 al bajar los tipos de supabase-js (pasó en
-      # el primer run): se reintenta hasta tres veces antes de dar por rota la
-      # comprobación.
+      # esm.sh sirve los tipos de supabase-js con una ruta interna que responde
+      # 408 de forma sistemática (02-09: tres intentos idénticos), así que solo
+      # aquí se remapean esm.sh → npm: con un import map (.github/deno-import-map.json).
+      # Las funciones y su deploy no cambian. Un reintento por si npm tose.
       - run: |
-          for intento in 1 2 3; do
-            deno check supabase/functions/*/index.ts && exit 0
-            echo "deno check falló (intento $intento), reintentando en 20 s…"; sleep 20
+          for intento in 1 2; do
+            deno check --import-map=.github/deno-import-map.json supabase/functions/*/index.ts && exit 0
+            echo "deno check falló (intento $intento)"; sleep 15
           done
           exit 1

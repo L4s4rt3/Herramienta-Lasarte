@@ -1,0 +1,8 @@
+{
+  "//": "Solo para `deno check` en el CI. Las funciones importan supabase-js de esm.sh (asi las despliega Supabase, sin tocar nada); esm.sh sirve los TIPOS con una ruta interna de storage-js que responde 408 de forma sistematica (02-09-2026, tres intentos identicos), asi que aqui se remapea al paquete npm, que trae los mismos tipos. En produccion este fichero no interviene.",
+  "imports": {
+    "https://esm.sh/@supabase/supabase-js@2.57.0": "npm:@supabase/supabase-js@2.57.0",
+    "https://esm.sh/xlsx@0.18.5": "npm:xlsx@0.18.5",
+    "https://esm.sh/fflate@0.8.2": "npm:fflate@0.8.2"
+  }
+}
