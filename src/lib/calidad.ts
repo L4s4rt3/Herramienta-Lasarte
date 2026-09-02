@@ -1,7 +1,7 @@
 import jsPDF from "jspdf";
 import type { Worksheet } from "exceljs";
 import { unzipSync } from "fflate";
-import { getISOWeek, getISOWeekYear } from "date-fns";
+import { claveSemanaIso } from "@/lib/semanaIso";
 import {
   añadirHojaTabla,
   crearLibroLasarte,
@@ -645,11 +645,10 @@ export function buildLotesParaImportar(
 
 /** Etiqueta de semana ISO ("2026-W27") a partir de una fecha "YYYY-MM-DD". */
 export function isoWeekKey(fecha: string): string {
-  const date = new Date(`${fecha}T12:00:00`);
-  if (Number.isNaN(date.getTime())) return fecha;
-  const year = getISOWeekYear(date);
-  const week = getISOWeek(date);
-  return `${year}-W${String(week).padStart(2, "0")}`;
+  // Misma semana ISO que el resto del proyecto (semanaIso.ts); antes iba por
+  // date-fns, una cuarta implementación que podía divergir en el borde de año.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || Number.isNaN(new Date(`${fecha}T12:00:00`).getTime())) return fecha;
+  return claveSemanaIso(fecha);
 }
 
 export interface CalidadHistoricoSemana {

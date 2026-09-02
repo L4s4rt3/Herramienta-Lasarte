@@ -1,5 +1,6 @@
 import type { ConsumoPeriodoRow } from "@/lib/consumosFisicos";
 import { toISODateLocal } from "@/lib/format";
+import { getIsoWeekNumber } from "@/lib/isoWeek";
 
 /**
  * Vista de periodo (Semana | Mes | Campaña) para la pagina de Consumos.
@@ -18,7 +19,6 @@ export interface PeriodoRange {
   detail: string;
 }
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 function parseISO(date: string): Date {
   return new Date(`${date}T12:00:00`);
@@ -51,13 +51,9 @@ function endOfMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth() + 1, 0);
 }
 
-/** Numero de semana ISO-8601 (1-53). */
+/** Numero de semana ISO-8601 (1-53): la misma función que el resto del proyecto (isoWeek.ts → semanaIso.ts). */
 export function isoWeekNumber(date: Date): number {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil((((d.getTime() - yearStart.getTime()) / MS_PER_DAY) + 1) / 7);
+  return getIsoWeekNumber(date);
 }
 
 const MES_LABEL = [

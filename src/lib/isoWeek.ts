@@ -19,6 +19,8 @@
  *   o restar días con `addDays`.
  */
 
+import { numeroSemanaIso } from "./semanaIso";
+
 /** Formatea una fecha como YYYY-MM-DD usando los componentes locales (no UTC). */
 export function toIsoDate(date: Date): string {
   // Componentes locales, no UTC (en España toISOString adelantaría el día de madrugada).
@@ -32,13 +34,13 @@ export function addDays(date: Date, days: number): Date {
   return next;
 }
 
-/** Número de semana ISO-8601 (1-53) de la fecha dada. */
+/**
+ * Número de semana ISO-8601 (1-53) de la fecha dada. Desde el 02-09-2026 delega
+ * en la implementación única de semanaIso.ts (compartida con las edge
+ * functions): aquí solo queda el nombre que ya usaban las páginas.
+ */
 export function getIsoWeekNumber(date: Date): number {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return numeroSemanaIso(date);
 }
 
 /** Lunes (a las 12:00) de la semana ISO a la que pertenece `date`. */

@@ -30,50 +30,17 @@ import {
 import type { MermaLote } from "./mermaLote.ts";
 
 // ---------------------------------------------------------------------------
-// Semanas ISO (sin date-fns: la edge function no carga dependencias para esto)
+// Semanas ISO: UNA implementación para todo el proyecto (semanaIso.ts). Hasta el
+// 02-09-2026 este módulo tenía su propia copia; se re-exporta para que quien lo
+// importa no cambie.
 // ---------------------------------------------------------------------------
+export { semanaIsoDe, fechasSemanaIso, semanaIsoAnterior, type SemanaIso } from "./semanaIso.ts";
+import { fechasSemanaIso } from "./semanaIso.ts";
 
-export interface SemanaIso {
-  anio: number;
-  semana: number;
-}
-
-const DIA_MS = 86_400_000;
-
+/** Fecha YYYY-MM-DD como Date UTC a medianoche (para contar días y saber el día de la semana). */
 function aFechaUtc(fechaISO: string): Date {
   const [y, m, d] = fechaISO.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d));
-}
-
-function aISO(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
-/** Semana ISO-8601 de una fecha YYYY-MM-DD (equivale a getISOWeek/getISOWeekYear de date-fns). */
-export function semanaIsoDe(fechaISO: string): SemanaIso {
-  const d = aFechaUtc(fechaISO);
-  // Jueves de la semana de la fecha: fija el año ISO.
-  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-  const anio = d.getUTCFullYear();
-  const inicioAnio = new Date(Date.UTC(anio, 0, 1));
-  const semana = Math.ceil(((d.getTime() - inicioAnio.getTime()) / DIA_MS + 1) / 7);
-  return { anio, semana };
-}
-
-/** Las 7 fechas (lunes..domingo) de una semana ISO. */
-export function fechasSemanaIso(anio: number, semana: number): string[] {
-  // El 4 de enero está siempre en la semana 1 del año ISO.
-  const enero4 = new Date(Date.UTC(anio, 0, 4));
-  const lunesSemana1 = new Date(enero4.getTime() - ((enero4.getUTCDay() || 7) - 1) * DIA_MS);
-  const lunes = new Date(lunesSemana1.getTime() + (semana - 1) * 7 * DIA_MS);
-  return Array.from({ length: 7 }, (_, i) => aISO(new Date(lunes.getTime() + i * DIA_MS)));
-}
-
-/** Semana ISO anterior a la de la fecha dada (la que cubre el informe del martes). */
-export function semanaIsoAnterior(hoyISO: string): SemanaIso {
-  const hoy = aFechaUtc(hoyISO);
-  const lunes = new Date(hoy.getTime() - ((hoy.getUTCDay() || 7) - 1) * DIA_MS);
-  return semanaIsoDe(aISO(new Date(lunes.getTime() - 7 * DIA_MS)));
 }
 
 // ---------------------------------------------------------------------------
