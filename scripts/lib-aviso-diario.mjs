@@ -559,7 +559,7 @@ export function componerAviso({
   if (correcciones == null) avisos.push("No se pudo comprobar si hay correcciones pendientes.");
   else if (correcciones > 0) {
     avisos.push(`Hay ${correcciones} campos que el ERP tiene distintos de la app` +
-      " (outputs/correcciones-entradas-erp-*.csv). No se han tocado: revisar a mano.");
+      ". No se han tocado: revisarlas o aceptarlas en Datos → Importación SAF (el vigía las recuerda los lunes).");
   }
   if (informesCalibrador && informesCalibrador.lotesConfeccion > 0) {
     if (informesCalibrador.n === 0) {

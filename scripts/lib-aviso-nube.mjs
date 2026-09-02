@@ -1,0 +1,665 @@
+/**
+ * lib-aviso-nube.mjs — la MITAD NUBE de la tarea diaria (Fase 2, pasos 1 y 2:
+ * 02-09-2026). Solo habla con Supabase: sube los informes del calibrador que
+ * faltan, fabrica los informes del parte, analiza y estima los pendientes,
+ * cuadra la ventana, recoge produccion/ventas/productores/trazabilidad, compone
+ * el correo y lo manda. Lo que necesita del ERP le llega YA HECHO en `erp`
+ * (ver lib-aviso-erp.mjs), en memoria o leido de la base: si falta, el correo
+ * lo dice en vez de callarse — que es justo la señal que antes no existia.
+ *
+ * SOLO PORTATIL (a sustituir en el paso 3, cuando esto se vaya a una edge
+ * function): receptorVivo (socket local :25), colaDelLog (fichero de log),
+ * buzonDelDia y calibradorSinSubir (los registro.jsonl de outputs/) y
+ * recuperarInformesSinSubir (los .docx en disco). Todos degradan a null/[] si
+ * no hay disco, asi que el correo sale igualmente sin esas secciones.
+ */
+import fs from "node:fs";
+import net from "node:net";
+import path from "node:path";
+import { componerAviso, comoFecha, informesSinSubir, mezclarSerie } from "./lib-aviso-diario.mjs";
+import { renderAvisoHtml } from "./lib-aviso-html.mjs";
+import { datosCalibradorDelDia, traerTodo } from "./crear-parte-diario.mjs";
+import { analizarPartesPendientes } from "./analizar-partes-pendientes.mjs";
+import { generarYSubirInformes } from "./generar-informes-parte.mjs";
+import { codigoBaseLote, pasadasDocxFrescas } from "./lib-lotes.mjs";
+import { cuadrar } from "./rehacer-parte.mjs";
+import { estimarPartesPendientes } from "./estimar-manuales-parte.mjs";
+import { detectarCierre, inventarioSinAlta, diaLocal } from "./lib-cierre-alta.mjs";
+import { parsearInformeCalibrador, validarBloques } from "./lib-informe-calibrador.mjs";
+import { subirInforme } from "./lib-subir-informe-calibrador.mjs";
+import { VENTANA_RECUPERACION, ventanaDias } from "./lib-aviso-erp.mjs";
+
+const DESTINO = process.env.AVISO_DESTINO ?? "soporte@lasartesat.es";
+const REMITENTE = process.env.RESEND_FROM_TECNICO ?? "calibrador@comunicaciones.lasartesat.com";
+const LOG = path.resolve("outputs/log-tarea-diaria.txt");
+const sinTildes = (s) => (s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
+
+/**
+ * ¿Escucha el receptor de la LAN? Es el RESPALDO: desde el 18-08 el Sizer manda
+ * los informes por correo, asi que caido no se pierde nada — pero un respaldo
+ * apagado tampoco es un respaldo, y se dice. (La vigilancia de la IP del equipo
+ * se retiro el 26-08 con la via LAN: ya nadie envia a una IP fija.)
+ */
+function receptorVivo(puerto = 25, ms = 2000) {
+  return new Promise((resolve) => {
+    const s = net.createConnection({ host: "127.0.0.1", port: puerto });
+    const fin = (v) => { s.destroy(); resolve(v); };
+    s.setTimeout(ms);
+    s.once("connect", () => fin(true));
+    s.once("error", () => fin(false));
+    s.once("timeout", () => fin(false));
+  });
+}
+
+const colaDelLog = (n = 15) => {
+  try { return fs.readFileSync(LOG, "utf8").trimEnd().split(/\r?\n/).slice(-n); } catch { return []; }
+};
+
+/**
+ * Cada fuente de datos, cada cuánto DEBERÍA llegar, y cuánto puede tardar antes
+ * de que sea raro. Sin esto, una fuente que deja de alimentarse no se nota:
+ * la herramienta sigue enseñando el último dato como si fuera de hoy, y el
+ * descubrimiento llega semanas después. Los umbrales son generosos a propósito
+ * — la idea es cazar el abandono, no dar la lata por un día de retraso.
+ */
+const FUENTES = [
+  { tabla: "entradas_bascula", campo: "fecha", que: "Entradas de fruta", dias: 7 },
+  // El calibrador tiene DOS vias y cualquiera vale: el volcado SQL (a mano) y
+  // los informes DOCX de lote que el Sizer manda solos. Mirar solo el volcado
+  // hacia decir "nada desde el 11-08" cada mañana con los DOCX entrando a
+  // diario y sus partes analizados (visto el 19-08): el dia contaba como sin
+  // analizar solo por ser docx. La pregunta de esta lista es "¿sigue entrando
+  // el dato?", no "¿por que via?".
+  { tablas: [
+    { tabla: "calibrador_batch", campo: "inicio" },
+    { tabla: "calibrador_informe", campo: "fecha" },
+  ], que: "Datos del calibrador (volcado o informes de lote)", dias: 5 },
+  // El volcado en si se vigila aparte y con manga ancha: es manual, y si se
+  // abandona semanas los dias con varias pasadas (2,9%) se quedan cortos.
+  { tabla: "calibrador_batch", campo: "inicio", que: "Volcado SQL del calibrador (export-sizer.ps1 a mano)", dias: 21 },
+  { tabla: "erp_palet", campo: "fecha", que: "Palets del ERP", dias: 5 },
+  { tabla: "calidad_lotes", campo: "fecha", que: "Informes de calidad", dias: 14 },
+  { tabla: "limpieza_partes", campo: "fecha", que: "Partes de limpieza de box", dias: 21 },
+  { tabla: "consumos_fisicos", campo: "fecha_fin", que: "Consumos (agua, luz, gasoil)", dias: 45 },
+  { tabla: "ventas_categoria_lineas", campo: "fecha", que: "Ventas por categoria", dias: 45 },
+  { tabla: "camara_externa_camiones", campo: "fecha_almacenamiento", que: "Registro de camaras externas", dias: 60 },
+];
+
+/**
+ * Qué llegó ayer al buzón de correo y qué pasó con ello. Sin esto, un Excel que
+ * el buzón deja esperando porque necesita confirmación se quedaría ahí para
+ * siempre y nadie lo sabría — que es justo el problema que el buzón venía a
+ * resolver.
+ */
+function buzonDelDia(fecha) {
+  const registro = path.resolve("outputs/calibrador/registro.jsonl");
+  let lineas;
+  try { lineas = fs.readFileSync(registro, "utf8").trimEnd().split(/\r?\n/); } catch { return null; }
+
+  const importados = [];
+  const esperando = [];
+  const noReconocidos = [];
+  for (const l of lineas) {
+    let ev;
+    try { ev = JSON.parse(l); } catch { continue; }
+    if (!String(ev.recibido ?? "").startsWith(fecha)) continue;
+    for (const a of ev.adjuntos ?? []) {
+      const b = a.buzon;
+      if (!b) continue;
+      const item = { fichero: path.basename(a.fichero), etiqueta: b.etiqueta, detalle: b.detalle };
+      if (b.estado === "importado") importados.push(item);
+      else if (b.estado === "esperando") esperando.push(item);
+      else noReconocidos.push(item);
+    }
+  }
+  if (!importados.length && !esperando.length && !noReconocidos.length) return null;
+  return { importados, esperando, noReconocidos };
+}
+
+/**
+ * Informes que llegaron y que no están en la base — por CUALQUIERA de las dos
+ * vías: el buzón de correo (la canónica desde el 18-08) y el receptor de la
+ * LAN (el respaldo). Hasta el 26-08 solo se miraba el registro del receptor,
+ * y un informe que el buzón no lograra subir se quedaba sin que nadie chillara.
+ *
+ * El registro dice si la subida falló, pero NO se usa como verdad: lo que manda
+ * es si la pasada está hoy en `calibrador_informe`. Así, en cuanto se reintenta,
+ * el aviso desaparece solo. Ver informesSinSubir en lib-aviso-diario.mjs.
+ */
+async function calibradorSinSubir(supabase) {
+  const registros = [
+    path.resolve("outputs/calibrador/registro.jsonl"),   // receptor LAN (respaldo)
+    path.resolve("outputs/buzon/registro.jsonl"),        // buzón Gmail (canónica)
+  ];
+  const entradas = [];
+  let algunRegistro = false;
+  for (const registro of registros) {
+    let lineas;
+    try { lineas = fs.readFileSync(registro, "utf8").trimEnd().split(/\r?\n/); } catch { continue; }
+    algunRegistro = true;
+    for (const l of lineas) {
+      let ev;
+      try { ev = JSON.parse(l); } catch { continue; }
+      for (const a of ev.adjuntos ?? []) {
+        // El receptor apunta la subida AL LADO del informe (a.subida); el buzón,
+        // DENTRO (a.informe.subida). Se aceptan las dos formas.
+        const inf = a.informe;
+        const subida = a.subida ?? inf?.subida;
+        if (!inf?.lote || subida?.subido !== false) continue;
+        // "simulacion" no es un fallo, y "unique" es que ya estaba en la base.
+        if (/simulacion|unique/i.test(subida.motivo ?? "")) continue;
+        entradas.push({
+          recibido: ev.recibido ?? ev.leido, lote: inf.lote,
+          comienzo: inf.comienzo ?? null, motivo: subida.motivo,
+          // El .docx sigue en disco junto al registro: es lo que se reintenta.
+          fichero: a.fichero ? path.join(path.dirname(registro), a.fichero) : null,
+        });
+      }
+    }
+  }
+  if (!algunRegistro) return null;
+  if (!entradas.length) return [];
+
+  // Solo los lotes implicados: son un puñado y evita traerse la tabla entera.
+  const lotes = [...new Set(entradas.map((e) => e.lote))];
+  const filas = [];
+  for (let i = 0; i < lotes.length; i += 100) {
+    const { data } = await supabase.from("calibrador_informe")
+      .select("lote, comienzo").in("lote", lotes.slice(i, i + 100));
+    filas.push(...(data ?? []));
+  }
+  return informesSinSubir(
+    entradas,
+    new Set(filas.map((f) => `${f.lote}|${f.comienzo}`)),
+    new Set(filas.map((f) => f.lote)),
+  );
+}
+
+/**
+ * Reintenta, uno a uno, los informes que llegaron y no entraron en la base.
+ *
+ * Hasta el 02-09-2026 el correo le pedía a una persona que lanzara
+ * subir-informes-calibrador.mjs --aplicar, que re-sube los 45+ ficheros de
+ * outputs/calibrador (y reescribe recibido_at de todos, lo que puede cambiar
+ * qué pasada gana en pasadasDocxFrescas). Aquí solo se tocan los pendientes
+ * de verdad (0 o 1 al día), con el fichero que anotó el buzón o el receptor.
+ * Un informe que no cuadra consigo mismo NO se sube (misma regla que el
+ * script): se anota el motivo y seguirá saliendo en el correo hasta que
+ * alguien lo mire. Nunca lanza: cada fallo es una incidencia, no un abort.
+ */
+async function recuperarInformesSinSubir(supabase, pendientes, incidencias) {
+  const recuperados = [];
+  for (const p of pendientes ?? []) {
+    const etiqueta = `lote ${p.lote}${p.comienzo ? ` (${p.comienzo})` : ""}`;
+    if (!p.fichero) { incidencias.push(`Informe sin subir ${etiqueta}: el registro no dice qué fichero era; no se puede reintentar.`); continue; }
+    if (!fs.existsSync(p.fichero)) { incidencias.push(`Informe sin subir ${etiqueta}: el fichero ya no está en ${p.fichero}.`); continue; }
+    try {
+      const informe = parsearInformeCalibrador(fs.readFileSync(p.fichero));
+      const descuadres = validarBloques(informe.bloques);
+      if (descuadres.length) {
+        incidencias.push(`Informe sin subir ${etiqueta}: ${descuadres.length} bloque(s) no cuadran con sus totales; no se sube hasta que alguien lo mire.`);
+        continue;
+      }
+      const res = await subirInforme(supabase, informe, path.relative(path.resolve("outputs"), p.fichero));
+      recuperados.push({ lote: res.lote, fecha: res.fecha, lineas: res.lineas });
+      incidencias.push(`Recuperado el informe del calibrador ${etiqueta}: ${res.lineas} líneas en la base (${res.fecha}).`);
+    } catch (e) {
+      incidencias.push(`ERROR: reintentando el informe ${etiqueta}: ${e.message}`);
+    }
+  }
+  return recuperados;
+}
+
+/**
+ * A qué hora se cerró el alta y cuánto quedó sin dar de alta, deducido de las
+ * fotos horarias del ERP (ver lib-cierre-alta.mjs).
+ *
+ * TODAVÍA NO SE ESCRIBE EN EL PARTE. El número se enseña al lado del que apuntan
+ * a mano para poder compararlos unos días; hasta que no coincidan, el bueno
+ * sigue siendo el suyo. Mismo criterio que se siguió con la producción y las
+ * mujeres, que se validaron contra 5 partes antes de darlas por buenas.
+ */
+async function cierreEInventario(supabase, dia) {
+  const { data, error } = await supabase.from("erp_palets_foto")
+    .select("tomada_a, kg_netos, palets").eq("dia", dia).order("tomada_a");
+  if (error || !data?.length) return null;
+  // La hora de cierre se busca SOLO entre las fotos del propio dia: las de la
+  // mañana siguiente son siempre las mas altas (ya esta todo dado de alta) y
+  // harian creer que el dia se cerro a las 07:00.
+  const delDia = data.filter((f) => diaLocal(f.tomada_a) <= dia);
+  const cierre = detectarCierre(delDia);
+  const inventario = inventarioSinAlta(dia, data);
+  return { fotos: data.length, fotosDelDia: delDia.length, cierre, inventario };
+}
+
+/**
+ * El día visto por el PARTE, para cuando no hay volcado del calibrador. Los
+ * kilos y el destino salen de `producto_dia`, que es lo que escriben los
+ * informes DOCX al analizarse.
+ *
+ * SOLO LAS FILAS CON DESTINO. Los partes viejos traen `grupo_destino` en blanco
+ * y darlos por buenos pintaría un día entero al 0% de exportación; esos días
+ * tienen su volcado, que es quien manda (ver mezclarSerie). Y nunca la fila
+ * TOTAL (producto null), que es el total del día y contaría los kilos dos veces.
+ *
+ * Las pasadas se cuentan por los informes que llegaron ese día: cuando no hay
+ * volcado, son lo único que sabe cuántas fueron.
+ */
+async function diasDelParte(supabase, desde, hasta) {
+  const { data: partes } = await supabase.from("partes_diarios")
+    .select("id, date").gte("date", desde).lte("date", hasta);
+  if (!partes?.length) return [];
+  const fechaDe = new Map(partes.map((p) => [p.id, p.date]));
+  const [filas, informes] = await Promise.all([
+    traerTodo(() => supabase.from("producto_dia")
+      .select("part_id, kg, grupo_destino").in("part_id", [...fechaDe.keys()])
+      .not("producto", "is", null).not("grupo_destino", "is", null).order("id")),
+    supabase.from("calibrador_informe").select("fecha, lote, comienzo, recibido_at")
+      .gte("fecha", desde).lte("fecha", hasta),
+  ]);
+  // Un informe re-guardado con otro nombre (mismo comienzo) es la misma pasada,
+  // no dos: ver pasadasDocxFrescas.
+  const lotesPorDia = new Map();
+  for (const i of pasadasDocxFrescas(informes.data ?? [])) {
+    if (!lotesPorDia.has(i.fecha)) lotesPorDia.set(i.fecha, new Set());
+    lotesPorDia.get(i.fecha).add(i.lote);
+  }
+  const porDia = new Map();
+  for (const fila of filas) {
+    const fecha = fechaDe.get(fila.part_id);
+    if (!fecha) continue;
+    const acc = porDia.get(fecha) ?? { fecha, kg: 0, exportacion: 0, mujeres: 0, pasadas: 0 };
+    const kg = Number(fila.kg) || 0;
+    acc.kg += kg;
+    const g = sinTildes(fila.grupo_destino);
+    if (g === "EXPORTACION") acc.exportacion += kg;
+    if (g === "MUJERES") acc.mujeres += kg;
+    porDia.set(fecha, acc);
+  }
+  for (const [fecha, acc] of porDia) acc.pasadas = lotesPorDia.get(fecha)?.size ?? 0;
+  return [...porDia.values()];
+}
+
+/**
+ * Los últimos días de producción, para poder decir si el de ayer fue bueno o
+ * malo. Un número suelto ("78.689 kg") no dice nada; el mismo número al lado de
+ * la media de la semana sí.
+ *
+ * El % de exportación es el que más se mueve —del 48% al 73% en dos semanas— y
+ * es lo que de verdad marca si la fruta salió bien.
+ */
+async function contextoSemana(supabase, hasta, dias = 14) {
+  const desde = comoFecha(new Date(
+    new Date(`${hasta}T12:00:00`).getFullYear(),
+    new Date(`${hasta}T12:00:00`).getMonth(),
+    new Date(`${hasta}T12:00:00`).getDate() - dias,
+  ));
+
+  const { data: batches, error } = await supabase.from("calibrador_batch")
+    .select("batch_id, inicio").gte("inicio", `${desde}T00:00:00`).lte("inicio", `${hasta}T23:59:59`);
+  // CERO PASADAS YA NO ES EL FINAL: desde el 12-08-2026 hay días que solo
+  // existen en los informes DOCX, y antes eso dejaba la gráfica entera fuera.
+  if (error) return null;
+
+  const diaDe = new Map((batches ?? []).map((b) => [b.batch_id, String(b.inicio).slice(0, 10)]));
+  const ids = (batches ?? []).map((b) => b.batch_id);
+  const filas = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const trozo = ids.slice(i, i + 100);
+    filas.push(...await traerTodo(() => supabase.from("calibrador_clasificacion")
+      .select("batch_id, peso_kg, grupo_destino").in("batch_id", trozo)
+      .order("batch_id").order("producto").order("calidad").order("clase").order("tamano")));
+  }
+
+  const porDia = new Map();
+  for (const f of filas) {
+    const d = diaDe.get(f.batch_id);
+    if (!d) continue;
+    const acc = porDia.get(d) ?? { fecha: d, kg: 0, exportacion: 0, mujeres: 0, pasadas: new Set() };
+    const kg = Number(f.peso_kg) || 0;
+    acc.kg += kg;
+    const g = sinTildes(f.grupo_destino);
+    if (g === "EXPORTACION") acc.exportacion += kg;
+    if (g === "MUJERES") acc.mujeres += kg;
+    acc.pasadas.add(f.batch_id);
+    porDia.set(d, acc);
+  }
+
+  // Las pasadas mandan; los días que no las tienen los pone el parte.
+  const serie = mezclarSerie(
+    [...porDia.values()].map((d) => ({ ...d, pasadas: d.pasadas.size })),
+    await diasDelParte(supabase, desde, hasta),
+  );
+  if (serie.length === 0) return null;
+
+  // La media EXCLUYE el día del que se informa: comparar un día consigo mismo
+  // dentro de la media lo acerca artificialmente a ella.
+  const previos = serie.filter((d) => d.fecha < hasta);
+  const media = previos.length === 0 ? null : {
+    dias: previos.length,
+    kg: previos.reduce((s, d) => s + d.kg, 0) / previos.length,
+    mujeres: previos.reduce((s, d) => s + d.mujeres, 0) / previos.length,
+    pctExp: 100 * previos.reduce((s, d) => s + d.exportacion, 0) / previos.reduce((s, d) => s + d.kg, 0),
+  };
+  return { serie: serie.slice(-8), media, hoy: serie.find((d) => d.fecha === hasta) ?? null };
+}
+
+/**
+ * El último dato de cada fuente y cuántos días hace de él. Una fuente puede
+ * tener varias tablas (`tablas`): vale la MÁS RECIENTE de todas, porque lo que
+ * se vigila es que el dato siga entrando, por la vía que sea.
+ */
+async function frescuraDeDatos(supabase, hoy) {
+  const out = [];
+  for (const f of FUENTES) {
+    const patas = f.tablas ?? [{ tabla: f.tabla, campo: f.campo }];
+    let ultimo = null;
+    let legible = false;
+    for (const p of patas) {
+      const { data, error } = await supabase.from(p.tabla)
+        .select(p.campo).order(p.campo, { ascending: false }).limit(1);
+      if (error) continue;                     // tabla que ya no existe: no es asunto del aviso
+      legible = true;
+      const valor = data?.[0]?.[p.campo];
+      if (!valor) continue;
+      const fecha = String(valor).slice(0, 10);
+      if (!ultimo || fecha > ultimo) ultimo = fecha;
+    }
+    if (!legible) continue;
+    if (!ultimo) { out.push({ ...f, ultimo: null, retraso: null }); continue; }
+    const retraso = Math.floor((Date.parse(`${hoy}T00:00:00`) - Date.parse(`${ultimo}T00:00:00`)) / 86400000);
+    out.push({ ...f, ultimo, retraso });
+  }
+  return out;
+}
+
+/**
+ * Corre la mitad nube para `ayer`. `erp` es el resultado de ejecutarMitadErp
+ * (o null si hoy no ha corrido). Devuelve { asunto, hayProblema, envio }.
+ */
+export async function ejecutarMitadNube(supabase, { ayer, hoy, erp, url, key, enviar = true }) {
+  const incidencias = [...(erp?.incidencias ?? [])];
+  // Sin resultado del ERP el correo no se calla: lo dice como accion "error"
+  // del parte, que es lo que la plantilla ya sabe contar.
+  const parte = erp?.parte ?? {
+    accion: "error",
+    motivo: "la mitad ERP de la tarea no ha corrido hoy (portatil apagado o sin red): sin partes, GSTOCK ni palets del ERP",
+  };
+  const gstockRecuperados = erp?.gstockRecuperados ?? [];
+  const gstockRehechos = erp?.gstockRehechos ?? [];
+
+  // Y los informes del calibrador que subia la persona (TAMAÑOS/CLASE Y CALIDAD,
+  // PRODUCTO y PRODUCCION). Del Sizer solo llega el .docx por lote y
+  // `analizar-parte` lee con XLSX: sin estos, el parte se queda sin desglose por
+  // calibre ni por destino, que es justo lo que el analisis venia avisando.
+  // Mismo criterio que el GSTOCK: se fabrica el fichero, no se escriben los
+  // kilos por detras. Ver generar-informes-parte.mjs.
+  // Antes, lo que llegó del calibrador y no entró en la base: se reintenta
+  // AQUÍ, antes de fabricar los informes del parte, para que el lote recuperado
+  // entre en el análisis de hoy (generarYSubirInformes lo verá y marcará el
+  // día como rehecho, y el análisis se fuerza más abajo).
+  try {
+    const pendientes = await calibradorSinSubir(supabase);
+    await recuperarInformesSinSubir(supabase, pendientes ?? [], incidencias);
+  } catch (e) {
+    incidencias.push(`ERROR: reintento de informes del calibrador sin subir: ${e.message}`);
+  }
+
+  const informesSubidos = [];
+  for (const f of ventanaDias(ayer, VENTANA_RECUPERACION)) {
+    try {
+      const r = await generarYSubirInformes(supabase, f, { aplicar: true });
+      if (r.accion === "subido" || r.accion === "rehecho") informesSubidos.push(f);
+    } catch (e) {
+      incidencias.push(`ERROR: informes del calibrador del ${f}: ${e.message}`);
+    }
+  }
+
+  // Y se analizan los que tengan sus informes subidos y nadie haya analizado:
+  // los archivos ahi dentro sin extraer no le sirven a nadie.
+  let analizados = [];
+  try {
+    const desde = comoFecha(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - VENTANA_RECUPERACION));
+    // Los rehechos van FORZADOS: su GSTOCK es otro, pero el parte no cumple
+    // ninguna de las dos condiciones normales (ya esta analizado y sus palets no
+    // estan a cero), asi que sin esto el archivo nuevo se quedaria sin leer.
+    analizados = await analizarPartesPendientes(supabase, {
+      url, key, desde, aplicar: true, forzar: [...new Set([...gstockRehechos.map((r) => r.fecha), ...informesSubidos])],
+    });
+    for (const a of analizados) {
+      if (a.accion === "error") incidencias.push(`ERROR: analizar el parte del ${a.fecha}: ${a.motivo}`);
+    }
+  } catch (e) {
+    incidencias.push(`ERROR: no se pudieron analizar los partes pendientes: ${e.message}`);
+  }
+
+  // Los manuales que nadie metio se ESTIMAN segun historico (encargo del 17-08:
+  // "si no hay informacion de la que yo pongo manual, se estima"), con un dia
+  // entero de gracia y todo marcado en campos_estimados. El correo lo cuenta, y
+  // el dato real, cuando alguien lo teclee, gana y retira la estimacion solo.
+  // Ver lib-estimar-manuales.mjs para el metodo campo a campo y sus porques.
+  let estimados = null;
+  try {
+    estimados = await estimarPartesPendientes(supabase, { hoy: comoFecha(hoy), aplicar: true });
+  } catch (e) {
+    incidencias.push(`ERROR: no se pudieron estimar los manuales pendientes: ${e.message}`);
+  }
+
+  // EL CUADRE, TODAS LAS MAÑANAS. Un parte puede quedarse con el detalle
+  // descuadrado sin que nada falle: los informes se suben, el analisis termina
+  // bien, y aun asi calibres_dia suma otra cosa que kg_produccion_calibrador.
+  // Paso el 17-08-2026 con las mujeres contadas dos veces, y solo se vio porque
+  // alguien se puso a mirarlo. Comprobarlo aqui es lo que convierte "se subio"
+  // en "esta bien", y sale en el correo con el dia y los kilos.
+  for (const f of ventanaDias(ayer, VENTANA_RECUPERACION)) {
+    try {
+      const { data: p } = await supabase.from("partes_diarios")
+        .select("id, date, kg_produccion_calibrador, kg_palets_brutos").eq("date", f).maybeSingle();
+      if (!p) continue;
+      const c = await cuadrar(supabase, p);
+      for (const d of c.desvios) incidencias.push(`ERROR: el parte del ${f} no cuadra. ${d}.`);
+    } catch (e) {
+      incidencias.push(`ERROR: no se pudo cuadrar el parte del ${f}: ${e.message}`);
+    }
+  }
+
+  // 2. Entradas y palets de ayer.
+  const [entRes, palRes] = await Promise.all([
+    supabase.from("entradas_bascula").select("kg_entrada, agricultor, origen").eq("fecha", ayer),
+    supabase.from("erp_palet").select("kg_netos, importe_venta, lote_confeccion, cliente").eq("fecha", ayer),
+  ]);
+  if (entRes.error) throw new Error(`entradas: ${entRes.error.message}`);
+  if (palRes.error) throw new Error(`palets: ${palRes.error.message}`);
+
+  const entFilas = (entRes.data ?? []).filter((e) => e.origen !== "stock_inicial");
+  const entradas = {
+    n: entFilas.length,
+    kg: entFilas.reduce((s, e) => s + (Number(e.kg_entrada) || 0), 0),
+    precalibrado: entFilas.filter((e) => /precalibrado/i.test(e.agricultor ?? "")).length,
+  };
+
+  const palFilas = palRes.data ?? [];
+  const porCliente = new Map();
+  for (const p of palFilas) {
+    const c = p.cliente ?? "(sin vender)";
+    porCliente.set(c, (porCliente.get(c) ?? 0) + (Number(p.kg_netos) || 0));
+  }
+  // Los KILOS salen del ERP en directo (el mismo número que va al parte), no de
+  // `erp_palet`: esa tabla filtra `num_cajas > 0` y ademas va por detras hasta
+  // que corre su sincronizador, y dos cifras distintas de "palets" en el mismo
+  // correo no se pueden defender. De `erp_palet` se usa lo que solo ella tiene:
+  // el importe y el cliente.
+  const facturados = palFilas.filter((p) => Number(p.importe_venta) > 0);
+  const palets = {
+    n: parte?.paletsErp?.palets ?? palFilas.length,
+    kg: parte?.paletsErp?.netos ?? palFilas.reduce((s, p) => s + (Number(p.kg_netos) || 0), 0),
+    euros: facturados.reduce((s, p) => s + (Number(p.importe_venta) || 0), 0),
+    // El precio medio se divide SOLO entre los kilos que llevan importe: con los
+    // kilos totales saldria un precio falsamente barato el dia que falte facturar.
+    kgFacturados: facturados.reduce((s, p) => s + (Number(p.kg_netos) || 0), 0),
+    clientes: [...porCliente.entries()].filter(([c]) => c !== "(sin vender)")
+      .map(([cliente, kg]) => ({ cliente, kg })).sort((a, b) => b.kg - a.kg),
+  };
+
+  // 3. Calibrador del dia: totales, destino y productores.
+  const cal = await datosCalibradorDelDia(supabase, ayer);
+  let calibrador = null;
+  let productores = null;
+  if (cal.pasadas > 0) {
+    // Las pasadas las elige datosCalibradorDelDia (volcado del Sizer si lo hay,
+    // informes de lote si no). Buscarlas otra vez aqui era pedirle el detalle a
+    // la fuente que ese dia NO tiene nada.
+    const ids = cal.ids ?? [];
+    const loteDe = cal.loteDe ?? new Map();
+    // Paginado y con orden por la clave primaria entera: un dia normal pasa de
+    // 1.000 filas y PostgREST recorta en silencio (ver traerTodo).
+    const filas = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      const trozo = ids.slice(i, i + 100);
+      filas.push(...await traerTodo(() => supabase.from("calibrador_clasificacion")
+        .select("batch_id, peso_kg, grupo_destino").in("batch_id", trozo)
+        .order("batch_id").order("producto").order("calidad").order("clase").order("tamano")));
+    }
+    const grupo = (f) => sinTildes(f.grupo_destino);
+    calibrador = {
+      pasadas: cal.pasadas,
+      kgTotal: cal.kgTotal,
+      kgMujeres: cal.kgMujeres,
+      kgExportacion: filas.filter((f) => grupo(f) === "EXPORTACION").reduce((s, f) => s + Number(f.peso_kg), 0),
+      kgIndustria: filas.filter((f) => grupo(f) === "NO COMERCIAL" || grupo(f).includes("INDUSTRIA"))
+        .reduce((s, f) => s + Number(f.peso_kg), 0),
+    };
+
+    // Productores: por lote contra entradas_bascula (nunca por nombre). El
+    // codigo se pasa por codigoBaseLote: el volcado lo trae limpio ("26051903")
+    // pero el informe DOCX lo trae tal cual lo teclea planta ("26051903 24
+    // BOX"), y compararlo crudo dejaba los dias servidos por DOCX enteros como
+    // "(sin productor)" (visto en el aviso del 18-08).
+    const lotes = [...new Set([...loteDe.values()].map((l) => codigoBaseLote(l))
+      .filter((l) => /^\d{8}$/.test(l)))];
+    const dueno = new Map();
+    for (let i = 0; i < lotes.length; i += 200) {
+      const { data } = await supabase.from("entradas_bascula")
+        .select("lote, agricultor").in("lote", lotes.slice(i, i + 200));
+      for (const e of data ?? []) dueno.set(e.lote, e.agricultor);
+    }
+    const porProd = new Map();
+    for (const f of filas) {
+      const nombre = dueno.get(codigoBaseLote(loteDe.get(f.batch_id))) ?? "(sin productor)";
+      const acc = porProd.get(nombre) ?? { kg: 0, exp: 0 };
+      acc.kg += Number(f.peso_kg) || 0;
+      if (grupo(f) === "EXPORTACION") acc.exp += Number(f.peso_kg) || 0;
+      porProd.set(nombre, acc);
+    }
+    productores = [...porProd.entries()]
+      .map(([productor, a]) => ({ productor, kg: a.kg, pctExportacion: a.kg > 0 ? 100 * a.exp / a.kg : 0 }))
+      .sort((a, b) => b.kg - a.kg);
+
+    // ¿Cuanto hace del ultimo DATO del calibrador? Las fuentes son DOS, como en
+    // datosCalibradorDelDia: el volcado SQL y los informes DOCX de lote. El
+    // volcado se exporta A MANO y puede pasarse semanas parado (lo esta desde
+    // el 11-08); mientras los informes sigan entrando, el calibrador NO esta
+    // mudo. Mirar solo el volcado hacia saltar "[REVISAR] datos de hace N dias"
+    // cada mañana, como si los partes de esos dias no se analizaran, cuando se
+    // crean y analizan a diario con los DOCX (visto el 19-08). El abandono del
+    // volcado en si lo vigila la lista FUENTES, con umbral generoso.
+    const [{ data: ultimoBatch }, { data: ultimoInforme }] = await Promise.all([
+      supabase.from("calibrador_batch").select("inicio").order("inicio", { ascending: false }).limit(1),
+      supabase.from("calibrador_informe").select("fecha").order("fecha", { ascending: false }).limit(1),
+    ]);
+    const ultimoDato = [ultimoBatch?.[0]?.inicio, ultimoInforme?.[0]?.fecha]
+      .filter(Boolean).map((v) => String(v).slice(0, 10)).sort().at(-1);
+    if (ultimoDato) {
+      const dias = Math.floor((Date.parse(`${ayer}T23:59:59`) - Date.parse(`${ultimoDato}T00:00:00`)) / 86400000);
+      if (dias > 1) calibrador.desfaseDatos = dias;
+    }
+  }
+
+  // 4. Trazabilidad y correcciones.
+  const lotesDia = [...new Set(palFilas.map((p) => p.lote_confeccion).filter(Boolean))];
+  const cobertura = { lotes: lotesDia.length, conOrigen: 0 };
+  let origenesDia = [];
+  if (lotesDia.length) {
+    const { data } = await supabase.from("erp_confeccion_origen")
+      .select("lote_confeccion, lote_entrada").in("lote_confeccion", lotesDia);
+    origenesDia = data ?? [];
+    cobertura.conOrigen = new Set(origenesDia.map((r) => r.lote_confeccion)).size;
+  }
+
+  const yymmdd = ayer.slice(2, 4) + ayer.slice(5, 7) + ayer.slice(8, 10);
+  const confAyer = new Set(lotesDia.filter((l) => /^\d{8}$/.test(l) && l.slice(2) === yymmdd));
+  // El lote del informe viene tal cual lo teclea planta ("26051903 24 BOX"):
+  // se reduce al codigo base para que case con los lotes de entrada esperados,
+  // o cada informe llegado contaria igualmente como "sin informe".
+  const { data: infData } = await supabase.from("calibrador_informe").select("lote").eq("fecha", ayer);
+  const lotesInformes = [...new Set((infData ?? []).map((r) => codigoBaseLote(r.lote)))].sort();
+  const esperados = [...new Set(origenesDia.filter((o) => confAyer.has(o.lote_confeccion)).map((o) => o.lote_entrada))];
+  const informesCalibrador = {
+    n: lotesInformes.length, lotes: lotesInformes, lotesConfeccion: confAyer.size,
+    faltan: esperados.filter((l) => !lotesInformes.includes(l)).sort(),
+  };
+
+  // Discrepancias ERP <-> app pendientes: desde el 02-09 viven en la tabla
+  // erp_correcciones (las escribe el sincronizador de las 07:10), no en el CSV
+  // del portatil. Las aceptadas como diferencia conocida no cuentan.
+  let correcciones = null;
+  try {
+    const { count, error } = await supabase.from("erp_correcciones")
+      .select("lote", { count: "exact", head: true }).is("aceptada_en", null);
+    correcciones = error ? null : (count ?? 0);
+  } catch { /* null = no se pudo comprobar */ }
+
+
+  const { cuerpo, hayProblema, modelo } = componerAviso({
+    fecha: ayer, entradas, palets, cobertura, correcciones, informesCalibrador,
+    calibrador, productores, log: [...colaDelLog(), ...incidencias],
+    parte: {
+      ...parte,
+      gstockRecuperados: gstockRecuperados.map((r) => r.fecha),
+      gstockRehechos: gstockRehechos.map((r) => ({ fecha: r.fecha, faltaban: r.faltaban })),
+    },
+    frescura: await frescuraDeDatos(supabase, comoFecha(hoy)),
+    buzon: buzonDelDia(ayer),
+    analizados: analizados.filter((a) => a.accion === "analizado"),
+    estimados,
+    alta: await cierreEInventario(supabase, ayer),
+    contexto: await contextoSemana(supabase, ayer),
+    receptor: await receptorVivo(),
+    sinSubir: await calibradorSinSubir(supabase),
+  });
+  // El asunto lleva ya lo esencial: en la bandeja se ve el dia sin abrirlo, y
+  // dos meses de correos se pueden repasar en diagonal.
+  const dm = `${Number(ayer.slice(8, 10))} ${["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"][Number(ayer.slice(5, 7)) - 1]}`;
+  const resumen = calibrador?.kgTotal > 0
+    ? `${Math.round(calibrador.kgTotal).toLocaleString("es-ES")} kg · ${Math.round(100 * calibrador.kgExportacion / calibrador.kgTotal)}% export.`
+    : "sin datos del calibrador";
+  const asunto = `${hayProblema ? "[REVISAR] " : ""}Lasarte ${dm} · ${resumen}`;
+
+  // El HTML es lo que se lee (el texto plano destrozaba las columnas en Gmail);
+  // el texto sigue viajando como alternativa y como copia local inspeccionable.
+  const html = renderAvisoHtml(modelo);
+  fs.mkdirSync(path.resolve("outputs"), { recursive: true });
+  fs.writeFileSync(path.resolve("outputs/aviso-diario.txt"), `${asunto}\n\n${cuerpo}\n`, "utf8");
+  fs.writeFileSync(path.resolve("outputs/aviso-diario.html"), html, "utf8");
+  console.log(`${asunto}\n\n${cuerpo}`);
+
+
+  const apiKey = process.env.RESEND_API_KEY;
+  let envio = "enviado";
+  if (!apiKey) {
+    console.log("\n(sin RESEND_API_KEY: queda en outputs/aviso-diario.txt)");
+    envio = "sin-clave";
+  } else if (!enviar) {
+    console.log("\n(--sin-enviar)");
+    envio = "sin-enviar";
+  } else {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: REMITENTE, to: [DESTINO], subject: asunto, html, text: cuerpo }),
+    });
+    if (!res.ok) throw new Error(`Resend HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    console.log(`\nAviso enviado a ${DESTINO}.`);
+  }
+  return { asunto, hayProblema, envio };
+}
