@@ -253,7 +253,7 @@ const TRABAJOS: DefTrabajo[] = [
   {
     id: "prueba-restauracion",
     nombre: "Ensayo de restauración de la copia",
-    queHace: "Carga la última copia entera en un esquema aparte y comprueba que cuadra. Es lo que demuestra que la copia SIRVE, no solo que se hace. Se lanza a mano, una vez al trimestre: node scripts/restaurar-copia.mjs.",
+    queHace: "Carga la última copia entera en un esquema aparte y comprueba que cuadra. Es lo que demuestra que la copia SIRVE, no solo que se hace. Tarea «Lasarte - Ensayo restauracion»: el día 2 de enero, abril, julio y octubre a las 22:45 (desde el 02-09-2026; antes se lanzaba a mano).",
     evaluar: periodico(
       "una vez al trimestre",
       100 * 24 * 60,
@@ -284,7 +284,7 @@ const TRABAJOS: DefTrabajo[] = [
       7 * 24 * 60 + 6 * 60,
       8 * 24 * 60,
       "Corre en Supabase: revisar los logs de la edge function ventas-mercadona-semanal y el job " +
-      "«ventas-mercadona-lunes» de pg_cron. Relanzable a mano; no duplica lo ya enviado.",
+      "«ventas-mercadona-lunes» de pg_cron (hay un reintento a las 10:25). Relanzable a mano; no duplica lo ya enviado.",
     ),
   },
   {
@@ -308,7 +308,7 @@ const TRABAJOS: DefTrabajo[] = [
       26 * 60,
       50 * 60,
       "Corre en Supabase, no en el portátil: hay que revisar el job «vigia-negocio-diario» de pg_cron " +
-      "y los logs de la edge function vigia-negocio.",
+      "(hay un reintento 25 min después) y los logs de la edge function vigia-negocio.",
     ),
   },
   {
@@ -320,7 +320,7 @@ const TRABAJOS: DefTrabajo[] = [
       33 * 24 * 60,
       36 * 24 * 60,
       "Corre en Supabase, no en el portátil: hay que revisar el job «cierre-mensual-dia1» de pg_cron " +
-      "y los logs de la edge function cierre-mensual.",
+      "(hay un reintento 30 min después) y los logs de la edge function cierre-mensual.",
     ),
   },
 ];
