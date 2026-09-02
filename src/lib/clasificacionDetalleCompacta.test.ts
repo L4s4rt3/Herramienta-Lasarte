@@ -9,7 +9,7 @@ import {
 
 const MIGRACION = resolve(
   __dirname,
-  "../../supabase/migrations/20260730110000_rpc_clasificacion_detalle_por_partes.sql",
+  "../../supabase/migrations/20260730065100_rpc_clasificacion_detalle_por_partes_compacta.sql",
 );
 
 describe("contrato con la RPC", () => {
