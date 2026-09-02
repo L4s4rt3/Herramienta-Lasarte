@@ -206,7 +206,28 @@ cambia el sitio donde ocurre el silencio.
       salían `succeeded` porque `net.http_post` solo confirma que encoló la
       petición, no que el otro lado respondiera. Al vigilante le pasaba justo lo
       que venía a vigilar. **Un cron en verde no prueba que su función corra.**
-- [ ] Partir el aviso: ERP en la LAN, el resto en `pg_cron` → edge.
+- [x] **Pasos 1 y 2 HECHOS el 02-09-2026**: el aviso está partido en `scripts/lib-aviso-erp.mjs`
+      (partes + palets del ERP + GSTOCK; deja su resultado serializado en
+      `sistema_ejecuciones`, trabajo `tarea-erp`) y `scripts/lib-aviso-nube.mjs`
+      (informes, análisis, estimación, cuadre, lecturas y correo; recibe lo del ERP
+      hecho, en memoria o leído de la base). `aviso-diario-erp.mjs` es el
+      orquestador: sin flags hace exactamente lo de antes (el `.cmd` no cambió);
+      con `--solo-erp` / `--solo-nube` corren por separado. **Probado**: el correo
+      de la mitad nube leyendo el ERP de la base es idéntico al de las dos mitades
+      seguidas. Si la mitad ERP no ha corrido, el correo lo dice ("la mitad ERP de
+      la tarea no ha corrido hoy") en vez de callarse. Las correcciones ERP ↔ app
+      ya se leen de la tabla `erp_correcciones`, no del CSV del portátil.
+- [ ] Paso 3: portar `lib-aviso-nube.mjs` a una edge function (Deno + `_shared`). Lo que
+      hoy sigue leyendo el disco del portátil y hay que sustituir antes: `receptorVivo`
+      (socket local), `colaDelLog` (fichero de log), `buzonDelDia` y `calibradorSinSubir`
+      (los `registro.jsonl` de `outputs/`) y `recuperarInformesSinSubir` (los `.docx`).
+      Todo degrada a null/[] sin disco, así que el correo saldría igualmente sin esas
+      secciones; lo correcto es que buzón y receptor dejen su registro en una tabla.
+      `generar-informes-parte` usa `xlsx` (traer por esm.sh como las demás).
+- [ ] Paso 4: colgar la mitad nube de `pg_cron` (después de la ERP, con margen) y quitar
+      su paso del `.cmd`; dar de alta `tarea-erp` y la nube en `saludTrabajos.ts`.
+      Mientras no esté, el `.cmd` sigue mandando.
+- [ ] Partir el aviso (lo que quedaba antes de los pasos 1-2):
       **Lectura del 02-09-2026 (antes de tocar nada):** el corte NO es limpio en
       un solo punto. Cruzan la costura CUATRO datos que hoy viajan en memoria y
       no están en Supabase, no uno: (1) los `sospechosos` del GSTOCK (palets
