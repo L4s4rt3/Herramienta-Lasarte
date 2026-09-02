@@ -1,0 +1,10 @@
+{
+ "cortePlantillaReducida": 35,
+ "regimenes": {
+  "completa": { "kgPersonaSuelo": 1700, "kgPersonaObjetivo": 2100 },
+  "reducida": { "kgPersonaSuelo": 2200, "kgPersonaObjetivo": 2600 }
+ },
+ "decididoPor": "el dueño",
+ "fecha": "2026-08-27",
+ "nota": "El estándar depende del RÉGIMEN de plantilla (análisis por tipo de día, 27-08): reducida = media plantilla (≤35 presentes, el régimen de agosto), donde el kg/persona rinde más y el listón es más alto; completa = plantilla entera aunque haya faltas (un día de 45 es completa con faltas). Revisar cada 4-6 semanas: si se clava el objetivo un mes, subir suelo y objetivo."
+}

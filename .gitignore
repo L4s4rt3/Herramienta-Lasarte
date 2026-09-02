@@ -35,3 +35,9 @@ bun.lock*
 supabase/.temp/
 .vercel
 .env
+
+# Pipeline de rendimiento (scripts/informe-produccion): el codigo va al repo, los datos no
+scripts/informe-produccion/salida/
+scripts/informe-produccion/lotes-extra/
+scripts/informe-produccion/*.xlsx
+__pycache__/

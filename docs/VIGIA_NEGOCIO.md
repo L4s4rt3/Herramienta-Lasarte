@@ -124,7 +124,7 @@ datos ya completos de la vista arreglada.
   desde los Excel entregados de la semana 33 y entonces programarlo (lunes,
   portátil de la oficina).
 - **Fichas de trabajadores mensuales**: el generador vive en
-  `tmp/informe-produccion/` (fichas-personas.ts + build_fichas.py +
+  `scripts/informe-produccion/` (fichas-personas.ts + build_fichas.py +
   generar-fichas.cmd); moverlo a `scripts/` y darle tarea mensual en el
   portátil de la oficina.
 - **Potencia eléctrica** (¿compensa subir el escalón?): faltan los excesos de

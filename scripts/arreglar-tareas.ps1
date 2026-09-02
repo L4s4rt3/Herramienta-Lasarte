@@ -71,6 +71,10 @@ $tareas = @(
   # script se planta si la de hoy ya esta verificada, asi que el reintento de
   # 30 min sale gratis.
   @{ nombre = "Lasarte - Copia de seguridad";  vbs = "copia-seguridad.vbs";   despierta = $true;  reintento = "PT30M"; duracion = "PT3H" }
+  # El correo diario de rendimiento (09:00) vivio en tmp/informe-produccion (fuera
+  # de git) y fuera de esta lista hasta el 02-09-2026: era la unica tarea sin
+  # recuperacion ni ajuste de bateria. Ahora el codigo esta en scripts/.
+  @{ nombre = "Lasarte - Informe rendimiento diario"; vbs = "informe-produccion\correo-diario.vbs"; despierta = $false }
 )
 
 # Temporizadores de reactivacion con corriente alterna: 1 = habilitar. Sin esto,
