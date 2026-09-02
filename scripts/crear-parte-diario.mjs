@@ -72,6 +72,7 @@ import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { conectarErp, paletsDelDia } from "./lib-palets-erp.mjs";
 import { batchIdDeDocx } from "./lib-subir-informe-calibrador.mjs";
+import { pasadasDocxFrescas } from "./lib-lotes.mjs";
 
 try { process.loadEnvFile(path.resolve(".env")); } catch { /* entorno */ }
 
@@ -165,16 +166,23 @@ export async function datosCalibradorDelDia(supabase, fecha) {
   // eso se pasa por batchIdDeDocx en vez de sumar por lote: un lote que entro en
   // linea dos dias tiene dos informes, y sumar por lote contaria los dos en cada
   // uno de los dos dias.
-  const { data: informes, error: errI } = await supabase
-    .from("calibrador_informe").select("lote, comienzo").eq("fecha", fecha);
+  const { data: recibidos, error: errI } = await supabase
+    .from("calibrador_informe").select("lote, comienzo, recibido_at").eq("fecha", fecha);
   if (errI) throw new Error(`calibrador_informe: ${errI.message}`);
-  if (!informes?.length) {
+  if (!recibidos?.length) {
     return { pasadas: 0, origen: null, kgTotal: 0, kgMujeres: 0, ids: [], loteDe: new Map() };
   }
 
+  // Y UNA VEZ POR PASADA. Si planta edita el nombre del lote en el Sizer y
+  // re-guarda, el mismo comienzo llega con dos nombres y dos batch: el 31-08-2026
+  // el 26082901 entro como "26082901" y como "26082901 -95 BOX" y el parte sumo
+  // 22,4 t + 25,9 t en un dia de 31 t (DSJ +50%). Se queda el informe mas
+  // reciente de cada pasada, la misma regla que la vista clasificacion_lote.
+  const informes = pasadasDocxFrescas(recibidos);
   const idsDocx = informes.map((i) => batchIdDeDocx(i.lote, i.comienzo));
   return {
     pasadas: idsDocx.length, origen: "docx", lotes: informes.length, ids: idsDocx,
+    reguardados: recibidos.length - informes.length,
     loteDe: new Map(informes.map((i) => [batchIdDeDocx(i.lote, i.comienzo), i.lote])),
     ...await kilosDeBatches(supabase, idsDocx),
   };

@@ -24,7 +24,7 @@ import { analizarPartesPendientes } from "./analizar-partes-pendientes.mjs";
 import { conectarErp } from "./lib-palets-erp.mjs";
 import { generarYSubir } from "./generar-gstock-erp.mjs";
 import { generarYSubirInformes } from "./generar-informes-parte.mjs";
-import { codigoBaseLote } from "./lib-lotes.mjs";
+import { codigoBaseLote, pasadasDocxFrescas } from "./lib-lotes.mjs";
 import { cuadrar } from "./rehacer-parte.mjs";
 import { estimarPartesPendientes } from "./estimar-manuales-parte.mjs";
 import { detectarCierre, inventarioSinAlta, diaLocal } from "./lib-cierre-alta.mjs";
@@ -245,11 +245,13 @@ async function diasDelParte(supabase, desde, hasta) {
     traerTodo(() => supabase.from("producto_dia")
       .select("part_id, kg, grupo_destino").in("part_id", [...fechaDe.keys()])
       .not("producto", "is", null).not("grupo_destino", "is", null).order("id")),
-    supabase.from("calibrador_informe").select("fecha, lote")
+    supabase.from("calibrador_informe").select("fecha, lote, comienzo, recibido_at")
       .gte("fecha", desde).lte("fecha", hasta),
   ]);
+  // Un informe re-guardado con otro nombre (mismo comienzo) es la misma pasada,
+  // no dos: ver pasadasDocxFrescas.
   const lotesPorDia = new Map();
-  for (const i of informes.data ?? []) {
+  for (const i of pasadasDocxFrescas(informes.data ?? [])) {
     if (!lotesPorDia.has(i.fecha)) lotesPorDia.set(i.fecha, new Set());
     lotesPorDia.get(i.fecha).add(i.lote);
   }
