@@ -5,7 +5,7 @@
 // Todas las horas van con desfase +02:00 (Madrid en agosto) para que los tests
 // no dependan de la zona horaria de la máquina que los corre.
 import { describe, expect, it } from "vitest";
-import { evaluarTrabajos, renderAvisoVigilante, type LatidoRow } from "./saludTrabajos";
+import { evaluarTrabajos, problemasQueAvisa, renderAvisoVigilante, type LatidoRow } from "./saludTrabajos";
 
 const latido = (trabajo: string, visto_a: string, estado = "ok", detalle: string | null = null): LatidoRow =>
   ({ trabajo, visto_a, estado, detalle, equipo: "PORTATIL-OFICINA" });
@@ -113,13 +113,66 @@ describe("evaluarTrabajos", () => {
   });
 });
 
+describe("trabajos que hasta el 02-09-2026 latían sin que nadie los mirara", () => {
+  it("el correo de rendimiento de esta mañana es bien; dos días mudo es una avería con su tarea", () => {
+    const ok = estadoDe([latido("informe-rendimiento-diario", "2026-09-02T09:00:50+02:00")], en("2026-09-02T13:45:00+02:00"), "informe-rendimiento-diario");
+    expect(ok.estado).toBe("bien");
+    const mal = estadoDe([latido("informe-rendimiento-diario", "2026-08-31T09:00:50+02:00")], en("2026-09-02T13:45:00+02:00"), "informe-rendimiento-diario");
+    expect(mal.estado).toBe("mal");
+    expect(mal.queHacer).toContain("Informe rendimiento diario");
+  });
+
+  it("un aviso del correo de rendimiento (falta el reloj) es atención, no alarma", () => {
+    const t = estadoDe(
+      [latido("informe-rendimiento-diario", "2026-09-02T09:00:50+02:00", "aviso", "Ayer no hay datos del reloj de personas")],
+      en("2026-09-02T13:45:00+02:00"),
+      "informe-rendimiento-diario",
+    );
+    expect(t.estado).toBe("atencion");
+    expect(t.queHacer).toBeNull();
+  });
+
+  it("el ensayo de restauración de hace dos meses vale; cinco meses sin ensayar es una avería", () => {
+    const bien = estadoDe([latido("prueba-restauracion", "2026-08-14T09:25:00+02:00")], en("2026-10-14T10:00:00+02:00"), "prueba-restauracion");
+    expect(bien.estado).toBe("bien");
+    const mal = estadoDe([latido("prueba-restauracion", "2026-08-14T09:25:00+02:00")], en("2027-01-14T10:00:00+01:00"), "prueba-restauracion");
+    expect(mal.estado).toBe("mal");
+    expect(mal.queHacer).toContain("restaurar-copia.mjs");
+  });
+});
+
+describe("problemasQueAvisa (lo que entra en el correo del vigilante)", () => {
+  const ahora = en("2026-09-02T13:45:00+02:00");
+
+  it("mete lo que está mal y deja fuera lo que está bien o sin estrenar", () => {
+    const salud = evaluarTrabajos([latido("tarea-diaria", "2026-08-31T07:12:00+02:00")], ahora);
+    const ids = problemasQueAvisa(salud).map((t) => t.id);
+    expect(ids).toEqual(["tarea-diaria"]);
+  });
+
+  it("de sí mismo también avisa cuando AYER terminó con error (p. ej. no pudo enviar)", () => {
+    const salud = evaluarTrabajos(
+      [latido("vigilante", "2026-09-01T13:45:00+02:00", "error", "NO se pudo avisar: Resend 401")],
+      ahora,
+    );
+    const yo = salud.find((t) => t.id === "vigilante")!;
+    expect(yo.estado).toBe("atencion");
+    expect(problemasQueAvisa(salud).map((t) => t.id)).toEqual(["vigilante"]);
+  });
+
+  it("de sí mismo NO avisa cuando ayer fue bien: su fila es la de ayer por definición", () => {
+    const salud = evaluarTrabajos([latido("vigilante", "2026-09-01T13:45:00+02:00")], ahora);
+    expect(problemasQueAvisa(salud)).toHaveLength(0);
+  });
+});
+
 describe("renderAvisoVigilante", () => {
   it("compone asunto con el recuento y cuerpo con el qué hacer de cada problema", () => {
     const salud = evaluarTrabajos(
       [latido("tarea-diaria", "2026-08-13T07:12:00+02:00")],
       en("2026-08-14T13:45:00+02:00"),
     );
-    const problemas = salud.filter((t) => t.id !== "vigilante" && t.estado === "mal");
+    const problemas = problemasQueAvisa(salud);
     expect(problemas).toHaveLength(1);
     const { asunto, cuerpo } = renderAvisoVigilante(problemas);
     expect(asunto).toContain("1 trabajo");

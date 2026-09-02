@@ -28,9 +28,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
 import {
   evaluarTrabajos,
+  problemasQueAvisa,
   renderAvisoVigilante,
   type LatidoRow,
 } from "../_shared/saludTrabajos.ts";
+import { registrarLatido } from "../_shared/latido.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -82,17 +84,22 @@ async function enviarResend(
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  // El cliente se crea FUERA del try: el catch lo necesita para dejar latido de
+  // error. Hasta el 02-09-2026 el vigilante era el único trabajo de correo que
+  // moría sin rastro — justo lo que vino a vigilar.
+  const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   try {
     const body = (await req.json().catch(() => ({}))) as { dry_run?: boolean; force?: boolean };
-    const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const inicio = new Date().toISOString();
 
     const { data: latidos, error: errLatidos } = await db.from("sistema_latidos").select("*");
     if (errLatidos) throw new Error(errLatidos.message);
 
     const salud = evaluarTrabajos((latidos ?? []) as unknown as LatidoRow[], new Date());
-    // El vigilante no se juzga a sí mismo (su propia fila es la de esta ejecución).
-    const problemas = salud.filter((t) => t.id !== "vigilante" && t.estado === "mal");
+    // Todo lo que esté mal; de sí mismo, también si AYER terminó con error
+    // (p. ej. no pudo enviar): ver problemasQueAvisa. Además el vigía de
+    // negocio (12:15 UTC) comprueba que este vigilante haya dado señal hoy.
+    const problemas = problemasQueAvisa(salud);
 
     if (body.dry_run) {
       return json({ dry_run: true, problemas: problemas.length, salud });
@@ -144,7 +151,10 @@ Deno.serve(async (req) => {
         (sinEstrenar > 0 ? `, ${sinEstrenar} sin estrenar` : "")
       : `${problemas.length} sin señales: ${problemas.map((p) => p.nombre).join(" · ")}` +
         (yaAvisado ? " (ya avisado hoy)" : envio?.ok ? " (correo enviado)" : ` (NO se pudo avisar: ${envio?.error})`);
-    const estado = problemas.length === 0 ? "ok" : "aviso";
+    // "NO se pudo avisar" es un ERROR del vigilante, no un aviso: así la
+    // página lo pinta en ámbar con el motivo, mañana él mismo lo cuenta en su
+    // correo (problemasQueAvisa) y el vigía de negocio lo ve hoy.
+    const estado = problemas.length === 0 ? "ok" : envio && !envio.ok ? "error" : "aviso";
 
     const { error: errReg } = await db.from("sistema_ejecuciones").insert({
       trabajo: "vigilante",
@@ -155,20 +165,15 @@ Deno.serve(async (req) => {
       datos: { problemas: problemas.map((p) => p.id), avisado: envio?.ok === true },
     });
     if (errReg) console.error(`[vigilante] no se pudo registrar: ${errReg.message}`);
-    const { error: errLat } = await db.from("sistema_latidos").upsert({
-      trabajo: "vigilante",
-      visto_a: new Date().toISOString(),
-      estado,
-      detalle,
-      equipo: "supabase-edge",
-    });
-    if (errLat) console.error(`[vigilante] no se pudo actualizar el latido: ${errLat.message}`);
+    await registrarLatido(db, "vigilante", estado, detalle);
 
     console.log(`[vigilante] problemas=${problemas.length} avisado=${envio?.ok ?? false} yaAvisado=${yaAvisado}`);
     return json({ problemas: problemas.map((p) => ({ id: p.id, titulo: p.titulo })), avisado: envio?.ok === true, yaAvisado, detalle });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[vigilante] error: ${msg}`);
+    // Latido de error también aquí: el vigía de negocio lo lee media hora después.
+    await registrarLatido(db, "vigilante", "error", `no pudo completar la comprobación: ${msg}`);
     return json({ error: "El vigilante no pudo completar la comprobación.", detalle: msg }, 500);
   }
 });

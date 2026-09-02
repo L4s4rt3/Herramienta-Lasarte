@@ -22,6 +22,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
 import { calcularStockYMerma, cargarCampana, fetchTodas, toNum } from "../_shared/campanaEdge.ts";
+import { registrarLatido } from "../_shared/latido.ts";
 import { seleccionarMermaSemana } from "../_shared/informeSemanal.ts";
 import {
   conciliarHallazgos,
@@ -314,6 +315,63 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ── 5b. ¿Y el vigilante? Nadie más lo mira ───────────────────────────────
+    // El vigilante (11:45 UTC) se excluye a sí mismo de su correo, y si el cron
+    // que lo dispara se desprograma, o Resend le falla, no había quien lo dijera
+    // (hasta el 02-09-2026). Este vigía corre media hora después: si el
+    // vigilante no ha dado señal HOY, o su última señal fue de error, manda un
+    // correo llano a los destinatarios del vigilante — una vez al día. Solo
+    // se mira pasadas las 12:00 UTC, para que una invocación a mano por la
+    // mañana no dé una falsa alarma.
+    let avisoVigilante: { ok: boolean; error: string | null } | null = null;
+    if (!body.dry_run && new Date().getUTCHours() >= 12) {
+      const { data: latidos } = await db.from("sistema_latidos").select("trabajo, visto_a, estado, detalle").eq("trabajo", "vigilante");
+      const fila = (latidos ?? [])[0] as { visto_a: string; estado: string; detalle: string | null } | undefined;
+      const vistoHoy = !!fila && new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid" }).format(new Date(fila.visto_a)) === hoy;
+      const motivo = !fila
+        ? null // sin estrenar: no es una avería
+        : !vistoHoy
+        ? `hoy no ha dado señal (le tocaba a las 13:45; lo último fue ${fila.visto_a.slice(0, 16).replace("T", " ")} UTC)`
+        : fila.estado === "error"
+        ? `hoy terminó con error: ${fila.detalle ?? "sin detalle"}`
+        : null;
+      if (motivo) {
+        const { data: previos } = await db
+          .from("sistema_ejecuciones")
+          .select("fin, datos")
+          .eq("trabajo", "vigia-negocio")
+          .gte("fin", new Date(Date.now() - 20 * 3_600_000).toISOString())
+          .order("fin", { ascending: false })
+          .limit(5);
+        const yaAvisadoVigilante = (previos ?? []).some((p) => (p.datos as { vigilanteAvisado?: boolean } | null)?.vigilanteAvisado === true);
+        if (!yaAvisadoVigilante) {
+          const apiKey = Deno.env.get("RESEND_API_KEY")?.trim();
+          const from = (Deno.env.get("RESEND_FROM_VIGILANTE") || Deno.env.get("RESEND_FROM_VIGIA") || Deno.env.get("RESEND_FROM_INFORME") || Deno.env.get("RESEND_FROM"))?.trim();
+          const destinatarios = (Deno.env.get("VIGILANTE_PARA") ?? Deno.env.get("VIGIA_PARA") ?? DESTINATARIO_DEFECTO)
+            .split(/[,;]/).map((d) => d.trim()).filter((d) => EMAIL_RE.test(d));
+          const texto = [
+            "Soy el vigía de negocio que corre en Supabase. Este correo solo llega cuando el VIGILANTE",
+            "— el trabajo que avisa si el portátil de la oficina deja de dar señales — tiene un problema,",
+            "porque él no puede avisar de sí mismo.",
+            "",
+            `QUÉ PASA: el vigilante ${motivo}.`,
+            "",
+            "QUÉ HACER: en Supabase, revisar el job «vigilante-diario» de pg_cron (que exista y esté activo) y",
+            "los logs de la edge function vigilante. Si el motivo es de correo (Resend), revisar RESEND_API_KEY",
+            "y RESEND_FROM_VIGILANTE en los secretos. Mientras el vigilante esté caído, un portátil apagado",
+            "NO genera ningún aviso.",
+            "",
+            "El detalle de todos los trabajos está en https://controlproduccion.vercel.app/datos/fuentes",
+          ].join("\n");
+          const html = `<pre style="font:14px/1.5 system-ui,sans-serif;white-space:pre-wrap">${texto.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`;
+          avisoVigilante = apiKey && from && destinatarios.length > 0
+            ? await enviarResend(apiKey, from, DESTINATARIO_DEFECTO, destinatarios, "[SISTEMA] El vigilante no está vigilando", html, texto)
+            : { ok: false, error: "sin RESEND_API_KEY / RESEND_FROM / destinatarios configurados" };
+          console.log(`[vigia-negocio] vigilante en apuros (${motivo}) avisado=${avisoVigilante.ok}${avisoVigilante.error ? ` error=${avisoVigilante.error}` : ""}`);
+        }
+      }
+    }
+
     // ── 6. Rastro (latido + ejecución, patrón vigilante) ─────────────────────
     const detalle = actuales.length === 0
       ? "sin hallazgos: todo en orden"
@@ -332,17 +390,11 @@ Deno.serve(async (req) => {
         pendientes: plan.pendientes.length,
         resueltos: plan.resolverIds.length,
         avisado: envio?.ok === true,
+        vigilanteAvisado: avisoVigilante?.ok === true,
       },
     });
     if (errReg) console.error(`[vigia-negocio] no se pudo registrar: ${errReg.message}`);
-    const { error: errLat } = await db.from("sistema_latidos").upsert({
-      trabajo: "vigia-negocio",
-      visto_a: new Date().toISOString(),
-      estado,
-      detalle,
-      equipo: "supabase-edge",
-    });
-    if (errLat) console.error(`[vigia-negocio] no se pudo actualizar el latido: ${errLat.message}`);
+    await registrarLatido(db, "vigia-negocio", estado, detalle + (avisoVigilante ? (avisoVigilante.ok ? " · avisado: el vigilante no vigila" : ` · el vigilante no vigila y NO se pudo avisar: ${avisoVigilante.error}`) : ""));
 
     console.log(`[vigia-negocio] hallazgos=${actuales.length} nuevos=${plan.nuevos.length} pendientes=${plan.pendientes.length} resueltos=${plan.resolverIds.length} avisado=${envio?.ok ?? false}`);
     return json({
@@ -360,13 +412,7 @@ Deno.serve(async (req) => {
     // Latido de error también aquí: un vigía mudo sin rastro no lo caza nadie.
     try {
       const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-      await db.from("sistema_latidos").upsert({
-        trabajo: "vigia-negocio",
-        visto_a: new Date().toISOString(),
-        estado: "error",
-        detalle: msg.slice(0, 500),
-        equipo: "supabase-edge",
-      });
+      await registrarLatido(db, "vigia-negocio", "error", msg);
     } catch { /* best-effort */ }
     return json({ error: "El vigía de negocio no pudo completar la revisión.", detalle: msg }, 500);
   }

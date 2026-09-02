@@ -239,6 +239,30 @@ const TRABAJOS: DefTrabajo[] = [
     ),
   },
   {
+    id: "informe-rendimiento-diario",
+    nombre: "Correo diario de rendimiento (09:00)",
+    queHace: "Cada mañana manda el día de ayer y el acumulado de la semana: kg, kg por persona y zona con el semáforo del estándar, sin euros. Corre en el portátil (necesita los DOCX del calibrador y el export del reloj). Hasta el 02-09-2026 latía pero nadie lo miraba: no estaba en esta lista.",
+    evaluar: periodico(
+      "una vez al día (09:00)",
+      26 * 60,
+      50 * 60,
+      "Comprueba el portátil de la oficina; su tarea es «Lasarte - Informe rendimiento diario» " +
+      "(scripts/informe-produccion/correo-diario.cmd). También vale a mano: node scripts/informe-produccion/correo-diario.mjs.",
+    ),
+  },
+  {
+    id: "prueba-restauracion",
+    nombre: "Ensayo de restauración de la copia",
+    queHace: "Carga la última copia entera en un esquema aparte y comprueba que cuadra. Es lo que demuestra que la copia SIRVE, no solo que se hace. Se lanza a mano, una vez al trimestre: node scripts/restaurar-copia.mjs.",
+    evaluar: periodico(
+      "una vez al trimestre",
+      100 * 24 * 60,
+      130 * 24 * 60,
+      "Lanzar node scripts/restaurar-copia.mjs desde el portátil (tarda unos minutos y no toca las tablas " +
+      "reales). Si falla, la copia diaria NO sirve para recuperar la base: hay que mirarlo ese mismo día.",
+    ),
+  },
+  {
     id: "informe-semanal",
     nombre: "Informe semanal (corre en Supabase)",
     queHace: "Cada lunes a las 12:00 manda la semana cerrada: kg, podrido, merma, stock y kg por persona. Late al terminar (y también cuando falla): el 17 y el 24-08 murió en silencio y nadie lo supo.",
@@ -321,10 +345,24 @@ export function evaluarTrabajos(latidos: LatidoRow[], ahora: Date): TrabajoSalud
   });
 }
 
+/**
+ * Lo que el vigilante mete en su correo: todo lo que esté "mal" — y de SÍ MISMO
+ * también lo que esté en "atención". Su propia fila es la de AYER (la de hoy
+ * se escribe al terminar), así que si ayer terminó con error (p. ej. Resend no
+ * le dejó enviar), hoy lo cuenta: es la única forma de que un vigilante que no
+ * consigue avisar acabe avisando. Hasta el 02-09-2026 se excluía del todo y
+ * nadie lo miraba. Los "sin estrenar" no despiertan a nadie.
+ */
+export function problemasQueAvisa(salud: TrabajoSalud[], yo = "vigilante"): TrabajoSalud[] {
+  return salud.filter((t) =>
+    t.id === yo ? t.estado === "mal" || t.estado === "atencion" : t.estado === "mal"
+  );
+}
+
 /** El correo del vigilante: solo los trabajos en "mal", con su qué hacer. */
 export function renderAvisoVigilante(problemas: TrabajoSalud[]): { asunto: string; cuerpo: string } {
   const n = problemas.length;
-  const asunto = `[SISTEMA] ${n} trabajo${n === 1 ? "" : "s"} del portátil de la oficina sin dar señales`;
+  const asunto = `[SISTEMA] ${n} trabajo${n === 1 ? "" : "s"} automático${n === 1 ? "" : "s"} sin dar señales`;
   const lineas = [
     "Soy el vigilante que corre en Supabase, fuera del portátil de la oficina.",
     "Este correo solo llega cuando algún trabajo automático deja de dar señales",
