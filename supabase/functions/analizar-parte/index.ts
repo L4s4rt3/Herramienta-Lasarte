@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 import { unzipSync, zipSync, type AsyncZipOptions } from "https://esm.sh/fflate@0.8.2";
 import {
@@ -52,7 +52,9 @@ Deno.serve(async (req) => {
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
     let uid: string;
-    let userClient: ReturnType<typeof createClient>;
+    // Sin tipos generados: Database = any (ver nota en cierre-mensual/index.ts).
+    // deno-lint-ignore no-explicit-any
+    let userClient: SupabaseClient<any, "public", any>;
     // Try normal user auth; fall back to admin if service_role key
     userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       global: { headers: { Authorization: authHeader } },

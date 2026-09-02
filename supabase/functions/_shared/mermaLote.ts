@@ -697,7 +697,7 @@ export function computeMermaLotes(
     // todo o no). null si falta cualquiera de las dos fechas.
     // Con conciliación, la fecha del reparto (los kg derramados heredan la
     // del donante); la cruda queda de respaldo si el reparto no trae fecha.
-    const ultimaFechaProcesado = (conciliadoPorLote?.get(lote)?.ultimaFecha ?? null)
+    const ultimaFechaProcesado = conciliadoPorLote?.get(lote)?.ultimaFecha
       ?? ultimaFechaProcesadoPorLote.get(lote)
       ?? null;
     const diasEnCamara = entrada.fecha && ultimaFechaProcesado

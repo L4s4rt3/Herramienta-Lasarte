@@ -20,7 +20,7 @@
  * Seguridad: verify_jwt activo (el cron llama con la anon key). Destinatarios
  * SOLO de secretos (CIERRE_MENSUAL_PARA); idempotencia con cierre_mensual_envios.
  */
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
 import {
   computeRentabilidadDia,
   DESTINOS_ORDEN,
@@ -62,7 +62,12 @@ const DESTINATARIO_DEFECTO = "soporte@lasartesat.es";
 const COOLDOWN_MS = 60_000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-type Db = ReturnType<typeof createClient>;
+// El cliente sin tipos generados: `ReturnType<typeof createClient>` resolvía las
+// filas a `never` con los tipos de npm de supabase-js (lo destapó el deno check
+// del CI, 02-09-2026); con Database = any las filas son `any`, que es lo que
+// este código siempre asumió.
+// deno-lint-ignore no-explicit-any
+type Db = SupabaseClient<any, "public", any>;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
