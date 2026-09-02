@@ -61,9 +61,11 @@ jobs:
       # 408 de forma sistemática (02-09: tres intentos idénticos), así que solo
       # aquí se remapean esm.sh → npm: con un import map (.github/deno-import-map.json).
       # Las funciones y su deploy no cambian. Un reintento por si npm tose.
+      # --node-modules-dir=none: al ver el package.json de la raíz, Deno intentaba
+      # resolver npm: contra node_modules (que aquí no existe); así usa su caché.
       - run: |
           for intento in 1 2; do
-            deno check --import-map=.github/deno-import-map.json supabase/functions/*/index.ts && exit 0
+            deno check --node-modules-dir=none --import-map=.github/deno-import-map.json supabase/functions/*/index.ts && exit 0
             echo "deno check falló (intento $intento)"; sleep 15
           done
           exit 1
