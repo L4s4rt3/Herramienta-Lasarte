@@ -8,6 +8,8 @@ import {
   Camera,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Circle,
   Clock,
   Copy,
@@ -36,6 +38,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -44,6 +47,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   useCalidadHistoricoRango,
   useCalidadJornadaDia,
@@ -133,7 +137,10 @@ function cleanFileName(name: string) {
 
 function glassInputClassName(extra?: string) {
   return cn(
-    "h-10 rounded-xl border-[var(--glass-border)] bg-[var(--glass-bg)] shadow-[var(--glass-shadow)] backdrop-blur-xl focus:border-primary/45 focus:ring-primary/20",
+    // h-11/text-base en móvil: dedo gordo y sin zoom automático del navegador
+    // al enfocar (Android e iOS amplían con tipografías < 16 px).
+    "h-11 text-base sm:h-10 sm:text-sm",
+    "rounded-xl border-[var(--glass-border)] bg-[var(--glass-bg)] shadow-[var(--glass-shadow)] backdrop-blur-xl focus:border-primary/45 focus:ring-primary/20",
     "[&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-70",
     extra,
   );
@@ -146,6 +153,12 @@ function isHistoricalProductorId(id: string | null | undefined) {
 function productorIdForDatabase(id: string | null | undefined) {
   return id && !isHistoricalProductorId(id) ? id : null;
 }
+
+// Constante y no atributo JSX: dentro de placeholder="…\n…" la barra invertida
+// es texto literal y en pantalla se leía «color...\n\nAccion recomendada:».
+const PLACEHOLDER_COMENTARIO = `Como entra el lote, incidencias, calibre, color...
+
+Accion recomendada: Separar, revisar en linea, avisar al productor...`;
 
 const QUICK_TIMES = ["06:00", "07:00", "08:00", "09:00", "10:00", "12:00", "14:00", "16:00", "18:00"];
 
@@ -286,6 +299,136 @@ function TimeGlassPicker({ id, value, onChange }: { id: string; value: string; o
   );
 }
 
+/**
+ * Selector de productor/finca. Es la lista más larga de la ficha (todo el
+ * catálogo de la campaña), así que en el móvil se abre como cajón a pantalla
+ * casi completa — el Popover del escritorio dejaba una lista de 3 filas
+ * pegada al teclado y era imposible de usar con el dedo.
+ */
+function ProductorPicker({
+  esMovil,
+  abierto,
+  onAbierto,
+  valor,
+  opciones,
+  busqueda,
+  onBusqueda,
+  puedeCrear,
+  onElegir,
+  onCrear,
+  onBorrar,
+  deshabilitado,
+}: {
+  esMovil: boolean;
+  abierto: boolean;
+  onAbierto: (abierto: boolean) => void;
+  valor: string;
+  opciones: CalidadProductor[];
+  busqueda: string;
+  onBusqueda: (valor: string) => void;
+  puedeCrear: boolean;
+  onElegir: (productor: CalidadProductor) => void;
+  onCrear: (nombre: string) => void;
+  onBorrar: (productor: CalidadProductor) => void;
+  deshabilitado: boolean;
+}) {
+  const disparador = (
+    <Button
+      id="productor-finca"
+      type="button"
+      variant="outline"
+      className="glass glass-hover h-11 w-full justify-between rounded-xl px-3 text-left text-base font-normal sm:h-10 sm:text-sm"
+      disabled={deshabilitado}
+      onClick={esMovil ? () => onAbierto(true) : undefined}
+    >
+      <span className={cn("truncate", !valor && "text-muted-foreground")}>{valor || "Elegir productor/finca"}</span>
+      <Search className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
+    </Button>
+  );
+
+  const lista = (
+    <Command shouldFilter>
+      <CommandInput placeholder="Buscar o escribir nuevo productor/finca..." value={busqueda} onValueChange={onBusqueda} />
+      <CommandList className={cn(esMovil && "max-h-[calc(70vh-8rem)]")}>
+        <CommandEmpty>
+          <div className="space-y-3 p-3 text-center">
+            <p className="text-sm text-muted-foreground">No aparece ese productor/finca.</p>
+            {puedeCrear && (
+              <Button size="sm" className="glass glass-hover" onClick={() => onCrear(busqueda)}>
+                <Plus className="h-4 w-4" />
+                Crear "{normalizeCalidadName(busqueda)}"
+              </Button>
+            )}
+          </div>
+        </CommandEmpty>
+        <CommandGroup heading="Productores/Fincas">
+          {opciones.map((productor) => (
+            <div key={productor.id} className="flex items-center gap-1 rounded-xl">
+              <CommandItem
+                value={productor.nombre}
+                onSelect={() => onElegir(productor)}
+                className={cn("min-w-0 flex-1 rounded-xl", esMovil && "min-h-12 text-base")}
+              >
+                <Check className={cn("mr-2 h-4 w-4 shrink-0", sameCalidadName(valor, productor.nombre) ? "opacity-100" : "opacity-0")} />
+                <span className="truncate">{productor.nombre}</span>
+              </CommandItem>
+              {!esMovil && !isHistoricalProductorId(productor.id) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="mr-1 h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                  title="Borrar productor/finca"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onBorrar(productor);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          ))}
+        </CommandGroup>
+        {puedeCrear && (
+          <CommandGroup heading="Nuevo">
+            <CommandItem value={`crear-${busqueda}`} onSelect={() => onCrear(busqueda)} className={cn("rounded-xl", esMovil && "min-h-12 text-base")}>
+              <Plus className="mr-2 h-4 w-4" />
+              Crear "{normalizeCalidadName(busqueda)}"
+            </CommandItem>
+          </CommandGroup>
+        )}
+      </CommandList>
+    </Command>
+  );
+
+  if (esMovil) {
+    return (
+      <>
+        {disparador}
+        <Drawer open={abierto} onOpenChange={onAbierto}>
+          <DrawerContent className="max-h-[85vh]">
+            <DrawerHeader className="pb-2 text-left">
+              <DrawerTitle>Productor / Finca</DrawerTitle>
+            </DrawerHeader>
+            <div className="px-2 pb-[calc(1rem+env(safe-area-inset-bottom))]">{lista}</div>
+          </DrawerContent>
+        </Drawer>
+      </>
+    );
+  }
+
+  return (
+    <Popover open={abierto} onOpenChange={onAbierto}>
+      <PopoverTrigger asChild>{disparador}</PopoverTrigger>
+      <PopoverContent className="w-[min(520px,calc(100vw-2rem))] p-0" align="start">
+        {lista}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function currentHora() {
   const now = new Date();
   return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
@@ -383,9 +526,26 @@ export default function CalidadJornadaPage() {
   const [historicoInforme, setHistoricoInforme] = useState<CalidadInformeLote | null>(null);
   const [historicoInformeOpen, setHistoricoInformeOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const camaraInputRef = useRef<HTMLInputElement | null>(null);
   const wordInputRef = useRef<HTMLInputElement | null>(null);
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const autosaveTimerRef = useRef<number | null>(null);
+  // Lote pendiente de escribir por el autoguardado con debounce. Se guarda
+  // aparte del temporizador para poder VOLCARLO YA (flushAutosave) al cambiar
+  // de lote, volver a la lista o irse la pantalla al fondo — en el móvil es
+  // habitual bloquear el teléfono antes de que venzan los 1,2 s y el cambio se
+  // perdía sin avisar.
+  const autosavePendienteRef = useRef<CalidadLote | null>(null);
+  const isMobile = useIsMobile();
+  // Maestro/detalle en una sola columna (< xl): qué se está viendo. Antes se
+  // deducía de `selected`, pero `selected` cae a `lotes[0]` cuando no hay
+  // selección, así que la flecha de volver no devolvía nunca a la lista y
+  // desde el móvil era IMPOSIBLE abrir otro lote del día.
+  const [vistaMovil, setVistaMovil] = useState<"lista" | "ficha">("lista");
+  // El responsable ya viene puesto y casi nunca cambia: en el móvil se enseña
+  // solo el nombre y el selector se despliega a petición, que si no se come
+  // media pantalla antes de llegar a los lotes.
+  const [responsableAbierto, setResponsableAbierto] = useState(false);
   // Recuerda la última fecha ya volcada a estado local editable, para no
   // pisar ediciones en curso (autoguardado con debounce, lote seleccionado...)
   // cuando una mutación (addLote, deleteLote...) invalida y refresca el
@@ -438,6 +598,10 @@ export default function CalidadJornadaPage() {
     }
   }, [lotes, loteFiltro]);
   const selected = useMemo(() => lotes.find((lote) => lote.id === selectedId) ?? lotes[0] ?? null, [lotes, selectedId]);
+  // Posición del lote abierto dentro del día: alimenta el «3 de 8» y las
+  // flechas de anterior/siguiente de la ficha (en el móvil evita el viaje de
+  // ida y vuelta a la lista para pasar al lote siguiente).
+  const selectedIndex = useMemo(() => lotes.findIndex((lote) => lote.id === selected?.id), [lotes, selected?.id]);
   const selectedAdjuntos = useMemo(() => adjuntos.filter((adjunto) => adjunto.lote_id === selected?.id), [adjuntos, selected?.id]);
   const selectedHistoricalSimilar = useMemo(
     () => (selected ? findCalidadHistoricoSimilar(selected, historicalLotes) : []),
@@ -488,9 +652,11 @@ export default function CalidadJornadaPage() {
   }, [selected?.id]);
 
   function changeDate(nextDate: string) {
+    flushAutosave();
     setFecha(nextDate);
     setSearchParams({ fecha: nextDate });
     setSelectedId(null);
+    setVistaMovil("lista");
   }
 
   function patchSelected(patch: Partial<CalidadLote>) {
@@ -538,12 +704,58 @@ export default function CalidadJornadaPage() {
   }
 
   function scheduleAutosave(nextLote: CalidadLote) {
+    autosavePendienteRef.current = nextLote;
     if (autosaveTimerRef.current !== null) {
       clearTimeout(autosaveTimerRef.current);
     }
     autosaveTimerRef.current = window.setTimeout(() => {
-      void persistLote(nextLote);
-    }, 2000);
+      autosaveTimerRef.current = null;
+      const pendiente = autosavePendienteRef.current;
+      autosavePendienteRef.current = null;
+      if (pendiente) void persistLote(pendiente);
+    }, 1200);
+  }
+
+  /** Escribe YA lo que estuviera esperando al debounce (cambio de lote, salida de la pantalla...). */
+  function flushAutosave() {
+    if (autosaveTimerRef.current !== null) {
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+    const pendiente = autosavePendienteRef.current;
+    autosavePendienteRef.current = null;
+    if (pendiente) void persistLote(pendiente);
+  }
+
+  // El navegador puede matar la pestaña sin previo aviso al bloquear el móvil o
+  // cambiar de app: volcar el pendiente en cuanto la página deja de verse.
+  const flushRef = useRef(flushAutosave);
+  flushRef.current = flushAutosave;
+  useEffect(() => {
+    const alOcultarse = () => {
+      if (document.visibilityState === "hidden") flushRef.current();
+    };
+    const alSalir = () => flushRef.current();
+    document.addEventListener("visibilitychange", alOcultarse);
+    window.addEventListener("pagehide", alSalir);
+    return () => {
+      document.removeEventListener("visibilitychange", alOcultarse);
+      window.removeEventListener("pagehide", alSalir);
+    };
+  }, []);
+
+  /** Abre un lote en la ficha (y en móvil cambia de pantalla, subiendo al principio). */
+  function abrirLote(id: string) {
+    flushAutosave();
+    setSelectedId(id);
+    setVistaMovil("ficha");
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "auto" });
+  }
+
+  function volverALista() {
+    flushAutosave();
+    setVistaMovil("lista");
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "auto" });
   }
 
   async function ensureProductor(nombre: string) {
@@ -608,7 +820,7 @@ export default function CalidadJornadaPage() {
     try {
       const created = await insertLoteMutation.mutateAsync(emptyLote(jornada, user.id, lotes.length, overrides));
       setLotes((items) => [...items, created]);
-      setSelectedId(created.id);
+      abrirLote(created.id);
       return created;
     } catch (error) {
       toast({ title: "Error creando lote", description: errorMessage(error), variant: "destructive" });
@@ -734,6 +946,7 @@ export default function CalidadJornadaPage() {
       setLotes((items) => items.filter((item) => item.id !== lote.id));
       setAdjuntos((items) => items.filter((item) => item.lote_id !== lote.id));
       setSelectedId((current) => (current === lote.id ? null : current));
+      setVistaMovil("lista");
       toast({ title: "Lote eliminado" });
     } catch (error) {
       toast({ title: "Error eliminando lote", description: errorMessage(error), variant: "destructive" });
@@ -762,6 +975,7 @@ export default function CalidadJornadaPage() {
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+      if (camaraInputRef.current) camaraInputRef.current.value = "";
     }
   }
 
@@ -825,6 +1039,53 @@ export default function CalidadJornadaPage() {
     });
   }
 
+  /** Redacta el informe del lote abierto (determinista, ver lib/calidad.ts). */
+  function generarInformeSelected() {
+    if (!selected) return;
+    const photoCount = attachmentCounts[selected.id] ?? 0;
+    const report = createCalidadDraftReport(selected, photoCount, historicalLotes);
+    patchSelected({
+      informe_estado: "generado",
+      informe_generado: report.informe,
+      ia_resumen: report.informe,
+      ia_accion_recomendada: report.accion_recomendada,
+    });
+    toast({ title: "Informe generado", description: "Revisa el texto y valida cuando estes listo." });
+  }
+
+  /** Valida y bloquea el lote abierto como informe oficial. */
+  function validarInformeSelected() {
+    if (!selected || !user) return;
+    const photoCount = attachmentCounts[selected.id] ?? 0;
+    const validation = canValidateCalidadLote(selected, photoCount);
+    if (!validation.ok) {
+      toast({ title: "No se puede validar", description: validation.reason ?? "", variant: "destructive" });
+      return;
+    }
+    const validated = validateCalidadLote(selected, user.id, new Date().toISOString());
+    patchSelected({
+      informe_estado: validated.informe_estado,
+      validado_at: validated.validado_at,
+      validado_by: validated.validado_by,
+    });
+    void persistLote({ ...selected, ...validated });
+    toast({ title: "Informe validado", description: "El lote queda bloqueado como oficial." });
+  }
+
+  function avisarErrorExport(error: unknown) {
+    toast({ title: "Error al exportar", description: errorMessage(error), variant: "destructive" });
+  }
+
+  function exportarPDF(mode: "borrador" | "oficial") {
+    if (!jornada) return;
+    exportCalidadToPDF(jornada, lotes, adjuntos, { mode }).catch(avisarErrorExport);
+  }
+
+  function exportarExcel() {
+    if (!jornada) return;
+    exportCalidadToExcel(jornada, lotes, adjuntos).catch(avisarErrorExport);
+  }
+
   function reopenSelectedLote() {
     if (!selected || !user) return;
     const reopened = reopenCalidadLote(selected, user.id, new Date().toISOString());
@@ -851,68 +1112,104 @@ export default function CalidadJornadaPage() {
 
   return (
     <div className="page-shell">
-      <header className="page-header">
+      <header className={cn("page-header", vistaMovil === "ficha" && "hidden xl:flex")}>
         <div>
           {/* Kicker con el acento de Producción (--seccion-acento-texto, FASE 2 del rediseño). */}
           <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Departamento de Calidad</p>
           <h1 className="page-title">Jornada de Calidad</h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
+          <p className="hidden max-w-2xl text-sm text-muted-foreground sm:block">
             Notas de lotes para informes diarios, conectadas con el parte de la misma fecha.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Enlace fijo (no solo cuando hay incidencia) al parte del mismo día: cierra el ciclo Calidad ↔ Partes.
-              Si ese día no tiene parte todavía, cae a la lista de la semana (no hay vista de día en Partes). */}
-          <Button variant="outline" size="sm" className="glass glass-hover" asChild>
-            <Link to={parteDelDiaHref}>{parteDelDiaId ? "Ver parte del día" : "Ver partes de la semana"}</Link>
-          </Button>
           {autosaveStatus !== "idle" && (
             <span className={cn("flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium", autosaveStatus === "saving" && "border-warning/40 bg-warning/10 text-warning", autosaveStatus === "saved" && "border-success/40 bg-success/10 text-success", autosaveStatus === "error" && "border-destructive/40 bg-destructive/10 text-destructive")}>
               {autosaveStatus === "saving" && <Loader2 className="h-3 w-3 animate-spin" />}
               {autosaveStatus === "saving" ? "Guardando..." : autosaveStatus === "saved" ? "Guardado" : "Error al guardar"}
             </span>
           )}
+
+          {/* En el móvil los tres controles de jornada (parte, exportar, guardar)
+              caben en un solo menú: así la lista de lotes entra en pantalla sin
+              hacer scroll, que es lo que se viene a hacer aquí. */}
+          <div className="w-full sm:hidden">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="glass glass-hover w-full justify-center">
+                  <MoreHorizontal className="h-4 w-4" />
+                  Opciones de la jornada
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuItem asChild>
+                  <Link to={parteDelDiaHref}>
+                    <ExternalLink className="h-4 w-4" />
+                    {parteDelDiaId ? "Ver parte del día" : "Ver partes de la semana"}
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={saveJornada} disabled={saving || !jornada}>
+                  <Save className="h-4 w-4" />
+                  Guardar jornada
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportarPDF("borrador")} disabled={!jornada || lotes.length === 0}>
+                  <FileText className="h-4 w-4" />
+                  PDF borrador
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportarPDF("oficial")} disabled={!jornada || !lotes.some((l) => l.informe_estado === "validado")}>
+                  <FileText className="h-4 w-4" />
+                  PDF oficial
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={exportarExcel} disabled={!jornada || lotes.length === 0}>
+                  <FileSpreadsheet className="h-4 w-4" />
+                  Excel
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          {/* Enlace fijo (no solo cuando hay incidencia) al parte del mismo día: cierra el ciclo Calidad ↔ Partes.
+              Si ese día no tiene parte todavía, cae a la lista de la semana (no hay vista de día en Partes). */}
+          <Button variant="outline" size="sm" className="glass glass-hover hidden sm:inline-flex" asChild>
+            <Link to={parteDelDiaHref}>{parteDelDiaId ? "Ver parte del día" : "Ver partes de la semana"}</Link>
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="glass glass-hover" disabled={!jornada || lotes.length === 0}>
+              <Button variant="outline" className="glass glass-hover hidden sm:inline-flex" disabled={!jornada || lotes.length === 0}>
                 <Download className="h-4 w-4" />
                 Exportar
                 <ChevronDown className="h-4 w-4 opacity-60" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => jornada && exportCalidadToPDF(jornada, lotes, adjuntos, { mode: "borrador" }).catch((e) => toast({ title: "Error al exportar", description: e instanceof Error ? e.message : String(e), variant: "destructive" }))}>
+              <DropdownMenuItem onClick={() => exportarPDF("borrador")}>
                 <FileText className="h-4 w-4" />
                 PDF borrador
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => jornada && exportCalidadToPDF(jornada, lotes, adjuntos, { mode: "oficial" }).catch((e) => toast({ title: "Error al exportar", description: e instanceof Error ? e.message : String(e), variant: "destructive" }))}
-                disabled={!lotes.some((l) => l.informe_estado === "validado")}
-              >
+              <DropdownMenuItem onClick={() => exportarPDF("oficial")} disabled={!lotes.some((l) => l.informe_estado === "validado")}>
                 <FileText className="h-4 w-4" />
                 PDF oficial
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => jornada && exportCalidadToExcel(jornada, lotes, adjuntos).catch((e) => toast({ title: "Error al exportar", description: e instanceof Error ? e.message : String(e), variant: "destructive" }))}>
+              <DropdownMenuItem onClick={exportarExcel}>
                 <FileSpreadsheet className="h-4 w-4" />
                 Excel
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button className="glass glass-hover" onClick={saveJornada} disabled={saving || !jornada}>
+          <Button className="glass glass-hover hidden sm:inline-flex" onClick={saveJornada} disabled={saving || !jornada}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             Guardar jornada
           </Button>
         </div>
       </header>
 
-      <Card className="glass-accented">
+      <Card className={cn("glass-accented", vistaMovil === "ficha" && "hidden xl:block")}>
         <CardContent className="space-y-5 pt-6">
           <div className="grid gap-4 sm:grid-cols-2 lg:max-w-2xl">
             <div className="space-y-2">
-              <Label htmlFor="fecha-calidad" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <Label htmlFor="fecha-calidad" className="hidden text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:block">
                 Fecha
               </Label>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <SelectorPeriodo
                   bare
                   value={{ modo: "dia", desde: fecha, hasta: fecha }}
@@ -922,10 +1219,20 @@ export default function CalidadJornadaPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="responsable-calidad" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <Label htmlFor="responsable-calidad" className="hidden text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:block">
                 Responsable
               </Label>
-              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              {!responsableAbierto && (
+                <button
+                  type="button"
+                  onClick={() => setResponsableAbierto(true)}
+                  className="flex min-h-11 w-full items-center justify-between rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 text-left shadow-[var(--glass-shadow)] sm:hidden"
+                >
+                  <span className="truncate text-sm font-medium">{responsable || "Sin responsable"}</span>
+                  <span className="ml-2 shrink-0 text-xs text-muted-foreground">Cambiar</span>
+                </button>
+              )}
+              <div className={cn("grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]", !responsableAbierto && "hidden sm:grid")}>
                 <Select
                   value={responsableSelectValue}
                   onValueChange={(value) => {
@@ -962,22 +1269,22 @@ export default function CalidadJornadaPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="hidden grid-cols-4 gap-2 sm:grid sm:gap-3">
             {[
               { label: "Lotes", value: String(summary.total), tone: "" },
               { label: "Aerobotics", value: `${summary.aerobotics}/${summary.total}`, tone: "" },
               { label: "Bueno", value: String(summary.byQuality.Excelente + summary.byQuality.Bueno), tone: "text-success" },
               { label: "Revisar", value: String(summary.byQuality.Regular + summary.byQuality.Deficiente + summary.byQuality.Pésimo), tone: "text-warning" },
             ].map((stat) => (
-              <div key={stat.label} className="glass rounded-xl p-3">
-                <p className="panel-kicker mb-1">{stat.label}</p>
-                <p className={cn("text-2xl font-semibold tabular-nums", stat.tone)}>{stat.value}</p>
+              <div key={stat.label} className="glass rounded-xl p-2 sm:p-3">
+                <p className="panel-kicker mb-0.5 truncate text-[10px] sm:mb-1 sm:text-[11px]">{stat.label}</p>
+                <p className={cn("text-lg font-semibold tabular-nums sm:text-2xl", stat.tone)}>{stat.value}</p>
               </div>
             ))}
           </div>
 
           {summary.total > 0 && (
-            <div className="space-y-2">
+            <div className="hidden space-y-2 sm:block">
               <div className="flex items-center justify-between">
                 <p className="panel-kicker">Distribución de calidad</p>
                 <span className="text-xs text-muted-foreground">{summary.total} lote{summary.total !== 1 ? "s" : ""}</span>
@@ -1003,23 +1310,23 @@ export default function CalidadJornadaPage() {
       </Card>
 
       <Tabs value={tab} onValueChange={(value) => setTab(value as "jornada" | "historico")} className="space-y-5">
-        <TabsList className="glass w-full justify-start sm:w-auto">
-          <TabsTrigger value="jornada">Jornada</TabsTrigger>
-          <TabsTrigger value="historico">Histórico</TabsTrigger>
+        <TabsList className={cn("glass h-auto w-full justify-start sm:w-auto", vistaMovil === "ficha" && "hidden xl:inline-flex")}>
+          <TabsTrigger value="jornada" className="h-10 flex-1 text-sm sm:h-auto sm:flex-none">Jornada</TabsTrigger>
+          <TabsTrigger value="historico" className="h-10 flex-1 text-sm sm:h-auto sm:flex-none">Histórico</TabsTrigger>
         </TabsList>
 
         <TabsContent value="jornada" className="space-y-5">
       <div className="grid gap-5 xl:grid-cols-[minmax(320px,0.86fr)_minmax(0,1.5fr)]">
-        <Card className={cn("glass", selected && "hidden xl:block")}>
+        <Card data-testid="calidad-panel-lista" className={cn("glass min-w-0", vistaMovil === "ficha" && "hidden xl:block")}>
           <CardHeader className="space-y-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="panel-kicker">
                   Lotes ({summary.total}) · {validadosCount}/{summary.total} validados
                 </p>
-                <CardTitle className="text-xl">Notas del dia</CardTitle>
+                <CardTitle className="hidden text-xl sm:block">Notas del dia</CardTitle>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="hidden flex-wrap items-center gap-2 xl:flex">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span>
@@ -1047,7 +1354,7 @@ export default function CalidadJornadaPage() {
                 </Button>
               </div>
             </div>
-            <div className="rounded-xl border border-primary/10 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+            <div className="hidden rounded-xl border border-primary/10 bg-primary/5 px-3 py-2 text-xs text-muted-foreground xl:block">
               Al abrir un parte de {formatCalidadDate(fecha)}, estas notas apareceran en su pestaña de Calidad.
             </div>
             {lotes.length > 0 && (
@@ -1058,7 +1365,7 @@ export default function CalidadJornadaPage() {
                     type="button"
                     onClick={() => setLoteFiltro(f.value)}
                     className={cn(
-                      "rounded-full border px-3 py-1 text-xs font-medium transition-all",
+                      "rounded-full border px-3.5 py-2 text-sm font-medium transition-all sm:py-1 sm:text-xs",
                       loteFiltro === f.value
                         ? "border-primary/40 bg-primary/10 text-primary"
                         : "border-[var(--glass-border)] bg-[var(--glass-bg)] text-muted-foreground hover:border-primary/25",
@@ -1091,14 +1398,17 @@ export default function CalidadJornadaPage() {
                   <button
                     key={lote.id}
                     type="button"
-                    onClick={() => setSelectedId(lote.id)}
+                    onClick={() => abrirLote(lote.id)}
                     className={cn(
                       "w-full rounded-xl border p-3 text-left transition-all hover:border-primary/30 hover:bg-primary/5",
+                      // Fila alta y de ancho completo: en el móvil es el único
+                      // gesto para entrar en la ficha, así que se toca sin mirar.
+                      "min-h-[4.5rem] active:bg-primary/10",
                       active ? "border-primary/40 bg-primary/8 shadow-[var(--glass-shadow)]" : "border-border/70 bg-[var(--glass-bg)]",
                     )}
                   >
                     <div className="flex items-start gap-3">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
                         {index + 1}
                       </span>
                       <div className="min-w-0 flex-1">
@@ -1129,6 +1439,7 @@ export default function CalidadJornadaPage() {
                           )}
                         </div>
                       </div>
+                      <ChevronRight className="mt-2 h-5 w-5 shrink-0 text-muted-foreground/60 xl:hidden" aria-hidden="true" />
                     </div>
                   </button>
                 );
@@ -1137,18 +1448,23 @@ export default function CalidadJornadaPage() {
           </CardContent>
         </Card>
 
-        <Card className={cn("glass-accented", !selected && "hidden xl:block")}>
+        <Card data-testid="calidad-panel-ficha" className={cn("glass-accented min-w-0", vistaMovil === "lista" && "hidden xl:block")}>
           {selected ? (
             <>
               <CardHeader className="gap-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <Button variant="ghost" size="icon" className="shrink-0 xl:hidden" onClick={() => setSelectedId(null)} aria-label="Volver a la lista">
+                    <Button variant="ghost" size="icon" className="h-11 w-11 shrink-0 xl:hidden" onClick={volverALista} aria-label="Volver a la lista">
                       <ArrowLeft className="h-4 w-4" />
                     </Button>
-                    <div>
-                      <p className="panel-kicker">Ficha de lote</p>
-                      <CardTitle className="text-xl">
+                    <div className="min-w-0">
+                      <p className="panel-kicker">
+                        Ficha de lote
+                        {selectedIndex >= 0 && lotes.length > 0 && (
+                          <span className="ml-1.5 font-semibold text-foreground/70">· {selectedIndex + 1} de {lotes.length}</span>
+                        )}
+                      </p>
+                      <CardTitle className="truncate text-xl">
                         {selected.numero_lote ? `Lote ${selected.numero_lote}` : "Nuevo lote"}
                       </CardTitle>
                     </div>
@@ -1164,19 +1480,22 @@ export default function CalidadJornadaPage() {
                       </Badge>
                     )}
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" className="hidden glass glass-hover sm:inline-flex" onClick={duplicateSelectedLote} disabled={saving}>
+                  {/* Acciones completas solo en pantalla ancha: por debajo de xl
+                      viven todas en la barra inferior fija, que se alcanza con
+                      el pulgar y no se descoloca al teclear. */}
+                  <div className="hidden flex-wrap gap-2 xl:flex">
+                    <Button variant="outline" className="glass glass-hover" onClick={duplicateSelectedLote} disabled={saving}>
                       <Copy className="h-4 w-4" />
                       Duplicar
                     </Button>
                     {!isCalidadLoteLocked(selected) && (
-                      <Button variant="outline" className="hidden glass glass-hover sm:inline-flex" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                      <Button variant="outline" className="glass glass-hover" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
                         {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
                         Fotos
                       </Button>
                     )}
                     {!isCalidadLoteLocked(selected) && (
-                      <Button variant="outline" className="hidden glass glass-hover text-destructive hover:text-destructive sm:inline-flex" onClick={() => deleteLote(selected)} disabled={saving}>
+                      <Button variant="outline" className="glass glass-hover text-destructive hover:text-destructive" onClick={() => deleteLote(selected)} disabled={saving}>
                         <Trash2 className="h-4 w-4" />
                         Eliminar
                       </Button>
@@ -1188,17 +1507,7 @@ export default function CalidadJornadaPage() {
                       </Button>
                     )}
                     {selected.informe_estado !== "validado" && selected.informe_estado !== "reabierto" && selected.informe_estado !== "generado" && (
-                      <Button variant="outline" className="glass glass-hover" onClick={() => {
-                        const photoCount = attachmentCounts[selected.id] ?? 0;
-                        const report = createCalidadDraftReport(selected, photoCount, historicalLotes);
-                        patchSelected({
-                          informe_estado: "generado",
-                          informe_generado: report.informe,
-                          ia_resumen: report.informe,
-                          ia_accion_recomendada: report.accion_recomendada,
-                        });
-                        toast({ title: "Informe generado", description: "Revisa el texto y valida cuando estes listo." });
-                      }}>
+                      <Button variant="outline" className="glass glass-hover" onClick={generarInformeSelected}>
                         <FileText className="h-4 w-4" />
                         Generar informe
                       </Button>
@@ -1206,23 +1515,7 @@ export default function CalidadJornadaPage() {
                     {/* Un informe reabierto debe poder VOLVER a validarse tras la
                         edición (antes se quedaba sin salida: ni generar ni validar). */}
                     {(selected.informe_estado === "generado" || selected.informe_estado === "reabierto") && (
-                      <Button className="glass glass-hover" onClick={() => {
-                        const photoCount = attachmentCounts[selected.id] ?? 0;
-                        const validation = canValidateCalidadLote(selected, photoCount);
-                        if (!validation.ok) {
-                          toast({ title: "No se puede validar", description: validation.reason ?? "", variant: "destructive" });
-                          return;
-                        }
-                        if (!user) return;
-                        const validated = validateCalidadLote(selected, user.id, new Date().toISOString());
-                        patchSelected({
-                          informe_estado: validated.informe_estado,
-                          validado_at: validated.validado_at,
-                          validado_by: validated.validado_by,
-                        });
-                        void persistLote({ ...selected, ...validated });
-                        toast({ title: "Informe validado", description: "El lote queda bloqueado como oficial." });
-                      }}>
+                      <Button className="glass glass-hover" onClick={validarInformeSelected}>
                         <BadgeCheck className="h-4 w-4" />
                         Validar informe
                       </Button>
@@ -1233,32 +1526,48 @@ export default function CalidadJornadaPage() {
                         Guardar lote
                       </Button>
                     )}
-                    {!isCalidadLoteLocked(selected) && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="outline" size="icon" className="glass glass-hover sm:hidden" aria-label="Más acciones">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={duplicateSelectedLote} disabled={saving}>
-                            <Copy className="h-4 w-4" />
-                            Duplicar
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-                            <Camera className="h-4 w-4" />
-                            Fotos
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => deleteLote(selected)} disabled={saving} className="text-destructive focus:text-destructive">
-                            <Trash2 className="h-4 w-4" />
-                            Eliminar
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
                   </div>
                 </div>
+
+                {/* Saltar al lote anterior/siguiente sin volver a la lista: en el
+                    móvil es el gesto más repetido de la jornada. */}
+                {lotes.length > 1 && (
+                  <div className="flex items-center gap-2 xl:hidden">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="glass glass-hover h-11 flex-1 rounded-xl"
+                      disabled={selectedIndex <= 0}
+                      onClick={() => {
+                        const anterior = lotes[selectedIndex - 1];
+                        if (anterior) abrirLote(anterior.id);
+                      }}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      Anterior
+                    </Button>
+                    <Button type="button" variant="ghost" className="h-11 shrink-0 px-3 text-xs font-semibold text-muted-foreground" onClick={volverALista}>
+                      Ver los {lotes.length}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="glass glass-hover h-11 flex-1 rounded-xl"
+                      disabled={selectedIndex < 0 || selectedIndex >= lotes.length - 1}
+                      onClick={() => {
+                        const siguiente = lotes[selectedIndex + 1];
+                        if (siguiente) abrirLote(siguiente.id);
+                      }}
+                    >
+                      Siguiente
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
                 <input ref={fileInputRef} type="file" accept="image/*,.pdf,.xlsx,.xls,.doc,.docx" multiple className="hidden" onChange={(event) => uploadFiles(event.target.files)} />
+                {/* Entrada aparte con `capture`: abre la cámara del móvil directamente,
+                    sin pasar por el selector de archivos de Android. */}
+                <input ref={camaraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => uploadFiles(event.target.files)} />
                 <input ref={wordInputRef} type="file" accept=".docx,.txt" className="hidden" onChange={(event) => importComentarioFile(event.target.files)} />
               </CardHeader>
               <CardContent className="space-y-6">
@@ -1275,7 +1584,8 @@ export default function CalidadJornadaPage() {
                         if (value) applyLoteDiaSuggestion(value);
                       }}
                       placeholder="26041704"
-                      className={glassInputClassName()}
+                      inputMode="numeric"
+                      className={glassInputClassName("tabular-nums")}
                       disabled={isCalidadLoteLocked(selected)}
                     />
                     <datalist id="lotes-dia-sugeridos">
@@ -1295,81 +1605,20 @@ export default function CalidadJornadaPage() {
                   </div>
                   <div className="space-y-2 lg:col-span-2">
                     <Label htmlFor="productor-finca">Productor/Finca</Label>
-                    <Popover open={productorPickerOpen} onOpenChange={setProductorPickerOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          id="productor-finca"
-                          type="button"
-                          variant="outline"
-                          className="glass glass-hover h-10 w-full justify-between rounded-xl px-3 text-left font-normal"
-                        >
-                          <span className={cn("truncate", !selected.productor_finca_nombre && "text-muted-foreground")}>
-                            {selected.productor_finca_nombre || "Elegir productor/finca"}
-                          </span>
-                          <Search className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[min(520px,calc(100vw-2rem))] p-0" align="start">
-                        <Command shouldFilter>
-                          <CommandInput
-                            placeholder="Buscar o escribir nuevo productor/finca..."
-                            value={productorSearch}
-                            onValueChange={setProductorSearch}
-                          />
-                          <CommandList>
-                            <CommandEmpty>
-                              <div className="space-y-3 p-3 text-center">
-                                <p className="text-sm text-muted-foreground">No aparece ese productor/finca.</p>
-                                {canCreateProductor && (
-                                  <Button size="sm" className="glass glass-hover" onClick={() => createAndSelectProductor(productorSearch)}>
-                                    <Plus className="h-4 w-4" />
-                                    Crear "{normalizeCalidadName(productorSearch)}"
-                                  </Button>
-                                )}
-                              </div>
-                            </CommandEmpty>
-                            <CommandGroup heading="Productores/Fincas">
-                              {productorOptions.map((productor) => (
-                                <div key={productor.id} className="flex items-center gap-1 rounded-xl">
-                                  <CommandItem
-                                    value={productor.nombre}
-                                    onSelect={() => selectProductor(productor)}
-                                    className="min-w-0 flex-1 rounded-xl"
-                                  >
-                                    <Check className={cn("mr-2 h-4 w-4", sameCalidadName(selected.productor_finca_nombre, productor.nombre) ? "opacity-100" : "opacity-0")} />
-                                    <span className="truncate">{productor.nombre}</span>
-                                  </CommandItem>
-                                  {!isHistoricalProductorId(productor.id) && (
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      className="mr-1 h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                                      title="Borrar productor/finca"
-                                      onClick={(event) => {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        void deleteProductor(productor);
-                                      }}
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  )}
-                                </div>
-                              ))}
-                            </CommandGroup>
-                            {canCreateProductor && (
-                              <CommandGroup heading="Nuevo">
-                                <CommandItem value={`crear-${productorSearch}`} onSelect={() => createAndSelectProductor(productorSearch)} className="rounded-xl">
-                                  <Plus className="mr-2 h-4 w-4" />
-                                  Crear "{normalizeCalidadName(productorSearch)}"
-                                </CommandItem>
-                              </CommandGroup>
-                            )}
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
+                    <ProductorPicker
+                      esMovil={isMobile}
+                      abierto={productorPickerOpen}
+                      onAbierto={setProductorPickerOpen}
+                      valor={selected.productor_finca_nombre}
+                      opciones={productorOptions}
+                      busqueda={productorSearch}
+                      onBusqueda={setProductorSearch}
+                      puedeCrear={canCreateProductor}
+                      onElegir={selectProductor}
+                      onCrear={(nombre) => void createAndSelectProductor(nombre)}
+                      onBorrar={(productor) => void deleteProductor(productor)}
+                      deshabilitado={isCalidadLoteLocked(selected)}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="hora-lote">Hora</Label>
@@ -1400,7 +1649,7 @@ export default function CalidadJornadaPage() {
                           onClick={() => patchSelected({ calidad: quality })}
                           disabled={isCalidadLoteLocked(selected)}
                           className={cn(
-                            "min-h-10 rounded-xl border px-3 text-sm font-semibold transition-all",
+                            "min-h-12 rounded-xl border px-3 text-sm font-semibold transition-all sm:min-h-10",
                             selected.calidad === quality ? QUALITY_STYLES[quality] : "border-border/70 bg-background/70 text-muted-foreground hover:border-primary/30",
                           )}
                         >
@@ -1418,7 +1667,7 @@ export default function CalidadJornadaPage() {
                             onClick={() => toggleDefecto(defecto)}
                             disabled={isCalidadLoteLocked(selected)}
                             className={cn(
-                              "rounded-full border px-3 py-1.5 text-xs font-medium transition-all",
+                              "rounded-full border px-3.5 py-2.5 text-sm font-medium transition-all sm:py-1.5 sm:text-xs",
                               checked ? "border-primary/35 bg-primary/10 text-primary" : "border-border/75 bg-background/70 text-muted-foreground hover:border-primary/30",
                             )}
                           >
@@ -1474,8 +1723,8 @@ export default function CalidadJornadaPage() {
                       id="comentario-lote"
                       value={comentarioDraft}
                       onChange={(event) => patchComentario(event.target.value)}
-                      placeholder="Como entra el lote, incidencias, calibre, color...\n\nAccion recomendada: Separar, revisar en linea, avisar al productor..."
-                      className="min-h-36"
+                      placeholder={PLACEHOLDER_COMENTARIO}
+                      className="min-h-36 text-base sm:text-sm"
                       disabled={isCalidadLoteLocked(selected)}
                     />
                   </div>
@@ -1588,8 +1837,127 @@ export default function CalidadJornadaPage() {
         </Card>
       </div>
 
+      {/* Misma barra para la lista: crear el lote es lo primero que hace
+          Eusebio al llegar el volcado, y no debe depender de hacer scroll. */}
+      {vistaMovil === "lista" && (
+        <>
+          <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--glass-border)] bg-[var(--glass-bg-solid)] p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-xl xl:hidden">
+            <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-12 flex-1 rounded-xl"
+                onClick={importarLotesDelParte}
+                disabled={importing || !jornada || lotesDia.length === 0}
+              >
+                {importing ? <Loader2 className="mr-1 h-5 w-5 animate-spin" /> : <Upload className="mr-1 h-5 w-5" />}
+                Del parte
+              </Button>
+              <Button type="button" className="h-12 flex-[1.4] rounded-xl font-semibold" onClick={() => addLote()} disabled={saving || !jornada}>
+                {saving ? <Loader2 className="mr-1 h-5 w-5 animate-spin" /> : <Plus className="mr-1 h-5 w-5" />}
+                Lote nuevo
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Barra de acciones fija (móvil/tablet) ──────────────────────────
+          Por debajo de xl la ficha ocupa toda la pantalla y su cabecera se
+          pierde al hacer scroll: las acciones del lote abierto viven aquí,
+          siempre a la vista y al alcance del pulgar. */}
+      {selected && vistaMovil === "ficha" && (
+        <>
+          <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--glass-border)] bg-[var(--glass-bg-solid)] p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-xl xl:hidden">
+            {/* El aviso de guardado de la cabecera queda fuera de pantalla en
+                cuanto se baja por la ficha: se repite aquí. */}
+            {autosaveStatus !== "idle" && (
+              <p className={cn(
+                "mx-auto mb-2 flex w-full max-w-3xl items-center gap-1.5 text-xs font-medium",
+                autosaveStatus === "saving" && "text-warning",
+                autosaveStatus === "saved" && "text-success",
+                autosaveStatus === "error" && "text-destructive",
+              )}>
+                {autosaveStatus === "saving" && <Loader2 className="h-3 w-3 animate-spin" />}
+                {autosaveStatus === "saved" && <Check className="h-3 w-3" />}
+                {autosaveStatus === "error" && <AlertTriangle className="h-3 w-3" />}
+                {autosaveStatus === "saving" ? "Guardando..." : autosaveStatus === "saved" ? "Guardado" : "Error al guardar, revisa la conexión"}
+              </p>
+            )}
+            <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
+              {isCalidadLoteLocked(selected) ? (
+                <>
+                  <Button type="button" variant="outline" className="h-12 flex-1 rounded-xl" onClick={volverALista}>
+                    <ChevronLeft className="mr-1 h-5 w-5" />
+                    Lotes
+                  </Button>
+                  <Button type="button" className="h-12 flex-1 rounded-xl font-semibold" onClick={reopenSelectedLote}>
+                    <History className="mr-1 h-5 w-5" />
+                    Reabrir
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-12 w-12 shrink-0 rounded-xl"
+                    disabled={uploading}
+                    aria-label="Hacer una foto del lote"
+                    onClick={() => camaraInputRef.current?.click()}
+                  >
+                    {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
+                  </Button>
+                  <Button type="button" variant="outline" className="h-12 min-w-0 flex-1 rounded-xl" onClick={saveLote} disabled={saving}>
+                    {saving ? <Loader2 className="mr-1 h-5 w-5 animate-spin" /> : <Save className="mr-1 h-5 w-5" />}
+                    Guardar
+                  </Button>
+                  {selected.informe_estado === "generado" || selected.informe_estado === "reabierto" ? (
+                    <Button type="button" className="h-12 min-w-0 flex-1 rounded-xl font-semibold" onClick={validarInformeSelected}>
+                      <BadgeCheck className="mr-1 h-5 w-5" />
+                      Validar
+                    </Button>
+                  ) : (
+                    <Button type="button" className="h-12 min-w-0 flex-1 rounded-xl font-semibold" onClick={generarInformeSelected}>
+                      <FileText className="mr-1 h-5 w-5" />
+                      Informe
+                    </Button>
+                  )}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" variant="outline" size="icon" className="h-12 w-12 shrink-0 rounded-xl" aria-label="Más acciones del lote">
+                        <MoreHorizontal className="h-5 w-5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" side="top">
+                      <DropdownMenuItem onClick={() => addLote()} disabled={saving || !jornada}>
+                        <Plus className="h-4 w-4" />
+                        Lote nuevo
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={duplicateSelectedLote} disabled={saving}>
+                        <Copy className="h-4 w-4" />
+                        Duplicar este lote
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                        <ImageIcon className="h-4 w-4" />
+                        Subir de la galería
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => deleteLote(selected)} disabled={saving} className="text-destructive focus:text-destructive">
+                        <Trash2 className="h-4 w-4" />
+                        Eliminar lote
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
       {summary.byQuality.Deficiente + summary.byQuality.Pésimo > 0 && (
-        <Card className="glass border-warning/30 bg-warning/6">
+        <Card className={cn("glass border-warning/30 bg-warning/6", vistaMovil === "ficha" && "hidden xl:block")}>
           <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center">
             <AlertTriangle className="h-5 w-5 text-warning" />
             <div className="flex-1">
@@ -1602,6 +1970,7 @@ export default function CalidadJornadaPage() {
           </CardContent>
         </Card>
       )}
+          <div className="h-24 xl:hidden" aria-hidden="true" />
         </TabsContent>
 
         <TabsContent value="historico">
