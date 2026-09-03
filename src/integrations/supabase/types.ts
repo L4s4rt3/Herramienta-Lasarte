@@ -1051,6 +1051,27 @@ export type Database = {
         }
         Relationships: []
       }
+      clasificacion_lote_mix_meta: {
+        Row: {
+          duracion_ms: number | null
+          filas: number | null
+          id: boolean
+          refrescado_en: string | null
+        }
+        Insert: {
+          duracion_ms?: number | null
+          filas?: number | null
+          id?: boolean
+          refrescado_en?: string | null
+        }
+        Update: {
+          duracion_ms?: number | null
+          filas?: number | null
+          id?: boolean
+          refrescado_en?: string | null
+        }
+        Relationships: []
+      }
       cmr_documentos: {
         Row: {
           archivo_nombre: string | null
@@ -3895,6 +3916,23 @@ export type Database = {
         }
         Relationships: []
       }
+      clasificacion_lote_mix_mv: {
+        Row: {
+          con_docx: boolean | null
+          kg_clase_apta: number | null
+          kg_clase_industria: number | null
+          kg_clase_podrido: number | null
+          kg_clasificado: number | null
+          kg_exportacion: number | null
+          kg_mujeres: number | null
+          kg_no_comercial: number | null
+          kg_no_exportacion: number | null
+          lote8: string | null
+          n_filas: number | null
+          producto: string | null
+        }
+        Relationships: []
+      }
       dashboard_produccion_mensual: {
         Row: {
           ano: number | null
@@ -4237,6 +4275,7 @@ export type Database = {
       }
       can_access_comunicaciones_campo: { Args: never; Returns: boolean }
       can_access_ventas_categoria: { Args: never; Returns: boolean }
+      clasificacion_mix_lotes: { Args: never; Returns: Json }
       clasificacion_productor_periodo: {
         Args: { desde?: string; hasta?: string }
         Returns: Json
@@ -4320,6 +4359,7 @@ export type Database = {
           productor: string
         }[]
       }
+      refrescar_clasificacion_lote_mix: { Args: never; Returns: undefined }
       restauracion_cargar: {
         Args: { filas: Json; tabla: string }
         Returns: number
