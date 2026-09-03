@@ -20,6 +20,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import CampanaMermaMdna from "@/components/entradas/CampanaMermaMdna";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CamarasExternasCard } from "@/components/CamarasExternasCard";
 import { StockPrecalibradoCard } from "@/components/StockPrecalibradoCard";
@@ -1437,6 +1438,7 @@ export default function EntradasBascula() {
                 Entradas por día <Badge variant="secondary" className="ml-1.5 px-1.5 text-[10px]">{entradasPorDia.dias.length}</Badge>
               </TabsTrigger>
               <TabsTrigger value="mermas">Mermas y coste</TabsTrigger>
+              <TabsTrigger value="campana">Campaña</TabsTrigger>
               <TabsTrigger value="conciliacion">
                 Conciliación kg
                 {conciliacionKg.excesosSinColocar.length > 0 && (
@@ -2009,6 +2011,13 @@ export default function EntradasBascula() {
             {/* ─── Mermas y coste: lotes procesados, merma natural + podrido, € solo admin ── */}
             <TabsContent value="mermas" className="mt-0">
               <MermasCosteTab />
+            </TabsContent>
+
+            {/* ─── Campaña: pérdida y Mercadona por productor y finca ─────── */}
+            {/* Antes era scripts/analisis-mermas-mercadona.ts, un Excel a mano
+                (03-09-2026). Mismas funciones (mermaMdnaAgregado, mdnaMix). */}
+            <TabsContent value="campana" className="mt-0">
+              <CampanaMermaMdna />
             </TabsContent>
 
             {/* ─── Conciliación de kg: dónde ha ido cada kg reasignado ───── */}
