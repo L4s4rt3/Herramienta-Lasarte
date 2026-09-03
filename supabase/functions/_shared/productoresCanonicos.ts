@@ -191,6 +191,29 @@ export function esEntradaCampoCit(entrada: EntradaCampoCitInput): boolean {
   return ARTICULO_CAMPO_CIT.test(articulo);
 }
 
+// ─── Fruta de IMPORTACIÓN: otro negocio, fuera del análisis de campaña ───────
+// Regla del dueño (28-ago-2026): "lo único que tenemos ahora es SAF y eso no
+// cuenta ya para este análisis". La fruta importada no tiene productor al que
+// atribuirle una merma de campo, entra con su coste puesto (fruta + porte) y su
+// rendimiento se juzga contra el precio de compra, no contra la finca.
+//
+// Dos familias reales en la BD (verificadas 28-ago-2026): finca "URIA EGIPTO -
+// GG" / artículo "NARANJA VALENCIA EGIPTO" (Uria Export), y finca
+// "Importacion" / artículo "NARANJA MIDKNIGHT SAF" (Harrie Goesten). El
+// criterio mira la FINCA y el ARTÍCULO, no el nombre del proveedor: si mañana
+// el mismo canal trae fruta nacional, cuenta como campaña.
+// (Subida aquí desde scripts/analisis-mermas-mercadona.ts el 03-09-2026.)
+
+const FINCA_IMPORTACION = /\bimportacion\b|\begipto\b/;
+const ARTICULO_IMPORTACION = /\begipto\b|\bsaf\b/;
+
+export function esEntradaImportacion(entrada: { finca?: string | null; articulo?: string | null }): boolean {
+  const finca = String(entrada.finca ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  if (FINCA_IMPORTACION.test(finca)) return true;
+  const articulo = String(entrada.articulo ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  return ARTICULO_IMPORTACION.test(articulo);
+}
+
 // ─── Movimientos internos de almacén registrados como "agricultor" ──────────
 // (2026-08-03, encargo del dueño: "la sección de productores no está enlazada
 // correctamente, cada vez hay más productores que no se enlazan y perdemos

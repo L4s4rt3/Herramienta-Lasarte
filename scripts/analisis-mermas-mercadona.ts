@@ -77,12 +77,10 @@ import {
   type ReciclajeDiaInput,
 } from "../src/lib/conciliacionKg";
 import {
-  esAgricultorMovimientoInterno,
   esEntradaCampoCit,
+  esEntradaImportacion,
   esEntradaPrecalibrado,
   esErrorTablaOColumnaInexistente,
-  esProductorPrecalibrado,
-  resolveProductorGroupKey,
 } from "../src/lib/productoresCanonicos";
 import {
   agruparAnotacionesPorLoteDia,
@@ -101,7 +99,24 @@ import {
   unirLotesConfirmadosEnCamara,
   type EntradaConCamaraConfirmada,
 } from "../src/lib/camaraConfirmada";
-import { deducirMetodoVentaMdna } from "../src/lib/productosCanonicos";
+import { LABEL_MDNA, METODOS_MDNA, mixPorLoteDesdeClasificacion } from "../src/lib/mdnaMix";
+import {
+  agruparMermaMdna,
+  construirFilasMermaMdna,
+  esLoteImposible,
+  metricasMdna,
+  metricasPerdida,
+  type GrupoMermaMdna,
+  ordenarPorMdna,
+  ordenarPorPerdida,
+  podridoPorMesDeProceso,
+  totalMermaMdna,
+} from "../src/lib/mermaMdnaAgregado";
+
+// Las filas del Excel son objetos abiertos (Record) para añadirHojaTabla; las
+// métricas vienen tipadas de la lib, así que se copian tal cual.
+const filaPerdida = (g: GrupoMermaMdna): Record<string, unknown> => ({ ...metricasPerdida(g) });
+const filaMdna = (g: GrupoMermaMdna): Record<string, unknown> => ({ ...metricasMdna(g) });
 import {
   añadirHojaTabla,
   crearLibroLasarte,
@@ -121,39 +136,6 @@ const num = (v: unknown): number => Number(v) || 0;
 const numOrNull = (v: unknown): number | null => (v == null ? null : Number(v) || 0);
 const pct = (parte: number | null, total: number | null): number | null =>
   parte == null || total == null || total <= 0 ? null : (parte / total) * 100;
-
-/**
- * FRUTA DE IMPORTACIÓN — fuera del análisis de campaña (regla del dueño,
- * 28-ago-2026: "lo único que tenemos ahora es SAF y eso no cuenta ya para este
- * análisis").
- *
- * Este informe mide las mermas y el aprovechamiento de la naranja PROPIA, la
- * que compramos a productores con finca y parcela. La fruta importada es otro
- * negocio: no tiene productor al que atribuirle una merma de campo, entra con
- * su propio coste puesto (fruta + porte) y su rendimiento se juzga contra el
- * precio de compra, no contra la finca. Mezclarla ensuciaría el ranking de
- * productores con dos filas que no compiten con las demás.
- *
- * Dos familias reales en la BD (verificadas 28-ago-2026):
- *   - "LASARTE EXPORT S.L. Uria Export", finca "URIA EGIPTO - GG", artículo
- *     "NARANJA VALENCIA EGIPTO": 10 lotes, 120.574 kg entre abril y agosto.
- *   - "LASARTE EXPORT S.L. Harrie Goesten", finca "Importacion", artículo
- *     "NARANJA MIDKNIGHT SAF": el primer camión de SAF (lote 26082701, 27-ago).
- *
- * El criterio mira la FINCA y el ARTÍCULO, no el nombre del proveedor: Uria
- * Export y Harrie Goesten son el canal por el que entra la importación, y si
- * mañana traen fruta nacional por el mismo canal debe contar como campaña. Se
- * exponen aparte (`importacion`) para poder informar de sus kg, nunca ocultos.
- */
-const FINCA_IMPORTACION = /\bimportacion\b|\begipto\b/;
-const ARTICULO_IMPORTACION = /\begipto\b|\bsaf\b/;
-
-function esEntradaImportacion(entrada: { finca?: string | null; articulo?: string | null }): boolean {
-  const finca = String(entrada.finca ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-  if (FINCA_IMPORTACION.test(finca)) return true;
-  const articulo = String(entrada.articulo ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-  return ARTICULO_IMPORTACION.test(articulo);
-}
 
 /** Espejo de src/lib/fetchAllRows.ts: PostgREST recorta a 1.000 filas en silencio. */
 async function fetchTodas<T>(
@@ -239,64 +221,6 @@ interface ClasifRow {
   peso_kg: number | null;
   /** Parte al que pertenece el desglose: sirve para saber qué DÍAS de línea tienen mix por lote y cuáles no (ver la hoja "Cobertura del mix"). */
   part_id: string | null;
-}
-
-// ─── Clases y destinos ───────────────────────────────────────────────────────
-
-/**
- * Clases aptas para Mercadona: A–F (Extra 1, Extra 2, Cat1 A, Cat1 B, Verde
- * Claro, Cat 2). Confirmado con el dueño en el estudio de stock de agosto de
- * 2026: Mujeres, Cat 3, Verde Oscuro, Industria, Podrido y Densidad NO van a
- * Mercadona nunca. La letra entre paréntesis es la que escribe el calibrador
- * ("(C) Cat1 A"); si un día llegara sin letra, la fila no cuenta como apta en
- * vez de adivinar por el texto.
- */
-const CLASES_APTAS_MDNA = new Set(["A", "B", "C", "D", "E", "F"]);
-
-function letraClase(clase: string | null | undefined): string | null {
-  const m = /^\s*\(([A-Z])\)/.exec(String(clase ?? "").toUpperCase());
-  return m?.[1] ?? null;
-}
-
-/** Destino normalizado: la BD tiene "EXPORTACIÓN" y "EXPORTACION" conviviendo. */
-function destinoNorm(grupo: string | null | undefined): string {
-  return String(grupo ?? "")
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toUpperCase()
-    .trim();
-}
-
-/** Los 4 formatos que compra Mercadona, en el orden en que se enseñan. */
-const METODOS_MDNA = ["MA3KGC", "MA4KGC", "MA5KGC", "MA12KGC"] as const;
-type MetodoMdna = (typeof METODOS_MDNA)[number];
-const LABEL_MDNA: Record<MetodoMdna, string> = {
-  MA3KGC: "Malla 3 kg",
-  MA4KGC: "Girsac 4 kg exprimidor",
-  MA5KGC: "D-Pack 5 kg",
-  MA12KGC: "Granel",
-};
-
-interface MixLote {
-  kgClasificado: number;
-  kgExportacion: number;
-  kgNoExportacion: number;
-  kgMujeres: number;
-  kgNoComercial: number;
-  kgClaseApta: number;
-  kgClasePodrido: number;
-  kgClaseIndustria: number;
-  mdna: Record<MetodoMdna, number>;
-  mdnaSinFormato: number;
-  mdnaTotal: number;
-}
-
-function mixVacio(): MixLote {
-  return {
-    kgClasificado: 0, kgExportacion: 0, kgNoExportacion: 0, kgMujeres: 0, kgNoComercial: 0,
-    kgClaseApta: 0, kgClasePodrido: 0, kgClaseIndustria: 0,
-    mdna: { MA3KGC: 0, MA4KGC: 0, MA5KGC: 0, MA12KGC: 0 }, mdnaSinFormato: 0, mdnaTotal: 0,
-  };
 }
 
 // ─── Carga ───────────────────────────────────────────────────────────────────
@@ -533,301 +457,6 @@ function simularCierreDeCampana(
   };
 }
 
-// ─── Fila por lote (merma + identidad + mix de clasificación) ────────────────
-
-interface FilaLote {
-  lote: string;
-  fecha: string;
-  productorKey: string;
-  productor: string;
-  finca: string;
-  variedad: string;
-  estado: string;
-  cerradoSinRegistro: boolean;
-  interno: boolean;
-  diasEnCamara: number | null;
-  kgEntrada: number;
-  kgAjuste: number;
-  kgCalibrador: number;
-  mermaMedidaKg: number | null;
-  mermaCamaraKg: number | null;
-  mermaCamaraReal: boolean;
-  podridoPreKg: number | null;
-  podridoPreEsperadoKg: number | null;
-  podridoPreNoVistoKg: number | null;
-  sinMargen: boolean;
-  podridoCalibradorKg: number | null;
-  podridoCalibradorFuente: string;
-  podridoManualKg: number | null;
-  perdidaKg: number | null;
-  perdidaEur: number | null;
-  costeTotal: number;
-  mix: MixLote | null;
-  /** kgCalibrador conciliado / kgClasificado: lleva el mix del papel a los kg del lote. */
-  factorConciliado: number | null;
-}
-
-function construirFilas(
-  merma: ReturnType<typeof calcularMerma>,
-  datos: Awaited<ReturnType<typeof cargar>>,
-): FilaLote[] {
-  const nombrePorId = new Map(datos.productores.map((p) => [p.id, p.nombre]));
-  const aliasPorNombre = new Map(datos.alias.map((a) => [a.alias_normalizado, a.productor_id]));
-  const entradaPorLote = new Map<string, EntradaRow>();
-  for (const e of merma.externas) {
-    const lote8 = normalizarLoteCodigo(e.lote) ?? e.lote;
-    // Una entrada por lote: si hubiera duplicados, gana la de más kg (la real;
-    // las de 0 kg son correcciones administrativas).
-    const previa = entradaPorLote.get(lote8);
-    if (!previa || num(e.kg_entrada) > num(previa.kg_entrada)) entradaPorLote.set(lote8, e);
-  }
-
-  // Mix de clasificación por lote.
-  const mixPorLote = new Map<string, MixLote>();
-  const metodoPorProducto = new Map<string, MetodoMdna | "SIN_FORMATO" | null>();
-  for (const row of datos.clasif) {
-    const lote = normalizarLoteCodigo(row.lote_codigo);
-    if (!lote) continue;
-    const kg = num(row.peso_kg);
-    const mix = mixPorLote.get(lote) ?? mixVacio();
-    mixPorLote.set(lote, mix);
-    mix.kgClasificado += kg;
-
-    const destino = destinoNorm(row.grupo_destino);
-    if (destino === "EXPORTACION") mix.kgExportacion += kg;
-    else if (destino === "NO EXPORTACION") mix.kgNoExportacion += kg;
-    else if (destino === "MUJERES") mix.kgMujeres += kg;
-    else if (destino === "NO COMERCIAL") mix.kgNoComercial += kg;
-
-    const letra = letraClase(row.clase);
-    if (letra && CLASES_APTAS_MDNA.has(letra)) mix.kgClaseApta += kg;
-    if (letra === "J") mix.kgClasePodrido += kg;
-    if (letra === "I") mix.kgClaseIndustria += kg;
-
-    const producto = row.producto ?? "";
-    let metodo = metodoPorProducto.get(producto);
-    if (metodo === undefined) {
-      const deducido = deducirMetodoVentaMdna(producto) as MetodoMdna | null;
-      // "MDNA" en el nombre sin formato reconocible: se cuenta aparte, jamás se
-      // reparte a ojo entre los cuatro formatos.
-      metodo = deducido ?? (/\bMDNA\b|\bMERCADONA\b/i.test(producto) ? "SIN_FORMATO" : null);
-      metodoPorProducto.set(producto, metodo);
-    }
-    if (metodo === "SIN_FORMATO") {
-      mix.mdnaSinFormato += kg;
-      mix.mdnaTotal += kg;
-    } else if (metodo) {
-      mix.mdna[metodo] += kg;
-      mix.mdnaTotal += kg;
-    }
-  }
-
-  return merma.mermaLotes.map((m: MermaLote): FilaLote => {
-    const e = entradaPorLote.get(m.lote);
-    const agricultor = e?.agricultor ?? "";
-    const { key, productorId } = resolveProductorGroupKey(agricultor, e?.productor_id ?? null, aliasPorNombre);
-    const nombre = (productorId ? nombrePorId.get(productorId) : null) ?? (agricultor.trim() || "(sin productor)");
-    const interno = esProductorPrecalibrado(nombre) || esAgricultorMovimientoInterno(nombre)
-      || esProductorPrecalibrado(agricultor) || esAgricultorMovimientoInterno(agricultor);
-
-    const mix = mixPorLote.get(m.lote) ?? null;
-    const factorConciliado = mix && mix.kgClasificado > 0 ? m.kgCalibrador / mix.kgClasificado : null;
-    const mermaMedidaKg = m.mermaNaturalKg == null ? null : Math.max(0, m.mermaNaturalKg);
-    const perdidaKg = mermaMedidaKg == null ? null : mermaMedidaKg + (m.podridoCalibradorKg ?? 0);
-
-    return {
-      lote: m.lote,
-      fecha: m.fecha,
-      productorKey: key,
-      productor: nombre,
-      finca: (e?.finca ?? "").trim() || "(sin finca)",
-      variedad: (e?.articulo ?? "").trim() || "—",
-      estado: m.estado,
-      cerradoSinRegistro: m.cerradoSinRegistro,
-      interno,
-      diasEnCamara: m.diasEnCamara,
-      kgEntrada: m.kgEntrada,
-      kgAjuste: m.kgAjuste,
-      kgCalibrador: m.kgCalibrador,
-      mermaMedidaKg,
-      mermaCamaraKg: m.mermaNaturalEstimadaKg,
-      mermaCamaraReal: m.mermaCamaraReal,
-      podridoPreKg: m.podridoPreCalibradorKg,
-      podridoPreEsperadoKg: m.podridoPreCalibradorEsperadoKg,
-      podridoPreNoVistoKg: m.podridoPreCalibradorNoVistoKg,
-      sinMargen: m.podridoPreCalibradorSinMargen,
-      podridoCalibradorKg: m.podridoCalibradorKg,
-      podridoCalibradorFuente: m.podridoCalibradorFuente,
-      podridoManualKg: m.podridoManualKg,
-      perdidaKg,
-      perdidaEur: m.perdidaTotalEur,
-      costeTotal: m.costeTotalLote,
-      mix,
-      factorConciliado,
-    };
-  });
-}
-
-// ─── Agregación por grupo (productor, o productor+finca) ─────────────────────
-
-interface Grupo {
-  productor: string;
-  finca?: string;
-  nLotes: number;
-  nLotesConMerma: number;
-  nLotesSinMerma: number;
-  nLotesSinRegistro: number;
-  nLotesPodridoReal: number;
-  nLotesSinMargen: number;
-  nLotesSinClasificacion: number;
-  /**
-   * Lotes cuya entrada entera es AJUSTE DE STOCK y no tienen ninguna pasada
-   * propia (import del histórico de campaña: la fruta ya estaba contada). Su
-   * merma medida es 0 de verdad — no hay nada que restar — pero sus kg sí
-   * están en la base de los %, así que bajan el % del grupo. Se cuentan aparte
-   * para que ese 0 se pueda explicar en vez de parecer un productor perfecto.
-   */
-  nLotesTodoAjuste: number;
-  kgAjuste: number;
-
-  kgEntradaTotal: number;
-  /** Solo lotes con merma calculable: la base de los % de merma de cámara y podrido de tría. */
-  kgEntradaBase: number;
-  /**
-   * Base del % de PODRIDO DE CALIBRADOR y de PÉRDIDA TOTAL (misma regla que
-   * `kgBaseParaPctPerdida` en mermaLote.ts, decisión del dueño 06-ago-2026):
-   * el podrido de un lote a medio procesar cuenta en el numerador, así que sus
-   * kg YA pasados por línea tienen que contar en el denominador o el % sale
-   * inflado. Para un lote terminado se cuenta toda su entrada; para uno a
-   * medias, solo lo que ya ha pasado.
-   */
-  kgBasePctPerdida: number;
-  kgCalibrador: number;
-  kgDiasPonderados: number;
-  /** Denominador de la media de días: solo los kg de lotes con días en cámara conocidos. */
-  kgConDias: number;
-
-  /** Σ max(0, merma natural) de los lotes procesados = merma cámara + podrido pre-calibrador (invariante de conservación). */
-  mermaMedidaKg: number;
-  mermaCamaraKg: number;
-  podridoPreKg: number;
-  podridoPreEsperadoKg: number;
-  podridoPreNoVistoKg: number;
-  podridoCalibradorKg: number;
-  podridoManualKg: number;
-  perdidaKg: number;
-  perdidaEur: number;
-  costeTotal: number;
-
-  kgClasificado: number;
-  kgExportacion: number;
-  kgNoExportacion: number;
-  kgMujeres: number;
-  kgNoComercial: number;
-  kgClaseApta: number;
-  /** Kg del mix llevados a los kg conciliados del lote (ver cabecera). */
-  mdnaAjustado: Record<MetodoMdna, number>;
-  mdnaSinFormatoAjustado: number;
-  mdnaTotalAjustado: number;
-  mdnaTotalClasificado: number;
-  /** Clases A–F que NO acabaron en un producto de Mercadona. */
-  kgAptoNoMdna: number;
-}
-
-function grupoVacio(productor: string, finca?: string): Grupo {
-  return {
-    productor, ...(finca !== undefined ? { finca } : {}),
-    nLotes: 0, nLotesConMerma: 0, nLotesSinMerma: 0, nLotesSinRegistro: 0,
-    nLotesPodridoReal: 0, nLotesSinMargen: 0, nLotesSinClasificacion: 0, nLotesTodoAjuste: 0, kgAjuste: 0,
-    kgEntradaTotal: 0, kgEntradaBase: 0, kgBasePctPerdida: 0, kgCalibrador: 0, kgDiasPonderados: 0, kgConDias: 0,
-    mermaMedidaKg: 0, mermaCamaraKg: 0, podridoPreKg: 0, podridoPreEsperadoKg: 0, podridoPreNoVistoKg: 0,
-    podridoCalibradorKg: 0, podridoManualKg: 0, perdidaKg: 0, perdidaEur: 0, costeTotal: 0,
-    kgClasificado: 0, kgExportacion: 0, kgNoExportacion: 0, kgMujeres: 0, kgNoComercial: 0,
-    kgClaseApta: 0,
-    mdnaAjustado: { MA3KGC: 0, MA4KGC: 0, MA5KGC: 0, MA12KGC: 0 },
-    mdnaSinFormatoAjustado: 0, mdnaTotalAjustado: 0, mdnaTotalClasificado: 0, kgAptoNoMdna: 0,
-  };
-}
-
-function acumular(g: Grupo, f: FilaLote): void {
-  g.nLotes += 1;
-  g.kgEntradaTotal += f.kgEntrada;
-  g.kgCalibrador += f.kgCalibrador;
-  g.kgAjuste += f.kgAjuste;
-  if (f.kgCalibrador <= 0 && f.kgAjuste >= f.kgEntrada && f.kgEntrada > 0) g.nLotesTodoAjuste += 1;
-  if (f.cerradoSinRegistro) g.nLotesSinRegistro += 1;
-  if (f.podridoCalibradorFuente === "real") g.nLotesPodridoReal += 1;
-  if (f.sinMargen) g.nLotesSinMargen += 1;
-
-  // La MERMA solo se calcula sobre lotes terminados: uno a medias todavía puede
-  // seguir vaciándose desde cámara, así que restar ahora mezclaría cámara (fruta
-  // que AÚN no ha pasado) con merma real.
-  if (f.mermaMedidaKg == null) {
-    g.nLotesSinMerma += 1;
-    // Su PODRIDO sí cuenta (decisión del dueño 06-ago-2026), y por eso los kg
-    // que ya han pasado por línea entran en la base del % — el resto sigue en
-    // cámara y todavía no ha podido perderse.
-    if ((f.podridoCalibradorKg ?? 0) > 0 || (f.podridoManualKg ?? 0) > 0) {
-      g.kgBasePctPerdida += Math.max(0, f.kgCalibrador);
-    }
-  } else {
-    g.nLotesConMerma += 1;
-    g.kgEntradaBase += f.kgEntrada;
-    g.kgBasePctPerdida += f.kgEntrada;
-    g.mermaMedidaKg += f.mermaMedidaKg;
-    // Sin desglose posible (calibrador por encima de la entrada, o sin días en
-    // cámara conocidos) la merma medida entera se atribuye a cámara: es el
-    // mismo criterio que ya usa el export de mermas de la app.
-    g.mermaCamaraKg += f.mermaCamaraKg ?? f.mermaMedidaKg;
-    g.podridoPreKg += f.podridoPreKg ?? 0;
-    if (f.diasEnCamara != null) {
-      g.kgDiasPonderados += f.kgEntrada * f.diasEnCamara;
-      g.kgConDias += f.kgEntrada;
-    }
-  }
-  g.podridoPreEsperadoKg += f.podridoPreEsperadoKg ?? 0;
-  g.podridoPreNoVistoKg += f.podridoPreNoVistoKg ?? 0;
-  g.podridoCalibradorKg += f.podridoCalibradorKg ?? 0;
-  g.podridoManualKg += f.podridoManualKg ?? 0;
-  g.perdidaEur += f.perdidaEur ?? 0;
-  g.costeTotal += f.costeTotal;
-  // Pérdida total = merma medida (solo terminados) + podrido de calibrador
-  // (todos). El podrido MANUAL no se suma: sale antes del calibrador y ya está
-  // dentro de la merma medida.
-  g.perdidaKg = g.mermaMedidaKg + g.podridoCalibradorKg;
-
-  if (!f.mix) {
-    g.nLotesSinClasificacion += 1;
-    return;
-  }
-  const k = f.factorConciliado ?? 0;
-  g.kgClasificado += f.mix.kgClasificado;
-  g.kgExportacion += f.mix.kgExportacion;
-  g.kgNoExportacion += f.mix.kgNoExportacion;
-  g.kgMujeres += f.mix.kgMujeres;
-  g.kgNoComercial += f.mix.kgNoComercial;
-  g.kgClaseApta += f.mix.kgClaseApta;
-  for (const m of METODOS_MDNA) g.mdnaAjustado[m] += f.mix.mdna[m] * k;
-  g.mdnaSinFormatoAjustado += f.mix.mdnaSinFormato * k;
-  g.mdnaTotalAjustado += f.mix.mdnaTotal * k;
-  g.mdnaTotalClasificado += f.mix.mdnaTotal;
-  g.kgAptoNoMdna += Math.max(0, f.mix.kgClaseApta - f.mix.mdnaTotal);
-}
-
-function agrupar(filas: FilaLote[], clave: (f: FilaLote) => string, conFinca: boolean): Grupo[] {
-  const map = new Map<string, Grupo>();
-  for (const f of filas) {
-    const k = clave(f);
-    let g = map.get(k);
-    if (!g) {
-      g = grupoVacio(f.productor, conFinca ? f.finca : undefined);
-      map.set(k, g);
-    }
-    acumular(g, f);
-  }
-  return [...map.values()];
-}
-
 // ─── Columnas del Excel ──────────────────────────────────────────────────────
 
 const kgCol = (header: string, key: string, width = 15): ColumnaTabla =>
@@ -900,75 +529,6 @@ function colsMdna(conFinca: boolean): ColumnaTabla[] {
   ];
 }
 
-function filaPerdida(g: Grupo): Record<string, unknown> {
-  return {
-    productor: g.productor,
-    ...(g.finca !== undefined ? { finca: g.finca } : {}),
-    nLotes: g.nLotes,
-    nLotesConMerma: g.nLotesConMerma,
-    nLotesSinMerma: g.nLotesSinMerma,
-    kgEntradaTotal: g.kgEntradaTotal,
-    kgEntradaBase: g.kgEntradaBase,
-    // Media ponderada solo sobre los kg con días conocidos: incluir en el
-    // denominador lotes sin fecha de proceso la hundiría sin que nadie haya
-    // pasado menos tiempo en cámara.
-    diasMedio: g.kgConDias > 0 ? g.kgDiasPonderados / g.kgConDias : null,
-    nLotesTodoAjuste: g.nLotesTodoAjuste,
-    kgAjuste: g.kgAjuste,
-    mermaMedidaKg: g.mermaMedidaKg,
-    mermaCamaraKg: g.mermaCamaraKg,
-    pctMermaCamara: pct(g.mermaCamaraKg, g.kgEntradaBase),
-    podridoPreKg: g.podridoPreKg,
-    pctPodridoPre: pct(g.podridoPreKg, g.kgEntradaBase),
-    podridoPreEsperadoKg: g.podridoPreEsperadoKg,
-    podridoPreNoVistoKg: g.podridoPreNoVistoKg,
-    nLotesSinMargen: g.nLotesSinMargen,
-    kgCalibrador: g.kgCalibrador,
-    podridoCalibradorKg: g.podridoCalibradorKg,
-    // Denominador que incluye los kg ya pasados de los lotes sin terminar que
-    // aportan podrido al numerador (ver kgBasePctPerdida).
-    pctPodridoCalibrador: pct(g.podridoCalibradorKg, g.kgBasePctPerdida),
-    nLotesPodridoReal: g.nLotesPodridoReal,
-    perdidaKg: g.perdidaKg,
-    kgBasePctPerdida: g.kgBasePctPerdida,
-    pctPerdida: pct(g.perdidaKg, g.kgBasePctPerdida),
-    perdidaEur: g.perdidaEur > 0 ? g.perdidaEur : null,
-    pctPerdidaCoste: g.costeTotal > 0 ? pct(g.perdidaEur, g.costeTotal) : null,
-    podridoManualKg: g.podridoManualKg,
-  };
-}
-
-function filaMdna(g: Grupo): Record<string, unknown> {
-  return {
-    productor: g.productor,
-    ...(g.finca !== undefined ? { finca: g.finca } : {}),
-    nLotes: g.nLotes,
-    nLotesSinClasificacion: g.nLotesSinClasificacion,
-    kgEntradaTotal: g.kgEntradaTotal,
-    kgCalibrador: g.kgCalibrador,
-    kgClasificado: g.kgClasificado,
-    pctExportacion: pct(g.kgExportacion, g.kgClasificado),
-    pctNoExportacion: pct(g.kgNoExportacion, g.kgClasificado),
-    pctMujeres: pct(g.kgMujeres, g.kgClasificado),
-    pctNoComercial: pct(g.kgNoComercial, g.kgClasificado),
-    pctClaseApta: pct(g.kgClaseApta, g.kgClasificado),
-    mdna3: g.mdnaAjustado.MA3KGC,
-    pctMdna3: pct(g.mdnaAjustado.MA3KGC, g.kgEntradaTotal),
-    mdna4: g.mdnaAjustado.MA4KGC,
-    pctMdna4: pct(g.mdnaAjustado.MA4KGC, g.kgEntradaTotal),
-    mdna5: g.mdnaAjustado.MA5KGC,
-    pctMdna5: pct(g.mdnaAjustado.MA5KGC, g.kgEntradaTotal),
-    mdna12: g.mdnaAjustado.MA12KGC,
-    pctMdna12: pct(g.mdnaAjustado.MA12KGC, g.kgEntradaTotal),
-    mdnaSinFormato: g.mdnaSinFormatoAjustado,
-    mdnaTotalAjustado: g.mdnaTotalAjustado,
-    pctMdnaSobreEntrada: pct(g.mdnaTotalAjustado, g.kgEntradaTotal),
-    pctMdnaSobreProcesado: pct(g.mdnaTotalAjustado, g.kgCalibrador),
-    mdnaTotalClasificado: g.mdnaTotalClasificado,
-    kgAptoNoMdna: g.kgAptoNoMdna,
-  };
-}
-
 // ─── Programa ────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -997,14 +557,19 @@ async function main() {
   // enseñe estos mismos números.
   const cierre = simularCierreDeCampana(mermaAbierta, hoy);
   const merma = { ...mermaAbierta, mermaLotes: cierre.lotes };
-  const todasLasFilas = construirFilas(merma, datos);
+  const todasLasFilas = construirFilasMermaMdna({
+    mermaLotes: merma.mermaLotes,
+    entradas: merma.externas,
+    mixPorLote: mixPorLoteDesdeClasificacion(datos.clasif),
+    nombrePorProductorId: new Map(datos.productores.map((p) => [p.id, p.nombre])),
+    aliasPorNombre: new Map(datos.alias.map((a) => [a.alias_normalizado, a.productor_id])),
+  });
 
   // Un lote no puede perder más de lo que entró. Los que salen así tienen un
   // `kg_ajuste_stock` NEGATIVO (alguien reasignó sus kg a otro lote a mano) y
   // al cerrarlos meterían "merma" imposible: se apartan del año y se listan
   // para arreglar el apunte. Ver la hoja "Cierre pendiente".
-  const esImposible = (f: FilaLote): boolean =>
-    f.mermaMedidaKg != null && (f.mermaMedidaKg > f.kgEntrada || f.kgAjuste < 0);
+  const esImposible = esLoteImposible;
 
   // Los movimientos internos (precalibrado, confección/sobrante) no son
   // productores: fuera de los rankings, contados aparte para poder informarlo.
@@ -1013,68 +578,16 @@ async function main() {
   const imposibles = todasLasFilas.filter((f) => !f.interno && esImposible(f));
   const pendientesDeCerrar = todasLasFilas.filter((f) => cierre.cerrados.has(f.lote) && !f.interno);
 
-  const porProductor = agrupar(filas, (f) => f.productorKey, false)
-    .sort((a, b) => (pct(b.perdidaKg, b.kgEntradaBase) ?? -1) - (pct(a.perdidaKg, a.kgEntradaBase) ?? -1)
-      || b.kgEntradaTotal - a.kgEntradaTotal);
-  const porFinca = agrupar(filas, (f) => `${f.productorKey}::${f.finca}`, true)
-    .sort((a, b) => (pct(b.perdidaKg, b.kgEntradaBase) ?? -1) - (pct(a.perdidaKg, a.kgEntradaBase) ?? -1)
-      || b.kgEntradaTotal - a.kgEntradaTotal);
-  const total = grupoVacio("TOTAL CAMPAÑA");
-  for (const f of filas) acumular(total, f);
+  const porProductor = ordenarPorPerdida(agruparMermaMdna(filas, "productor"));
+  const porFinca = ordenarPorPerdida(agruparMermaMdna(filas, "productor_finca"));
+  const total = totalMermaMdna(filas);
 
-  const porProductorMdna = [...porProductor].sort(
-    (a, b) => (pct(b.mdnaTotalAjustado, b.kgEntradaTotal) ?? -1) - (pct(a.mdnaTotalAjustado, a.kgEntradaTotal) ?? -1));
-  const porFincaMdna = [...porFinca].sort(
-    (a, b) => (pct(b.mdnaTotalAjustado, b.kgEntradaTotal) ?? -1) - (pct(a.mdnaTotalAjustado, a.kgEntradaTotal) ?? -1));
+  const porProductorMdna = ordenarPorMdna(porProductor);
+  const porFincaMdna = ordenarPorMdna(porFinca);
 
-  // ─── Contraste del podrido pre-calibrador: lo PESADO vs lo ASUMIDO ────────
-  // La bolsa se pesa a diario y las bateas al vaciarlas (varios días). Ninguna
-  // de las dos se puede repartir por lote, así que el contraste solo tiene
-  // sentido agregado por MES DE PROCESO.
-  const pesadoPorMes = new Map<string, { bolsa: number; bateas: number; partes: number }>();
-  for (const p of datos.partes) {
-    const mes = (p.date ?? "").slice(0, 7);
-    if (!mes) continue;
-    const acc = pesadoPorMes.get(mes) ?? { bolsa: 0, bateas: 0, partes: 0 };
-    acc.bolsa += num(p.kg_podrido_bolsa_basura);
-    acc.bateas += num(p.kg_podrido_bateas);
-    acc.partes += 1;
-    pesadoPorMes.set(mes, acc);
-  }
-  const asumidoPorMes = new Map<string, { asumido: number; esperado: number; procesado: number; lotes: number; sinMargen: number }>();
-  for (const f of filas) {
-    if (f.diasEnCamara == null) continue;
-    const fin = new Date(Date.UTC(
-      Number(f.fecha.slice(0, 4)), Number(f.fecha.slice(5, 7)) - 1, Number(f.fecha.slice(8, 10)) + f.diasEnCamara));
-    const mes = fin.toISOString().slice(0, 7);
-    const acc = asumidoPorMes.get(mes) ?? { asumido: 0, esperado: 0, procesado: 0, lotes: 0, sinMargen: 0 };
-    acc.asumido += f.podridoPreKg ?? 0;
-    acc.esperado += f.podridoPreEsperadoKg ?? 0;
-    acc.procesado += f.kgCalibrador;
-    acc.lotes += 1;
-    if (f.sinMargen) acc.sinMargen += 1;
-    asumidoPorMes.set(mes, acc);
-  }
-  const meses = [...new Set([...pesadoPorMes.keys(), ...asumidoPorMes.keys()])].sort();
-  const filasMes = meses.map((mes) => {
-    const p = pesadoPorMes.get(mes) ?? { bolsa: 0, bateas: 0, partes: 0 };
-    const a = asumidoPorMes.get(mes) ?? { asumido: 0, esperado: 0, procesado: 0, lotes: 0, sinMargen: 0 };
-    return {
-      mes,
-      lotes: a.lotes,
-      procesado: a.procesado || null,
-      tasaMes: tasaPodridoPreCalibradorMes(`${mes}-15`) * 100,
-      asumido: a.asumido || null,
-      pctAsumido: pct(a.asumido, a.procesado),
-      esperado: a.esperado || null,
-      noVisto: a.esperado > a.asumido ? a.esperado - a.asumido : 0,
-      sinMargen: a.sinMargen,
-      bolsa: p.bolsa || null,
-      bateas: p.bateas || null,
-      pesadoTotal: p.bolsa + p.bateas || null,
-      partesConDato: p.partes,
-    };
-  });
+  // Contraste del podrido pre-calibrador por mes de proceso: lo pesado (bolsa
+  // y bateas) frente a lo asumido por la tasa. Ver podridoPorMesDeProceso.
+  const filasMes = podridoPorMesDeProceso(filas, datos.partes);
 
   // ─── Excel ────────────────────────────────────────────────────────────────
   console.log("Escribiendo el Excel…");
@@ -1181,7 +694,7 @@ async function main() {
       kgCol("Pesado total", "pesadoTotal", 15),
       intCol("Partes del mes", "partesConDato", 12),
     ],
-    filas: filasMes,
+    filas: filasMes.map((f) => ({ ...f })) as Record<string, unknown>[],
   });
 
   // ─── CIERRE PENDIENTE EN EL SISTEMA ───────────────────────────────────────

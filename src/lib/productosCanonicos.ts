@@ -261,15 +261,11 @@ export function piezasPorBultoDesdeProducto(
  * El granel se comprueba ANTES que los formatos: "MDNA GRANEL CAL 3/4" lleva
  * un "3/4" que el patrón de formato confundiría con una malla de 3 kg.
  */
-export function deducirMetodoVentaMdna(producto: string | null | undefined): string | null {
-  const t = textoBusqueda(producto);
-  if (!/\bMDNA\b|\bMERCADONA\b/.test(t)) return null;
-  if (/\bGRANEL\b/.test(t)) return "MA12KGC";
-  if (/\b3\s*KG?\b/.test(t)) return "MA3KGC";
-  if (/\b4\s*KG?\b/.test(t)) return "MA4KGC";
-  if (/\b5\s*KG?\b/.test(t)) return "MA5KGC";
-  return null;
-}
+// (03-09-2026) La implementación vive en _shared/mdnaMix.ts, junto al mix de
+// clasificación que la usa en la página de campaña, los scripts y las edge
+// functions. Aquí se re-exporta para que los consumidores no cambien.
+import { deducirMetodoVentaMdna } from "./mdnaMix";
+export { deducirMetodoVentaMdna };
 
 // ─── Ficha deducida ──────────────────────────────────────────────────────────
 
