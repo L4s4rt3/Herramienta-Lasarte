@@ -1,69 +1,51 @@
 /**
  * informe-aprovechamiento-invermarmelo — aprovechamiento REAL (medido, no
- * estimado) de las parcelas 2 y 4 de Invermarmelo.
+ * estimado) de las parcelas 2 y 4 de Invermarmelo, en Excel.
  *
  *   node node_modules/vite-node/vite-node.mjs scripts/informe-aprovechamiento-invermarmelo.ts
  *
- * ─── Por qué este informe SÍ puede decir "real" ─────────────────────────────
- * El informe general de campaña (scripts/analisis-mermas-mercadona.ts) tiene
- * que ESTIMAR el destino de la fruta de cada productor: toma el mix del Informe
- * LOTE y lo aplica a los kg conciliados, porque el calibrador atribuye cada
- * pasada al primer código de su nombre y muchas pasadas mezclan lotes.
+ * DESDE EL 03-09-2026 ESTO MISMO ESTÁ EN LA APP para cualquier finca y parcela:
+ * Análisis → Por productor → «Aprovechamiento real por parcela». Las funciones
+ * que hacen los números son LAS MISMAS (src/lib/aprovechamientoReal.ts, es
+ * decir supabase/functions/_shared/aprovechamientoReal.ts): misma cifra aquí y
+ * en pantalla. El script queda para quien quiera el Excel; la explicación de
+ * fondo (por qué esto sí es "real", por qué la base son los kg del calibrador,
+ * la cobertura y la frescura) vive en la cabecera de esa librería.
  *
- * Aquí no hace falta estimar nada. Se ha comprobado pasada a pasada que las de
- * estas dos parcelas son de UN SOLO LOTE cada una (ningún BatchName nombra dos
- * códigos), así que cada kg que clasificó la máquina se puede atribuir
- * directamente a su parcela. La fuente es el volcado SQL del Compac Sizer
- * (calibrador_batch + calibrador_clasificacion, batch_id > 0), que es la fuente
- * canónica y cubre TODAS las pasadas — no solo la última, como el Word.
+ * ─── Las fuentes de este script ─────────────────────────────────────────────
+ * El script lee las tablas crudas del Sizer (calibrador_batch +
+ * calibrador_clasificacion, batch_id > 0) y los informes Word volcados por el
+ * receptor (batch_id NEGATIVO), y aplica él mismo la regla POR LOTE Y DÍA:
+ * si ese lote-día está en el volcado SQL, manda el SQL (trae TODAS las pasadas
+ * del día); si no, entra el Word (solo la última pasada del día). Es la misma
+ * regla que aplica la vista canónica clasificacion_lote, de la que bebe la
+ * pantalla. Corregido el 19-08-2026: decir "no hay desglose" con el volcado
+ * parado era FALSO, el Word ya estaba guardado.
  *
- * ─── La base de los porcentajes, y por qué NO es la entrada de báscula ──────
- * El calibrador pesa sistemáticamente MÁS que la báscula: +7,80 % en los 904
- * lotes de la campaña con volcado, +9,41 % en la parcela 2 y +5,06 % en la 4.
- * No es fruta de otro sitio (las pasadas son de un solo lote): es un desfase de
- * tara/calibración entre las dos básculas. Por eso los porcentajes van sobre
- * los KG QUE PESÓ LA MÁQUINA, que es lo único medido de punta a punta. La
- * entrada de báscula se enseña al lado para que el desfase se vea, nunca
- * mezclada en el mismo porcentaje.
- *
- * ─── Cobertura: lo que no está, se dice ─────────────────────────────────────
- * Los lotes sin ninguna pasada no se rellenan ni se prorratean: se listan uno a
- * uno con su motivo (en cámara confirmada a pie, entrada que es ajuste de
- * stock, o cerrado sin registro) en la hoja "Cobertura". El aprovechamiento se
- * declara sobre lo que sí pasó por línea.
- *
- * ─── FRESCURA: el volcado del Sizer se puede quedar atrás, y hay que verlo ──
  * Aprendido a la mala el 18-ago-2026: el informe se entregó diciendo que el
  * lote 26051903 "seguía en cámara" cuando se había procesado el día 14 — el
- * volcado SQL del calibrador llevaba parado desde el 11 y nada en el informe lo
- * decía. Los partes diarios sí llegaban al 17.
- *
- * Por eso el informe ahora (a) enseña la FECHA de cada fuente en cabecera y
- * avisa si el volcado va por detrás de los partes, y (b) cruza los partes
- * diarios para detectar lotes que YA se han procesado pero cuyo desglose de
- * clases todavía no ha volcado el Sizer: esos salen como "procesado, pendiente
- * de volcado", nunca como "en cámara".
- *
- * ─── El DOCX de lote es el respaldo, y hay que usarlo ───────────────────────
- * Corregido el 19-ago-2026: decir "no hay desglose" con el volcado parado era
- * FALSO. Los informes Word por producto y lote entran solos por el receptor y
- * ya están en la herramienta (calibrador_informe + calibrador_clasificacion con
- * batch_id NEGATIVO, ver scripts/lib-subir-informe-calibrador.mjs). El lote
- * 26051903 tenía su desglose del 14 y del 18 de agosto guardado mientras este
- * informe lo daba por "sin datos", solo porque filtraba batch_id > 0.
- *
- * La regla es la MISMA que aplica el receptor al guardar, y es POR LOTE Y DÍA,
- * nunca por lote a secas: si ese lote-día está en el volcado SQL, manda el SQL
- * (trae TODAS las pasadas del día; el Word solo la última). Si no está, entra
- * el Word, que es mejor dato que ninguno. Cada kg lleva su origen marcado y el
- * informe dice cuántos vienen de cada sitio: un dato de respaldo no se puede
- * presentar como si fuera el canónico.
+ * volcado SQL llevaba parado desde el 11 y nada en el informe lo decía. Por eso
+ * la FECHA de cada fuente va en cabecera y se cruzan los partes diarios.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-import { deducirMetodoVentaMdna } from "../src/lib/productosCanonicos";
+import {
+  acumularDetalleReal,
+  acumuladoRealVacio,
+  calibresReal,
+  clasesReal,
+  coberturaReal,
+  frescuraFuentes,
+  LABEL_ESTADO_DATO,
+  pasadasCompuestas,
+  pasadasDelPartePorLote,
+  resumenReal,
+  type AcumuladoReal,
+  type FilaDetalleReal,
+} from "../src/lib/aprovechamientoReal";
+import { LABEL_MDNA, METODOS_MDNA } from "../src/lib/mdnaMix";
 import {
   añadirHojaTabla,
   crearLibroLasarte,
@@ -85,48 +67,6 @@ const CORTO: Record<string, string> = {
 
 const num = (v: unknown): number => Number(v) || 0;
 const pct = (parte: number, total: number): number | null => (total > 0 ? (parte / total) * 100 : null);
-const norm = (v: string | null | undefined): string => String(v ?? "").trim().toUpperCase();
-
-/**
- * Clases aptas para Mercadona (A–F). OJO: el volcado SQL del Sizer escribe la
- * clase SIN el prefijo de letra ("Extra 1") mientras que el Word la trae con él
- * ("(A) Extra 1"), así que aquí se casa por NOMBRE, no por letra. Mujeres,
- * Cat 3, Verde Oscuro, Industria, Podrido, Densidad y Recirculo no van a
- * Mercadona nunca.
- */
-const CLASES_APTAS_MDNA = new Set(["EXTRA 1", "EXTRA 2", "CAT1 A", "CAT1 B", "VERDE CLARO", "CAT 2", "CAT2"]);
-
-/**
- * Quita la letra que el Word pone delante ("(A) Extra 1" → "EXTRA 1"). El
- * volcado SQL no la lleva, así que sobre él no hace nada: es la función que
- * permite que las dos fuentes se comparen con el mismo rasero.
- */
-const claseCanonica = (v: string | null | undefined): string =>
-  norm(v).replace(/^\([A-Z]\)\s*/, "");
-
-const METODOS = ["MA3KGC", "MA4KGC", "MA5KGC", "MA12KGC"] as const;
-type Metodo = (typeof METODOS)[number];
-const LABEL: Record<Metodo, string> = {
-  MA3KGC: "Malla 3 kg",
-  MA4KGC: "Girsac 4 kg exprimidor",
-  MA5KGC: "D-Pack 5 kg",
-  MA12KGC: "Granel",
-};
-
-/**
- * A qué tornillo de Mercadona puede ir cada calibre (mapeo confirmado con lo
- * empacado del 3 al 5 de agosto de 2026). Los rangos SE SOLAPAN a propósito: un
- * 3/54 vale para la malla de 5 kg y para el granel, y quien decide es la
- * programación de la semana. Por eso esto no reparte kg — solo dice para qué
- * sirve cada calibre.
- */
-const TORNILLOS_POR_CALIBRE: Record<string, string> = {
-  "7/110": "exprimidor", "7-110": "exprimidor", "7/100": "exprimidor", "6/90": "exprimidor",
-  "5/80": "exprimidor", "4/70": "exprimidor + malla 3",
-  "3/60": "malla 5 + malla 3", "3/54": "malla 5 + malla 3 + granel",
-  "2/48": "malla 3 + granel", "1/42": "malla 3 + granel",
-  "1/36": "granel", "1/30": "granel",
-};
 
 async function fetchTodas<T>(
   etiqueta: string,
@@ -170,56 +110,6 @@ interface InformeRow {
   batch_id: number; lote: string | null; fecha: string | null; comienzo: string | null; fichero: string | null;
 }
 
-interface Acumulado {
-  kgSizer: number;
-  porDestino: Map<string, number>;
-  porClase: Map<string, { kg: number; destino: string; apta: boolean }>;
-  porCalibreApta: Map<string, number>;
-  mdna: Record<Metodo, number>;
-  mdnaSinFormato: number;
-  mdnaTotal: number;
-  kgApta: number;
-  pasadas: number;
-  /** De los kgSizer, los que salen del Word de lote en vez del volcado SQL. */
-  kgDocx: number;
-  pasadasDocx: number;
-}
-const nuevoAcumulado = (): Acumulado => ({
-  kgSizer: 0, porDestino: new Map(), porClase: new Map(), porCalibreApta: new Map(),
-  mdna: { MA3KGC: 0, MA4KGC: 0, MA5KGC: 0, MA12KGC: 0 }, mdnaSinFormato: 0, mdnaTotal: 0,
-  kgApta: 0, pasadas: 0, kgDocx: 0, pasadasDocx: 0,
-});
-
-/** Suma una fila de clasificación a un acumulado (parcela o lote). */
-function acumular(
-  acc: Acumulado,
-  kg: number,
-  clase: string,
-  destino: string,
-  apta: boolean,
-  calibre: string,
-  metodo: Metodo | "SIN_FORMATO" | null,
-  esDocx: boolean,
-): void {
-  acc.kgSizer += kg;
-  if (esDocx) acc.kgDocx += kg;
-  acc.porDestino.set(destino, (acc.porDestino.get(destino) ?? 0) + kg);
-  const ent = acc.porClase.get(clase) ?? { kg: 0, destino, apta };
-  ent.kg += kg;
-  acc.porClase.set(clase, ent);
-  if (apta) {
-    acc.kgApta += kg;
-    acc.porCalibreApta.set(calibre, (acc.porCalibreApta.get(calibre) ?? 0) + kg);
-  }
-  if (metodo === "SIN_FORMATO") {
-    acc.mdnaSinFormato += kg;
-    acc.mdnaTotal += kg;
-  } else if (metodo) {
-    acc.mdna[metodo] += kg;
-    acc.mdnaTotal += kg;
-  }
-}
-
 async function main() {
   const url = process.env.VITE_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
@@ -240,7 +130,7 @@ async function main() {
   }
 
   // Batches del Sizer: se traen todos y se filtran por código de lote (más
-  // barato que una consulta por cada uno de los 36 lotes). Los TODOS también
+  // barato que una consulta por cada uno de los lotes). Los TODOS también
   // sirven para saber hasta qué día llega el volcado (frescura, ver cabecera).
   const batchesTodos = await fetchTodas<BatchRow>("calibrador_batch", (f, t) =>
     db.from("calibrador_batch").select("batch_id, lote, batch_name, inicio, sincronizado_at").order("batch_id").range(f, t));
@@ -248,7 +138,7 @@ async function main() {
 
   // Partes diarios: la otra fuente de "esto ya ha pasado por línea". Llega
   // antes que el volcado del Sizer, así que es la que destapa si el volcado se
-  // ha quedado atrás (ver cabecera).
+  // ha quedado atrás.
   const [partes, pasadasParte] = await Promise.all([
     fetchTodas<ParteRow>("partes_diarios", (f, t) =>
       db.from("partes_diarios").select("id, date").order("id").range(f, t)),
@@ -256,27 +146,11 @@ async function main() {
       db.from("lotes_dia").select("lote_codigo, kg_peso_total, part_id").order("id").range(f, t)),
   ]);
   const fechaPorParte = new Map(partes.map((p) => [p.id, p.date ?? null]));
-
-  // Pasadas del parte que NOMBRAN uno de nuestros lotes, en cualquier posición
-  // del código (mismo criterio que el resto del motor: nunca por LIKE).
-  const pasadasPartePorLote = new Map<string, Array<{ fecha: string | null; kg: number; codigo: string }>>();
-  for (const p of pasadasParte) {
-    const codigo = String(p.lote_codigo ?? "");
-    for (const m of codigo.matchAll(/\d{8}/g)) {
-      if (!parcelaPorLote.has(m[0])) continue;
-      const arr = pasadasPartePorLote.get(m[0]) ?? [];
-      arr.push({ fecha: fechaPorParte.get(p.part_id) ?? null, kg: num(p.kg_peso_total), codigo });
-      pasadasPartePorLote.set(m[0], arr);
-    }
-  }
+  const pasadasPartePorLote = pasadasDelPartePorLote(pasadasParte, fechaPorParte, new Set(parcelaPorLote.keys()));
 
   // Frescura de cada fuente.
   const maxONull = (xs: Array<string | null | undefined>): string | null =>
     xs.filter((x): x is string => Boolean(x)).sort().at(-1) ?? null;
-  const ultimaPasadaSizer = maxONull(batchesTodos.map((b) => b.inicio))?.slice(0, 10) ?? null;
-  const ultimaSincronizacion = maxONull(batchesTodos.map((b) => b.sincronizado_at))?.slice(0, 10) ?? null;
-  const ultimoParte = maxONull(partes.map((p) => p.date));
-  const volcadoAtrasado = Boolean(ultimaPasadaSizer && ultimoParte && ultimoParte > ultimaPasadaSizer);
 
   // ─── Respaldo: los informes Word que ya entraron por el receptor ──────────
   // Se guardan con batch_id NEGATIVO. Solo se usan para los lote-DÍA que el
@@ -292,7 +166,12 @@ async function main() {
     if (!l || !parcelaPorLote.has(l)) return false;
     return !diaVolcadoSQL.has(`${l}|${String(i.fecha ?? "").slice(0, 10)}`);
   });
-  const ultimoInformeDocx = maxONull(informesTodos.map((i) => i.fecha))?.slice(0, 10) ?? null;
+  const frescura = frescuraFuentes({
+    ultimaPasadaSql: maxONull(batchesTodos.map((b) => b.inicio)),
+    ultimaSincronizacion: maxONull(batchesTodos.map((b) => b.sincronizado_at)),
+    ultimoDocx: maxONull(informesTodos.map((i) => i.fecha)),
+    ultimoParte: maxONull(partes.map((p) => p.date)),
+  });
   console.log(`  calibrador_informe (Word de respaldo aplicable a estos lotes): ${informes.length}`);
 
   const clasif: ClasifRow[] = [];
@@ -304,124 +183,46 @@ async function main() {
   }
   console.log(`  calibrador_batch (de estos lotes): ${batches.length} pasadas · calibrador_clasificacion: ${clasif.length} filas`);
 
+  // ─── Las filas al formato de la librería: cada una con su lote, su fuente y el nombre de la pasada ──
+  const cabeceraDeBatch = new Map<number, { lote8: string; fecha: string | null; fuente: "calibrador" | "docx"; nombre: string }>();
+  for (const b of batches) {
+    const l = lote8(b.lote);
+    if (l) cabeceraDeBatch.set(b.batch_id, { lote8: l, fecha: String(b.inicio ?? "").slice(0, 10) || null, fuente: "calibrador", nombre: String(b.batch_name ?? b.lote ?? "") });
+  }
+  for (const i of informes) {
+    const l = lote8(i.lote);
+    if (l) cabeceraDeBatch.set(i.batch_id, { lote8: l, fecha: i.fecha, fuente: "docx", nombre: String(i.lote ?? "") });
+  }
+  const filas: FilaDetalleReal[] = [];
+  for (const c of clasif) {
+    const cab = cabeceraDeBatch.get(c.batch_id);
+    if (!cab) continue;
+    filas.push({
+      lote8: cab.lote8, fecha: cab.fecha, batchId: c.batch_id, fuente: cab.fuente, nombrePasada: cab.nombre,
+      producto: c.producto, clase: c.clase, destino: c.grupo_destino, tamano: c.tamano, kg: c.peso_kg,
+    });
+  }
+
   // ─── La comprobación que sostiene todo el informe ─────────────────────────
   // Si alguna pasada nombrara dos lotes, sus kg NO serían atribuibles y esto
   // dejaría de poder llamarse "real". Se comprueba, no se supone.
-  // El nombre lo escribe el operario en las dos fuentes ("26081302-12 BOX +
-  // 26081202-9 BOX" existe de verdad), así que el Word se mira igual que el SQL.
-  const compuestas = [
-    ...batches.map((b) => ({ batch_id: b.batch_id, nombre: String(b.batch_name ?? ""), fuente: "volcado SQL" })),
-    ...informes.map((i) => ({ batch_id: i.batch_id, nombre: String(i.lote ?? ""), fuente: "Word de lote" })),
-  ].filter((b) => (b.nombre.match(/\d{8}/g) ?? []).length > 1);
+  const compuestas = pasadasCompuestas(filas);
 
-  const parcelaDeBatch = new Map<number, string>();
-  const loteDeBatch = new Map<number, string>();
-  const esDocxBatch = new Set<number>();
-  const fuentes: Array<{ batch_id: number; lote: string | null; docx: boolean }> = [
-    ...batches.map((b) => ({ batch_id: b.batch_id, lote: b.lote, docx: false })),
-    ...informes.map((i) => ({ batch_id: i.batch_id, lote: i.lote, docx: true })),
-  ];
-  for (const b of fuentes) {
-    const l = lote8(b.lote);
-    if (!l) continue;
-    const p = parcelaPorLote.get(l);
-    if (!p) continue;
-    parcelaDeBatch.set(b.batch_id, p);
-    loteDeBatch.set(b.batch_id, l);
-    if (b.docx) esDocxBatch.add(b.batch_id);
-  }
-
-  const porParcela = new Map<string, Acumulado>(PARCELAS.map((p) => [p, nuevoAcumulado()]));
-  const porLote = new Map<string, Acumulado>();
-  for (const b of fuentes) {
-    const p = parcelaDeBatch.get(b.batch_id);
-    const l = loteDeBatch.get(b.batch_id);
-    if (p) {
-      porParcela.get(p)!.pasadas += 1;
-      if (b.docx) porParcela.get(p)!.pasadasDocx += 1;
-    }
-    if (l) {
-      const acc = porLote.get(l) ?? nuevoAcumulado();
-      acc.pasadas += 1;
-      if (b.docx) acc.pasadasDocx += 1;
-      porLote.set(l, acc);
-    }
-  }
-
-  const metodoPorProducto = new Map<string, Metodo | "SIN_FORMATO" | null>();
-  for (const c of clasif) {
-    const p = parcelaDeBatch.get(c.batch_id);
-    const l = loteDeBatch.get(c.batch_id);
-    if (!p || !l) continue;
-    const kg = num(c.peso_kg);
-    // El Word trae "(A) Extra 1" y el SQL "Extra 1": se casan por nombre pelado.
-    const clase = claseCanonica(c.clase);
-    const destino = norm(c.grupo_destino).normalize("NFD").replace(/[̀-ͯ]/g, "") || "(sin destino)";
-    const apta = CLASES_APTAS_MDNA.has(clase);
-    const calibre = String(c.tamano ?? "—").trim() || "—";
-
-    const producto = c.producto ?? "";
-    let metodo = metodoPorProducto.get(producto);
-    if (metodo === undefined) {
-      const deducido = deducirMetodoVentaMdna(producto) as Metodo | null;
-      // Dice MDNA pero no declara formato: se cuenta aparte, nunca se reparte
-      // a ojo entre los cuatro.
-      metodo = deducido ?? (/\bMDNA\b|\bMERCADONA\b/i.test(producto) ? "SIN_FORMATO" : null);
-      metodoPorProducto.set(producto, metodo);
-    }
-
-    const esDocx = esDocxBatch.has(c.batch_id);
-    acumular(porParcela.get(p)!, kg, clase, destino, apta, calibre, metodo, esDocx);
-    acumular(porLote.get(l)!, kg, clase, destino, apta, calibre, metodo, esDocx);
-  }
+  const porParcelaCalc = acumularDetalleReal(filas, (f) => parcelaPorLote.get(f.lote8));
+  const porParcela = new Map<string, AcumuladoReal>(PARCELAS.map((p) => [p, porParcelaCalc.get(p) ?? acumuladoRealVacio()]));
+  const porLote = acumularDetalleReal(filas, (f) => f.lote8);
 
   // ─── Cobertura: cada lote, con dato o con motivo ──────────────────────────
-  const cobertura = entradas.map((e) => {
-    const l = lote8(e.lote)!;
-    const acc = porLote.get(l);
-    const kgEnt = num(e.kg_entrada);
-    const kgAj = num(e.kg_ajuste_stock);
-    // El parte diario llega ANTES que el volcado del Sizer. Si el parte dice
-    // que este lote ya pasó por línea, no puede etiquetarse "en cámara" por
-    // mucho que la confirmación física sea anterior a esa pasada (ver cabecera).
-    const enParte = pasadasPartePorLote.get(l) ?? [];
-    const ultimaEnParte = maxONull(enParte.map((p) => p.fecha));
-    const kgEnParte = enParte.reduce((s, p) => s + p.kg, 0);
-    const procesadoSinVolcado = !acc && enParte.length > 0;
-
-    const soloDocx = Boolean(acc && acc.kgDocx > 0 && acc.kgDocx >= acc.kgSizer - 0.5);
-    const mixto = Boolean(acc && acc.kgDocx > 0 && !soloDocx);
-
-    const motivo = acc
-      ? soloDocx
-        ? `Con dato del INFORME WORD de lote (el volcado SQL no cubre este lote todavía). El Word trae solo la última pasada de cada día: hay ${acc.pasadasDocx} informe(s) y el parte registra ${Math.round(kgEnParte).toLocaleString("es-ES")} kg`
-        : mixto
-          ? `Mezcla de volcado SQL y Word de lote: ${Math.round(acc!.kgSizer - acc!.kgDocx).toLocaleString("es-ES")} kg del volcado y ${Math.round(acc!.kgDocx).toLocaleString("es-ES")} kg del Word (días que el volcado aún no trae)`
-          : "Con dato real del calibrador (volcado SQL, todas las pasadas)"
-      : procesadoSinVolcado
-        ? `PROCESADO el ${ultimaEnParte} según el parte diario (${Math.round(kgEnParte).toLocaleString("es-ES")} kg), pero el volcado del calibrador todavía no lo trae${ultimaPasadaSizer ? ` (volcado parado en el ${ultimaPasadaSizer})` : ""}: no hay desglose de clases que analizar`
-        : e.camara_confirmada_nombre
-          ? `Sigue en cámara — ${e.camara_confirmada_nombre}, confirmado a pie el ${e.camara_confirmada_fecha}`
-          : kgAj >= kgEnt && kgEnt > 0
-            ? "La entrada se registró entera como ajuste de stock: no hay pasada que analizar"
-            : e.cerrado_at
-              ? "Cerrado a mano SIN ningún registro de procesado bajo su código"
-              : "Sin pasada y sin señal de cámara: pendiente de aclarar";
-    return {
-      parcela: CORTO[e.parcela ?? ""] ?? e.parcela,
-      lote: l, fecha: e.fecha, kgEntrada: kgEnt,
-      conDato: acc ? (soloDocx ? "SÍ (Word)" : mixto ? "SÍ (SQL+Word)" : "SÍ") : procesadoSinVolcado ? "pendiente volcado" : "no",
-      pasadas: acc?.pasadas ?? enParte.length,
-      kgSizer: acc?.kgSizer ?? null,
-      kgDocx: acc?.kgDocx ? acc.kgDocx : null,
-      desfase: acc && kgEnt > 0 ? (acc.kgSizer / kgEnt - 1) * 100 : null,
-      motivo,
-      procesadoSinVolcado,
-      kgEnParte: procesadoSinVolcado ? kgEnParte : null,
-    };
-  }).sort((a, b) => String(a.parcela).localeCompare(String(b.parcela)) || a.fecha.localeCompare(b.fecha));
-
-  const pendientesVolcado = cobertura.filter((c) => c.procesadoSinVolcado);
+  const cobertura = coberturaReal(
+    entradas.map((e) => ({
+      lote: e.lote, fecha: e.fecha, parcela: e.parcela, kgEntrada: num(e.kg_entrada), kgAjuste: num(e.kg_ajuste_stock),
+      cerradoAt: e.cerrado_at, camaraConfirmadaNombre: e.camara_confirmada_nombre, camaraConfirmadaFecha: e.camara_confirmada_fecha,
+    })),
+    porLote,
+    pasadasPartePorLote,
+    frescura,
+  ).map((c) => ({ ...c, parcela: CORTO[c.parcela ?? ""] ?? c.parcela, conDato: LABEL_ESTADO_DATO[c.estado] }));
+  const pendientesVolcado = cobertura.filter((c) => c.estado === "pendiente_volcado");
 
   // ─── Excel ────────────────────────────────────────────────────────────────
   const hoy = new Date();
@@ -438,14 +239,14 @@ async function main() {
 
   const p2 = porParcela.get(PARCELAS[0])!;
   const p4 = porParcela.get(PARCELAS[1])!;
-  const kgDocxTotal = p2.kgDocx + p4.kgDocx;
+  const r2 = resumenReal(p2);
+  const r4 = resumenReal(p4);
+  const kgDocxTotal = r2.kgRespaldo + r4.kgRespaldo;
   const dePar = (p: string) => entradas.filter((e) => e.parcela === p);
   const kgEntTotal = (p: string) => dePar(p).reduce((s, e) => s + num(e.kg_entrada), 0);
   const kgEntConDato = (p: string) => dePar(p).filter((e) => porLote.has(lote8(e.lote)!)).reduce((s, e) => s + num(e.kg_entrada), 0);
   const nLotes = (p: string) => dePar(p).length;
   const nConDato = (p: string) => dePar(p).filter((e) => porLote.has(lote8(e.lote)!)).length;
-  const dest = (a: Acumulado, d: string) => a.porDestino.get(d) ?? 0;
-  const podrido = (a: Acumulado) => a.porClase.get("PODRIDO")?.kg ?? 0;
 
   type Unidad = "kg" | "pct" | "int" | "txt";
   const fila = (concepto: string, v2: number | null, v4: number | null, unidad: Unidad, nota: string) => ({
@@ -456,37 +257,37 @@ async function main() {
     // Va lo PRIMERO a propósito: sin esto, un informe con el volcado parado se
     // lee como si estuviera al día (ver cabecera del script).
     fila("▸ Última pasada en el volcado del calibrador", null, null, "txt",
-      `${ultimaPasadaSizer ?? "sin dato"} · sincronizado por última vez el ${ultimaSincronizacion ?? "sin dato"}`),
+      `${frescura.ultimaPasadaSizer ?? "sin dato"} · sincronizado por última vez el ${frescura.ultimaSincronizacion ?? "sin dato"}`),
     fila("▸ Último informe Word de lote recibido", null, null, "txt",
-      `${ultimoInformeDocx ?? "sin dato"} · es el respaldo que tapa los días que el volcado SQL no trae`),
-    fila("▸ Último parte diario registrado", null, null, "txt", ultimoParte ?? "sin dato"),
+      `${frescura.ultimoInformeDocx ?? "sin dato"} · es el respaldo que tapa los días que el volcado SQL no trae`),
+    fila("▸ Último parte diario registrado", null, null, "txt", frescura.ultimoParte ?? "sin dato"),
     fila("▸ Estado de los datos", null, null, "txt",
-      volcadoAtrasado
-        ? `⚠ EL VOLCADO SQL DEL CALIBRADOR VA POR DETRÁS DE LOS PARTES (${ultimaPasadaSizer} frente a ${ultimoParte}). Lo procesado después del ${ultimaPasadaSizer} entra en este informe con el INFORME WORD de lote (${Math.round(kgDocxTotal).toLocaleString("es-ES")} kg en total), que trae solo la última pasada de cada día. ${pendientesVolcado.length > 0 ? `Quedan ${pendientesVolcado.length} lote(s) sin ninguna de las dos fuentes: ${pendientesVolcado.map((c) => c.lote).join(", ")} (${Math.round(pendientesVolcado.reduce((s, c) => s + (c.kgEnParte ?? 0), 0)).toLocaleString("es-ES")} kg). Ver hoja «Cobertura».` : "Ningún lote de estas parcelas se queda sin desglose. Ver la columna «De ellos, del Word» en «Cobertura»."}`
+      frescura.volcadoAtrasado
+        ? `⚠ EL VOLCADO SQL DEL CALIBRADOR VA POR DETRÁS DE LOS PARTES (${frescura.ultimaPasadaSizer} frente a ${frescura.ultimoParte}). Lo procesado después del ${frescura.ultimaPasadaSizer} entra en este informe con el INFORME WORD de lote (${Math.round(kgDocxTotal).toLocaleString("es-ES")} kg en total), que trae solo la última pasada de cada día. ${pendientesVolcado.length > 0 ? `Quedan ${pendientesVolcado.length} lote(s) sin ninguna de las dos fuentes: ${pendientesVolcado.map((c) => c.lote8).join(", ")} (${Math.round(pendientesVolcado.reduce((s, c) => s + (c.kgEnParte ?? 0), 0)).toLocaleString("es-ES")} kg). Ver hoja «Cobertura».` : "Ningún lote de estas parcelas se queda sin desglose. Ver la columna «De ellos, del Word» en «Cobertura»."}`
         : "Volcado del calibrador y partes diarios al mismo día: el informe está completo hasta esa fecha."),
-    fila("Kg que vienen del Word en vez del volcado SQL", p2.kgDocx, p4.kgDocx, "kg",
+    fila("Kg que vienen del Word en vez del volcado SQL", r2.kgRespaldo, r4.kgRespaldo, "kg",
       "Dato de respaldo: el Word solo trae la última pasada de cada día, el volcado las trae todas"),
     fila("Lotes de la parcela", nLotes(PARCELAS[0]), nLotes(PARCELAS[1]), "int", "Todos los lotes entrados por báscula"),
     fila("Lotes con dato real del calibrador", nConDato(PARCELAS[0]), nConDato(PARCELAS[1]), "int", "Los demás no han pasado por línea: ver hoja «Cobertura»"),
-    fila("Pasadas analizadas", p2.pasadas, p4.pasadas, "int", "Todas de un solo lote: cada kg es directamente atribuible"),
+    fila("Pasadas analizadas", r2.pasadas, r4.pasadas, "int", "Todas de un solo lote: cada kg es directamente atribuible"),
     fila("Kg entrada por báscula (todos los lotes)", kgEntTotal(PARCELAS[0]), kgEntTotal(PARCELAS[1]), "kg", "Referencia, NO la base de los porcentajes"),
     fila("Kg entrada de los lotes analizados", kgEntConDato(PARCELAS[0]), kgEntConDato(PARCELAS[1]), "kg", "La parte de la parcela que ya ha pasado por línea"),
     fila("Cobertura del informe", pct(kgEntConDato(PARCELAS[0]), kgEntTotal(PARCELAS[0])), pct(kgEntConDato(PARCELAS[1]), kgEntTotal(PARCELAS[1])), "pct", "Sobre kg de entrada"),
-    fila("KG PESADOS POR EL CALIBRADOR", p2.kgSizer, p4.kgSizer, "kg", "★ LA BASE de todos los porcentajes de abajo"),
-    fila("Desfase calibrador vs báscula", pct(p2.kgSizer - kgEntConDato(PARCELAS[0]), kgEntConDato(PARCELAS[0])), pct(p4.kgSizer - kgEntConDato(PARCELAS[1]), kgEntConDato(PARCELAS[1])), "pct", "Sistemático en toda la campaña (+7,80 % en 904 lotes): desfase de tara, no fruta de otro sitio"),
-    fila("% EXPORTACIÓN", pct(dest(p2, "EXPORTACION"), p2.kgSizer), pct(dest(p4, "EXPORTACION"), p4.kgSizer), "pct", "Extra 1/2, Cat1 A/B y Verde Claro"),
-    fila("% NO EXPORTACIÓN", pct(dest(p2, "NO EXPORTACION"), p2.kgSizer), pct(dest(p4, "NO EXPORTACION"), p4.kgSizer), "pct", "Cat 2, Cat 3 y Verde Oscuro"),
-    fila("% MUJERES", pct(dest(p2, "MUJERES"), p2.kgSizer), pct(dest(p4, "MUJERES"), p4.kgSizer), "pct", "Fruta desviada a repaso manual"),
-    fila("% NO COMERCIAL", pct(dest(p2, "NO COMERCIAL"), p2.kgSizer), pct(dest(p4, "NO COMERCIAL"), p4.kgSizer), "pct", "Industria, podrido y densidad"),
-    fila("Podrido en el calibrador", podrido(p2), podrido(p4), "kg", "Medido por la máquina, no prorrateado"),
-    fila("% podrido en el calibrador", pct(podrido(p2), p2.kgSizer), pct(podrido(p4), p4.kgSizer), "pct", "Solo el que descarta la máquina: la tría previa no se ve aquí"),
-    fila("% clases aptas para Mercadona (A–F)", pct(p2.kgApta, p2.kgSizer), pct(p4.kgApta, p4.kgSizer), "pct", "Techo teórico de lo que Mercadona podría aceptar"),
-    ...METODOS.map((m) => fila(`MERCADONA · ${LABEL[m]}`, pct(p2.mdna[m], p2.kgSizer), pct(p4.mdna[m], p4.kgSizer), "pct",
-      `${Math.round(p2.mdna[m]).toLocaleString("es-ES")} kg en la finca 2 y ${Math.round(p4.mdna[m]).toLocaleString("es-ES")} kg en la 4`)),
-    fila("MERCADONA · sin formato en el nombre", pct(p2.mdnaSinFormato, p2.kgSizer), pct(p4.mdnaSinFormato, p4.kgSizer), "pct", "Dice MDNA pero no declara formato: no se reparte a ojo"),
-    fila("% MERCADONA TOTAL", pct(p2.mdnaTotal, p2.kgSizer), pct(p4.mdnaTotal, p4.kgSizer), "pct", "★ EL APROVECHAMIENTO DE MERCADONA de la parcela"),
-    fila("Kg a Mercadona", p2.mdnaTotal, p4.mdnaTotal, "kg", "Kg reales clasificados en un producto de Mercadona"),
-    fila("Apto A–F que NO fue a Mercadona", pct(Math.max(0, p2.kgApta - p2.mdnaTotal), p2.kgSizer), pct(Math.max(0, p4.kgApta - p4.mdnaTotal), p4.kgSizer), "pct", "Fruta con calidad de Mercadona vendida a otros clientes"),
+    fila("KG PESADOS POR EL CALIBRADOR", r2.kgSizer, r4.kgSizer, "kg", "★ LA BASE de todos los porcentajes de abajo"),
+    fila("Desfase calibrador vs báscula", pct(r2.kgSizer - kgEntConDato(PARCELAS[0]), kgEntConDato(PARCELAS[0])), pct(r4.kgSizer - kgEntConDato(PARCELAS[1]), kgEntConDato(PARCELAS[1])), "pct", "Sistemático en toda la campaña (+7,80 % en 904 lotes): desfase de tara, no fruta de otro sitio"),
+    fila("% EXPORTACIÓN", r2.pctExportacion, r4.pctExportacion, "pct", "Extra 1/2, Cat1 A/B y Verde Claro"),
+    fila("% NO EXPORTACIÓN", r2.pctNoExportacion, r4.pctNoExportacion, "pct", "Cat 2, Cat 3 y Verde Oscuro"),
+    fila("% MUJERES", r2.pctMujeres, r4.pctMujeres, "pct", "Fruta desviada a repaso manual"),
+    fila("% NO COMERCIAL", r2.pctNoComercial, r4.pctNoComercial, "pct", "Industria, podrido y densidad"),
+    fila("Podrido en el calibrador", r2.kgPodrido, r4.kgPodrido, "kg", "Medido por la máquina, no prorrateado"),
+    fila("% podrido en el calibrador", r2.pctPodrido, r4.pctPodrido, "pct", "Solo el que descarta la máquina: la tría previa no se ve aquí"),
+    fila("% clases aptas para Mercadona (A–F)", r2.pctApta, r4.pctApta, "pct", "Techo teórico de lo que Mercadona podría aceptar"),
+    ...METODOS_MDNA.map((m) => fila(`MERCADONA · ${LABEL_MDNA[m]}`, r2.pctMdnaFormato[m], r4.pctMdnaFormato[m], "pct",
+      `${Math.round(r2.mdna[m]).toLocaleString("es-ES")} kg en la finca 2 y ${Math.round(r4.mdna[m]).toLocaleString("es-ES")} kg en la 4`)),
+    fila("MERCADONA · sin formato en el nombre", r2.pctMdnaSinFormato, r4.pctMdnaSinFormato, "pct", "Dice MDNA pero no declara formato: no se reparte a ojo"),
+    fila("% MERCADONA TOTAL", r2.pctMdna, r4.pctMdna, "pct", "★ EL APROVECHAMIENTO DE MERCADONA de la parcela"),
+    fila("Kg a Mercadona", r2.mdnaTotal, r4.mdnaTotal, "kg", "Kg reales clasificados en un producto de Mercadona"),
+    fila("Apto A–F que NO fue a Mercadona", r2.pctAptoFuera, r4.pctAptoFuera, "pct", "Fruta con calidad de Mercadona vendida a otros clientes"),
   ];
 
   añadirHojaTabla(ctx, {
@@ -522,13 +323,9 @@ async function main() {
       kgCol("Kg", "kg"),
       pctCol("% sobre lo pesado", "pctSizer", 16),
     ],
-    filas: PARCELAS.flatMap((p) => {
-      const a = porParcela.get(p)!;
-      return [...a.porClase.entries()].sort((x, y) => y[1].kg - x[1].kg).map(([clase, v]) => ({
-        parcela: CORTO[p], destino: v.destino, clase, apta: v.apta ? "SÍ" : "no",
-        kg: v.kg, pctSizer: pct(v.kg, a.kgSizer),
-      }));
-    }),
+    filas: PARCELAS.flatMap((p) => clasesReal(porParcela.get(p)!).map((c) => ({
+      parcela: CORTO[p], destino: c.destino, clase: c.clase, apta: c.apta ? "SÍ" : "no", kg: c.kg, pctSizer: c.pct,
+    }))),
   });
 
   añadirHojaTabla(ctx, {
@@ -542,17 +339,16 @@ async function main() {
       pctCol("% del total MDNA", "pctMdna", 16),
     ],
     filas: PARCELAS.flatMap((p) => {
-      const a = porParcela.get(p)!;
-      const aptoFuera = Math.max(0, a.kgApta - a.mdnaTotal);
+      const r = resumenReal(porParcela.get(p)!);
       return [
-        ...METODOS.map((m) => ({
-          parcela: CORTO[p], formato: `${LABEL[m]} (${m})`, kg: a.mdna[m],
-          pctSizer: pct(a.mdna[m], a.kgSizer), pctMdna: pct(a.mdna[m], a.mdnaTotal),
+        ...METODOS_MDNA.map((m) => ({
+          parcela: CORTO[p], formato: `${LABEL_MDNA[m]} (${m})`, kg: r.mdna[m],
+          pctSizer: r.pctMdnaFormato[m], pctMdna: pct(r.mdna[m], r.mdnaTotal),
         })),
-        { parcela: CORTO[p], formato: "Sin formato en el nombre", kg: a.mdnaSinFormato, pctSizer: pct(a.mdnaSinFormato, a.kgSizer), pctMdna: pct(a.mdnaSinFormato, a.mdnaTotal) },
-        { parcela: CORTO[p], formato: "TOTAL MERCADONA", kg: a.mdnaTotal, pctSizer: pct(a.mdnaTotal, a.kgSizer), pctMdna: a.mdnaTotal > 0 ? 100 : null },
-        { parcela: CORTO[p], formato: "Apto A–F vendido a otros clientes", kg: aptoFuera, pctSizer: pct(aptoFuera, a.kgSizer), pctMdna: null },
-        { parcela: CORTO[p], formato: "No apto para Mercadona", kg: a.kgSizer - a.kgApta, pctSizer: pct(a.kgSizer - a.kgApta, a.kgSizer), pctMdna: null },
+        { parcela: CORTO[p], formato: "Sin formato en el nombre", kg: r.mdnaSinFormato, pctSizer: r.pctMdnaSinFormato, pctMdna: pct(r.mdnaSinFormato, r.mdnaTotal) },
+        { parcela: CORTO[p], formato: "TOTAL MERCADONA", kg: r.mdnaTotal, pctSizer: r.pctMdna, pctMdna: r.mdnaTotal > 0 ? 100 : null },
+        { parcela: CORTO[p], formato: "Apto A–F vendido a otros clientes", kg: r.kgAptoFuera, pctSizer: r.pctAptoFuera, pctMdna: null },
+        { parcela: CORTO[p], formato: "No apto para Mercadona", kg: r.kgNoApta, pctSizer: r.pctNoApta, pctMdna: null },
       ];
     }),
   });
@@ -567,13 +363,9 @@ async function main() {
       pctCol("% de lo apto", "pctApta", 13),
       { header: "Tornillos de Mercadona que admiten este calibre", key: "tornillos", width: 42 },
     ],
-    filas: PARCELAS.flatMap((p) => {
-      const a = porParcela.get(p)!;
-      return [...a.porCalibreApta.entries()].sort((x, y) => y[1] - x[1]).map(([calibre, kg]) => ({
-        parcela: CORTO[p], calibre, kg, pctApta: pct(kg, a.kgApta),
-        tornillos: TORNILLOS_POR_CALIBRE[calibre] ?? "— (calibre fuera de los tornillos de Mercadona)",
-      }));
-    }),
+    filas: PARCELAS.flatMap((p) => calibresReal(porParcela.get(p)!).map((c) => ({
+      parcela: CORTO[p], calibre: c.calibre, kg: c.kg, pctApta: c.pctApta, tornillos: c.tornillos,
+    }))),
   });
 
   añadirHojaTabla(ctx, {
@@ -600,18 +392,15 @@ async function main() {
       kgCol("MDNA total", "mdnaTotal", 14),
       pctCol("% MDNA", "pctMdna", 11),
     ],
-    filas: cobertura.filter((c) => c.conDato === "SÍ").map((c) => {
-      const a = porLote.get(c.lote)!;
+    filas: cobertura.filter((c) => c.estado === "sql").map((c) => {
+      const r = resumenReal(porLote.get(c.lote8)!);
       return {
-        parcela: c.parcela, lote: c.lote, fecha: c.fecha, pasadas: c.pasadas,
-        kgEntrada: c.kgEntrada, kgSizer: a.kgSizer, desfase: c.desfase,
-        pctExport: pct(dest(a, "EXPORTACION"), a.kgSizer),
-        pctNoExport: pct(dest(a, "NO EXPORTACION"), a.kgSizer),
-        pctMujeres: pct(dest(a, "MUJERES"), a.kgSizer),
-        pctNoComercial: pct(dest(a, "NO COMERCIAL"), a.kgSizer),
-        kgPodrido: podrido(a), pctPodrido: pct(podrido(a), a.kgSizer),
-        mdna3: a.mdna.MA3KGC, mdna4: a.mdna.MA4KGC, mdna5: a.mdna.MA5KGC, mdna12: a.mdna.MA12KGC,
-        mdnaTotal: a.mdnaTotal, pctMdna: pct(a.mdnaTotal, a.kgSizer),
+        parcela: c.parcela, lote: c.lote8, fecha: c.fecha, pasadas: c.pasadas,
+        kgEntrada: c.kgEntrada, kgSizer: r.kgSizer, desfase: c.desfase,
+        pctExport: r.pctExportacion, pctNoExport: r.pctNoExportacion, pctMujeres: r.pctMujeres, pctNoComercial: r.pctNoComercial,
+        kgPodrido: r.kgPodrido, pctPodrido: r.pctPodrido,
+        mdna3: r.mdna.MA3KGC, mdna4: r.mdna.MA4KGC, mdna5: r.mdna.MA5KGC, mdna12: r.mdna.MA12KGC,
+        mdnaTotal: r.mdnaTotal, pctMdna: r.pctMdna,
       };
     }),
   });
@@ -632,21 +421,24 @@ async function main() {
       pctCol("Desfase", "desfase", 10),
       { header: "Motivo", key: "motivo", width: 88 },
     ],
-    filas: cobertura,
+    filas: cobertura.map((c) => ({
+      parcela: c.parcela, lote: c.lote8, fecha: c.fecha, kgEntrada: c.kgEntrada, conDato: c.conDato, pasadas: c.pasadas,
+      kgSizer: c.kgSizer, kgDocx: c.kgRespaldo, kgEnParte: c.kgEnParte, desfase: c.desfase, motivo: c.motivo,
+    })),
   });
 
   const totalEnt = kgEntTotal(PARCELAS[0]) + kgEntTotal(PARCELAS[1]);
   const totalConDato = kgEntConDato(PARCELAS[0]) + kgEntConDato(PARCELAS[1]);
   const metodo: Array<[string, string]> = [
-    ["Qué se ha medido", `Las ${p2.pasadas + p4.pasadas} pasadas de calibrador de los ${nConDato(PARCELAS[0]) + nConDato(PARCELAS[1])} lotes de las fincas 2 y 4 que ya han pasado por línea. La fuente es el volcado SQL del Compac Sizer, que registra TODAS las pasadas de cada lote — el informe Word solo trae la última, y 225 lotes de la campaña pasan más de una vez.`],
+    ["Qué se ha medido", `Las ${r2.pasadas + r4.pasadas} pasadas de calibrador de los ${nConDato(PARCELAS[0]) + nConDato(PARCELAS[1])} lotes de las fincas 2 y 4 que ya han pasado por línea. La fuente es el volcado SQL del Compac Sizer, que registra TODAS las pasadas de cada lote — el informe Word solo trae la última, y 225 lotes de la campaña pasan más de una vez.`],
     ["Por qué esto SÍ es real", `Se ha comprobado pasada a pasada que ninguna nombra más de un lote (${compuestas.length} compuestas encontradas): no hay códigos que mezclen fruta de dos parcelas. Por eso cada kg que clasificó la máquina se atribuye directamente, sin prorrateo, sin conciliación y sin aplicar mezclas de otros lotes. El script avisa por consola si algún día aparece una pasada compuesta.`],
-    ["La base de los porcentajes", `Los kg que pesó el CALIBRADOR (${Math.round(p2.kgSizer + p4.kgSizer).toLocaleString("es-ES")} kg entre las dos parcelas), no los de la báscula de entrada. Las dos básculas no coinciden: el calibrador pesa un +7,80 % de más en los 904 lotes de la campaña con volcado, un +9,41 % en la finca 2 y un +5,06 % en la 4. Como el desfase es sistemático y las pasadas son de un solo lote, no es fruta de otro sitio: es tara/calibración. Calcular los porcentajes sobre la entrada daría cifras que suman más del 100 %.`],
+    ["La base de los porcentajes", `Los kg que pesó el CALIBRADOR (${Math.round(r2.kgSizer + r4.kgSizer).toLocaleString("es-ES")} kg entre las dos parcelas), no los de la báscula de entrada. Las dos básculas no coinciden: el calibrador pesa un +7,80 % de más en los 904 lotes de la campaña con volcado, un +9,41 % en la finca 2 y un +5,06 % en la 4. Como el desfase es sistemático y las pasadas son de un solo lote, no es fruta de otro sitio: es tara/calibración. Calcular los porcentajes sobre la entrada daría cifras que suman más del 100 %.`],
     ["Cobertura", `${Math.round(totalConDato).toLocaleString("es-ES")} kg analizados de ${Math.round(totalEnt).toLocaleString("es-ES")} kg entrados (${(pct(totalConDato, totalEnt) ?? 0).toFixed(1)} %). Los lotes que faltan no se estiman ni se rellenan: cada uno tiene su motivo en la hoja «Cobertura». La mayoría sigue físicamente en cámara, confirmado a pie por el dueño.`],
-    ["Hasta qué día llega el informe", `El volcado SQL del calibrador llega al ${ultimaPasadaSizer ?? "—"} (última sincronización: ${ultimaSincronizacion ?? "—"}), los informes Word de lote al ${ultimoInformeDocx ?? "—"} y los partes diarios al ${ultimoParte ?? "—"}. ${volcadoAtrasado ? `EL VOLCADO SQL VA POR DETRÁS, así que lo procesado después del ${ultimaPasadaSizer} entra por el Word (${Math.round(kgDocxTotal).toLocaleString("es-ES")} kg). Lo que no tenga ninguna de las dos fuentes sale en «Cobertura» como «pendiente volcado» — con sus kg reales del parte — y NUNCA como «en cámara».` : "Las dos fuentes están al mismo día."}`],
+    ["Hasta qué día llega el informe", `El volcado SQL del calibrador llega al ${frescura.ultimaPasadaSizer ?? "—"} (última sincronización: ${frescura.ultimaSincronizacion ?? "—"}), los informes Word de lote al ${frescura.ultimoInformeDocx ?? "—"} y los partes diarios al ${frescura.ultimoParte ?? "—"}. ${frescura.volcadoAtrasado ? `EL VOLCADO SQL VA POR DETRÁS, así que lo procesado después del ${frescura.ultimaPasadaSizer} entra por el Word (${Math.round(kgDocxTotal).toLocaleString("es-ES")} kg). Lo que no tenga ninguna de las dos fuentes sale en «Cobertura» como «pendiente volcado» — con sus kg reales del parte — y NUNCA como «en cámara».` : "Las dos fuentes están al mismo día."}`],
     ["Las dos fuentes del desglose", `El volcado SQL del Sizer es la fuente canónica: trae TODAS las pasadas de cada lote. El informe Word por producto y lote, que entra solo por el receptor y se guarda con batch_id negativo, es el RESPALDO: solo trae la última pasada de cada día. La regla, la misma que aplica el receptor al guardarlo, es POR LOTE Y DÍA — si ese lote-día está en el volcado, manda el volcado; si no está, entra el Word. En este informe ${kgDocxTotal > 0 ? `${Math.round(kgDocxTotal).toLocaleString("es-ES")} kg vienen del Word (columna «De ellos, del Word» en «Cobertura»)` : "no ha hecho falta el Word: el volcado cubre todo"}.`],
     ["Qué NO dice este informe", "El podrido que se ve aquí es SOLO el que descarta la máquina. La tría que se retira antes de entrar al calibrador (bolsa y bateas) no se puede repartir por lote — se pesa por día y las bateas se vacían cada varios días — así que no aparece. Para la pérdida completa de fruta, con merma de cámara y podrido de tría, está el informe de campaña por productor y finca."],
     ["Clases aptas para Mercadona", "Extra 1, Extra 2, Cat1 A, Cat1 B, Verde Claro y Cat 2. Mujeres, Cat 3, Verde Oscuro, Industria, Podrido y Densidad no van a Mercadona nunca. Ojo: el volcado del Sizer escribe la clase sin la letra («Extra 1») y el Word con ella («(A) Extra 1»); aquí se casa por nombre."],
-    ["Los 4 formatos", `${METODOS.map((m) => `${m} = ${LABEL[m]}`).join(" · ")}. Se leen del nombre del producto que teclea el calibrador, con la misma función que usa la app. Lo que dice «MDNA» sin declarar formato se cuenta aparte.`],
+    ["Los 4 formatos", `${METODOS_MDNA.map((m) => `${m} = ${LABEL_MDNA[m]}`).join(" · ")}. Se leen del nombre del producto que teclea el calibrador, con la misma función que usa la app. Lo que dice «MDNA» sin declarar formato se cuenta aparte.`],
     ["Los calibres", "La hoja «Calibres» no reparte kg entre tornillos: los rangos se solapan (un 3/54 vale para malla de 5 kg y para granel) y quien decide es la programación de la semana. Dice para qué SIRVE cada calibre, que es lo que permite ver si una parcela encaja con lo que Mercadona pide."],
   ];
   añadirHojaTabla(ctx, {
@@ -666,30 +458,30 @@ async function main() {
 
   // ─── Resumen en consola ───────────────────────────────────────────────────
   console.log("\n─── Aprovechamiento REAL · Invermarmelo fincas 2 y 4 ───");
-  console.log(`Volcado SQL hasta ${ultimaPasadaSizer} (sincronizado ${ultimaSincronizacion}) · Word de lote hasta ${ultimoInformeDocx} · partes diarios hasta ${ultimoParte}`);
-  if (volcadoAtrasado) {
-    console.log(`⚠ EL VOLCADO SQL VA ${ultimaPasadaSizer} → ${ultimoParte}: esos días entran por el Word de lote (${Math.round(kgDocxTotal).toLocaleString("es-ES")} kg, solo la última pasada de cada día).`);
+  console.log(`Volcado SQL hasta ${frescura.ultimaPasadaSizer} (sincronizado ${frescura.ultimaSincronizacion}) · Word de lote hasta ${frescura.ultimoInformeDocx} · partes diarios hasta ${frescura.ultimoParte}`);
+  if (frescura.volcadoAtrasado) {
+    console.log(`⚠ EL VOLCADO SQL VA ${frescura.ultimaPasadaSizer} → ${frescura.ultimoParte}: esos días entran por el Word de lote (${Math.round(kgDocxTotal).toLocaleString("es-ES")} kg, solo la última pasada de cada día).`);
     for (const c of pendientesVolcado) {
-      console.log(`  · ${c.lote} (${c.parcela}) procesado según el parte, ${Math.round(c.kgEnParte ?? 0).toLocaleString("es-ES")} kg SIN ninguna fuente de desglose`);
+      console.log(`  · ${c.lote8} (${c.parcela}) procesado según el parte, ${Math.round(c.kgEnParte ?? 0).toLocaleString("es-ES")} kg SIN ninguna fuente de desglose`);
     }
     if (pendientesVolcado.length === 0) console.log("  · ningún lote de estas dos parcelas se queda sin desglose");
   }
   console.log(`Pasadas que nombran más de un lote (romperían la atribución): ${compuestas.length}`);
-  for (const b of compuestas) console.log(`  ¡AVISO! batch ${b.batch_id} (${b.fuente}): ${b.nombre}`);
+  for (const b of compuestas) console.log(`  ¡AVISO! pasada ${b.clave} (${b.fuente}): ${b.nombre}`);
   for (const p of PARCELAS) {
     const a = porParcela.get(p)!;
-    const cuadre = [...a.porDestino.values()].reduce((s, v) => s + v, 0) - a.kgSizer;
-    console.log(`\n${CORTO[p]} — ${nConDato(p)}/${nLotes(p)} lotes · ${a.pasadas} pasadas${a.pasadasDocx > 0 ? ` (${a.pasadasDocx} del Word, ${Math.round(a.kgDocx).toLocaleString("es-ES")} kg)` : ""}`);
+    const r = resumenReal(a);
+    console.log(`\n${CORTO[p]} — ${nConDato(p)}/${nLotes(p)} lotes · ${r.pasadas} pasadas${r.pasadasRespaldo > 0 ? ` (${r.pasadasRespaldo} del Word, ${Math.round(r.kgRespaldo).toLocaleString("es-ES")} kg)` : ""}`);
     console.log(`  Entrada báscula   ${Math.round(kgEntTotal(p)).toLocaleString("es-ES").padStart(9)} kg (analizados ${Math.round(kgEntConDato(p)).toLocaleString("es-ES")}, ${(pct(kgEntConDato(p), kgEntTotal(p)) ?? 0).toFixed(1)} %)`);
-    console.log(`  Pesado calibrador ${Math.round(a.kgSizer).toLocaleString("es-ES").padStart(9)} kg (desfase ${(pct(a.kgSizer - kgEntConDato(p), kgEntConDato(p)) ?? 0).toFixed(2)} %)`);
-    console.log(`  Exportación ${(pct(dest(a, "EXPORTACION"), a.kgSizer) ?? 0).toFixed(1)} % · No exp. ${(pct(dest(a, "NO EXPORTACION"), a.kgSizer) ?? 0).toFixed(1)} % · Mujeres ${(pct(dest(a, "MUJERES"), a.kgSizer) ?? 0).toFixed(1)} % · No comercial ${(pct(dest(a, "NO COMERCIAL"), a.kgSizer) ?? 0).toFixed(1)} %`);
-    console.log(`  Podrido máquina   ${Math.round(podrido(a)).toLocaleString("es-ES").padStart(9)} kg (${(pct(podrido(a), a.kgSizer) ?? 0).toFixed(2)} %)`);
-    console.log(`  Apto MDNA ${(pct(a.kgApta, a.kgSizer) ?? 0).toFixed(1)} %  ·  A MERCADONA ${(pct(a.mdnaTotal, a.kgSizer) ?? 0).toFixed(1)} % (${Math.round(a.mdnaTotal).toLocaleString("es-ES")} kg)`);
-    for (const m of METODOS) {
-      console.log(`    ${LABEL[m].padEnd(24)} ${Math.round(a.mdna[m]).toLocaleString("es-ES").padStart(8)} kg (${(pct(a.mdna[m], a.kgSizer) ?? 0).toFixed(1)} %)`);
+    console.log(`  Pesado calibrador ${Math.round(r.kgSizer).toLocaleString("es-ES").padStart(9)} kg (desfase ${(pct(r.kgSizer - kgEntConDato(p), kgEntConDato(p)) ?? 0).toFixed(2)} %)`);
+    console.log(`  Exportación ${(r.pctExportacion ?? 0).toFixed(1)} % · No exp. ${(r.pctNoExportacion ?? 0).toFixed(1)} % · Mujeres ${(r.pctMujeres ?? 0).toFixed(1)} % · No comercial ${(r.pctNoComercial ?? 0).toFixed(1)} %`);
+    console.log(`  Podrido máquina   ${Math.round(r.kgPodrido).toLocaleString("es-ES").padStart(9)} kg (${(r.pctPodrido ?? 0).toFixed(2)} %)`);
+    console.log(`  Apto MDNA ${(r.pctApta ?? 0).toFixed(1)} %  ·  A MERCADONA ${(r.pctMdna ?? 0).toFixed(1)} % (${Math.round(r.mdnaTotal).toLocaleString("es-ES")} kg)`);
+    for (const m of METODOS_MDNA) {
+      console.log(`    ${LABEL_MDNA[m].padEnd(24)} ${Math.round(r.mdna[m]).toLocaleString("es-ES").padStart(8)} kg (${(r.pctMdnaFormato[m] ?? 0).toFixed(1)} %)`);
     }
-    if (a.mdnaSinFormato > 0) console.log(`    ${"sin formato".padEnd(24)} ${Math.round(a.mdnaSinFormato).toLocaleString("es-ES").padStart(8)} kg`);
-    console.log(`  Cuadre destinos ${cuadre.toFixed(3)} kg (debe ser 0)`);
+    if (r.mdnaSinFormato > 0) console.log(`    ${"sin formato".padEnd(24)} ${Math.round(r.mdnaSinFormato).toLocaleString("es-ES").padStart(8)} kg`);
+    console.log(`  Cuadre destinos ${r.cuadreDestinos.toFixed(3)} kg (debe ser 0)`);
   }
   console.log(`\nExcel: ${salida}`);
 }

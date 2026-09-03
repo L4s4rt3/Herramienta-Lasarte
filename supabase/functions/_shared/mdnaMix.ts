@@ -11,9 +11,11 @@
  * REGLAS (confirmadas con el dueño en el estudio de stock de agosto de 2026):
  * - Clases aptas para Mercadona: A–F (Extra 1, Extra 2, Cat1 A, Cat1 B, Verde
  *   Claro, Cat 2). Mujeres, Cat 3, Verde Oscuro, Industria, Podrido y Densidad
- *   NO van a Mercadona nunca. La letra entre paréntesis es la que escribe el
- *   calibrador ("(C) Cat1 A"); sin letra, la fila no cuenta como apta en vez de
- *   adivinar por el texto.
+ *   NO van a Mercadona nunca. El Word y el Excel traen la letra delante
+ *   ("(C) Cat1 A"); el volcado SQL del Sizer NO la escribe ("Cat1 A", "Extra 1 "),
+ *   así que ahí se deduce del nombre con una tabla cerrada, la misma que
+ *   public.clase_letra() en la base (migración 20260903 clasificacion_detalle).
+ *   Un nombre que no esté en la tabla no es apto: no se adivina.
  * - El formato de Mercadona se deduce del NOMBRE del producto (los cuatro
  *   códigos del ERP son 1:1 con los cuatro formatos que compra). "MDNA" en el
  *   nombre sin formato reconocible se cuenta aparte, jamás se reparte a ojo.
@@ -84,13 +86,49 @@ export function metodoMdnaDeProducto(producto: string | null | undefined): Metod
 
 const CLASES_APTAS_MDNA = new Set(["A", "B", "C", "D", "E", "F"]);
 
-/** La letra que escribe el calibrador delante de la clase: "(C) Cat1 A" → "C". */
-export function letraClase(clase: string | null | undefined): string | null {
-  const m = /^\s*\(([A-Z])\)/.exec(String(clase ?? "").toUpperCase());
-  return m?.[1] ?? null;
+/**
+ * Letra de cada clase cuando el volcado SQL del Sizer no la escribe. ESPEJO de
+ * public.clase_letra() (migración 20260903 clasificacion_detalle): si se toca
+ * una tabla, se toca la otra.
+ */
+const LETRA_POR_NOMBRE: Record<string, string> = {
+  "EXTRA 1": "A", "EXTRA 2": "B",
+  "CAT1 A": "C", "CAT 1 A": "C", "CAT1 B": "D", "CAT 1 B": "D",
+  "VERDE CLARO": "E",
+  "CAT 2": "F", "CAT2": "F", "CAT 3": "G", "CAT3": "G",
+  "VERDE OSCURO": "H",
+  "INDUSTRIA": "I", "PODRIDO": "J", "RECIRCULO": "K", "MUJERES": "L", "DENSIDAD": "M", "ESPONJA": "N",
+};
+
+/** Destino que corresponde a cada letra cuando el volcado no trae grupo_destino (espejo de public.clase_destino). */
+const DESTINO_POR_LETRA: Record<string, string> = {
+  A: "EXPORTACION", B: "EXPORTACION", C: "EXPORTACION", D: "EXPORTACION", E: "EXPORTACION",
+  F: "NO EXPORTACION", G: "NO EXPORTACION", H: "NO EXPORTACION",
+  L: "MUJERES",
+  I: "NO COMERCIAL", J: "NO COMERCIAL", K: "NO COMERCIAL", M: "NO COMERCIAL", N: "NO COMERCIAL",
+};
+
+/** Nombre pelado de la clase: sin la letra del Word, sin espacios de más, en mayúsculas ("(A) Extra 1 " → "EXTRA 1"). */
+export function claseCanonica(clase: string | null | undefined): string {
+  return String(clase ?? "")
+    .replace(/^\s*\([A-Za-z]\)\s*/, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
 }
 
-/** ÚNICO criterio de clase apta para Mercadona: por la letra A–F del calibrador. */
+/**
+ * La letra de la clase: la del prefijo que escribe el Word ("(C) Cat1 A" → "C")
+ * o, si no la trae (volcado SQL), la que le toca por nombre. null si no se
+ * reconoce: esa fila no es apta, ni podrido, ni industria.
+ */
+export function letraClase(clase: string | null | undefined): string | null {
+  const m = /^\s*\(([A-Z])\)/.exec(String(clase ?? "").toUpperCase());
+  if (m) return m[1];
+  return LETRA_POR_NOMBRE[claseCanonica(clase)] ?? null;
+}
+
+/** ÚNICO criterio de clase apta para Mercadona: por la letra A–F (escrita o deducida del nombre). */
 export function esClaseAptaMdna(clase: string | null | undefined): boolean {
   const letra = letraClase(clase);
   return letra != null && CLASES_APTAS_MDNA.has(letra);
@@ -103,6 +141,18 @@ export function destinoNorm(grupo: string | null | undefined): string {
     .replace(/[̀-ͯ]/g, "")
     .toUpperCase()
     .trim();
+}
+
+/**
+ * Destino normalizado con respaldo: si el volcado no trae grupo_destino (pasa
+ * en ~2.600 filas, unas 290 t), el que corresponde a la letra de la clase.
+ * "(SIN DESTINO)" solo cuando ni eso se puede saber.
+ */
+export function destinoNormalizado(grupo: string | null | undefined, clase: string | null | undefined): string {
+  const d = destinoNorm(grupo);
+  if (d) return d;
+  const letra = letraClase(clase);
+  return (letra && DESTINO_POR_LETRA[letra]) || "(SIN DESTINO)";
 }
 
 // ─── El mix ──────────────────────────────────────────────────────────────────
@@ -143,7 +193,7 @@ export function acumularMix(mix: MixLote, fila: FilaClasificacionMix, metodo: Me
   const kg = Number(fila.peso_kg) || 0;
   mix.kgClasificado += kg;
 
-  const destino = destinoNorm(fila.grupo_destino);
+  const destino = destinoNormalizado(fila.grupo_destino, fila.clase);
   if (destino === "EXPORTACION") mix.kgExportacion += kg;
   else if (destino === "NO EXPORTACION") mix.kgNoExportacion += kg;
   else if (destino === "MUJERES") mix.kgMujeres += kg;

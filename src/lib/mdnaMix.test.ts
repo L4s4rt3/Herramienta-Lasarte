@@ -3,7 +3,9 @@
 // apta"; esta es la única, y estos casos son los que las separaban.
 import { describe, expect, it } from "vitest";
 import {
+  claseCanonica,
   deducirMetodoVentaMdna,
+  destinoNormalizado,
   esClaseAptaMdna,
   letraClase,
   metodoMdnaDeProducto,
@@ -35,9 +37,31 @@ describe("clases aptas", () => {
     expect(esClaseAptaMdna("(G) Cat 3")).toBe(false);
     expect(esClaseAptaMdna("(J) Podrido")).toBe(false);
   });
-  it("sin letra no cuenta como apta en vez de adivinar por el texto", () => {
-    expect(letraClase("Cat1 A")).toBeNull();
-    expect(esClaseAptaMdna("Cat1 A")).toBe(false);
+  it("sin letra (volcado SQL del Sizer) la deduce del nombre, con la misma tabla que la base", () => {
+    expect(letraClase("Cat1 A")).toBe("C");
+    expect(letraClase("Extra 1 ")).toBe("A");
+    expect(letraClase("Cat2")).toBe("F");
+    expect(letraClase("Verde Oscuro")).toBe("H");
+    expect(esClaseAptaMdna("Cat1 A")).toBe(true);
+    expect(esClaseAptaMdna("Cat 3")).toBe(false);
+  });
+  it("un nombre que no está en la tabla no es nada: no se adivina", () => {
+    expect(letraClase("Lo que sea")).toBeNull();
+    expect(esClaseAptaMdna("Lo que sea")).toBe(false);
+  });
+  it("el nombre pelado quita la letra y los espacios de más", () => {
+    expect(claseCanonica("(A) Extra 1 ")).toBe("EXTRA 1");
+    expect(claseCanonica("  cat1   a")).toBe("CAT1 A");
+  });
+});
+
+describe("destinoNormalizado", () => {
+  it("normaliza acentos y, sin grupo_destino, lo saca de la letra de la clase", () => {
+    expect(destinoNormalizado("EXPORTACIÓN", null)).toBe("EXPORTACION");
+    expect(destinoNormalizado(null, "Cat 2")).toBe("NO EXPORTACION");
+    expect(destinoNormalizado("", "(L) Mujeres")).toBe("MUJERES");
+    expect(destinoNormalizado(null, "Podrido")).toBe("NO COMERCIAL");
+    expect(destinoNormalizado(null, "???")).toBe("(SIN DESTINO)");
   });
 });
 
