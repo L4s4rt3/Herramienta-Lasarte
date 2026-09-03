@@ -118,33 +118,44 @@ describe("calidad MVP domain", () => {
     expect(isCalidadLoteLocked(revalidated)).toBe(true);
   });
 
-  it("creates a full narrative draft report from structured data", () => {
+  it("creates a draft report with the identification card, the analysis and the action", () => {
     const report = createCalidadDraftReport(lote({ calidad: "Regular", defectos: ["Golpe", "Podrido"] }), 3, []);
-    expect(report.informe).toContain("un volcado");
-    expect(report.informe).toContain("Finca A");
-    expect(report.informe).toContain("se valora como regular");
-    expect(report.informe).toContain("golpe y podrido");
-    expect(report.informe).not.toContain("Entrada regular");
-    expect(report.accion_recomendada).toContain("categorías habituales de Mercadona");
+    const [ficha, analisis] = report.informe.split("\n\n");
+
+    expect(ficha).toContain("Finca A");
+    expect(analisis).toContain("Calidad regular.");
+    expect(analisis).toContain("Golpe y podrido.");
+    expect(analisis).toContain("El lote mantiene su aptitud comercial, con seguimiento en línea.");
+    // La narrativa de jul-2026 ya no se usa: los datos van en la ficha.
+    expect(report.informe).not.toContain("un volcado");
+    expect(report.accion_recomendada).toContain("Mercadona");
   });
 
-  it("keeps the technician's manual accion recomendada in the draft report", () => {
+  it("keeps the technician's own text as its own paragraph, without quoting it", () => {
     const report = createCalidadDraftReport(
       lote({ calidad: "Regular", observacion: "Calibre justo en la parte baja.", accion_recomendada: "Consultar con el jefe de línea antes de envasar." }),
       0,
       [],
     );
     expect(report.accion_recomendada).toBe("Consultar con el jefe de línea antes de envasar.");
-    expect(report.informe).toContain("«Calibre justo en la parte baja.»");
+    expect(report.informe.split("\n\n").at(-1)).toBe("Calibre justo en la parte baja.");
+    expect(report.informe).not.toContain("el técnico de calidad añade");
   });
 
-  it("keeps quality as a narrative clause (not an agreeing adjective) for Bueno and Pésimo lots", () => {
+  it("agrees the quality adjective in feminine for Bueno and Pésimo lots", () => {
     const bueno = createCalidadDraftReport(lote({ calidad: "Bueno" }), 0, []);
-    expect(bueno.informe).toContain("se valora como buena");
-    expect(bueno.informe).not.toContain("Entrada bueno");
+    expect(bueno.informe).toContain("Calidad buena.");
+    expect(bueno.informe).not.toContain("Calidad bueno");
 
     const pesimo = createCalidadDraftReport(lote({ calidad: "Pésimo" }), 0, []);
-    expect(pesimo.informe).toContain("se valora como pésima");
-    expect(pesimo.informe).not.toContain("Entrada pésimo");
+    expect(pesimo.informe).toContain("Calidad pésima.");
+    expect(pesimo.informe).not.toContain("Calidad pésimo");
+  });
+
+  it("does not claim there are no defects when Otro is marked but not described", () => {
+    const report = createCalidadDraftReport(lote({ calidad: "Regular", defectos: ["Otro"], defecto_otro: "" }), 0, []);
+    expect(report.informe).toContain("Defecto sin describir.");
+    expect(report.informe).not.toContain("Sin defectos");
+    expect(report.informe).not.toContain("No se aprecian defectos");
   });
 });

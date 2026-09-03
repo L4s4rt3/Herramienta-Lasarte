@@ -190,7 +190,7 @@ describe("calidad helpers", () => {
 
   it("combines observation and recommended action into one editable comment", () => {
     expect(buildComentarioCalidad(lotes[0])).toBe(
-      "Entrada regular, revisar calibre.\n\nAccion recomendada: Separar para seguimiento.",
+      "Entrada regular, revisar calibre.\n\nAcción recomendada: Separar para seguimiento.",
     );
   });
 
@@ -201,36 +201,40 @@ describe("calidad helpers", () => {
     });
   });
 
-  it("suggests a full narrative comment with reception traceability, quality/Aerobotics and defects (Regular + Rameado)", () => {
+  it("puts the lot identification in the first block and the analysis in the second (Regular + Rameado)", () => {
     const suggestion = buildCalidadComentarioSugerido(lotes[0], [lotes[1], { ...lotes[0], id: "3", fecha: "2026-05-27", calidad: "Deficiente" }], 2);
+    const [ficha, analisis] = suggestion.split("\n\n");
 
-    expect(suggestion).toContain("a las 06:00 h");
-    expect(suggestion).toContain("un volcado");
-    expect(suggestion).toContain("procedente de la finca Los Corrales");
-    expect(suggestion).toContain("correspondiente a naranja variedad Navel Powell");
-    expect(suggestion).toContain("se valora como regular");
-    expect(suggestion).toContain("Aerobotics");
-    expect(suggestion).toContain("rameado");
-    expect(suggestion).toContain("Accion recomendada:");
+    expect(ficha).toContain("Lote 26041704");
+    expect(ficha).toContain("Los Corrales");
+    expect(ficha).toContain("Naranja Navel Powell");
+    expect(ficha).toContain("64 boxes");
+    expect(ficha).toContain("06:00 h");
+    expect(ficha).toContain("Aerobotics");
+    expect(analisis).toContain("Calidad regular.");
+    expect(analisis).toContain("Rameado");
+    expect(suggestion).toContain("Acción recomendada:");
   });
 
   it("suggests 'sin defectos' narrative with a direct destino for a Bueno lot", () => {
     const suggestion = buildCalidadComentarioSugerido(makeLote({ calidad: "Bueno", defectos: [] }));
 
     expect(suggestion).toMatch(/defectos reseñables|defectos dignos de mención/);
-    expect(suggestion).toContain("Accion recomendada:");
-    expect(suggestion).toContain("apto para su destino");
+    expect(suggestion).toContain("El lote mantiene su aptitud comercial.");
+    expect(suggestion).toContain("Acción recomendada:");
+    expect(suggestion).toContain("Mercadona");
   });
 
   it("suggests a reclassification destino with defect narrative for a Deficiente lot (Mancha + Calibre irregular)", () => {
     const suggestion = buildCalidadComentarioSugerido(makeLote({ calidad: "Deficiente", defectos: ["Mancha", "Calibre irregular"] }));
 
-    expect(suggestion).toContain("mancha y calibre irregular");
-    // concordancia de número: sujeto plural -> "afectan/obligan", nunca "afecta/obliga"
-    expect(suggestion).toContain("que afectan a la aptitud comercial y obligan a reclasificar parte del lote");
-    expect(suggestion).not.toContain("que afecta a la aptitud");
-    expect(suggestion).toContain("Accion recomendada:");
-    expect(suggestion).toContain("segunda categoría o uso industrial");
+    expect(suggestion).toContain("Mancha y calibre irregular.");
+    // La aptitud es frase aparte con "el lote" de sujeto: no hay que concordar
+    // en número con la lista de defectos ("que afecta" / "que afectan").
+    expect(suggestion).toContain("El lote pierde aptitud comercial: hay que reclasificar parte de la fruta.");
+    expect(suggestion).not.toContain("que afecta");
+    expect(suggestion).toContain("Acción recomendada:");
+    expect(suggestion).toMatch(/segunda o industria/);
   });
 
   it("varies wording between different lots but stays deterministic for the same lot", () => {
@@ -241,17 +245,19 @@ describe("calidad helpers", () => {
     expect(buildCalidadComentarioSugerido(lotA)).not.toBe(buildCalidadComentarioSugerido(lotB));
   });
 
-  it("keeps the technician's manual accion recomendada and weaves their note into the narrative", () => {
+  it("keeps the technician's own text and manual accion recomendada untouched", () => {
     const suggestion = buildCalidadComentarioSugerido(makeLote({
       calidad: "Bueno",
       observacion: "Mucho rameado en la cara norte del box.",
       accion_recomendada: "Avisar al productor antes del siguiente volcado.",
     }));
 
-    expect(suggestion).toContain("«Mucho rameado en la cara norte del box.»");
-    expect(suggestion).toContain("Accion recomendada: Avisar al productor antes del siguiente volcado.");
+    // Su texto va literal y en su propio bloque, sin comillas ni preámbulo.
+    expect(suggestion.split("\n\n")).toContain("Mucho rameado en la cara norte del box.");
+    expect(suggestion).not.toContain("el técnico de calidad añade");
+    expect(suggestion).toContain("Acción recomendada: Avisar al productor antes del siguiente volcado.");
     // la acción manual no se machaca con el destino estándar
-    expect(suggestion).not.toContain("apto para su destino");
+    expect(suggestion).not.toContain("Sin medidas correctoras");
   });
 
   it("regenerating over an already generated comment keeps the note and the manual action (idempotent)", () => {

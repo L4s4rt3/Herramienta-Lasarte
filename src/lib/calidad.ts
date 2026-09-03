@@ -163,13 +163,17 @@ function decodeXmlEntities(value: string) {
     .replace(/&apos;/g, "'");
 }
 
+// Limpia espacios sobrantes pero CONSERVA los saltos de párrafo: el informe
+// generado va en bloques (ficha, análisis y lo que escriba el técnico) y lo que
+// él teclea también puede llevar varios párrafos. Antes se quitaban todas las
+// líneas en blanco y el texto se apelmazaba en un bloque único.
 function normalizeComentario(value: string) {
   return value
     .replace(/\r\n?/g, "\n")
     .split("\n")
     .map((line) => line.replace(/[ \t]+/g, " ").trim())
-    .filter(Boolean)
     .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -202,8 +206,8 @@ export function extractDocxText(bytes: Uint8Array) {
 export function buildComentarioCalidad(lote: Pick<CalidadLote, "observacion" | "accion_recomendada">) {
   const observacion = normalizeComentario(lote.observacion);
   const accion = normalizeComentario(lote.accion_recomendada);
-  if (observacion && accion) return `${observacion}\n\nAccion recomendada: ${accion}`;
-  if (accion) return `Accion recomendada: ${accion}`;
+  if (observacion && accion) return `${observacion}\n\nAcción recomendada: ${accion}`;
+  if (accion) return `Acción recomendada: ${accion}`;
   return observacion;
 }
 
@@ -305,15 +309,15 @@ const CALIDAD_DEFECTO_MATIZ: Record<string, string> = {
   Rameado: "de carácter superficial y habitual en la variedad a estas alturas de campaña",
   Golpe: "localizado en algunas piezas y atribuible a la manipulación",
   Podrido: "en piezas puntuales, que se retiran durante el control de envasado",
-  Mancha: "de tipo superficial y repartido en un porcentaje de las piezas",
+  Mancha: "de tipo superficial y repartida en parte de las piezas",
   "Calibre irregular": "con presencia de calibres dispares a lo largo del lote",
   "Color verde": "con pigmentación residual concentrada en la zona peduncular",
-  "Piel blanda": "asociado a un punto de madurez algo avanzado",
+  "Piel blanda": "asociada a un punto de madurez algo avanzado",
   Deshidratado: "leve y superficial, detectado durante el control de envasado",
   Plaga: "en piezas puntuales, que se marcan para revisión",
   // Los de importación: mismo registro descriptivo, un rasgo característico por
   // defecto y nada más (el generador no puede saber más del lote).
-  Cicatriz: "ya cerrado en campo, de carácter superficial y sin evolución posterior",
+  Cicatriz: "ya cerrada en campo, de carácter superficial y sin evolución posterior",
   Trips: "con el anillo plateado alrededor del cáliz propio del insecto",
   Deformación: "en piezas de forma irregular que no cumplen el estándar de presentación",
   Saltamontes: "con las mordeduras características del insecto sobre la corteza",
@@ -325,115 +329,104 @@ const CALIDAD_DEFECTO_MATIZ: Record<string, string> = {
   Moho: "con esporulación visible, que se retira y se aísla de las piezas sanas",
 };
 
-// Efecto del/los defecto(s) sobre la aptitud comercial del lote, por calidad.
-// Dos formas por concordancia de número: la frase de 1 defecto usa el singular
-// ("El único defecto... que afecta...") y la de 2+ defectos el plural ("Los
-// defectos... que afectan...").
-const CALIDAD_APTITUD_SINGULAR: Record<CalidadEstado, string> = {
-  Excelente: "sin que comprometa la aptitud comercial del lote",
-  Bueno: "sin que comprometa la aptitud comercial del lote",
-  Regular: "que conviene vigilar aunque no compromete la aptitud del lote",
-  Deficiente: "que afecta a la aptitud comercial y obliga a reclasificar parte del lote",
-  Pésimo: "que compromete seriamente la aptitud comercial del lote",
-};
-const CALIDAD_APTITUD_PLURAL: Record<CalidadEstado, string> = {
-  Excelente: "sin que comprometan la aptitud comercial del lote",
-  Bueno: "sin que comprometan la aptitud comercial del lote",
-  Regular: "que conviene vigilar aunque no comprometen la aptitud del lote",
-  Deficiente: "que afectan a la aptitud comercial y obligan a reclasificar parte del lote",
-  Pésimo: "que comprometen seriamente la aptitud comercial del lote",
+// Efecto sobre la aptitud comercial, en frase propia y con "el lote" de sujeto.
+// Antes había dos versiones (singular/plural) que se enganchaban al defecto con
+// un "que", y de ahí salían tanto los "que afecta / que afectan" como el choque
+// de dos relativos seguidos cuando el matiz del defecto ya traía el suyo. Con
+// sujeto fijo no hay nada que concordar.
+const CALIDAD_APTITUD: Record<CalidadEstado, string> = {
+  Excelente: "El lote mantiene su aptitud comercial.",
+  Bueno: "El lote mantiene su aptitud comercial.",
+  Regular: "El lote mantiene su aptitud comercial, con seguimiento en línea.",
+  Deficiente: "El lote pierde aptitud comercial: hay que reclasificar parte de la fruta.",
+  Pésimo: "El lote queda comprometido para su destino comercial.",
 };
 
-// Destino/acción del lote (párrafo "Accion recomendada:"), por calidad. Cada
-// grupo tiene varias redacciones con el MISMO significado operativo: la
-// semilla del lote elige una, de modo que dos lotes distintos no repiten la
-// misma frase. La primera de cada grupo es la redacción histórica y permite
-// reconocer como "generadas" las acciones guardadas antes de las variantes.
+// Acción/destino del lote (párrafo "Acción recomendada:"), por calidad, en
+// infinitivo y al grano: es una instrucción para la línea, no un párrafo de
+// prosa. Cada grupo tiene tres redacciones equivalentes y la semilla del lote
+// elige una, para que dos lotes del mismo día no salgan clavados.
 const CALIDAD_DESTINOS: Record<CalidadEstado, readonly string[]> = {
   Excelente: [
-    "Dado que Mercadona no establece restricciones en sus categorías habituales, el lote se considera apto para su destino sin necesidad de aplicar medidas correctoras adicionales.",
-    "El lote cumple los criterios de las categorías habituales de Mercadona y se considera apto para su destino, sin medidas correctoras adicionales.",
-    "No se precisan medidas correctoras: el lote es apto para su destino dentro de las categorías habituales de Mercadona.",
+    "Apto para su destino en las categorías habituales de Mercadona. Sin medidas correctoras.",
+    "Sigue a las categorías habituales de Mercadona. No se precisan medidas correctoras.",
+    "Destino a Mercadona en sus categorías habituales, sin medidas correctoras.",
   ],
   Bueno: [
-    "Dado que Mercadona no establece restricciones en sus categorías habituales, el lote se considera apto para su destino sin necesidad de aplicar medidas correctoras adicionales.",
-    "El lote cumple los criterios de las categorías habituales de Mercadona y se considera apto para su destino, sin medidas correctoras adicionales.",
-    "No se precisan medidas correctoras: el lote es apto para su destino dentro de las categorías habituales de Mercadona.",
+    "Apto para su destino en las categorías habituales de Mercadona. Sin medidas correctoras.",
+    "Sigue a las categorías habituales de Mercadona. No se precisan medidas correctoras.",
+    "Destino a Mercadona en sus categorías habituales, sin medidas correctoras.",
   ],
   Regular: [
-    "El lote se destina a las categorías habituales de Mercadona con seguimiento en línea del calibre y el color, y se anota para revisión de criterio con el jefe de producción.",
-    "El lote sigue su curso hacia las categorías habituales de Mercadona, con vigilancia en línea del calibre y el color y anotación para revisar el criterio con el jefe de producción.",
-    "Se mantiene el destino a las categorías habituales de Mercadona con seguimiento reforzado en línea del calibre y el color, dejando el lote anotado para revisión de criterio con el jefe de producción.",
+    "Destino a Mercadona con seguimiento en línea del calibre y el color. Revisar el criterio con el jefe de producción.",
+    "Sigue a Mercadona vigilando calibre y color en línea. Revisar el criterio con el jefe de producción.",
+    "Mantener el destino a Mercadona con seguimiento reforzado de calibre y color. Revisar el criterio con el jefe de producción.",
   ],
   Deficiente: [
-    "Se recorta la primera categoría destinada a Mercadona y la fruta se reclasifica a segunda categoría o uso industrial, notificando a responsable para el ajuste de la planificación.",
-    "Se reduce la parte destinada a primera categoría de Mercadona y el resto se reclasifica a segunda categoría o uso industrial, avisando a responsable para ajustar la planificación.",
-    "La fruta afectada se retira de la primera categoría de Mercadona y pasa a segunda categoría o uso industrial, notificándolo a responsable para el ajuste de la planificación.",
+    "Recortar la primera categoría de Mercadona y reclasificar la fruta afectada a segunda o industria. Avisar a responsable para ajustar la planificación.",
+    "Retirar de primera categoría la fruta afectada y pasarla a segunda o industria. Avisar a responsable para ajustar la planificación.",
+    "Reducir la primera categoría de Mercadona y llevar el resto a segunda o industria. Avisar a responsable para ajustar la planificación.",
   ],
   Pésimo: [
-    "El lote se bloquea a la espera de valoración; se documenta con fotografías y se escala a responsable de calidad antes de procesar.",
-    "Se retiene el lote a la espera de valoración, se documenta con fotografías y se traslada a responsable de calidad antes de procesar.",
-    "El lote queda bloqueado hasta nueva valoración; se recogen fotografías y se escala a responsable de calidad antes de continuar con el procesado.",
+    "Bloquear el lote hasta su valoración. Documentar con fotografías y escalar a responsable de calidad antes de procesar.",
+    "Retener el lote a la espera de valoración, documentarlo con fotografías y escalarlo a responsable de calidad antes de procesar.",
+    "Dejar el lote bloqueado hasta nueva valoración. Recoger fotografías y escalar a responsable de calidad antes de continuar.",
   ],
 };
 
-// ── Variantes de redacción del generador ─────────────────────────────────────
-// Todas las alternativas de cada hueco dicen lo mismo con otras palabras; la
-// elección es determinista por lote (semillaCalidadLote), así el mismo lote
-// siempre produce el mismo texto pero dos lotes no suenan clavados.
-
-const APERTURAS_RECEPCION: readonly ((hora: string, cuerpo: string) => string)[] = [
-  (hora, cuerpo) => `Se ha recibido${hora} un volcado ${cuerpo}.`,
-  (hora, cuerpo) => `Ha entrado en planta${hora} un volcado ${cuerpo}.`,
-  (hora, cuerpo) => `Se registra la entrada${hora} de un volcado ${cuerpo}.`,
-  (hora, cuerpo) => `Queda anotada la recepción${hora} de un volcado ${cuerpo}.`,
+// Redacciones de destino ANTERIORES (narrativa de jul-2026). No se usan para
+// escribir: solo para reconocer como "generada" una acción guardada con el
+// formato viejo y poder sustituirla al regenerar. Sin esto, toda acción
+// antigua pasaría por escrita a mano y quedaría congelada para siempre.
+const CALIDAD_DESTINOS_HISTORICOS: readonly string[] = [
+  "Dado que Mercadona no establece restricciones en sus categorías habituales, el lote se considera apto para su destino sin necesidad de aplicar medidas correctoras adicionales.",
+  "El lote cumple los criterios de las categorías habituales de Mercadona y se considera apto para su destino, sin medidas correctoras adicionales.",
+  "No se precisan medidas correctoras: el lote es apto para su destino dentro de las categorías habituales de Mercadona.",
+  "El lote se destina a las categorías habituales de Mercadona con seguimiento en línea del calibre y el color, y se anota para revisión de criterio con el jefe de producción.",
+  "El lote sigue su curso hacia las categorías habituales de Mercadona, con vigilancia en línea del calibre y el color y anotación para revisar el criterio con el jefe de producción.",
+  "Se mantiene el destino a las categorías habituales de Mercadona con seguimiento reforzado en línea del calibre y el color, dejando el lote anotado para revisión de criterio con el jefe de producción.",
+  "Se recorta la primera categoría destinada a Mercadona y la fruta se reclasifica a segunda categoría o uso industrial, notificando a responsable para el ajuste de la planificación.",
+  "Se reduce la parte destinada a primera categoría de Mercadona y el resto se reclasifica a segunda categoría o uso industrial, avisando a responsable para ajustar la planificación.",
+  "La fruta afectada se retira de la primera categoría de Mercadona y pasa a segunda categoría o uso industrial, notificándolo a responsable para el ajuste de la planificación.",
+  "El lote se bloquea a la espera de valoración; se documenta con fotografías y se escala a responsable de calidad antes de procesar.",
+  "Se retiene el lote a la espera de valoración, se documenta con fotografías y se traslada a responsable de calidad antes de procesar.",
+  "El lote queda bloqueado hasta nueva valoración; se recogen fotografías y se escala a responsable de calidad antes de continuar con el procesado.",
 ];
 
-// Reconoce un texto salido del generador (cualquiera de las aperturas): sirve
-// para no tratar la narrativa ya generada como nota manual del técnico.
-const APERTURA_GENERADA_REGEX = /^(Se ha recibido|Ha entrado en planta|Se registra la entrada|Queda anotada la recepción)\b/;
-
-// Todas conservan "se valora como" para que la valoración sea buscable.
-const VALORACIONES_CALIDAD: readonly string[] = [
-  "La calidad general del lote se valora como",
-  "Tras la inspección en línea, la calidad del lote se valora como",
-  "En el control de recepción la calidad del lote se valora como",
-];
-
-const AEROBOTICS_CLAUSULAS: readonly string[] = [
-  ", contando con soporte del sistema Aerobotics durante la inspección",
-  ", con el apoyo del sistema Aerobotics durante la revisión",
-];
+// ── Vocabulario del generador ────────────────────────────────────────────────
+// El informe es una ficha, no una narración: casi todo el texto sale de los
+// datos del lote. Solo quedan variantes donde la frase se repetiría igual en
+// todos los lotes; la elección es determinista por lote (semillaCalidadLote).
 
 const SIN_DEFECTOS: readonly string[] = [
-  "No se detectan defectos reseñables durante la inspección.",
-  "La inspección no arroja defectos reseñables.",
-  "No se aprecian defectos dignos de mención durante la revisión del lote.",
+  "Sin defectos reseñables.",
+  "No se aprecian defectos reseñables.",
+  "Sin defectos dignos de mención.",
 ];
 
-const DEFECTO_UNICO_INTROS: readonly string[] = [
-  "El único defecto detectado es",
-  "Como único defecto se aprecia",
-  "El defecto observado se limita a",
-];
+// Reconoce el bloque de análisis del informe generado: es la marca que permite
+// distinguir lo que escribió el técnico de lo que puso el generador, y por eso
+// "Calidad <adjetivo>." va siempre literal al principio de ese bloque.
+const ANALISIS_GENERADO_REGEX = /^Calidad (excelente|buena|regular|deficiente|pésima)\./;
 
-const DEFECTOS_VARIOS_INTROS: readonly string[] = [
-  "Los defectos detectados son",
-  "Durante la inspección se aprecian",
-  "Se observan como defectos",
-];
-
-// La nota manual del técnico se incrusta entre «» con esta introducción fija:
-// los delimitadores permiten recuperarla al regenerar sobre un texto ya
-// generado (idempotencia del botón Generar).
-const NOTA_TECNICO_INTRO = "En sus observaciones, el técnico de calidad añade:";
+// Formato ANTERIOR (narrativa de jul-2026, aún guardada en lotes cerrados): se
+// reconocía por la apertura y llevaba la nota del técnico incrustada entre «».
+// Se conserva solo para leer esos textos y rescatar su nota al regenerar.
+const APERTURA_GENERADA_REGEX = /^(Se ha recibido|Ha entrado en planta|Se registra la entrada|Queda anotada la recepción)\b/;
 const NOTA_TECNICO_REGEX = /En sus observaciones, el técnico de calidad añade:\s*«([\s\S]*?)»\.?\s*$/;
 
-/**
- * Semilla determinista del lote (FNV-1a sobre sus campos estables, calidad y
- * defectos incluidos): mismo lote ⇒ mismo texto; cualquier cambio de datos o
- * de valoración ⇒ otra combinación de redacciones.
- */
+/** Bloques de un texto (separados por línea en blanco), ya recortados. */
+function bloquesDeTexto(texto: string): string[] {
+  return texto.split(/\n{2,}/).map((bloque) => bloque.trim()).filter(Boolean);
+}
+
+/** Pone en mayúscula la primera LETRA (puede venir detrás de unas comillas). */
+function mayusculaInicial(texto: string): string {
+  const i = texto.search(/\p{L}/u);
+  if (i < 0) return texto;
+  return texto.slice(0, i) + texto[i].toLocaleUpperCase("es") + texto.slice(i + 1);
+}
+
 function semillaCalidadLote(lote: CalidadLote): number {
   const clave = [lote.id, lote.numero_lote, lote.fecha, lote.hora ?? "", lote.productor_finca_nombre, lote.calidad, (lote.defectos ?? []).join("+")].join("|");
   let hash = 2166136261;
@@ -451,27 +444,55 @@ function variante<T>(pool: readonly T[], semilla: number, slot: number): T {
   return pool[mezcla % pool.length];
 }
 
-function esObservacionGenerada(texto: string): boolean {
-  return APERTURA_GENERADA_REGEX.test(normalizeComentario(texto));
-}
-
 /**
- * Nota libre escrita por el técnico en el campo observación. Si el campo
- * contiene una narrativa ya generada, recupera la nota incrustada entre «»
- * (si la hay) en lugar de tratar toda la narrativa como nota.
+ * Lo que el técnico escribió de su puño en el campo observación, TAL CUAL.
+ *
+ * El campo guarda el informe entero (ficha + análisis + su texto), así que al
+ * regenerar hay que separar lo suyo de lo que puso el generador la vez
+ * anterior; si no, el informe se comería a sí mismo. Se contemplan los dos
+ * formatos: el actual (bloques, el análisis empieza por "Calidad <adjetivo>.")
+ * y el narrativo de jul-2026, que llevaba la nota entre «».
  */
 function notaManualDeObservacion(observacion: string): string {
   const texto = normalizeComentario(observacion);
   if (!texto) return "";
-  if (!esObservacionGenerada(texto)) return texto;
-  const match = texto.match(NOTA_TECNICO_REGEX);
-  return match ? match[1].trim() : "";
+
+  if (APERTURA_GENERADA_REGEX.test(texto)) {
+    const match = texto.match(NOTA_TECNICO_REGEX);
+    return match ? match[1].trim() : "";
+  }
+
+  // La ficha va siempre delante, así que el bloque de análisis nunca es el
+  // primero: pedir índice > 0 evita confundir con un informe generado un texto
+  // manual que empiece por "Calidad regular." y nada más.
+  const bloques = bloquesDeTexto(texto);
+  const iAnalisis = bloques.findIndex((bloque) => ANALISIS_GENERADO_REGEX.test(bloque));
+  if (iAnalisis > 0) return bloques.slice(iAnalisis + 1).join("\n\n");
+
+  return texto;
+}
+
+/**
+ * El informe sin su ficha de identificación, para cuando quien lo imprime ya
+ * pone esos datos por su cuenta: la tarjeta de cada lote del PDF lleva encima
+ * productor, lote, box, hora, Aerobotics, calidad y defectos, así que repetir
+ * la ficha dentro del texto gastaba las pocas líneas que caben y llegaba a
+ * cortar lo que había escrito el técnico. Un texto que no venga del generador
+ * se devuelve intacto.
+ */
+export function cuerpoInformeCalidad(observacion: string): string {
+  const texto = normalizeComentario(observacion);
+  if (!texto) return "";
+  const bloques = bloquesDeTexto(texto);
+  const iAnalisis = bloques.findIndex((bloque) => ANALISIS_GENERADO_REGEX.test(bloque));
+  return iAnalisis > 0 ? bloques.slice(iAnalisis).join("\n\n") : texto;
 }
 
 function esAccionRecomendadaGenerada(texto: string): boolean {
   const normalizado = normalizeComentario(texto);
   if (!normalizado) return false;
-  return CALIDAD_OPTIONS.some((calidad) => CALIDAD_DESTINOS[calidad].some((destino) => normalizeComentario(destino) === normalizado));
+  const actuales = CALIDAD_OPTIONS.flatMap((calidad) => CALIDAD_DESTINOS[calidad]);
+  return [...actuales, ...CALIDAD_DESTINOS_HISTORICOS].some((destino) => normalizeComentario(destino) === normalizado);
 }
 
 /**
@@ -512,57 +533,80 @@ function describirCantidad(cantidad: string): { total: string; reciclaje: number
 }
 
 /**
- * Observación narrativa completa (registro de referencia del dueño, jul-2026):
- * incluye la trazabilidad de recepción (hora, finca, lote, producto/variedad,
- * cantidad y boxes de reciclaje), la valoración de calidad/Aerobotics, los
- * defectos detectados con su matiz característico y su efecto en la aptitud
- * comercial, y la nota manual del técnico si escribió algo en observaciones —
- * a partir únicamente de los campos del lote, sin inventar datos que el
- * generador no puede conocer. La redacción de cada frase varía de forma
- * determinista con la semilla del lote (queja de calidad, jul-2026: el
- * generador decía siempre lo mismo). Compartida por
- * buildCalidadComentarioSugerido y createCalidadDraftReport para que ambos
- * textos sean coherentes entre sí.
+ * Informe de calidad del lote: ficha de identificación, análisis y —si el
+ * técnico ha escrito algo— su texto tal cual, en bloques separados.
+ *
+ *     Lote 26090301 · AGRICOLA EL PILAR · Naranja Navel Powell
+ *     64 boxes · 07:30 h · Aerobotics
+ *
+ *     Calidad regular. Mancha, de tipo superficial y repartida en parte de
+ *     las piezas. El lote mantiene su aptitud comercial, con seguimiento en
+ *     línea.
+ *
+ *     Hablar con el productor, es el tercer volcado igual.
+ *
+ * Sustituye a la narrativa de jul-2026 (sep-2026, petición del dueño: "con lo
+ * que pone Eusebio y su análisis, un informe profesional y conciso"). Aquella
+ * contaba en prosa los mismos datos que el PDF ya imprime justo encima de la
+ * observación, y metía el texto del técnico como cita al final. Ahora los
+ * datos van en la ficha, el criterio en una o dos frases y lo que él escribe
+ * es un párrafo del informe, sin envoltorio.
+ *
+ * Solo usa campos del lote: no inventa nada que el generador no pueda saber.
  */
 function construirObservacionCalidad(lote: CalidadLote): string {
   const semilla = semillaCalidadLote(lote);
-  const hora = formatHoraCorta(lote.hora);
+
+  // 1. Ficha: qué lote es y de qué volcado se habla.
   const finca = normalizeCalidadName(lote.productor_finca_nombre || "");
-  const procedencia = finca ? `procedente de la finca ${finca}` : "de origen no especificado";
-  const loteClause = lote.numero_lote ? `lote ${lote.numero_lote}` : "";
-  const productoLower = (lote.producto || "fruta").toLocaleLowerCase("es");
+  const producto = (lote.producto || "Fruta").trim();
   const variedad = (lote.variedad || "").trim();
-  const productoClause = variedad ? `correspondiente a ${productoLower} variedad ${variedad}` : `correspondiente a ${productoLower}`;
+  const identificacion = [
+    `Lote ${lote.numero_lote.trim() || "sin identificar"}`,
+    finca || "Sin productor/finca",
+    variedad ? `${producto} ${variedad}` : producto,
+  ].join(" · ");
+
   const cantidad = describirCantidad(lote.cantidad);
-  const cantClause = cantidad
-    ? `con un total de ${cantidad.total}${cantidad.reciclaje > 0 ? `, a las cuales ${cantidad.reciclaje} ${cantidad.reciclaje === 1 ? "es" : "son"} de reciclaje ${cantidad.reciclaje === 1 ? "incorporada" : "incorporadas"} sin especificar procedencia` : ""}`
-    : "";
-  const cuerpoRecepcion = [procedencia, loteClause, productoClause, cantClause].filter(Boolean).join(", ");
-  const recepcion = variante(APERTURAS_RECEPCION, semilla, 0)(hora ? ` a las ${hora} h` : "", cuerpoRecepcion);
+  const hora = formatHoraCorta(lote.hora);
+  const datos = [
+    cantidad ? `${cantidad.total}${cantidad.reciclaje > 0 ? ` (${cantidad.reciclaje} de reciclaje)` : ""}` : "",
+    hora ? `${hora} h` : "",
+    lote.aerobotics_realizado ? "Aerobotics" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const ficha = datos ? `${identificacion}\n${datos}` : identificacion;
 
-  const aerobotics = lote.aerobotics_realizado ? variante(AEROBOTICS_CLAUSULAS, semilla, 2) : "";
-  const calidad = `${variante(VALORACIONES_CALIDAD, semilla, 1)} ${CALIDAD_ADJETIVO[lote.calidad]}${aerobotics}.`;
+  // 2. Análisis: valoración, defectos y efecto sobre la aptitud del lote.
+  // "Otro" sin describir NO se descarta: antes desaparecía de la lista y el
+  // informe llegaba a afirmar que no había defectos habiéndose marcado uno.
+  const defectos = lote.defectos ?? [];
+  const nombres = defectos.map((defecto) => {
+    if (defecto !== "Otro") return defecto.toLocaleLowerCase("es");
+    const descrito = (lote.defecto_otro ?? "").trim();
+    return descrito ? `«${descrito}»` : "defecto sin describir";
+  });
 
-  const defectosMarcados = (lote.defectos ?? []).filter((defecto) => defecto !== "Otro" || (lote.defecto_otro ?? "").trim());
-  const nombres = defectosMarcados.map((defecto) => (defecto === "Otro" ? (lote.defecto_otro ?? "").trim() : defecto.toLocaleLowerCase("es")));
-
-  let defectos: string;
+  let fraseDefectos: string;
   if (nombres.length === 0) {
-    defectos = variante(SIN_DEFECTOS, semilla, 5);
-  } else if (nombres.length === 1) {
-    const matiz = defectosMarcados[0] === "Otro" ? "" : (CALIDAD_DEFECTO_MATIZ[defectosMarcados[0]] ?? "");
-    defectos = `${variante(DEFECTO_UNICO_INTROS, semilla, 3)} ${nombres[0]}${matiz ? `, ${matiz}` : ""}, ${CALIDAD_APTITUD_SINGULAR[lote.calidad]}.`;
+    fraseDefectos = variante(SIN_DEFECTOS, semilla, 5);
   } else {
-    const lista = `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
-    defectos = `${variante(DEFECTOS_VARIOS_INTROS, semilla, 4)} ${lista}, ${CALIDAD_APTITUD_PLURAL[lote.calidad]}.`;
+    const lista = nombres.length === 1
+      ? nombres[0]
+      : `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
+    // El matiz característico solo cabe cuando hay un único defecto; con
+    // varios, la enumeración ya es bastante.
+    const matiz = defectos.length === 1 && defectos[0] !== "Otro" ? CALIDAD_DEFECTO_MATIZ[defectos[0]] ?? "" : "";
+    fraseDefectos = `${mayusculaInicial(lista)}${matiz ? `, ${matiz}` : ""}.`;
   }
 
-  // La nota manual del técnico se conserva textual dentro de la narrativa
-  // (era la otra pata de la queja: el generador ignoraba lo escrito a mano).
-  const nota = notaManualDeObservacion(lote.observacion);
-  const notaClause = nota ? ` ${NOTA_TECNICO_INTRO} «${nota}».` : "";
+  const analisis = [`Calidad ${CALIDAD_ADJETIVO[lote.calidad]}.`, fraseDefectos, CALIDAD_APTITUD[lote.calidad]].join(" ");
 
-  return `${[recepcion, calidad, defectos].join(" ")}${notaClause}`;
+  // 3. Lo que escribe el técnico, literal y en su propio párrafo.
+  const nota = notaManualDeObservacion(lote.observacion);
+
+  return [ficha, analisis, nota].filter(Boolean).join("\n\n");
 }
 
 /**
@@ -575,7 +619,7 @@ function construirObservacionCalidad(lote: CalidadLote): string {
  */
 export function buildCalidadComentarioSugerido(current: CalidadLote, _history: CalidadLote[] = [], _photoCount = 0) {
   const semilla = semillaCalidadLote(current);
-  return normalizeComentario(`${construirObservacionCalidad(current)}\n\nAccion recomendada: ${accionRecomendadaSugerida(current, semilla)}`);
+  return normalizeComentario(`${construirObservacionCalidad(current)}\n\nAcción recomendada: ${accionRecomendadaSugerida(current, semilla)}`);
 }
 
 export function calidadSummary(lotes: CalidadLote[], attachmentCounts: Record<string, number> = {}): CalidadSummary {
@@ -928,8 +972,11 @@ function ensurePdfSpace(doc: jsPDF, y: number, needed: number) {
 // (coherente con CalidadInformeDialog: sin placeholder "Sin accion..." en el PDF).
 function computeLoteCardLayout(doc: jsPDF, lote: CalidadLote) {
   const hasAccion = !!(lote.accion_recomendada ?? "").trim();
-  const observations = doc.splitTextToSize(safePdf(lote.observacion || "Sin observacion registrada."), hasAccion ? 128 : 258).slice(0, 4);
-  const action = hasAccion ? doc.splitTextToSize(safePdf(lote.accion_recomendada), 118).slice(0, 4) : [];
+  // Sin la ficha (la tarjeta ya la imprime arriba) y con margen hasta 6 líneas:
+  // el texto del técnico va al final del informe y era lo primero en caerse.
+  const cuerpo = cuerpoInformeCalidad(lote.observacion) || "Sin observacion registrada.";
+  const observations = doc.splitTextToSize(safePdf(cuerpo), hasAccion ? 128 : 258).slice(0, 6);
+  const action = hasAccion ? doc.splitTextToSize(safePdf(lote.accion_recomendada), 118).slice(0, 6) : [];
   const detailHeight = Math.max(14, observations.length * 4.2 + 3, hasAccion ? action.length * 4.2 + 3 : 0);
   const cardHeight = 31 + detailHeight + (lote.defectos.length > 0 ? 9 : 0);
   return { hasAccion, observations, action, cardHeight };
