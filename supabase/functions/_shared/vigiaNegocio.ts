@@ -27,6 +27,7 @@
  * src/lib/vigiaNegocio.test.ts. Cero LLM: texto determinista.
  */
 import type { MermaSemanaInforme, StockInforme } from "./informeSemanal.ts";
+import { listonRegimen, regimenPlantilla } from "./estandarRendimiento.ts";
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -582,11 +583,10 @@ export function reglaPartes(partes: ParteVigiaRow[], hoy: string): Hallazgo[] {
 // ≥2.600 bueno, <2.200 rojo. La asistencia se vuelca los lunes por semanas
 // completas: esta regla evalúa los días que ya tienen asistencia, cuando llega.
 
-export const CORTE_PLANTILLA_COMPLETA = 35;
-export const ESTANDAR_KG_PERSONA = {
-  completa: { rojo: 1700, verde: 2100 },
-  media: { rojo: 2200, verde: 2600 },
-} as const;
+// El estándar vive en estandarRendimiento.ts, la MISMA fuente que la vista
+// "Por tipo de día" de la app y los scripts (03-09-2026). Aquí solo se aplica.
+// Ojo al borde: 35 presentes es media plantilla (≤35), como en el JSON de los
+// informes de la encargada; esta regla lo tenía al revés.
 
 export interface DiaRendimientoVigia {
   fecha: string;
@@ -599,9 +599,9 @@ export function reglaRendimiento(dias: DiaRendimientoVigia[]): Hallazgo[] {
   const out: Hallazgo[] = [];
   for (const d of dias) {
     if (d.kg <= 0 || d.presentes <= 0) continue;
-    const regimen = d.presentes >= CORTE_PLANTILLA_COMPLETA
-      ? { ...ESTANDAR_KG_PERSONA.completa, nombre: "plantilla completa" }
-      : { ...ESTANDAR_KG_PERSONA.media, nombre: "media plantilla" };
+    const reg = regimenPlantilla(d.presentes);
+    const liston = listonRegimen(reg);
+    const regimen = { rojo: liston.kgPersonaSuelo, verde: liston.kgPersonaObjetivo, nombre: reg === "completa" ? "plantilla completa" : "media plantilla" };
     const kgPersona = d.kg / d.presentes;
     if (kgPersona >= regimen.rojo) continue;
     out.push({
