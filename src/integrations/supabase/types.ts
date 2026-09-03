@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       app_errores: {
@@ -3916,6 +3891,24 @@ export type Database = {
         }
         Relationships: []
       }
+      clasificacion_lote_detalle_mv: {
+        Row: {
+          batch_id: number | null
+          clase: string | null
+          destino: string | null
+          fecha: string | null
+          fuente: string | null
+          kg: number | null
+          letra: string | null
+          lote_codigo: string | null
+          lote8: string | null
+          n_filas: number | null
+          piezas: number | null
+          producto: string | null
+          tamano: string | null
+        }
+        Relationships: []
+      }
       clasificacion_lote_mix_mv: {
         Row: {
           con_docx: boolean | null
@@ -4275,6 +4268,12 @@ export type Database = {
       }
       can_access_comunicaciones_campo: { Args: never; Returns: boolean }
       can_access_ventas_categoria: { Args: never; Returns: boolean }
+      clase_destino: {
+        Args: { clase: string; grupo_destino: string }
+        Returns: string
+      }
+      clase_letra: { Args: { clase: string }; Returns: string }
+      clasificacion_detalle_lotes: { Args: { lotes: string[] }; Returns: Json }
       clasificacion_mix_lotes: { Args: never; Returns: Json }
       clasificacion_productor_periodo: {
         Args: { desde?: string; hasta?: string }
@@ -4664,9 +4663,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       app_role: ["admin", "operario", "ventas", "rrhh"],
