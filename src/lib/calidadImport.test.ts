@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   estadoSecciones,
   indiceMadurez,
+  nombreDescargaFoto,
   nombreInformeCalidadImport,
   parseNumeroFlexible,
   pctsDefectosTexto,
@@ -131,6 +132,22 @@ describe("nombreInformeCalidadImport", () => {
     expect(nombreInformeCalidadImport({ referencia: "A/B", nuestra_ref: "", clasificacion: "CAT 2" })).toBe(
       "CONTROL CALIDAD A-B CAT 2.docx",
     );
+  });
+});
+
+describe("nombreDescargaFoto", () => {
+  it("conserva la base del nombre y corrige la extensión al tipo real", () => {
+    // El iPhone la llama IMG_1234.HEIC pero lo guardado es el JPEG comprimido.
+    expect(nombreDescargaFoto({ file_name: "IMG_1234.HEIC", file_path: "u/c/x.jpg", mime_type: "image/jpeg", orden: 0 })).toBe("IMG_1234.jpg");
+    expect(nombreDescargaFoto({ file_name: "firma.png", file_path: "u/c/f.png", mime_type: "image/png", orden: 0 })).toBe("firma.png");
+  });
+
+  it("sin nombre usa el orden, sin mime cae a la extensión del path", () => {
+    expect(nombreDescargaFoto({ file_name: "", file_path: "u/c/x.jpg", mime_type: null, orden: 2 })).toBe("foto-3.jpg");
+  });
+
+  it("limpia caracteres prohibidos del nombre", () => {
+    expect(nombreDescargaFoto({ file_name: "lote 4/56: caja.jpg", file_path: "u/c/x.jpg", mime_type: "image/jpeg", orden: 0 })).toBe("lote 4-56- caja.jpg");
   });
 });
 

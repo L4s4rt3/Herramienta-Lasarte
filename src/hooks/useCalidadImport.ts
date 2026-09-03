@@ -19,6 +19,7 @@ import { toast } from "@/hooks/use-toast";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { today } from "@/lib/format";
 import {
+  nombreDescargaFoto,
   nombreInformeCalidadImport,
   rowToControl,
   type CalidadImportControl,
@@ -852,11 +853,12 @@ async function descargarDeStorage(path: string): Promise<Blob | null> {
 }
 
 /** En iPhone/iPad y Android la hoja de compartir nativa es el camino cómodo
- * (Mail/WhatsApp/Guardar en Archivos) Y el fiable: la descarga de blobs en
- * una PWA instalada en iOS falla en silencio. En escritorio, descarga normal. */
-async function entregarDocx(blob: Blob, filename: string): Promise<"compartido" | "descargado" | "cancelado"> {
+ * (Mail/WhatsApp/Guardar en Archivos/Guardar imagen) Y el fiable: la descarga
+ * de blobs en una PWA instalada en iOS falla en silencio. En escritorio,
+ * descarga normal. Sirve tanto para el informe Word como para las fotos. */
+async function entregarArchivo(blob: Blob, filename: string, mime: string): Promise<"compartido" | "descargado" | "cancelado"> {
   const esMovil = typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-  const file = new File([blob], filename, { type: DOCX_MIME });
+  const file = new File([blob], filename, { type: mime });
   if (esMovil && typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: filename });
@@ -867,9 +869,9 @@ async function entregarDocx(blob: Blob, filename: string): Promise<"compartido" 
       // Cualquier otro fallo: se intenta la descarga clásica.
     }
   }
-  // MIME de Word explícito: con el genérico (o el de Excel) el visor del
-  // iPhone no sabía abrir el informe.
-  const url = URL.createObjectURL(new Blob([blob], { type: DOCX_MIME }));
+  // MIME explícito siempre: con el genérico (o el de Excel) el visor del
+  // iPhone no sabía abrir el informe Word.
+  const url = URL.createObjectURL(new Blob([blob], { type: mime }));
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
@@ -879,6 +881,20 @@ async function entregarDocx(blob: Blob, filename: string): Promise<"compartido" 
   // Revocar al momento aborta la descarga en iOS/Safari: se le da margen.
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   return "descargado";
+}
+
+/**
+ * Descarga (o comparte, en el móvil) una foto del control: la subida desde
+ * el storage y la pendiente desde su blob local. Devuelve el nombre del
+ * archivo entregado, o null si se canceló la hoja de compartir.
+ */
+export async function descargarFoto(foto: CalidadImportFoto): Promise<string | null> {
+  const blob = foto.blobLocal ?? (await descargarDeStorage(foto.file_path));
+  if (!blob) throw new Error("La foto no está disponible ahora mismo (¿sin conexión?). Vuelve a intentarlo.");
+  const mime = foto.mime_type ?? "image/jpeg";
+  const filename = nombreDescargaFoto(foto);
+  const via = await entregarArchivo(blob, filename, mime);
+  return via === "cancelado" ? null : filename;
 }
 
 /**
@@ -925,6 +941,6 @@ export async function generarYDescargarInforme(
 
   const docxBlob = await generarInformeCalidadImportBlob(control, imagenes, firma, logo);
   const filename = nombreInformeCalidadImport(control);
-  const via = await entregarDocx(docxBlob, filename);
+  const via = await entregarArchivo(docxBlob, filename, DOCX_MIME);
   return via === "cancelado" ? null : filename;
 }

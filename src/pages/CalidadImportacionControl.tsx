@@ -17,6 +17,7 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  Download,
   FileText,
   Images,
   Loader2,
@@ -43,6 +44,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { FirmaPad } from "@/components/calidad/FirmaPad";
 import {
+  descargarFoto,
   generarYDescargarInforme,
   useCalidadImportControl,
   useCalidadImportMutations,
@@ -60,6 +62,7 @@ import {
   REF_INDICE_MADUREZ,
   REF_PCT_ZUMO,
   type CalidadImportControl,
+  type CalidadImportFoto,
   type DefectoImport,
   type MuestraInterna,
 } from "@/lib/calidadImport";
@@ -287,6 +290,7 @@ export default function CalidadImportacionControl() {
   const [control, setControl] = useState<CalidadImportControl | null>(null);
   const [estadoGuardado, setEstadoGuardado] = useState<EstadoGuardado>("guardado");
   const [generando, setGenerando] = useState(false);
+  const [descargandoFotoId, setDescargandoFotoId] = useState<string | null>(null);
   const [rehacerFirma, setRehacerFirma] = useState(false);
   const hidratadoPara = useRef<string | null>(null);
   const sucioRef = useRef(false);
@@ -365,6 +369,23 @@ export default function CalidadImportacionControl() {
     const files = Array.from(lista);
     const ordenDesde = (bundle?.fotos ?? []).reduce((max, foto) => Math.max(max, foto.orden + 1), 0);
     await subirFotos.mutateAsync({ controlId: control.id, files, ordenDesde });
+  };
+
+  const descargarUnaFoto = async (foto: CalidadImportFoto) => {
+    if (descargandoFotoId) return;
+    setDescargandoFotoId(foto.id);
+    try {
+      const filename = await descargarFoto(foto);
+      if (filename) toast({ title: "Foto lista", description: filename });
+    } catch (error) {
+      toast({
+        title: "No se pudo descargar la foto",
+        description: error instanceof Error ? error.message : String(error),
+        variant: "destructive",
+      });
+    } finally {
+      setDescargandoFotoId(null);
+    }
   };
 
   if (isLoading || !control) {
@@ -585,6 +606,25 @@ export default function CalidadImportacionControl() {
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
+                    {/* Descargar es solo LECTURA: va como role="button" (no
+                        <button>) a propósito, para que el candado de un
+                        control validado (fieldset disabled) no lo apague. */}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => void descargarUnaFoto(foto)}
+                      onKeyDown={(evento) => {
+                        if (evento.key === "Enter" || evento.key === " ") void descargarUnaFoto(foto);
+                      }}
+                      className="absolute bottom-1 right-1 cursor-pointer rounded-full bg-black/60 p-1.5 text-white"
+                      aria-label="Descargar foto"
+                    >
+                      {descargandoFotoId === foto.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Download className="h-3.5 w-3.5" />
+                      )}
+                    </span>
                   </div>
                 ))}
               </div>

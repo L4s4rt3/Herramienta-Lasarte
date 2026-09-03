@@ -215,6 +215,23 @@ export function pctsDefectosTexto(defectos: DefectoImport[]): string {
     .join(" / ");
 }
 
+// ─── Nombre de archivo de una foto descargada ────────────────────────────────
+// El original del iPhone puede llamarse "IMG_1234.HEIC" pero lo guardado es el
+// JPEG comprimido: el nombre de descarga conserva la base y corrige la
+// extensión según el tipo real.
+export function nombreDescargaFoto(foto: Pick<CalidadImportFoto, "file_name" | "file_path" | "mime_type" | "orden">): string {
+  const extensionPorMime: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+  };
+  const extension =
+    extensionPorMime[foto.mime_type ?? ""] ??
+    (foto.file_path.includes(".") ? foto.file_path.split(".").pop()!.toLowerCase() : "jpg");
+  const base = foto.file_name.replace(/\.[^.]+$/, "").trim() || `foto-${foto.orden + 1}`;
+  return `${base.replace(/[\\/:*?"<>|]+/g, "-")}.${extension}`;
+}
+
 // ─── Nombre de archivo del informe ───────────────────────────────────────────
 // Mismo patrón que los Word que ya circulaban:
 // "CONTROL CALIDAD 1184057-26082701 CAT 1.docx"
