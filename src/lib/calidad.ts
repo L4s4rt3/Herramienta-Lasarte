@@ -29,6 +29,13 @@ import {
 export const CALIDAD_OPTIONS = ["Excelente", "Bueno", "Regular", "Deficiente", "Pésimo"] as const;
 export type CalidadEstado = typeof CALIDAD_OPTIONS[number];
 
+// Los nueve primeros son los de siempre (hay lotes guardados con ellos: no se
+// renombran ni se reordenan). Del bloque siguiente en adelante vienen los que
+// Raquel usa en los controles de importación (DEFECTOS_NO_EVOLUTIVOS_SUGERIDOS
+// y DEFECTOS_EVOLUTIVOS_SUGERIDOS de calidadImport.ts), para que planta e
+// importación nombren igual el mismo defecto. Allí van en mayúsculas porque el
+// Word los imprime así; aquí siguen la capitalización de esta pantalla.
+// "BLANDO" no se repite: es la "Piel blanda" que ya estaba.
 export const DEFECTO_OPTIONS = [
   "Rameado",
   "Golpe",
@@ -39,6 +46,16 @@ export const DEFECTO_OPTIONS = [
   "Piel blanda",
   "Deshidratado",
   "Plaga",
+  "Cicatriz",
+  "Trips",
+  "Deformación",
+  "Saltamontes",
+  "Rozadura",
+  "Oleocelosis",
+  "Cochinilla",
+  "Pinchazo",
+  "Rajado",
+  "Moho",
   "Otro",
 ] as const;
 export type CalidadDefecto = typeof DEFECTO_OPTIONS[number];
@@ -294,6 +311,18 @@ const CALIDAD_DEFECTO_MATIZ: Record<string, string> = {
   "Piel blanda": "asociado a un punto de madurez algo avanzado",
   Deshidratado: "leve y superficial, detectado durante el control de envasado",
   Plaga: "en piezas puntuales, que se marcan para revisión",
+  // Los de importación: mismo registro descriptivo, un rasgo característico por
+  // defecto y nada más (el generador no puede saber más del lote).
+  Cicatriz: "ya cerrado en campo, de carácter superficial y sin evolución posterior",
+  Trips: "con el anillo plateado alrededor del cáliz propio del insecto",
+  Deformación: "en piezas de forma irregular que no cumplen el estándar de presentación",
+  Saltamontes: "con las mordeduras características del insecto sobre la corteza",
+  Rozadura: "por roce durante la manipulación en campo o el transporte",
+  Oleocelosis: "por rotura de las glándulas de aceite de la corteza, que se agrava si se recolecta con la fruta mojada",
+  Cochinilla: "con el insecto adherido a la corteza, que obliga a repasar el lote",
+  Pinchazo: "por punción, puerta de entrada de las podredumbres",
+  Rajado: "con la corteza abierta, que evoluciona a podrido durante el almacenamiento",
+  Moho: "con esporulación visible, que se retira y se aísla de las piezas sanas",
 };
 
 // Efecto del/los defecto(s) sobre la aptitud comercial del lote, por calidad.

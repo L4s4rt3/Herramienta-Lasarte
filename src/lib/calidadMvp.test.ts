@@ -59,6 +59,17 @@ describe("calidad MVP domain", () => {
       "Piel blanda",
       "Deshidratado",
       "Plaga",
+      // Traídos de los controles de importación de Raquel (sep-2026).
+      "Cicatriz",
+      "Trips",
+      "Deformación",
+      "Saltamontes",
+      "Rozadura",
+      "Oleocelosis",
+      "Cochinilla",
+      "Pinchazo",
+      "Rajado",
+      "Moho",
       "Otro",
     ]);
   });
