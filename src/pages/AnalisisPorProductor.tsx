@@ -18,6 +18,9 @@ import { PaginaConVistas } from "@/components/PaginaConVistas";
 
 const Productores = lazy(() => import("@/pages/Productores"));
 const Calibrador = lazy(() => import("@/pages/Calibrador"));
+// Desde el 03-09-2026: el aprovechamiento MEDIDO por parcela (antes el Excel
+// de Invermarmelo, scripts/informe-aprovechamiento-invermarmelo.ts).
+const AprovechamientoRealParcela = lazy(() => import("@/components/productores/AprovechamientoRealParcela"));
 
 const Cargando = () => (
   <div className="flex items-center gap-3 rounded-xl glass-accented px-5 py-4">
@@ -39,6 +42,11 @@ export default function AnalisisPorProductor() {
           id: "calibrador",
           label: "Aprovechamiento (calibrador)",
           render: () => <Suspense fallback={<Cargando />}><Calibrador /></Suspense>,
+        },
+        {
+          id: "aprovechamiento-real",
+          label: "Aprovechamiento real por parcela",
+          render: () => <Suspense fallback={<Cargando />}><AprovechamientoRealParcela /></Suspense>,
         },
       ]}
     />
