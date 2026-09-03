@@ -3896,6 +3896,7 @@ export type Database = {
           batch_id: number | null
           clase: string | null
           destino: string | null
+          duracion_min: number | null
           fecha: string | null
           fuente: string | null
           kg: number | null
@@ -3905,7 +3906,9 @@ export type Database = {
           n_filas: number | null
           piezas: number | null
           producto: string | null
+          productor: string | null
           tamano: string | null
+          toneladas_hora: number | null
         }
         Relationships: []
       }
@@ -4359,6 +4362,10 @@ export type Database = {
         }[]
       }
       refrescar_clasificacion_lote_mix: { Args: never; Returns: undefined }
+      rentabilidad_filas_dias: {
+        Args: { desde: string; hasta: string }
+        Returns: Json
+      }
       restauracion_cargar: {
         Args: { filas: Json; tabla: string }
         Returns: number
