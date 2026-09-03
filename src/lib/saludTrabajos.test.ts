@@ -28,7 +28,7 @@ describe("evaluarTrabajos", () => {
     }
   });
 
-  describe("tarea diaria (07:10 con reintentos hasta las 12:10)", () => {
+  describe("tarea diaria (07:40 con reintentos hasta las 12:40)", () => {
     it("corrió hoy → bien, con la hora en el texto", () => {
       const t = estadoDe([latido("tarea-diaria", "2026-08-14T07:15:00+02:00")], en("2026-08-14T09:00:00+02:00"), "tarea-diaria");
       expect(t.estado).toBe("bien");
@@ -38,7 +38,7 @@ describe("evaluarTrabajos", () => {
     it("de madrugada no alarma aunque lo último sea de ayer", () => {
       const t = estadoDe([latido("tarea-diaria", "2026-08-13T07:12:00+02:00")], en("2026-08-14T06:00:00+02:00"), "tarea-diaria");
       expect(t.estado).toBe("bien");
-      expect(t.titulo).toContain("07:10");
+      expect(t.titulo).toContain("07:40");
     });
 
     it("a media mañana sin correr → atención (aún quedan reintentos), no alarma", () => {

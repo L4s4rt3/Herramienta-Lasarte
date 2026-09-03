@@ -94,7 +94,7 @@ Un cron en verde **no** prueba que la función corriera (`pg_net` encola y dice
 
 ## Red de seguridad del correo diario (GitHub Actions)
 
-El correo de las 07:10 lo manda el portátil. Si el portátil falla, a las 12:45
+El correo de las 07:40 lo manda el portátil. Si el portátil falla, a las 13:15
 (hora Madrid) `.github/workflows/aviso-diario-nube.yml` ejecuta la mitad nube
 de la tarea (`node scripts/aviso-diario-erp.mjs --solo-nube --solo-si-falta`)
 desde GitHub: si el correo de hoy ya consta en la base no hace nada; si no, lo
@@ -111,7 +111,7 @@ ventana) que llama a su `.cmd` (log en `outputs/`). `.cmd` y `.vbs` van
 
 | Tarea | Hora | Qué hace |
 |---|---|---|
-| Lasarte - Sincronizar ERP | 07:10, reintento cada 20 min hasta 12:10 | `tarea-diaria-erp.cmd`: entradas, trazabilidad y precalibrado del ERP, GSTOCK, parte del día, informes del calibrador, análisis, cuadre y correo. |
+| Lasarte - Sincronizar ERP | 07:40, reintento cada 20 min hasta 12:40 | `tarea-diaria-erp.cmd`: entradas, trazabilidad y precalibrado del ERP, GSTOCK, parte del día, informes del calibrador, análisis, cuadre y correo. |
 | Lasarte - Receptor calibrador | cada 5 min, 06:00-22:00 | Receptor SMTP LAN del Sizer (respaldo; la vía real es el buzón). |
 | Lasarte - Leer buzon | cada 30 min | Importa los informes que el Sizer manda a `lasartecitricos@gmail.com`. |
 | Lasarte - Foto palets ERP | cada hora | Foto del total de palets del día (hora de cierre e inventario). |

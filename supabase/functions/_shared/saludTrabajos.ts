@@ -89,10 +89,10 @@ const QUE_HACER_RECEPTOR =
   "el receptor caído no se pierde nada — es el respaldo de la LAN. La tarea «Lasarte - Receptor " +
   "calibrador» lo relanza sola cada 5 minutos en cuanto el portátil de la oficina esté encendido.";
 
-/** La tarea de las 07:10 con reintentos cada 20 min hasta las 12:10 (ver tarea-diaria-erp.cmd). */
+/** La tarea de las 07:40 con reintentos cada 20 min hasta las 12:40 (ver tarea-diaria-erp.cmd). Movida de 07:10 a 07:40 el 03-09-2026: el informe del último lote del día llega al buzón hacia las 07:15 del día siguiente y el correo salía sin datos del calibrador. */
 function evaluarTareaDiaria(l: LatidoRow, ahora: Date): Veredicto {
   const minuto = minutoDelDiaMadrid(ahora);
-  const finVentana = 12 * 60 + 30; // el último reintento es a las 12:10; margen para que termine
+  const finVentana = 13 * 60; // el último reintento es a las 12:40; margen para que termine
   const esDeHoy = fechaMadrid(new Date(l.visto_a)) === fechaMadrid(ahora);
   const hora = horaMadrid(new Date(l.visto_a));
 
@@ -104,7 +104,7 @@ function evaluarTareaDiaria(l: LatidoRow, ahora: Date): Veredicto {
     }
     if (l.estado === "error") {
       return minuto < finVentana
-        ? { estado: "atencion", titulo: `terminó con error a las ${hora}; se reintenta sola cada 20 min hasta las 12:10`, queHacer: null }
+        ? { estado: "atencion", titulo: `terminó con error a las ${hora}; se reintenta sola cada 20 min hasta las 12:40`, queHacer: null }
         : { estado: "mal", titulo: `hoy terminó con error (a las ${hora}) y ya no quedan reintentos`, queHacer: QUE_HACER_TAREA };
     }
     return {
@@ -115,19 +115,19 @@ function evaluarTareaDiaria(l: LatidoRow, ahora: Date): Veredicto {
       queHacer: null,
     };
   }
-  if (minuto < 7 * 60 + 30) {
-    return { estado: "bien", titulo: "aún no le toca: corre a las 07:10", queHacer: null };
+  if (minuto < 8 * 60) {
+    return { estado: "bien", titulo: "aún no le toca: corre a las 07:40", queHacer: null };
   }
   if (minuto < finVentana) {
     return {
       estado: "atencion",
-      titulo: "hoy aún no ha corrido; se reintenta sola cada 20 min hasta las 12:10",
+      titulo: "hoy aún no ha corrido; se reintenta sola cada 20 min hasta las 12:40",
       queHacer: "Si a mediodía sigue igual, comprueba que el portátil de la oficina esté encendido y con red.",
     };
   }
   return {
     estado: "mal",
-    titulo: "hoy no ha corrido, y ya pasó su ventana de reintentos (de 07:10 a 12:10)",
+    titulo: "hoy no ha corrido, y ya pasó su ventana de reintentos (de 07:40 a 12:40)",
     queHacer: QUE_HACER_TAREA,
   };
 }
@@ -188,8 +188,8 @@ function periodico(cadaTexto: string, bienMin: number, malMin: number, queHacer:
 const TRABAJOS: DefTrabajo[] = [
   {
     id: "tarea-diaria",
-    nombre: "Correo diario (07:10 desde el portátil; red de seguridad a las 12:45 desde GitHub)",
-    queHace: "Deja el parte de ayer listo, sube los informes del calibrador, analiza y cuadra la ventana y manda el correo del día. Lo hace el portátil a las 07:10; si a las 12:45 no ha salido, lo manda GitHub Actions desde fuera diciendo que falta el ERP.",
+    nombre: "Correo diario (07:40 desde el portátil; red de seguridad a las 13:15 desde GitHub)",
+    queHace: "Deja el parte de ayer listo, sube los informes del calibrador, analiza y cuadra la ventana y manda el correo del día. Lo hace el portátil a las 07:40; si a las 13:15 no ha salido, lo manda GitHub Actions desde fuera diciendo que falta el ERP.",
     evaluar: evaluarTareaDiaria,
   },
   {

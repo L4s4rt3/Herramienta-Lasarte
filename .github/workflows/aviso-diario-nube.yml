@@ -1,9 +1,9 @@
 # Red de seguridad del correo diario (Fase 2, pasos 3 y 4 — 02-09-2026).
 #
-# POR QUÉ. El correo de las 07:10 lo manda el portátil de la oficina. Si el
+# POR QUÉ. El correo de las 07:40 lo manda el portátil de la oficina. Si el
 # portátil está apagado, dormido o sin red, no llega correo y nadie se entera:
-# una ausencia no la nota nadie. Esto corre FUERA del portátil, a las 12:45 de
-# Madrid (después del último reintento del portátil, 12:10), y:
+# una ausencia no la nota nadie. Esto corre FUERA del portátil, a las 13:15 de
+# Madrid (después del último reintento del portátil, 12:40), y:
 #   - si el correo de hoy ya salió (consta en sistema_ejecuciones), no hace nada;
 #   - si no, ejecuta la mitad NUBE de la tarea (lib-aviso-nube.mjs) con el
 #     resultado del ERP que el portátil haya dejado en la base — o sin él, y
@@ -16,8 +16,8 @@
 # (registro del buzón, receptor, cola del log) degrada a "sin datos" y el correo
 # sale igualmente.
 #
-# Hora: cron en UTC sin cambio de horario. 10:45 UTC = 12:45 en verano, 11:45 en
-# invierno; en ambos casos después de la ventana del portátil.
+# Hora: cron en UTC sin cambio de horario. 11:15 UTC = 13:15 en verano, 12:15 en
+# invierno; en ambos casos después de la ventana del portátil (07:40-12:40).
 #
 # Secretos que necesita (Settings → Secrets and variables → Actions):
 #   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY
@@ -27,7 +27,7 @@ name: Aviso diario (red de seguridad)
 
 on:
   schedule:
-    - cron: "45 10 * * *"
+    - cron: "15 11 * * *"
   workflow_dispatch:
     inputs:
       fecha:

@@ -5,8 +5,10 @@ REM
 REM Va en un solo .cmd a proposito: los dos sincronizadores NO deben solaparse,
 REM y el aviso tiene que ir despues para poder contar lo que ha pasado.
 REM
-REM SE REINTENTA HASTA QUE SALE BIEN. La tarea se dispara a las 07:10 y se repite
-REM cada 20 minutos hasta las 12:10, pero en cuanto un dia termina entero no
+REM SE REINTENTA HASTA QUE SALE BIEN. La tarea se dispara a las 07:40 (hasta el
+REM 03-09-2026 a las 07:10: el informe del ultimo lote del dia llega al buzon
+REM hacia las 07:15 del dia siguiente y el correo salia sin calibrador) y se repite
+REM cada 20 minutos hasta las 12:40, pero en cuanto un dia termina entero no
 REM vuelve a hacer nada.
 REM
 REM POR QUE. El 14-08-2026 corrio a las 07:10 con el portatil recien despierto y
@@ -32,7 +34,7 @@ REM ERP no. Con dos, cada cosa se reintenta hasta que le toca y nada se repite.
 REM Los sincronizadores son idempotentes: repetirlos cuesta unos segundos.
 REM
 REM Se programa con:
-REM   schtasks /Create /TN "Lasarte - Sincronizar ERP" /TR "<ruta a este .cmd>" /SC DAILY /ST 07:10 /F
+REM   schtasks /Create /TN "Lasarte - Sincronizar ERP" /TR "<ruta a este .cmd>" /SC DAILY /ST 07:40 /F
 REM y despues scripts\arreglar-tareas.ps1, que le pone el reintento y los ajustes
 REM de energia.
 

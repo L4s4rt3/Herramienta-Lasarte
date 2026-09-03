@@ -220,12 +220,12 @@ cambia el sitio donde ocurre el silencio.
 - [x] **Pasos 3 y 4 HECHOS el 02-09-2026, con un cambio de plan.** En vez de portar la
       mitad nube a Deno (~3.000 líneas de Node con `xlsx`, DOCX y el análisis, semanas de
       trabajo para el mismo resultado), corre tal cual en **GitHub Actions** como RED DE
-      SEGURIDAD: `.github/workflows/aviso-diario-nube.yml`, a las 12:45 Madrid (10:45 UTC),
+      SEGURIDAD: `.github/workflows/aviso-diario-nube.yml`, a las 13:15 Madrid (11:15 UTC),
       después de la ventana de reintentos del portátil, ejecuta
       `node scripts/aviso-diario-erp.mjs --solo-nube --solo-si-falta`. Si el correo de hoy ya
       consta como enviado en `sistema_ejecuciones`, no hace nada; si no, compone el correo con
       lo que el ERP haya dejado en la base (o sin nada, y entonces dice "la mitad ERP no ha
-      corrido hoy") y lo manda. **El portátil sigue siendo el que manda a las 07:10**: el
+      corrido hoy") y lo manda. **El portátil sigue siendo el que manda a las 07:40** (movida de 07:10 el 03-09: el informe del último lote llega al buzón hacia las 07:15 del día siguiente y el correo salía "sin datos del calibrador"): el
       `.cmd` no cambia; la nube solo entra cuando el portátil falla, que era el objetivo
       ("que falle a medias"). La comprobación "¿ya salió hoy?" se hace en la base y vale
       para los dos: dos ejecuciones nunca mandan el mismo correo.
