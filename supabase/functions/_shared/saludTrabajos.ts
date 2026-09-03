@@ -188,8 +188,14 @@ function periodico(cadaTexto: string, bienMin: number, malMin: number, queHacer:
 const TRABAJOS: DefTrabajo[] = [
   {
     id: "tarea-diaria",
-    nombre: "Tarea diaria (ERP + partes + correo de las 07:10)",
-    queHace: "Sincroniza entradas, trazabilidad y precalibrado del ERP, deja el parte de ayer en borrador y manda el correo del día.",
+    nombre: "Correo diario (07:10 desde el portátil; red de seguridad a las 12:45 desde GitHub)",
+    queHace: "Deja el parte de ayer listo, sube los informes del calibrador, analiza y cuadra la ventana y manda el correo del día. Lo hace el portátil a las 07:10; si a las 12:45 no ha salido, lo manda GitHub Actions desde fuera diciendo que falta el ERP.",
+    evaluar: evaluarTareaDiaria,
+  },
+  {
+    id: "tarea-erp",
+    nombre: "Mitad ERP de la tarea diaria (portátil, LAN)",
+    queHace: "Lo que solo puede hacer el portátil: sincronizar entradas, trazabilidad y precalibrado del ERP, traer los palets del día y generar el GSTOCK. Deja su resultado en la base para que el correo pueda salir desde fuera.",
     evaluar: evaluarTareaDiaria,
   },
   {

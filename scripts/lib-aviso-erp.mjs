@@ -17,6 +17,7 @@
  */
 import os from "node:os";
 import { comoFecha } from "./lib-aviso-diario.mjs";
+import { latido } from "./lib-registro-ejecuciones.mjs";
 import { repasarPartes } from "./crear-parte-diario.mjs";
 import { conectarErp } from "./lib-palets-erp.mjs";
 import { generarYSubir } from "./generar-gstock-erp.mjs";
@@ -153,6 +154,9 @@ export async function guardarResultadoErp(supabase, resultado) {
     console.warn(`[tarea-erp] no se pudo guardar el resultado del ERP en la base: ${error.message}`);
     return false;
   }
+  // Y su latido: desde que la mitad nube puede correr fuera del portatil, esta
+  // es la señal de que la LAN sigue viva (catalogo de saludTrabajos.ts).
+  await latido("tarea-erp", { estado: conError ? "aviso" : "ok", detalle: detalle.slice(0, 500) });
   return true;
 }
 

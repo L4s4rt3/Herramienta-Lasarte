@@ -217,16 +217,27 @@ cambia el sitio donde ocurre el silencio.
       seguidas. Si la mitad ERP no ha corrido, el correo lo dice ("la mitad ERP de
       la tarea no ha corrido hoy") en vez de callarse. Las correcciones ERP ↔ app
       ya se leen de la tabla `erp_correcciones`, no del CSV del portátil.
-- [ ] Paso 3: portar `lib-aviso-nube.mjs` a una edge function (Deno + `_shared`). Lo que
-      hoy sigue leyendo el disco del portátil y hay que sustituir antes: `receptorVivo`
-      (socket local), `colaDelLog` (fichero de log), `buzonDelDia` y `calibradorSinSubir`
-      (los `registro.jsonl` de `outputs/`) y `recuperarInformesSinSubir` (los `.docx`).
-      Todo degrada a null/[] sin disco, así que el correo saldría igualmente sin esas
-      secciones; lo correcto es que buzón y receptor dejen su registro en una tabla.
-      `generar-informes-parte` usa `xlsx` (traer por esm.sh como las demás).
-- [ ] Paso 4: colgar la mitad nube de `pg_cron` (después de la ERP, con margen) y quitar
-      su paso del `.cmd`; dar de alta `tarea-erp` y la nube en `saludTrabajos.ts`.
-      Mientras no esté, el `.cmd` sigue mandando.
+- [x] **Pasos 3 y 4 HECHOS el 02-09-2026, con un cambio de plan.** En vez de portar la
+      mitad nube a Deno (~3.000 líneas de Node con `xlsx`, DOCX y el análisis, semanas de
+      trabajo para el mismo resultado), corre tal cual en **GitHub Actions** como RED DE
+      SEGURIDAD: `.github/workflows/aviso-diario-nube.yml`, a las 12:45 Madrid (10:45 UTC),
+      después de la ventana de reintentos del portátil, ejecuta
+      `node scripts/aviso-diario-erp.mjs --solo-nube --solo-si-falta`. Si el correo de hoy ya
+      consta como enviado en `sistema_ejecuciones`, no hace nada; si no, compone el correo con
+      lo que el ERP haya dejado en la base (o sin nada, y entonces dice "la mitad ERP no ha
+      corrido hoy") y lo manda. **El portátil sigue siendo el que manda a las 07:10**: el
+      `.cmd` no cambia; la nube solo entra cuando el portátil falla, que era el objetivo
+      ("que falle a medias"). La comprobación "¿ya salió hoy?" se hace en la base y vale
+      para los dos: dos ejecuciones nunca mandan el mismo correo.
+      Catálogo de salud: `tarea-erp` (la mitad ERP late al guardar su resultado) y
+      `tarea-diaria` con su texto nuevo. Lo que sigue siendo del portátil (registro del
+      buzón y del receptor, cola del log, socket del receptor) degrada a "sin datos" en la
+      red de seguridad; si algún día se quiere que también salga desde fuera, buzón y
+      receptor tendrían que dejar su registro en una tabla.
+      **Necesita tres secretos en GitHub** (Settings → Secrets → Actions): `SUPABASE_URL`,
+      `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY` (y opcionales `RESEND_FROM_TECNICO`,
+      `AVISO_DESTINO`). Se puede lanzar a mano desde Actions → «Aviso diario (red de
+      seguridad)» → Run workflow, con `sin_enviar` para ensayar.
 - [ ] Partir el aviso (lo que quedaba antes de los pasos 1-2):
       **Lectura del 02-09-2026 (antes de tocar nada):** el corte NO es limpio en
       un solo punto. Cruzan la costura CUATRO datos que hoy viajan en memoria y

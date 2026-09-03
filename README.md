@@ -92,6 +92,17 @@ cambio de horario):
 Un cron en verde **no** prueba que la función corriera (`pg_net` encola y dice
 `succeeded` pase lo que pase): lo que lo prueba es el latido.
 
+## Red de seguridad del correo diario (GitHub Actions)
+
+El correo de las 07:10 lo manda el portátil. Si el portátil falla, a las 12:45
+(hora Madrid) `.github/workflows/aviso-diario-nube.yml` ejecuta la mitad nube
+de la tarea (`node scripts/aviso-diario-erp.mjs --solo-nube --solo-si-falta`)
+desde GitHub: si el correo de hoy ya consta en la base no hace nada; si no, lo
+compone con lo que el ERP haya dejado y lo manda diciendo qué falta. Necesita
+los secretos `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y `RESEND_API_KEY` en
+el repositorio (Settings → Secrets → Actions). Se puede lanzar a mano desde la
+pestaña Actions con la opción `sin_enviar` para ensayar.
+
 ## Tareas del portátil de la oficina
 
 Corren como tareas programadas de Windows, todas lanzadas por su `.vbs` (sin

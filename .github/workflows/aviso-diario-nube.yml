@@ -1,0 +1,78 @@
+# Red de seguridad del correo diario (Fase 2, pasos 3 y 4 — 02-09-2026).
+#
+# POR QUÉ. El correo de las 07:10 lo manda el portátil de la oficina. Si el
+# portátil está apagado, dormido o sin red, no llega correo y nadie se entera:
+# una ausencia no la nota nadie. Esto corre FUERA del portátil, a las 12:45 de
+# Madrid (después del último reintento del portátil, 12:10), y:
+#   - si el correo de hoy ya salió (consta en sistema_ejecuciones), no hace nada;
+#   - si no, ejecuta la mitad NUBE de la tarea (lib-aviso-nube.mjs) con el
+#     resultado del ERP que el portátil haya dejado en la base — o sin él, y
+#     entonces el correo dice "la mitad ERP no ha corrido hoy". Ese correo es la
+#     señal que antes no existía.
+#
+# Por qué GitHub Actions y no una edge function: la mitad nube son ~3.000 líneas
+# de Node (xlsx, docx, análisis) que aquí corren tal cual; portarlas a Deno era
+# semanas de trabajo para el mismo resultado. Lo que sigue siendo del portátil
+# (registro del buzón, receptor, cola del log) degrada a "sin datos" y el correo
+# sale igualmente.
+#
+# Hora: cron en UTC sin cambio de horario. 10:45 UTC = 12:45 en verano, 11:45 en
+# invierno; en ambos casos después de la ventana del portátil.
+#
+# Secretos que necesita (Settings → Secrets and variables → Actions):
+#   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY
+#   y, opcionales: RESEND_FROM_TECNICO, AVISO_DESTINO (si faltan, los valores por
+#   defecto del script: calibrador@comunicaciones.lasartesat.com → soporte@).
+name: Aviso diario (red de seguridad)
+
+on:
+  schedule:
+    - cron: "45 10 * * *"
+  workflow_dispatch:
+    inputs:
+      fecha:
+        description: "Día del que informar (YYYY-MM-DD). Vacío = ayer."
+        required: false
+      sin_enviar:
+        description: "Solo componer, sin mandar el correo"
+        type: boolean
+        default: false
+
+concurrency:
+  group: aviso-diario-nube
+  cancel-in-progress: false
+
+jobs:
+  aviso:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Mitad nube, solo si el portátil no ha enviado el correo
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_TECNICO: ${{ secrets.RESEND_FROM_TECNICO }}
+          AVISO_DESTINO: ${{ secrets.AVISO_DESTINO }}
+          TZ: Europe/Madrid
+        run: |
+          EXTRA=""
+          if [ -n "${{ inputs.fecha }}" ]; then EXTRA="$EXTRA --fecha=${{ inputs.fecha }}"; fi
+          if [ "${{ inputs.sin_enviar }}" = "true" ]; then EXTRA="$EXTRA --sin-enviar"; fi
+          node scripts/aviso-diario-erp.mjs --solo-nube --solo-si-falta $EXTRA
+      - name: Guardar el correo compuesto
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aviso-diario
+          path: |
+            outputs/aviso-diario.txt
+            outputs/aviso-diario.html
+          if-no-files-found: ignore
+          retention-days: 14

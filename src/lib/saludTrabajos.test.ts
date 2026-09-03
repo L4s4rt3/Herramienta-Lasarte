@@ -141,6 +141,15 @@ describe("trabajos que hasta el 02-09-2026 latían sin que nadie los mirara", ()
   });
 });
 
+describe("mitad ERP de la tarea diaria", () => {
+  it("se juzga como la tarea diaria: corrió hoy → bien; sin correr pasada la ventana → mal", () => {
+    expect(estadoDe([latido("tarea-erp", "2026-09-03T07:12:00+02:00")], en("2026-09-03T09:00:00+02:00"), "tarea-erp").estado).toBe("bien");
+    const mal = estadoDe([latido("tarea-erp", "2026-09-02T07:12:00+02:00")], en("2026-09-03T13:45:00+02:00"), "tarea-erp");
+    expect(mal.estado).toBe("mal");
+    expect(mal.queHacer).toContain("portátil");
+  });
+});
+
 describe("problemasQueAvisa (lo que entra en el correo del vigilante)", () => {
   const ahora = en("2026-09-02T13:45:00+02:00");
 
