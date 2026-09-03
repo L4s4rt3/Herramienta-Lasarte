@@ -7,7 +7,7 @@
 // en src/hooks/useRentabilidadDia.ts. Los precios se precargan de la hoja
 // semanal de Mercadona y son EDITABLES: la página enseña siempre qué precio
 // está usando (nada de números mágicos escondidos).
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { AlertTriangle, Banknote, Euro, Package, Scale } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,7 @@ import {
 } from "@/lib/rentabilidadDia";
 import { errorMessage } from "@/lib/errorMessage";
 import { formatEuro, formatEurKg, formatKg, formatNumber, today } from "@/lib/format";
+import { PaginaConVistas } from "@/components/PaginaConVistas";
 
 /** Campos de precio editables, en el orden de la cuenta. */
 const CAMPOS_PRECIO: Array<{ key: keyof PreciosRentabilidad; label: string }> = [
@@ -50,7 +51,7 @@ function signo(eur: number): string {
   return eur >= 0 ? "text-success" : "text-destructive";
 }
 
-export default function EconomicoRentabilidad() {
+function RentabilidadDelDia() {
   const ultimaFecha = useUltimaFechaConInformes();
   const [fechaSel, setFechaSel] = useState<string | null>(null);
   const fecha = fechaSel ?? ultimaFecha.data ?? null;
@@ -369,5 +370,28 @@ export default function EconomicoRentabilidad() {
         </>
       )}
     </div>
+  );
+}
+
+// Desde el 03-09-2026 la sección tiene dos vistas: el día (lo de siempre) y el
+// análisis por TIPO DE DÍA (plantilla × rendimiento), que era un Excel.
+const TipoDiaEconomico = lazy(() => import("@/components/economico/TipoDiaEconomico"));
+
+export default function EconomicoRentabilidad() {
+  return (
+    <PaginaConVistas
+      vistas={[
+        { id: "dia", label: "Rentabilidad del día", render: () => <RentabilidadDelDia /> },
+        {
+          id: "tipo-dia",
+          label: "Por tipo de día",
+          render: () => (
+            <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Cargando…</div>}>
+              <TipoDiaEconomico />
+            </Suspense>
+          ),
+        },
+      ]}
+    />
   );
 }
