@@ -21,6 +21,8 @@ import { latido } from "./lib-registro-ejecuciones.mjs";
 import { repasarPartes } from "./crear-parte-diario.mjs";
 import { conectarErp } from "./lib-palets-erp.mjs";
 import { generarYSubir } from "./generar-gstock-erp.mjs";
+import { PRIMERA_SEMANA_TARIFA, sincronizarFacturacionMercadona } from "./mercadona-facturacion-erp.mjs";
+import { semanaIsoAnterior } from "../supabase/functions/_shared/semanaIso.ts";
 
 /**
  * Kilos de palets que tiene que aportar el ERP para que merezca la pena rehacer
@@ -98,6 +100,7 @@ export async function ejecutarMitadErp(supabase, ayer) {
   // solo toca lo que genero el mismo, solo si el ERP tiene MAS, y nunca un
   // parte Validado ni un archivo que subiera una persona.
   let gstock = null;
+  let mercadona = null;
   const gstockRecuperados = [];
   const gstockRehechos = [];
   try {
@@ -108,6 +111,24 @@ export async function ejecutarMitadErp(supabase, ayer) {
         if (f === ayer) gstock = r;
         else if (r.accion === "subido") gstockRecuperados.push(r);
         if (r.accion === "rehecho") gstockRehechos.push(r);
+      }
+      // La tarifa REAL de Mercadona, de sus facturas. Se hace aqui, con la
+      // conexion ya abierta, porque es lo unico que la saca del ERP: hasta el
+      // 04-09-2026 la base_iva se metia a mano y llevaba parada desde la
+      // semana 32, con lo que la cuenta de /economico/rentabilidad y la vista
+      // por tipo de dia se quedaban sin euros de venta. Idempotente y barato:
+      // las semanas ya cargadas salen "sin-cambios" y la recien cerrada se
+      // completa sola en cuanto Mercadona termina de facturar.
+      try {
+        mercadona = await sincronizarFacturacionMercadona(supabase, conn, {
+          desde: PRIMERA_SEMANA_TARIFA,
+          hasta: semanaIsoAnterior(ayer),
+          aplicar: true,
+        });
+        for (const i of mercadona.incidencias ?? []) incidencias.push(`ERROR: facturacion Mercadona ${i}`);
+      } catch (e) {
+        // Su propio try: un fallo aqui no puede tumbar el GSTOCK.
+        incidencias.push(`ERROR: no se pudo sincronizar la facturacion de Mercadona: ${e.message}`);
       }
     } finally {
       await conn.end().catch(() => {});
@@ -131,6 +152,10 @@ export async function ejecutarMitadErp(supabase, ayer) {
       kg: gstock.kg ?? null, faltaban: gstock.faltaban ?? null, teniaKg: gstock.teniaKg ?? null } : null,
     gstockRecuperados: gstockRecuperados.map((r) => ({ fecha: r.fecha })),
     gstockRehechos: gstockRehechos.map((r) => ({ fecha: r.fecha, faltaban: r.faltaban })),
+    mercadona: mercadona
+      ? { semanas: (mercadona.semanas ?? []).map((s) => ({ anio: s.anio, semana: s.semana, decision: s.decision })),
+          escritas: mercadona.escritas ?? 0 }
+      : null,
     incidencias,
   };
   return JSON.parse(JSON.stringify(resultado));
