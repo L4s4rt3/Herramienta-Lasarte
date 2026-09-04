@@ -121,6 +121,26 @@ function ocultoEnMovil(testId: string) {
   return screen.getByTestId(testId).className.includes("hidden xl:block");
 }
 
+/**
+ * Botón "Anterior"/"Siguiente" de la barra de salto entre lotes de la ficha.
+ *
+ * Se busca por texto acotado a `button` y se comprueba APARTE su nombre
+ * accesible, en vez de con `getByRole("button", { name })`. La consulta por rol
+ * con nombre calcula el nombre accesible de LOS 62 BOTONES de la página, y cada
+ * cálculo llama al `getComputedStyle` de jsdom (también con ::before/::after),
+ * que cuesta ~1 ms: medido, ~550 ms POR CONSULTA. Con las dos consultas el test
+ * se iba a ~1,6 s de los 5 s de `testTimeout` — margen que se come la suite
+ * entera peleando por la CPU, y entonces moría con "Test timed out in 5000ms".
+ * Comprobar el nombre accesible de UN botón cuesta ~15 ms y garantiza lo mismo:
+ * un único <button> dentro de la ficha, con ese nombre accesible.
+ */
+function botonSaltoDeFicha(nombre: "Anterior" | "Siguiente") {
+  const panelFicha = screen.getByTestId("calidad-panel-ficha");
+  const boton = within(panelFicha).getByText(nombre, { selector: "button" });
+  expect(boton).toHaveAccessibleName(new RegExp(nombre));
+  return boton;
+}
+
 describe("CalidadJornada — maestro/detalle en móvil", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -160,11 +180,11 @@ describe("CalidadJornada — maestro/detalle en móvil", () => {
     fireEvent.click(filaDeLote("FINCA UNO"));
     expect(screen.getByText("· 1 de 2")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Siguiente/ }));
+    fireEvent.click(botonSaltoDeFicha("Siguiente"));
     expect(screen.getByText("Lote 26090202")).toBeInTheDocument();
     expect(ocultoEnMovil("calidad-panel-ficha")).toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: /Anterior/ }));
+    fireEvent.click(botonSaltoDeFicha("Anterior"));
     expect(screen.getByText("Lote 26090201")).toBeInTheDocument();
   });
 });
