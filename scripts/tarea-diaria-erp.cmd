@@ -85,6 +85,17 @@ if errorlevel 1 (
   echo ERROR: fallo la sincronizacion del origen del precalibrado >> "%LOG%"
 )
 
+REM El estandar de kg/persona se edita en la app desde el 04-09-2026, pero los
+REM informes de la encargada (Python) y el semaforo del correo diario leen su
+REM espejo estandar.json. Sin esto, subir el liston en la app no llegaria a los
+REM correos hasta que alguien se acordara de correr el script a mano. No toca la
+REM LAN ni el ERP, y no escribe nada si el JSON ya dice lo mismo.
+echo --- espejo del estandar --- >> "%LOG%"
+call node scripts\sincronizar-estandar.mjs >> "%LOG%" 2>&1
+if errorlevel 1 (
+  echo AVISO: no se pudo refrescar el espejo del estandar ^(el correo usara el anterior^) >> "%LOG%"
+)
+
 REM El aviso crea los partes del dia anterior (y repasa la semana), les sube el
 REM GSTOCK, analiza los que tengan informes y manda el correo. Va el ultimo
 REM porque cuenta lo que han hecho los sincronizadores de arriba.
