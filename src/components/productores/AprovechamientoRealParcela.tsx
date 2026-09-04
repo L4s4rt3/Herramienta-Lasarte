@@ -14,10 +14,11 @@
 // - Debajo, pestañas: clases y destinos, los 4 formatos de Mercadona, los
 //   calibres de lo apto y a qué tornillo pueden ir, el detalle por lote y la
 //   cobertura (cada lote sin dato, con su motivo), más la metodología.
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { AlertTriangle, Info } from "lucide-react";
+import { AlertTriangle, Download, Info, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -27,7 +28,10 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatDateTime, formatKg, formatNumber, formatPct } from "@/lib/format";
 import { errorMessage } from "@/lib/errorMessage";
 import { cn } from "@/lib/utils";
+import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthProvider";
 import { useAprovechamientoReal, type LoteReal, type ParcelaReal } from "@/hooks/useAprovechamientoReal";
+import { exportarAprovechamientoReal } from "@/lib/exportAprovechamientoReal";
 import { LABEL_MDNA, METODOS_MDNA } from "@/lib/mdnaMix";
 import { LABEL_ESTADO_DATO, type EstadoDatoReal } from "@/lib/aprovechamientoReal";
 
@@ -109,6 +113,8 @@ function FilaLote({ l }: { l: LoteReal }) {
 
 export default function AprovechamientoRealParcela() {
   const [params, setParams] = useSearchParams();
+  const [exportando, setExportando] = useState(false);
+  const { user } = useAuth();
   const fincaParam = params.get("finca");
   const parcelasParam = params.get("parcelas");
   const parcelas = useMemo(() => (parcelasParam == null ? null : parcelasParam.split("|").map((p) => (p === "~" ? "" : p))), [parcelasParam]);
@@ -140,6 +146,27 @@ export default function AprovechamientoRealParcela() {
   const columnas = useMemo(() => (data ? (data.parcelas.length > 1 ? [...data.parcelas, { ...data.total, etiqueta: "TOTAL" }] : data.parcelas) : []), [data]);
   const lotesConDato = data?.lotes.filter((l) => l.resumen) ?? [];
 
+  // El Excel es ESTA pantalla, no un cálculo nuevo: se arma con el `data` que
+  // el hook ya tiene en memoria (mismas hojas que
+  // scripts/informe-aprovechamiento-invermarmelo.ts, pero para la finca y las
+  // parcelas elegidas aquí), así que no vuelve a tocar la base. La finca va
+  // aparte porque es la que da nombre al fichero y encabeza la banda de marca.
+  const handleExportar = async () => {
+    if (!data || !fincaParam) return;
+    setExportando(true);
+    try {
+      await exportarAprovechamientoReal(data, { finca: fincaParam, usuario: user?.email ?? null });
+      toast({
+        title: "Excel generado",
+        description: `${intTxt(data.parcelas.length)} parcela(s) · ${intTxt(lotesConDato.length)} lote(s) con dato del calibrador, en 7 hojas: resumen, clases, Mercadona, calibres, detalle, cobertura y metodología.`,
+      });
+    } catch (e) {
+      toast({ title: "No se pudo exportar", description: errorMessage(e), variant: "destructive" });
+    } finally {
+      setExportando(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <Card>
@@ -165,6 +192,17 @@ export default function AprovechamientoRealParcela() {
                 ))}
               </ToggleGroup>
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="sm:ml-auto"
+              onClick={handleExportar}
+              disabled={exportando || isLoading || !data || !fincaParam || data.lotes.length === 0}
+              title="Excel con marca Lasarte Cítricos: el resumen por parcela, las clases y destinos, los 4 formatos de Mercadona, los calibres, el detalle por lote, la cobertura y la metodología. Solo la finca y las parcelas elegidas aquí."
+            >
+              {exportando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              Exportar Excel
+            </Button>
           </div>
           <p className="text-xs text-muted-foreground">
             Medido, no estimado: cada kg que clasificó el calibrador se atribuye al lote de su pasada. Los porcentajes van sobre los kg que pesó la máquina, no sobre la báscula.

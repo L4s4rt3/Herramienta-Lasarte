@@ -13,8 +13,9 @@
 // - Al pie, el contraste del podrido pre-calibrador por mes (pesado vs
 //   asumido) y los lotes que se dejan fuera y por qué.
 import { useMemo, useState } from "react";
-import { AlertTriangle, Info } from "lucide-react";
+import { AlertTriangle, Download, Info, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -24,7 +25,10 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatDateTime, formatEuro, formatKg, formatNumber, formatPct } from "@/lib/format";
 import { errorMessage } from "@/lib/errorMessage";
 import { cn } from "@/lib/utils";
+import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthProvider";
 import { useCampanaMermaMdna } from "@/hooks/useCampanaMermaMdna";
+import { exportarCampanaMermaMdna } from "@/lib/exportCampanaMermaMdna";
 import { LABEL_MDNA, METODOS_MDNA } from "@/lib/mdnaMix";
 import { metricasMdna, metricasPerdida, type GrupoMermaMdna } from "@/lib/mermaMdnaAgregado";
 
@@ -90,6 +94,8 @@ export default function CampanaMermaMdna() {
   const [dimension, setDimension] = useState<Dimension>("productor");
   const [bloque, setBloque] = useState<Bloque>("perdida");
   const [incluirImportacion, setIncluirImportacion] = useState(false);
+  const [exportando, setExportando] = useState(false);
+  const { user } = useAuth();
   const { data, isLoading, error } = useCampanaMermaMdna({ incluirImportacion });
 
   const grupos = useMemo(() => {
@@ -97,6 +103,28 @@ export default function CampanaMermaMdna() {
     if (bloque === "perdida") return dimension === "productor" ? data.porProductor : data.porFinca;
     return dimension === "productor" ? data.porProductorMdna : data.porFincaMdna;
   }, [data, dimension, bloque]);
+
+  // El Excel es ESTA pantalla, no un cálculo nuevo: se arma con el `data` que
+  // el hook ya tiene en memoria (mismas hojas que
+  // scripts/analisis-mermas-mercadona.ts), así que no vuelve a tocar la base y
+  // sale al instante. El interruptor de importación viaja con él porque cambia
+  // los totales; el propio fichero lo dice en la banda de marca y en
+  // «Metodología», para que dos exportaciones distintas no se confundan.
+  const handleExportar = async () => {
+    if (!data) return;
+    setExportando(true);
+    try {
+      await exportarCampanaMermaMdna(data, { incluirImportacion, usuario: user?.email ?? null });
+      toast({
+        title: "Excel generado",
+        description: `${formatNumber(data.filas.length)} lotes en 9 hojas: cascada, rankings de pérdida y Mercadona, podrido por mes, cierre pendiente, detalle por lote y metodología.`,
+      });
+    } catch (e) {
+      toast({ title: "No se pudo exportar", description: errorMessage(e), variant: "destructive" });
+    } finally {
+      setExportando(false);
+    }
+  };
 
   if (error) {
     return (
@@ -140,6 +168,16 @@ export default function CampanaMermaMdna() {
                 <Switch id="imp" checked={incluirImportacion} onCheckedChange={setIncluirImportacion} />
                 <Label htmlFor="imp" className="text-xs">Incluir importación ({kgTxt(kgImportacion)})</Label>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportar}
+                disabled={exportando || data.filas.length === 0}
+                title="Excel con marca Lasarte Cítricos: la cascada del kg, los rankings por productor y finca, el podrido por mes, los lotes que faltan por cerrar, el detalle por lote y la metodología. Respeta el interruptor de importación."
+              >
+                {exportando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                Exportar Excel
+              </Button>
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
