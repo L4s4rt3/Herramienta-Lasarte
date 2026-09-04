@@ -13,10 +13,11 @@
 //   días con tarifa Mercadona real (semanas con €/kg medio ≥ 0,80). Con las
 //   semanas sin facturar los ingresos saldrían a 0 y el beneficio sería mentira.
 // - Día a día, las semanas de tarifa, lo que se deja fuera y la metodología.
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { AlertTriangle, Info } from "lucide-react";
+import { AlertTriangle, Download, Info, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,11 +25,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EconomicoSubnav } from "@/components/economico/EconomicoSubnav";
+import { EstandarRendimientoEditor } from "@/components/economico/EstandarRendimientoEditor";
 import { formatDateTime, formatEuro, formatKg, formatNumber, today } from "@/lib/format";
 import { errorMessage } from "@/lib/errorMessage";
 import { cn } from "@/lib/utils";
 import { useTipoDia } from "@/hooks/useTipoDia";
-import { ESTANDAR_RENDIMIENTO, LABEL_REGIMEN, type CalidadDia } from "@/lib/estandarRendimiento";
+import { useEstandarRendimiento } from "@/hooks/useEstandarRendimiento";
+import { useAuth } from "@/contexts/AuthProvider";
+import { toast } from "@/hooks/use-toast";
+import { exportarTipoDia } from "@/lib/exportTipoDia";
+import { LABEL_REGIMEN, type CalidadDia } from "@/lib/estandarRendimiento";
 import { EUR_KG_MINIMO_FIABLE, KG_MINIMO_DIA, type DiaTipo, type FilaTipoDia } from "@/lib/tipoDia";
 
 /** Primer día con asistencia en la base (la campaña 2025/26 se volcó desde mayo). */
@@ -112,7 +118,25 @@ export default function TipoDiaEconomico() {
   const [params, setParams] = useSearchParams();
   const desde = params.get("desde") ?? DESDE_DEFECTO;
   const hasta = params.get("hasta") ?? today();
-  const { data, isLoading, error, rangoValido } = useTipoDia({ desde, hasta });
+  // El listón vigente sale de la tabla (lo edita el admin ahí abajo); el hook
+  // cae al respaldo del 27-08 si no se puede leer, y lo dice en su tarjeta.
+  const { estandar } = useEstandarRendimiento();
+  const opcionesTipoDia = useMemo(() => ({ estandar }), [estandar]);
+  const { data, isLoading, error, rangoValido } = useTipoDia({ desde, hasta, opciones: opcionesTipoDia });
+  const { user } = useAuth();
+  const [exportando, setExportando] = useState(false);
+
+  const exportar = async () => {
+    if (!data) return;
+    setExportando(true);
+    try {
+      await exportarTipoDia(data, { desde, hasta, usuario: user?.email ?? null, estandar });
+    } catch (e) {
+      toast({ variant: "destructive", title: "No se pudo generar el Excel", description: errorMessage(e) });
+    } finally {
+      setExportando(false);
+    }
+  };
 
   const poner = (clave: "desde" | "hasta", valor: string) => {
     setParams((prev) => {
@@ -123,7 +147,7 @@ export default function TipoDiaEconomico() {
   };
 
   const semanasFiables = useMemo(() => (data?.semanas ?? []).filter((s) => s.fiable), [data]);
-  const est = ESTANDAR_RENDIMIENTO;
+  const est = estandar;
 
   return (
     <div className="page-shell">
@@ -133,6 +157,10 @@ export default function TipoDiaEconomico() {
           <h1 className="page-title">Por tipo de día</h1>
           <p className="page-subtitle">Plantilla completa o reducida × día bueno, medio o malo: qué estructura tiene cada tipo de día y, donde la tarifa es real, qué deja.</p>
         </div>
+        <Button variant="outline" size="sm" onClick={exportar} disabled={!data || isLoading || exportando}>
+          {exportando ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+          Exportar Excel
+        </Button>
       </header>
       <EconomicoSubnav />
 
@@ -243,6 +271,8 @@ export default function TipoDiaEconomico() {
               )}
             </CardContent>
           </Card>
+
+          <EstandarRendimientoEditor />
 
           <Tabs defaultValue="dias">
             <TabsList className="flex-wrap h-auto">
