@@ -58,6 +58,22 @@ lunes):
     probablemente falta una pasada) y detalle LARGO (> 115 %: algo se cuenta
     dos veces — caza regresiones de la propia vista). Esta regla nació de
     encontrar el hueco del 11 al 31-08.
+14. **Asistencia parada** (04-09-2026): la última fecha con presentes en
+    `asistencia_detalle` va más de 10 días por detrás de la última producción
+    del parte (kg en `lotes_dia` o `kg_produccion_calibrador` > 0). La semana
+    en curso vacía es normal (se vuelca los lunes por semanas completas, regla
+    del dueño); se mide contra la producción, no contra hoy, para que una
+    parada de la línea no lo dispare. Sin asistencia, «Por tipo de día»,
+    «Rentabilidad del día» y la regla de rendimiento de arriba se quedan
+    ciegas. Nació del mes 04-08 → 04-09-2026 que nadie vio.
+15. **Hoja semanal de Mercadona sin cargar** (04-09-2026): la última semana
+    ISO con `base_iva` > 0 en `mercadona_semana_metodos` va más de 2 semanas
+    por detrás de la semana en curso, y el ERP tiene palets a Mercadona
+    posteriores (sin venta no hay nada que facturar). Semana ISO de
+    `_shared/semanaIso.ts`; €/kg y «fiable» con la MISMA `semanasPrecio` de
+    `tipoDia.ts`, así que si la última semana está a medio facturar (< 0,80
+    €/kg, como la 32) lo dice. Sin la hoja no hay precio real de Mercadona y
+    la cuenta de Rentabilidad no crece.
 
 Los umbrales son constantes exportadas de `vigiaNegocio.ts` — cambiar uno es
 un commit de una línea con su test.

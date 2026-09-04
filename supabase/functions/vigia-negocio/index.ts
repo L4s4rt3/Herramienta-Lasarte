@@ -23,15 +23,18 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
 import { calcularStockYMerma, cargarCampana, fetchTodas, toNum } from "../_shared/campanaEdge.ts";
 import { registrarLatido } from "../_shared/latido.ts";
+import { estandarDesdeFila, type FilaEstandarRendimiento } from "../_shared/estandarRendimiento.ts";
 import { seleccionarMermaSemana } from "../_shared/informeSemanal.ts";
 import {
   conciliarHallazgos,
   costePuestoDesdeCamiones,
   fechaMenosDias,
+  reglaAsistenciaParada,
   reglaCorreccionesErp,
   reglaCuadreSaf,
   reglaDineroParado,
   reglaFrutaParada,
+  reglaMercadonaSinFacturar,
   reglaMermaFueraDeBanda,
   reglaDetalleCalibrador,
   reglaPartes,
@@ -46,6 +49,7 @@ import {
   type ErpCorreccionRow,
   type Hallazgo,
   type HallazgoGuardadoRow,
+  type MercadonaSemanaVigiaRow,
   type PaletVigiaRow,
   type ParteVigiaRow,
   type SafCamionRow,
@@ -70,6 +74,8 @@ const VENTANA_PARTES_DIAS = 45;
 const VENTANA_RENDIMIENTO_DIAS = 12;
 /** Días hacia atrás que evalúa el sobrellenado de malla (por si un día no corrió). */
 const VENTANA_SOBRELLENADO_DIAS = 3;
+/** Semanas de la hoja de Mercadona que se miran hacia atrás (una fila por semana). */
+const VENTANA_MERCADONA_SEMANAS = 60;
 /** Primera entrada de la era SAF: lo anterior (Egipto) no se cuadra con Laadbon. */
 const SAF_DESDE = "2026-08-25";
 
@@ -131,7 +137,7 @@ Deno.serve(async (req) => {
     const esLunes = esLunesMadrid();
 
     // ── 1. Datos ─────────────────────────────────────────────────────────────
-    const [palets, camionesSaf, entradasSaf, partes, filasClasif, asistencia, campana, correccionesErp] = await Promise.all([
+    const [palets, camionesSaf, entradasSaf, partes, filasClasif, asistencia, campana, correccionesErp, asistenciaUltimaRes, semanasMdnaRes] = await Promise.all([
       fetchTodas<PaletVigiaRow>((from, to) =>
         db.from("erp_palet")
           .select("fecha, articulo, cliente, num_cajas, kg_netos, num_albaran_venta, num_factura, fecha_venta, importe_venta")
@@ -177,7 +183,25 @@ Deno.serve(async (req) => {
           .select("lote, fecha, campo, en_la_app, en_el_erp, detectada_en, aceptada_en")
           .order("lote").order("campo").range(from, to)
       ),
+      // Última fecha con presentes: UNA fila, no la tabla (asistencia_detalle
+      // tiene ~58 filas por día). El hueco puede ser de semanas: la ventana de
+      // 12 días de arriba no lo vería.
+      db.from("asistencia_detalle")
+        .select("date")
+        .eq("presente", true)
+        .order("date", { ascending: false })
+        .limit(1),
+      // La hoja semanal de Mercadona: una fila por semana con sus métodos, el
+      // MISMO select que useTipoDia, acotado a las últimas semanas.
+      db.from("mercadona_semanas")
+        .select("anio, semana, metodos:mercadona_semana_metodos(metodo, kilos, base_iva)")
+        .order("anio", { ascending: false }).order("semana", { ascending: false })
+        .limit(VENTANA_MERCADONA_SEMANAS),
     ]);
+    if (asistenciaUltimaRes.error) throw new Error(asistenciaUltimaRes.error.message);
+    if (semanasMdnaRes.error) throw new Error(semanasMdnaRes.error.message);
+    const ultimaAsistencia = ((asistenciaUltimaRes.data ?? [])[0] as { date: string } | undefined)?.date ?? null;
+    const semanasMdna = (semanasMdnaRes.data ?? []) as MercadonaSemanaVigiaRow[];
 
     // ── 2. Reglas ────────────────────────────────────────────────────────────
     const { stockInforme, mermaLotes, ultimaFechaPorLote, datosPorLote } = calcularStockYMerma(campana, hoy);
@@ -214,6 +238,35 @@ Deno.serve(async (req) => {
       .filter(([fecha]) => fecha < hoy)
       .map(([fecha, kgParte]) => ({ fecha, kgParte, kgDetalle: kgDetallePorDia.get(fecha) ?? 0 }));
 
+    // ¿Se han parado las cargas? La asistencia se vuelca los lunes por semanas
+    // completas y la hoja de Mercadona se importa a mano: las dos estuvieron un
+    // mes paradas (04-08 → 04-09-2026) sin que nada avisara. Los días con
+    // producción son los del parte: kg en lotes_dia (campaña entera, ya en
+    // memoria) o kg_produccion_calibrador > 0 — esa columna no viene en el
+    // parte de campaña, así que se piden solo los partes posteriores a la
+    // última asistencia, que son los que cuentan.
+    const partesConKg = ultimaAsistencia
+      ? await fetchTodas<{ date: string }>((from, to) =>
+        db.from("partes_diarios")
+          .select("date")
+          .gt("kg_produccion_calibrador", 0)
+          .gt("date", ultimaAsistencia)
+          .order("date").range(from, to)
+      )
+      : [];
+    const fechasProduccion = new Set<string>(partesConKg.map((p) => p.date));
+    for (const l of campana.lotesDia) {
+      const fecha = fechaPorParte.get(l.part_id);
+      if (fecha && toNum(l.kg_peso_total) > 0) fechasProduccion.add(fecha);
+    }
+
+    // El listón de rendimiento lo decide el dueño y lo edita en la app (tabla
+    // estandar_rendimiento, 04-09-2026): se lee aquí para que el aviso use el
+    // mismo número que la pantalla. Si no se puede leer, el respaldo del 27-08.
+    const { data: filaEstandar } = await db
+      .from("estandar_rendimiento").select("*").eq("id", true).maybeSingle();
+    const estandar = estandarDesdeFila(filaEstandar as FilaEstandarRendimiento | null);
+
     const fechasSobrellenado = Array.from(
       { length: VENTANA_SOBRELLENADO_DIAS },
       (_, i) => fechaMenosDias(hoy, i + 1),
@@ -228,8 +281,10 @@ Deno.serve(async (req) => {
       ...reglaFrutaParada(stockInforme),
       ...reglaMermaFueraDeBanda(mermaUltimos7),
       ...reglaPartes(partes, hoy),
-      ...reglaRendimiento(diasRendimiento),
+      ...reglaRendimiento(diasRendimiento, estandar),
       ...reglaDetalleCalibrador(diasDetalle),
+      ...reglaAsistenciaParada([...fechasProduccion], ultimaAsistencia),
+      ...reglaMercadonaSinFacturar(semanasMdna, palets, hoy),
     ];
 
     // ── 3. Conciliación con lo ya guardado ──────────────────────────────────

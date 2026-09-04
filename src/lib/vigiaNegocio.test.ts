@@ -7,10 +7,12 @@ import {
   costePuestoDesdeCamiones,
   diasEntre,
   fechaMenosDias,
+  reglaAsistenciaParada,
   reglaCorreccionesErp,
   reglaCuadreSaf,
   reglaDineroParado,
   reglaFrutaParada,
+  reglaMercadonaSinFacturar,
   reglaMermaFueraDeBanda,
   reglaDetalleCalibrador,
   reglaPartes,
@@ -21,6 +23,7 @@ import {
   tocaEnviarCorreoVigia,
   type Hallazgo,
   type HallazgoGuardadoRow,
+  type MercadonaSemanaVigiaRow,
   type PaletVigiaRow,
   type SafCamionRow,
 } from "@/lib/vigiaNegocio";
@@ -358,6 +361,127 @@ describe("reglaDetalleCalibrador", () => {
   });
   it("con el detalle al día no dice nada", () => {
     expect(reglaDetalleCalibrador([{ fecha: "2026-08-28", kgParte: 17147, kgDetalle: 17100 }])).toHaveLength(0);
+  });
+});
+
+describe("reglaAsistenciaParada", () => {
+  // Días de lunes a sábado entre dos fechas (la línea también trabaja sábados).
+  function laborables(desde: string, hasta: string): string[] {
+    const out: string[] = [];
+    for (let i = diasEntre(desde, hasta); i >= 0; i--) {
+      const f = fechaMenosDias(hasta, i);
+      if (new Date(`${f}T00:00:00Z`).getUTCDay() !== 0) out.push(f);
+    }
+    return out;
+  }
+
+  it("caso real del 04-09-2026: el volcado se quedó el 04-08 y hay producción hasta el 03-09", () => {
+    const produccion = laborables("2026-07-01", "2026-09-03");
+    const hallazgos = reglaAsistenciaParada(produccion, "2026-08-04");
+    expect(hallazgos).toHaveLength(1);
+    const h = hallazgos[0];
+    expect(h.regla).toBe("asistencia-parada");
+    expect(h.clave).toBe("asistencia-parada|2026-08-04");
+    expect(h.tipo).toBe("estado");
+    expect(h.severidad).toBe("atencion");
+    expect(h.titulo).toContain("desde el 04-08-2026");
+    expect(h.titulo).toContain("hasta el 03-09-2026");
+    expect(h.titulo).toContain("(30 días después)");
+    // Solo cuentan los días de producción POSTERIORES a la última asistencia.
+    const sinAsistencia = produccion.filter((f) => f > "2026-08-04");
+    expect(h.titulo).toContain(`${sinAsistencia.length} días de trabajo`);
+    expect(h.detalle).toContain("Por tipo de día");
+    expect(h.detalle).toContain("Rentabilidad del día");
+    expect(h.detalle).toContain("/importar");
+  });
+
+  it("la semana en curso vacía no es avería: al día con el volcado del lunes", () => {
+    // El volcado del lunes 31-08 cubre hasta el sábado 29-08; la producción
+    // sigue hasta el lunes 07-09 (9 días) sin que nadie haya vuelto a cargar.
+    expect(reglaAsistenciaParada(laborables("2026-08-03", "2026-09-07"), "2026-08-29")).toHaveLength(0);
+    // En el umbral (10 días) tampoco; al día siguiente, sí.
+    expect(reglaAsistenciaParada(laborables("2026-08-03", "2026-09-08"), "2026-08-29")).toHaveLength(0);
+    expect(reglaAsistenciaParada(laborables("2026-08-03", "2026-09-09"), "2026-08-29")).toHaveLength(1);
+  });
+
+  it("sin datos no hay falso positivo", () => {
+    expect(reglaAsistenciaParada([], "2026-08-04")).toHaveLength(0);
+    expect(reglaAsistenciaParada(laborables("2026-08-03", "2026-09-03"), null)).toHaveLength(0);
+    // Producción solo ANTERIOR a la última asistencia (la línea parada): nada.
+    expect(reglaAsistenciaParada(laborables("2026-07-01", "2026-08-01"), "2026-08-04")).toHaveLength(0);
+  });
+});
+
+describe("reglaMercadonaSinFacturar", () => {
+  // Una semana de la hoja: 4 métodos de 40 t a un €/kg dado (null = sin facturar).
+  function semanaHoja(semana: number, eurKg: number | null, anio = 2026): MercadonaSemanaVigiaRow {
+    return {
+      anio,
+      semana,
+      metodos: ["MA3KGC", "MA4KGC", "MA5KGC", "MA12KGC"].map((metodo) => ({
+        metodo, kilos: 40_000, base_iva: eurKg == null ? null : 40_000 * eurKg,
+      })),
+    };
+  }
+  const paletMdna = (fecha: string) => paletMalla(fecha, { cliente: "MERCADONA S.A.", kg_netos: 300 });
+
+  it("caso real del 04-09-2026: la hoja se quedó en la 32 (a medio facturar) y se sigue vendiendo", () => {
+    const semanas = [
+      ...[21, 22, 23, 24, 25, 26].map((s) => semanaHoja(s, null)),
+      semanaHoja(27, 0.38), semanaHoja(28, 0.47), semanaHoja(29, 0.46),
+      semanaHoja(30, 1.02), semanaHoja(31, 1.02), semanaHoja(32, 0.43),
+    ];
+    const palets = [
+      paletMdna("2026-08-10"), paletMdna("2026-08-20"), paletMdna("2026-09-02"),
+      // dentro de la semana 32 (ya con base) y de otro cliente: no cuentan
+      paletMdna("2026-08-09"),
+      paletMalla("2026-08-25", { cliente: "MAPLAFE S.L." }),
+    ];
+    const hallazgos = reglaMercadonaSinFacturar(semanas, palets, "2026-09-04");
+    expect(hallazgos).toHaveLength(1);
+    const h = hallazgos[0];
+    expect(h.regla).toBe("mercadona-sin-facturar");
+    expect(h.clave).toBe("mercadona-sin-facturar|2026-W32");
+    expect(h.tipo).toBe("estado");
+    expect(h.titulo).toContain("semana 32 de 2026");
+    expect(h.titulo).toContain("faltan 3 semanas cerradas (33, 34 y 35 de 2026)");
+    expect(h.titulo).toContain("ya va la 36");
+    expect(h.titulo).toContain("3 palets (900 kg)");
+    expect(h.kg).toBe(900);
+    expect(h.detalle).toContain("0,43 €/kg");
+    expect(h.detalle).toContain("≥0,80 €/kg");
+    expect(h.detalle).toContain("Rentabilidad");
+    expect(h.detalle).toContain("/importar");
+  });
+
+  it("al día (la hoja de la semana pasada cargada) o con dos semanas de margen: nada; a la tercera avisa", () => {
+    const palets = [paletMdna("2026-08-31"), paletMdna("2026-09-02")];
+    expect(reglaMercadonaSinFacturar([semanaHoja(34, 1.02), semanaHoja(35, 1.02)], palets, "2026-09-04")).toHaveLength(0);
+    expect(reglaMercadonaSinFacturar([semanaHoja(34, 1.02)], palets, "2026-09-04")).toHaveLength(0);
+    const h = reglaMercadonaSinFacturar([semanaHoja(33, 1.02)], palets, "2026-09-04");
+    expect(h).toHaveLength(1);
+    expect(h[0].titulo).toContain("faltan 2 semanas cerradas (34 y 35 de 2026)");
+    // una semana con tarifa real no lleva la coletilla de "a medio facturar"
+    expect(h[0].detalle).not.toContain("a medio facturar");
+  });
+
+  it("sin datos no hay falso positivo", () => {
+    const palets = [paletMdna("2026-09-02")];
+    expect(reglaMercadonaSinFacturar([], palets, "2026-09-04")).toHaveLength(0);
+    // semanas cargadas pero ninguna con base: sin referencia
+    expect(reglaMercadonaSinFacturar([semanaHoja(21, null), semanaHoja(22, null)], palets, "2026-09-04")).toHaveLength(0);
+    // sin venta a Mercadona desde la última semana con base (parada de campaña): no es una hoja olvidada
+    const sinVenta = [paletMdna("2026-08-05"), paletMalla("2026-09-01", { cliente: "MAPLAFE S.L." })];
+    expect(reglaMercadonaSinFacturar([semanaHoja(32, 1.02)], sinVenta, "2026-09-04")).toHaveLength(0);
+  });
+
+  it("cruza el año con la semana ISO de semanaIso.ts (2026 tiene 53 semanas)", () => {
+    // Última hoja la 52/2026 (lunes 21-12); hoy miércoles 20-01-2027 = semana 3/2027.
+    const h = reglaMercadonaSinFacturar([semanaHoja(52, 1.02)], [paletMdna("2027-01-15")], "2027-01-20");
+    expect(h).toHaveLength(1);
+    expect(h[0].clave).toBe("mercadona-sin-facturar|2026-W52");
+    expect(h[0].titulo).toContain("faltan 3 semanas cerradas (53/2026, 1/2027 y 2/2027)");
+    expect(h[0].titulo).toContain("ya va la 3 —");
   });
 });
 

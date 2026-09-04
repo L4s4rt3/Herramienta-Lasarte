@@ -308,7 +308,7 @@ const TRABAJOS: DefTrabajo[] = [
   {
     id: "vigia-negocio",
     nombre: "Vigía de negocio (corre en Supabase)",
-    queHace: "Revisa cada día a las 14:15 lo que los datos cuentan: sobrellenado de malla, camiones SAF sin cuadrar, albaranes sin factura, fruta parada, mermas fuera de banda, papel sin meter y días rojos de rendimiento. Solo manda correo cuando hay algo nuevo (y los lunes, el resumen de pendientes).",
+    queHace: "Revisa cada día a las 14:15 lo que los datos cuentan: sobrellenado de malla, camiones SAF sin cuadrar, albaranes sin factura, fruta parada, mermas fuera de banda, papel sin meter, días rojos de rendimiento y cargas paradas (la asistencia sin volcar, la hoja semanal de Mercadona sin cargar). Solo manda correo cuando hay algo nuevo (y los lunes, el resumen de pendientes).",
     evaluar: periodico(
       "una vez al día",
       26 * 60,

@@ -6,8 +6,9 @@
  * que cuesta dinero o que se está quedando sin hacer: sobrellenado de malla,
  * camiones SAF sin cuadrar con su Laadbon, albaranes viejos sin factura,
  * fruta parada en cámara, lotes con merma fuera de banda, partes con
- * descuadre o con estimaciones que nadie sustituye por el papel, y días con
- * rendimiento por debajo del estándar del dueño.
+ * descuadre o con estimaciones que nadie sustituye por el papel, días con
+ * rendimiento por debajo del estándar del dueño, y cargas que se paran sin
+ * que nadie lo note (la asistencia, la hoja semanal de Mercadona).
  *
  * Filosofía heredada del vigilante: si no pasa nada, NO se manda nada. El
  * correo llega solo cuando hay hallazgos nuevos (y los lunes, un resumen de
@@ -27,7 +28,9 @@
  * src/lib/vigiaNegocio.test.ts. Cero LLM: texto determinista.
  */
 import type { MermaSemanaInforme, StockInforme } from "./informeSemanal.ts";
-import { listonRegimen, regimenPlantilla } from "./estandarRendimiento.ts";
+import { ESTANDAR_RENDIMIENTO, listonRegimen, regimenPlantilla, type EstandarRendimiento } from "./estandarRendimiento.ts";
+import { claveSemanaIso, fechasSemanaIso, lunesDeSemanaIso, semanaIsoDe, type SemanaIso } from "./semanaIso.ts";
+import { EUR_KG_MINIMO_FIABLE, semanasPrecio, type SemanaMdnaCruda } from "./tipoDia.ts";
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -577,7 +580,8 @@ export function reglaPartes(partes: ParteVigiaRow[], hoy: string): Hallazgo[] {
 // ---------------------------------------------------------------------------
 // Regla 8 — Rendimiento por debajo del estándar del dueño
 // ---------------------------------------------------------------------------
-// Estándar POR RÉGIMEN fijado el 27-08-2026 con el análisis por tipo de día:
+// Estándar POR RÉGIMEN: sale de la tabla estandar_rendimiento (la edita el
+// admin en la app desde el 04-09-2026); el respaldo es el del 27-08-2026:
 // con plantilla completa (≥35 presentes) un día bueno son ≥2.100 kg/persona y
 // por debajo de 1.700 es rojo; con media plantilla (<35) la gente rinde más:
 // ≥2.600 bueno, <2.200 rojo. La asistencia se vuelca los lunes por semanas
@@ -595,12 +599,12 @@ export interface DiaRendimientoVigia {
   presentes: number;
 }
 
-export function reglaRendimiento(dias: DiaRendimientoVigia[]): Hallazgo[] {
+export function reglaRendimiento(dias: DiaRendimientoVigia[], est: EstandarRendimiento = ESTANDAR_RENDIMIENTO): Hallazgo[] {
   const out: Hallazgo[] = [];
   for (const d of dias) {
     if (d.kg <= 0 || d.presentes <= 0) continue;
-    const reg = regimenPlantilla(d.presentes);
-    const liston = listonRegimen(reg);
+    const reg = regimenPlantilla(d.presentes, est);
+    const liston = listonRegimen(reg, est);
     const regimen = { rojo: liston.kgPersonaSuelo, verde: liston.kgPersonaObjetivo, nombre: reg === "completa" ? "plantilla completa" : "media plantilla" };
     const kgPersona = d.kg / d.presentes;
     if (kgPersona >= regimen.rojo) continue;
@@ -692,6 +696,141 @@ export function reglaDetalleCalibrador(dias: DiaDetalleCalibrador[]): Hallazgo[]
       largos,
     ),
   ];
+}
+
+// ---------------------------------------------------------------------------
+// Regla 10 — La asistencia dejó de volcarse
+// ---------------------------------------------------------------------------
+// asistencia_detalle se vuelca los lunes por semanas completas (regla del
+// dueño, comprobada el 06-08-2026): la semana en curso SIEMPRE está vacía y
+// eso no es una avería. Lo que sí lo es: que la producción siga (partes con
+// kg) y la última fecha con presentes se quede semanas atrás. Del 04-08 al
+// 04-09-2026 pasó un mes así sin que nadie se enterara, y todo lo que cuelga
+// de la asistencia se quedó ciego en silencio: «Por tipo de día» no puede
+// clasificar un día sin personas, «Rentabilidad del día» calcula el personal
+// con los presentes, y la regla de rendimiento de este vigía solo evalúa días
+// con asistencia. Ni el vigilante ni el catálogo de salud lo miraban.
+//
+// Por qué 10 días: con el volcado del lunes, el último presente es el viernes
+// (o el sábado) de la semana anterior y la producción sigue hasta el lunes
+// siguiente, justo antes del próximo volcado: 10 días. Uno más quiere decir
+// que el volcado del lunes no ha llegado. Se mide contra la ÚLTIMA PRODUCCIÓN,
+// no contra hoy: si la línea para (fiesta, fin de campaña) el hueco no crece.
+
+export const DIAS_UMBRAL_ASISTENCIA_PARADA = 10;
+
+/**
+ * @param fechasProduccion días (YYYY-MM-DD) con producción en el parte: kg en
+ *   lotes_dia o kg_produccion_calibrador > 0. Pueden venir repetidos o
+ *   anteriores a la asistencia; aquí se filtran.
+ * @param ultimaAsistencia última fecha con presentes en asistencia_detalle.
+ */
+export function reglaAsistenciaParada(fechasProduccion: string[], ultimaAsistencia: string | null): Hallazgo[] {
+  // Sin ninguna fecha con presentes no hay referencia: es "sin estrenar", no
+  // "parada" (misma convención que el vigilante con los trabajos).
+  if (!ultimaAsistencia) return [];
+  const sinAsistencia = [...new Set(fechasProduccion)].filter((f) => f > ultimaAsistencia).sort();
+  if (sinAsistencia.length === 0) return [];
+  const ultimaProduccion = sinAsistencia[sinAsistencia.length - 1];
+  const dias = diasEntre(ultimaAsistencia, ultimaProduccion);
+  if (dias <= DIAS_UMBRAL_ASISTENCIA_PARADA) return [];
+  const n = sinAsistencia.length;
+  return [{
+    regla: "asistencia-parada",
+    // La identidad es "el volcado se quedó en X": si alguien carga una semana
+    // y sigue atrasado, es una situación nueva y se avisa otra vez.
+    clave: `asistencia-parada|${ultimaAsistencia}`,
+    tipo: "estado",
+    severidad: "atencion",
+    titulo: `La asistencia no se vuelca desde el ${fmtFecha(ultimaAsistencia)}: hay producción hasta el ${fmtFecha(ultimaProduccion)} (${dias} días después) y ${n} día${n === 1 ? "" : "s"} de trabajo sin nadie presente en la base`,
+    detalle: `La asistencia (asistencia_detalle) se carga los lunes por semanas completas, así que la semana en curso vacía es normal; esto ya no lo es. Mientras falte, «Por tipo de día» no puede clasificar esos días (sin personas no hay régimen), «Rentabilidad del día» se queda sin coste de personal y la regla de rendimiento de este vigía no los mira. Cargar el fichaje semanal de RRHH («SEMANA NN.xlsx») en /importar o marcar la asistencia a mano en /costes/asistencia.`,
+    eur: null,
+    kg: null,
+  }];
+}
+
+// ---------------------------------------------------------------------------
+// Regla 11 — La hoja semanal de Mercadona dejó de cargarse
+// ---------------------------------------------------------------------------
+// El precio REAL de Mercadona sale de la hoja semanal (mercadona_semanas +
+// mercadona_semana_metodos: base_iva / kilos por método). Es la ÚNICA fuente
+// de €/kg de Mercadona que tienen «Rentabilidad del día» y «Por tipo de día»
+// — los precios MDNA por defecto están a 0 a propósito —, así que sin la hoja
+// de una semana los días de esa semana se valoran con la última anterior que
+// tenga base, y «Por tipo de día» exige además que sea fiable (≥0,80 €/kg;
+// las semanas a medio facturar salen a 0,38-0,47). La hoja de la semana 32
+// fue la última durante un mes (hasta el 04-09-2026) y nadie lo vio: la
+// cuenta de Rentabilidad dejó de crecer en silencio.
+//
+// Solo se avisa si el ERP tiene palets a Mercadona posteriores a la última
+// semana con base: sin venta no hay nada que facturar (una parada de campaña
+// no es una hoja olvidada). Umbral de 2 semanas: la hoja de la semana N se
+// carga durante la N+1; empezar la N+3 sin ella ya no es retraso normal.
+
+export const SEMANAS_UMBRAL_MERCADONA_SIN_FACTURAR = 2;
+/** Una semana de la hoja con sus métodos: el MISMO shape que lee useTipoDia. */
+export type MercadonaSemanaVigiaRow = SemanaMdnaCruda;
+
+/** Semanas ISO cerradas entre dos lunes (ambos excluidos), en orden. */
+function semanasCerradasEntre(lunesDesde: string, lunesHasta: string): SemanaIso[] {
+  const out: SemanaIso[] = [];
+  for (let lunes = fechaMenosDias(lunesDesde, -7); lunes < lunesHasta; lunes = fechaMenosDias(lunes, -7)) {
+    out.push(semanaIsoDe(lunes));
+  }
+  return out;
+}
+
+/** "33, 34 y 35 de 2026" — o, si cruzan el año, "53/2026, 1/2027 y 2/2027". */
+function etiquetaSemanas(semanas: SemanaIso[]): string {
+  const anios = [...new Set(semanas.map((s) => s.anio))];
+  const nums = semanas.map((s) => (anios.length > 1 ? `${s.semana}/${s.anio}` : String(s.semana)));
+  const lista = nums.length > 1 ? `${nums.slice(0, -1).join(", ")} y ${nums[nums.length - 1]}` : nums[0];
+  return anios.length > 1 ? lista : `${lista} de ${anios[0]}`;
+}
+
+export function reglaMercadonaSinFacturar(
+  semanas: MercadonaSemanaVigiaRow[],
+  palets: PaletVigiaRow[],
+  hoy: string,
+): Hallazgo[] {
+  // La MISMA cuenta que «Por tipo de día» (semanasPrecio): €/kg = Σbase / Σkilos
+  // de la semana y "fiable" con su mismo corte.
+  const conBase = semanasPrecio(semanas).filter((s) => s.baseIva > 0);
+  const ultima = conBase[conBase.length - 1];
+  // Sin ninguna semana con base no hay referencia: sin estrenar, no parada.
+  if (!ultima) return [];
+
+  const diasUltima = fechasSemanaIso(ultima.anio, ultima.semana);
+  const lunesHoy = lunesDeSemanaIso(hoy);
+  const semanasAtras = diasEntre(diasUltima[0], lunesHoy) / 7;
+  if (semanasAtras <= SEMANAS_UMBRAL_MERCADONA_SIN_FACTURAR) return [];
+
+  // ¿Se ha seguido vendiendo a Mercadona? Pesadas reales del ERP (erp_palet).
+  let nPalets = 0;
+  let kg = 0;
+  for (const p of palets) {
+    if (p.fecha <= diasUltima[6] || !(p.cliente ?? "").toUpperCase().includes("MERCADONA")) continue;
+    nPalets += 1;
+    kg += toNum(p.kg_netos);
+  }
+  if (nPalets === 0) return [];
+
+  const faltan = semanasCerradasEntre(diasUltima[0], lunesHoy);
+  const actual = semanaIsoDe(hoy);
+  const aMedias = !ultima.fiable && ultima.eurKg != null
+    ? `La semana ${ultima.semana} está además a medio facturar (${NF_KG_CAJA.format(ultima.eurKg)} €/kg de media; «Por tipo de día» solo da por real una semana a ≥${NF_KG_CAJA.format(EUR_KG_MINIMO_FIABLE)} €/kg). `
+    : "";
+  return [{
+    regla: "mercadona-sin-facturar",
+    // La identidad es "la última hoja con base es la semana X".
+    clave: `mercadona-sin-facturar|${claveSemanaIso(diasUltima[0])}`,
+    tipo: "estado",
+    severidad: "atencion",
+    titulo: `La hoja semanal de Mercadona se quedó en la semana ${ultima.semana} de ${ultima.anio}: faltan ${faltan.length} semana${faltan.length === 1 ? "" : "s"} cerrada${faltan.length === 1 ? "" : "s"} (${etiquetaSemanas(faltan)}) y ya va la ${actual.semana} — ${NF_ENTERO.format(nPalets)} palets (${fmtKg(kg)}) vendidos a Mercadona desde entonces sin base facturada`,
+    detalle: `${aMedias}Sin la hoja no hay precio real de Mercadona: «Rentabilidad del día» valora esos días con la última semana con base y «Por tipo de día» los deja sin cuenta en euros — la cuenta entera de Rentabilidad no crece hasta que se cargue. Cargar el Excel semanal de Mercadona de cada semana que falta (tarjeta «Ventas semanales Mercadona» de /importar).`,
+    eur: null,
+    kg,
+  }];
 }
 
 // ---------------------------------------------------------------------------
