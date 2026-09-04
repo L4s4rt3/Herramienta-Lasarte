@@ -294,6 +294,20 @@ const TRABAJOS: DefTrabajo[] = [
     ),
   },
   {
+    id: "asistencia-reloj",
+    nombre: "Asistencia del reloj (portátil de oficina)",
+    queHace: "Cada lunes lleva los fichajes del reloj a la asistencia de la app (presente = 1 hora o más). " +
+      "Sin ella, la rentabilidad del día, el análisis por tipo de día y el semáforo de rendimiento se quedan sin personas.",
+    evaluar: periodico(
+      "cada lunes por la mañana",
+      7 * 24 * 60 + 6 * 60,
+      8 * 24 * 60,
+      "Lo que suele faltar es el EXPORT: alguien tiene que dejar la semana del programa del reloj en " +
+      "scripts/informe-produccion/ (asistencias*.xlsx). Sin fichero el script no inventa nada y lo dice. " +
+      "Relanzable a mano: node scripts/importar-asistencia-reloj.mjs --aplicar (no pisa los días tecleados en la app).",
+    ),
+  },
+  {
     id: "vigilante",
     nombre: "Vigilante (corre en Supabase)",
     queHace: "Comprueba cada día a las 13:45, desde fuera del portátil, que todo lo de arriba ha corrido; si no, avisa por correo.",
