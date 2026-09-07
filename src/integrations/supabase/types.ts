@@ -14,6 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
+      _antes_reparto_mix: {
+        Row: {
+          kg_clase_apta: number | null
+          kg_clasificado: number | null
+          kg_exportacion: number | null
+          lote8: string | null
+          producto: string | null
+        }
+        Insert: {
+          kg_clase_apta?: number | null
+          kg_clasificado?: number | null
+          kg_exportacion?: number | null
+          lote8?: string | null
+          producto?: string | null
+        }
+        Update: {
+          kg_clase_apta?: number | null
+          kg_clasificado?: number | null
+          kg_exportacion?: number | null
+          lote8?: string | null
+          producto?: string | null
+        }
+        Relationships: []
+      }
+      _antes_reparto_podrido: {
+        Row: {
+          kg_podrido: number | null
+          kg_total: number | null
+          lote8: string | null
+          n_filas: number | null
+        }
+        Insert: {
+          kg_podrido?: number | null
+          kg_total?: number | null
+          lote8?: string | null
+          n_filas?: number | null
+        }
+        Update: {
+          kg_podrido?: number | null
+          kg_total?: number | null
+          lote8?: string | null
+          n_filas?: number | null
+        }
+        Relationships: []
+      }
       app_errores: {
         Row: {
           agente: string | null
@@ -324,6 +369,63 @@ export type Database = {
           tiempo_maquina?: string | null
           toneladas_hora?: number | null
           utilizacion_pct?: number | null
+        }
+        Relationships: []
+      }
+      calibrador_pasada_reparto: {
+        Row: {
+          batch_id: number
+          calculado_en: string
+          fraccion: number
+          kg: number
+          lote8: string
+          metodo: string
+          orden: number
+        }
+        Insert: {
+          batch_id: number
+          calculado_en?: string
+          fraccion: number
+          kg: number
+          lote8: string
+          metodo: string
+          orden: number
+        }
+        Update: {
+          batch_id?: number
+          calculado_en?: string
+          fraccion?: number
+          kg?: number
+          lote8?: string
+          metodo?: string
+          orden?: number
+        }
+        Relationships: []
+      }
+      calibrador_pasada_sin_repartir: {
+        Row: {
+          batch_id: number
+          batch_name: string | null
+          calculado_en: string
+          fecha: string | null
+          kg_total: number | null
+          motivo: string | null
+        }
+        Insert: {
+          batch_id: number
+          batch_name?: string | null
+          calculado_en?: string
+          fecha?: string | null
+          kg_total?: number | null
+          motivo?: string | null
+        }
+        Update: {
+          batch_id?: number
+          batch_name?: string | null
+          calculado_en?: string
+          fecha?: string | null
+          kg_total?: number | null
+          motivo?: string | null
         }
         Relationships: []
       }
@@ -1825,6 +1927,96 @@ export type Database = {
           lote_origen?: string
           lote_reentrada?: string
           sincronizado_at?: string
+        }
+        Relationships: []
+      }
+      estandar_rendimiento: {
+        Row: {
+          completa_objetivo: number
+          completa_suelo: number
+          corte_plantilla_reducida: number
+          decidido_por: string
+          fecha: string
+          id: boolean
+          nota: string | null
+          reducida_objetivo: number
+          reducida_suelo: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          completa_objetivo: number
+          completa_suelo: number
+          corte_plantilla_reducida: number
+          decidido_por?: string
+          fecha?: string
+          id?: boolean
+          nota?: string | null
+          reducida_objetivo: number
+          reducida_suelo: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          completa_objetivo?: number
+          completa_suelo?: number
+          corte_plantilla_reducida?: number
+          decidido_por?: string
+          fecha?: string
+          id?: boolean
+          nota?: string | null
+          reducida_objetivo?: number
+          reducida_suelo?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      estandar_rendimiento_historial: {
+        Row: {
+          cambiado_por: string | null
+          completa_objetivo: number
+          completa_suelo: number
+          corte_plantilla_reducida: number
+          created_at: string
+          decidido_por: string | null
+          fecha: string | null
+          id: string
+          nota: string | null
+          reducida_objetivo: number
+          reducida_suelo: number
+          vigente_desde: string
+          vigente_hasta: string
+        }
+        Insert: {
+          cambiado_por?: string | null
+          completa_objetivo: number
+          completa_suelo: number
+          corte_plantilla_reducida: number
+          created_at?: string
+          decidido_por?: string | null
+          fecha?: string | null
+          id?: string
+          nota?: string | null
+          reducida_objetivo: number
+          reducida_suelo: number
+          vigente_desde: string
+          vigente_hasta?: string
+        }
+        Update: {
+          cambiado_por?: string | null
+          completa_objetivo?: number
+          completa_suelo?: number
+          corte_plantilla_reducida?: number
+          created_at?: string
+          decidido_por?: string | null
+          fecha?: string | null
+          id?: string
+          nota?: string | null
+          reducida_objetivo?: number
+          reducida_suelo?: number
+          vigente_desde?: string
+          vigente_hasta?: string
         }
         Relationships: []
       }
@@ -3869,6 +4061,7 @@ export type Database = {
           duracion_min: number | null
           fecha: string | null
           fraccion_productor: number | null
+          fraccion_reparto: number | null
           fuente: string | null
           grupo_destino: string | null
           id: string | null
@@ -3885,6 +4078,7 @@ export type Database = {
           producto: string | null
           productor: string | null
           productor_id: string | null
+          reparto_metodo: string | null
           tamano: string | null
           toneladas_hora: number | null
           user_id: string | null
@@ -3898,6 +4092,7 @@ export type Database = {
           destino: string | null
           duracion_min: number | null
           fecha: string | null
+          fraccion_reparto: number | null
           fuente: string | null
           kg: number | null
           letra: string | null
@@ -3907,6 +4102,7 @@ export type Database = {
           piezas: number | null
           producto: string | null
           productor: string | null
+          reparto_metodo: string | null
           tamano: string | null
           toneladas_hora: number | null
         }
