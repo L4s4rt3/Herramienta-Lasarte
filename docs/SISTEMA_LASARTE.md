@@ -38,7 +38,7 @@ Leyenda: ✅ en producción y estable · 🟡 funciona pero con riesgos o cabos 
 | Trazabilidad (refundación 04-08) | ✅ | Regla de oro: el derrame no cierra lotes. Banco dorado de fixtures `campana2026`. Doc: `docs/TRAZABILIDAD_REFUNDACION.md`. |
 | Merma y podrido | ✅ | Pérdida de campaña 3,74 % (739.936 kg / 368.585 €). Podrido manual es pre-calibrador (decisión del dueño 06-08). Tasa de cámara 0,0466 %/día. |
 | Precalibrado conectado a productores | 🟡 | Vía `agri_produc_mp_pt` del ERP. Cobertura 27 % (límite físico: lo apartado no siempre se pesa). |
-| Reparto de pasadas multi-lote | 🟡 | 114 pasadas (8,9 % de la campaña) atribuyen todo al primer lote; la vía para las 77 pendientes es la regla de `conciliacionKg`. |
+| Reparto de pasadas multi-lote | ✅ | **CANÓNICO desde el 07-09**: la edge `reparto-pasadas` (cron horario a los :10) calcula el reparto con las mismas funciones puras de siempre (`_shared/calibradorReparto.ts`: desglose manual de una persona > box escritos en el nombre > capacidad pendiente en el orden del texto, la fase 1 de `conciliacionKg`) y lo guarda en `calibrador_pasada_reparto`; la vista `clasificacion_lote` multiplica cada fila por su fracción y pone en `lote_codigo_base` el lote que recibe. Todo lo que cuelga de la vista (mix, detalle, podrido, dossier, aprovechamiento por productor, aprovechamiento real) hereda el reparto: un solo número en toda la app, y la pantalla del calibrador dejó de repartir por su cuenta. 63 pasadas repartidas, 285.020 kg que cambian de lote, kg totales conservados al gramo. Quedan en cola (`calibrador_pasada_sin_repartir`) las que exigen una persona: 19 precalibrados nombrados por fecha (344.800 kg) y 16 compuestas sin box cuyos lotes nombrados ya estaban llenos (236.730 kg). |
 | Parte con origen calibrador | ✅ | Migración `20260814072803_parte_origen_calibrador` aplicada y scripts commiteados (ago-2026). |
 
 ### 2.2 Calidad
@@ -367,7 +367,7 @@ La medición de uso de la herramienta (qué páginas se abren) entra en la Fase 
 - [x] `.env.example` completo (inventario de las tres capas: app, scripts, secretos edge) y README con el deploy (Vercel, `supabase functions deploy`, migraciones, pg_cron, tareas del portátil) — hecho 02-09.
 - [x] Higiene 02-09: fuera los 16 `.mjs` de un solo uso de la raíz y 9 one-shot de `scripts/`, 8 dependencias sin uso (y 3 componentes `ui/` sin consumidores), las 5 dependencias de los scripts del portátil pasan a `dependencies`, el `tsconfig.json` raíz deja de contradecir al de la app. El ErrorBoundary se reinicia al navegar, tiene «Volver a intentar» y deja rastro en `app_errores` (antes los crashes de producción eran invisibles).
 - [ ] Pantalla «Sección pendiente de activar» en `MercadonaPrevision.tsx`: decidir si se activa o se retira.
-- [ ] Reparto de las 77 pasadas multi-lote vía `conciliacionKg`.
+- [x] Reparto de las pasadas multi-lote (07-09: canónico en la base, edge `reparto-pasadas`; quedan 19 PREC por fecha y 16 sin hueco para decidir a mano).
 - [x] Importador del Informe PRODUCTO (CMV) — disuelto: generación automática (14-08) + empaque habitual (17-08).
 - [ ] Catálogo de productos del Sizer (empaque de productos NUEVOS): bloqueado por las credenciales `SIZER_*` del visor.
 - [ ] Modo económico (ocultar € por rol).
