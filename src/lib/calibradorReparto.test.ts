@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   aplicarReparto,
+  calcularRepartoPasadas,
   codigosDelNombre,
+  esNombreCompuesto,
   esProductorReal,
   repartirPasada,
   repartirPorCapacidad,
   type CapacidadLote,
   type DuenoLote,
+  type EntradaRepartoPasadas,
   type FilaProductor,
   type PasadaConDesglose,
+  type PasadaReparto,
 } from "@/lib/calibradorReparto";
+import type { LineaDesglose } from "@/lib/desgloseBox";
 
 const pasada = (batch_name: string, extra: Partial<PasadaConDesglose> = {}): PasadaConDesglose => ({
   batch_id: 1,
@@ -283,5 +288,195 @@ describe("esProductorReal", () => {
   it("no caza a un productor real que solo se PAREZCA", () => {
     expect(esProductorReal(p("PRECALIBRADOS S.L."))).toBe(true);
     expect(esProductorReal(p("Finca El Precioso"))).toBe(true);
+  });
+});
+
+// ─── Reparto canónico (lo que escribe la edge function reparto-pasadas) ───────
+describe("calcularRepartoPasadas", () => {
+  const pasadaR = (batch_name: string, extra: Partial<PasadaReparto> = {}): PasadaReparto => ({
+    batch_id: 1, batch_name, lote: "26013107", fecha: "2026-02-01", kg_total: 10_000, ...extra,
+  });
+  const cap = (kgEntrada: number, kgAtribuidoSimple = 0): CapacidadLote => ({ kgEntrada, kgAtribuidoSimple });
+  const lineaLote = (lote_codigo: string, box: number | null, box_tamano: "grande" | "pequeno" = "grande"): LineaDesglose =>
+    ({ tipo: "lote", lote_codigo, box, box_tamano });
+  const lineaReciclaje = (box: number): LineaDesglose => ({ tipo: "reciclaje", box, box_tamano: "grande", nota: "Reciclaje" });
+  const entrada = (parcial: Partial<EntradaRepartoPasadas>): EntradaRepartoPasadas => ({
+    pasadas: [], capacidad: new Map(), desglosesManuales: [], ...parcial,
+  });
+  const sumaFracciones = (filas: ReturnType<typeof calcularRepartoPasadas>["filas"], batch_id: number) =>
+    filas.filter((f) => f.batch_id === batch_id).reduce((s, f) => s + f.fraccion, 0);
+
+  it("el desglose manual manda sobre los box del nombre", () => {
+    // El nombre dice 20/30 box (60 % al segundo); la persona teclea 10 y 10 (50 %).
+    const r = calcularRepartoPasadas(entrada({
+      pasadas: [pasadaR("26013107 20 BOX + 26012608 30 BOX")],
+      desglosesManuales: [{ batch_id: 1, lineas: [lineaLote("26013107", 10), lineaLote("26012608", 10)] }],
+    }));
+    expect(r.filas.every((f) => f.metodo === "manual")).toBe(true);
+    expect(r.filas.find((f) => f.lote8 === "26012608")?.fraccion).toBeCloseTo(0.5, 9);
+    expect(r.filas.find((f) => f.lote8 === "26013107")?.fraccion).toBeCloseTo(0.5, 9);
+    expect(r.resumen.repartidas).toEqual({ manual: 1, box: 0, capacidad: 0 });
+    expect(r.sinRepartir).toHaveLength(0);
+  });
+
+  it("sin desglose manual, los box del nombre mandan sobre la capacidad", () => {
+    // La capacidad diría que el primero aún tiene sitio para todo; los box dicen 60 % al segundo.
+    const r = calcularRepartoPasadas(entrada({
+      pasadas: [pasadaR("26013107 20 BOX + 26012608 30 BOX")],
+      capacidad: new Map([["26013107", cap(50_000)], ["26012608", cap(50_000)]]),
+    }));
+    expect(r.filas.every((f) => f.metodo === "box")).toBe(true);
+    expect(r.filas.find((f) => f.lote8 === "26012608")?.fraccion).toBeCloseTo(0.6, 9);
+    expect(r.filas.find((f) => f.lote8 === "26013107")?.fraccion).toBeCloseTo(0.4, 9);
+  });
+
+  it("sin box escritos, reparte por capacidad pendiente en el orden del nombre", () => {
+    const r = calcularRepartoPasadas(entrada({
+      pasadas: [pasadaR("26013107+26012608")],
+      capacidad: new Map([["26013107", cap(30_000, 25_000)], ["26012608", cap(20_000)]]),
+    }));
+    // Al primero le quedaban 5.000; el resto (5.000) va al segundo.
+    expect(r.filas.map((f) => [f.lote8, f.metodo, f.orden])).toEqual([
+      ["26013107", "capacidad", 1],
+      ["26012608", "capacidad", 2],
+    ]);
+    expect(r.filas.find((f) => f.lote8 === "26012608")?.fraccion).toBeCloseTo(0.5, 9);
+    expect(r.resumen.kgMovidos).toBeCloseTo(5_000, 0);
+  });
+
+  it("las fracciones de cada pasada suman 1 y el primero se queda el resto", () => {
+    // Lotes distintos en cada pasada: lo resuelto por manual o box descuenta
+    // capacidad (ver el test de más abajo) y aquí se quiere medir cada método solo.
+    const r = calcularRepartoPasadas(entrada({
+      pasadas: [
+        pasadaR("26020101 20 BOX + 26020202 30 BOX", { batch_id: 1, lote: "26020101" }),
+        pasadaR("26013107+26012608", { batch_id: 2, fecha: "2026-02-02" }),
+        pasadaR("26030303 10 BOX + 26030404 10 BOX + 26030505 20 BOX", { batch_id: 3, fecha: "2026-02-03", lote: "26030303" }),
+      ],
+      capacidad: new Map([["26013107", cap(3_000)], ["26012608", cap(4_000)]]),
+      desglosesManuales: [{ batch_id: 1, lineas: [lineaLote("26020101", 5), lineaLote("26020202", 15)] }],
+    }));
+    for (const id of [1, 2, 3]) expect(sumaFracciones(r.filas, id)).toBeCloseTo(1, 9);
+    // La pasada 2 por capacidad: 3.000 al primero, 4.000 al segundo y 3.000 que no caben
+    // en nadie se quedan en el primero → 0,6 / 0,4.
+    expect(r.filas.find((f) => f.batch_id === 2 && f.lote8 === "26013107")?.fraccion).toBeCloseTo(0.6, 9);
+    expect(r.filas.find((f) => f.batch_id === 2 && f.lote8 === "26012608")?.fraccion).toBeCloseTo(0.4, 9);
+    // kg = fraccion × kg de la pasada, a 4 decimales.
+    for (const f of r.filas) expect(f.kg).toBeCloseTo(f.fraccion * 10_000, 3);
+  });
+
+  it("el reciclaje se queda en el primer codigo: no se libera ni se regala", () => {
+    // 20 + 30 + 10 box: el segundo se lleva 30/60; el primero sus 20/60 MÁS los 10/60 del reciclaje.
+    const r = calcularRepartoPasadas(entrada({
+      pasadas: [pasadaR("26013107 20 BOX + 26012608 30 BOX + 10 BOX DE RECICLAJE")],
+    }));
+    expect(r.filas.find((f) => f.lote8 === "26012608")?.fraccion).toBeCloseTo(0.5, 9);
+    expect(r.filas.find((f) => f.lote8 === "26013107")?.fraccion).toBeCloseTo(0.5, 9);
+    expect(sumaFracciones(r.filas, 1)).toBeCloseTo(1, 9);
+    // Y con desglose manual, igual: el reciclaje del manual también se queda en el primero.
+    const m = calcularRepartoPasadas(entrada({
+      pasadas: [pasadaR("26013107+26012608")],
+      desglosesManuales: [{ batch_id: 1, lineas: [lineaLote("26013107", 20), lineaLote("26012608", 30), lineaReciclaje(10)] }],
+    }));
+    expect(m.filas.find((f) => f.lote8 === "26013107")?.fraccion).toBeCloseTo(0.5, 9);
+    expect(sumaFracciones(m.filas, 1)).toBeCloseTo(1, 9);
+  });
+
+  it("una pasada que no se puede repartir va a la cola con su motivo", () => {
+    const r = calcularRepartoPasadas(entrada({
+      pasadas: [
+        pasadaR("26050402 10 BOX + 6 BOX PREC DIA 23/06", { batch_id: 1, lote: "26050402" }),
+        pasadaR("26013107+26099999", { batch_id: 2 }),          // sin box y el segundo sin báscula
+        pasadaR("26051904-15 BOX +7 BOX DE RECICLAJE", { batch_id: 3, lote: "26051904" }),
+      ],
+      capacidad: new Map([["26013107", cap(50_000)]]),
+    }));
+    expect(r.filas).toHaveLength(0);
+    expect(r.sinRepartir).toHaveLength(3);
+    expect(r.resumen.enCola).toBe(3);
+    const motivo = (id: number) => r.sinRepartir.find((s) => s.batch_id === id)?.motivo ?? "";
+    expect(motivo(1)).toMatch(/precalibrado/i);
+    // Llegó a capacidad y tampoco: el motivo dice por qué en cada fase.
+    expect(motivo(2)).toMatch(/sin box/i);
+    expect(motivo(2)).toMatch(/por capacidad/i);
+    expect(motivo(2)).toMatch(/26099999/);
+    // Solo reciclaje: no cambia nada, y se dice.
+    expect(motivo(3)).toMatch(/reciclaje/i);
+  });
+
+  it("un desglose manual que lo deja todo en el primero consta como una fila con fraccion 1", () => {
+    const r = calcularRepartoPasadas(entrada({
+      pasadas: [pasadaR("26050408 +3 BOX DE RECICLAJE", { lote: "26050408" })],
+      desglosesManuales: [{ batch_id: 1, lineas: [lineaLote("26050408", 68, "pequeno"), lineaReciclaje(3)] }],
+    }));
+    expect(r.filas).toEqual([
+      { batch_id: 1, lote8: "26050408", fraccion: 1, kg: 10_000, metodo: "manual", orden: 1 },
+    ]);
+    expect(r.sinRepartir).toHaveLength(0);
+  });
+
+  it("un desglose manual que no atribuye nada es como si no existiera", () => {
+    const r = calcularRepartoPasadas(entrada({
+      pasadas: [pasadaR("26013107 20 BOX + 26012608 30 BOX")],
+      desglosesManuales: [{ batch_id: 1, lineas: [lineaLote("26013107", null), lineaLote("26012608", null)] }],
+    }));
+    // Cae a los box del nombre.
+    expect(r.filas.every((f) => f.metodo === "box")).toBe(true);
+    expect(r.filas.find((f) => f.lote8 === "26012608")?.fraccion).toBeCloseTo(0.6, 9);
+  });
+
+  it("lo resuelto por box o manual se descuenta del pendiente antes de repartir por capacidad", () => {
+    // Al lote B le caben 10.000. La pasada 1 (box) ya le da 6.000, así que a la
+    // pasada 2 (sin box) solo le puede absorber 4.000.
+    const r = calcularRepartoPasadas(entrada({
+      pasadas: [
+        pasadaR("26013107 40 BOX + 26012608 60 BOX", { batch_id: 1, fecha: "2026-02-01" }),
+        pasadaR("26013107+26012608", { batch_id: 2, fecha: "2026-02-02" }),
+      ],
+      capacidad: new Map([["26013107", cap(0)], ["26012608", cap(10_000)]]),
+    }));
+    const p2 = r.filas.filter((f) => f.batch_id === 2);
+    expect(p2.find((f) => f.lote8 === "26012608")?.kg).toBeCloseTo(4_000, 0);
+    expect(p2.find((f) => f.lote8 === "26013107")?.fraccion).toBeCloseTo(0.6, 9);
+  });
+
+  it("el orden es la posicion del codigo en el nombre", () => {
+    const r = calcularRepartoPasadas(entrada({
+      pasadas: [pasadaR("26013107 10 BOX + 26012207 10 BOX + 26012608 10 BOX")],
+    }));
+    expect(r.filas.map((f) => [f.lote8, f.orden])).toEqual([
+      ["26013107", 1], ["26012207", 2], ["26012608", 3],
+    ]);
+  });
+
+  it("no muta la capacidad que le pasan y es determinista", () => {
+    const capacidad = new Map([["26013107", cap(30_000, 25_000)], ["26012608", cap(20_000)]]);
+    const copia = JSON.parse(JSON.stringify([...capacidad]));
+    const e = entrada({ pasadas: [pasadaR("26013107+26012608")], capacidad });
+    const a = calcularRepartoPasadas(e);
+    const b = calcularRepartoPasadas(e);
+    expect([...capacidad]).toEqual(copia);
+    expect(a).toEqual(b);
+  });
+
+  it("una pasada sin codigo receptor o sin kilos va a la cola, nunca a la tabla", () => {
+    const r = calcularRepartoPasadas(entrada({
+      pasadas: [
+        pasadaR("22/07  22 BOX  -  23/07 43 BOX", { batch_id: 1, lote: "22/07  22 BOX  -  23/07 43 BOX" }),
+        pasadaR("26013107+26012608", { batch_id: 2, kg_total: 0 }),
+      ],
+    }));
+    expect(r.filas).toHaveLength(0);
+    expect(r.sinRepartir.map((s) => s.batch_id)).toEqual([1, 2]);
+    expect(r.sinRepartir[1].motivo).toMatch(/no tiene kilos/);
+  });
+});
+
+describe("esNombreCompuesto", () => {
+  it("es el mismo criterio que la RPC de capacidad: dos grupos de 8 digitos", () => {
+    expect(esNombreCompuesto("26030208-26030308")).toBe(true);
+    expect(esNombreCompuesto("26052102- 26052102 TORRECILLA")).toBe(true);   // aunque sea el mismo código
+    expect(esNombreCompuesto("26051904-15 BOX +7 BOX DE RECICLAJE")).toBe(false);
+    expect(esNombreCompuesto(null)).toBe(false);
   });
 });

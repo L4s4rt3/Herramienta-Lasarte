@@ -343,6 +343,23 @@ const TRABAJOS: DefTrabajo[] = [
       "(hay un reintento 30 min después) y los logs de la edge function cierre-mensual.",
     ),
   },
+  {
+    id: "reparto-pasadas",
+    nombre: "Reparto de pasadas compuestas del calibrador (corre en Supabase)",
+    queHace: "Cada hora en horario de trabajo (a los :10, de 07:10 a 22:10) reparte entre sus lotes las pasadas " +
+      "del calibrador que nombran varios («26013107+26012608»): manda el desglose tecleado por una persona, luego los " +
+      "box escritos en el nombre y por último la capacidad pendiente de cada lote; lo que no puede decidir solo queda " +
+      "en una cola con su motivo. La vista canónica lo ve al instante y las materializadas (mix, detalle) diez minutos " +
+      "después, con el refresco de las :20.",
+    evaluar: periodico(
+      "cada hora en horario de trabajo",
+      12 * 60,
+      26 * 60,
+      "Corre en Supabase, no en el portátil: revisar el job «reparto-pasadas-horario» de pg_cron y los logs de la " +
+      "edge function reparto-pasadas. Mientras esté parado no se pierde nada: la vista sigue leyendo el último " +
+      "reparto guardado (y una pasada sin reparto cuenta el 100 % para su primer código, como antes).",
+    ),
+  },
 ];
 
 export function evaluarTrabajos(latidos: LatidoRow[], ahora: Date): TrabajoSalud[] {
