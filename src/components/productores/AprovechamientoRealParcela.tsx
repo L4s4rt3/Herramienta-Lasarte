@@ -14,6 +14,10 @@
 // - Debajo, pestañas: clases y destinos, los 4 formatos de Mercadona, los
 //   calibres de lo apto y a qué tornillo pueden ir, el detalle por lote y la
 //   cobertura (cada lote sin dato, con su motivo), más la metodología.
+// - Las pasadas compuestas (04-09-2026) van en dos avisos: en ÁMBAR las que la
+//   vista canónica ya repartió (sus kg aquí son estimación proporcional, y se
+//   dice cuántos) y en ROJO solo las que siguen en cola sin repartir (para esas
+//   parcelas esto no es "real").
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { AlertTriangle, Download, Info, Loader2 } from "lucide-react";
@@ -33,7 +37,7 @@ import { useAuth } from "@/contexts/AuthProvider";
 import { useAprovechamientoReal, type LoteReal, type ParcelaReal } from "@/hooks/useAprovechamientoReal";
 import { exportarAprovechamientoReal } from "@/lib/exportAprovechamientoReal";
 import { LABEL_MDNA, METODOS_MDNA } from "@/lib/mdnaMix";
-import { LABEL_ESTADO_DATO, type EstadoDatoReal } from "@/lib/aprovechamientoReal";
+import { LABEL_ESTADO_DATO, resumenMetodosReparto, type EstadoDatoReal } from "@/lib/aprovechamientoReal";
 
 const pctTxt = (v: number | null | undefined) => (v == null ? "—" : formatPct(v));
 const kgTxt = (v: number | null | undefined) => (v == null ? "—" : formatKg(v));
@@ -72,6 +76,11 @@ const FILAS_RESUMEN: FilaResumen[] = [
   { concepto: "KG PESADOS POR EL CALIBRADOR", valor: (p) => kgTxt(p.resumen.kgSizer), nota: "★ LA BASE de todos los porcentajes de abajo", destacado: true, separador: true },
   { concepto: "Desfase calibrador vs báscula", valor: (p) => pctTxt(desfase(p)), nota: "Sistemático en toda la campaña (+7,80 % en 904 lotes): tara, no fruta de otro sitio" },
   { concepto: "Del Word de lote (respaldo)", valor: (p) => kgTxt(p.resumen.kgRespaldo), nota: "Kg cuyo desglose viene del Word porque el volcado SQL no cubre ese día" },
+  {
+    concepto: "De pasadas compuestas repartidas (estimación)",
+    valor: (p) => `${kgTxt(p.resumen.kgRepartido)}${p.resumen.pasadasRepartidas > 0 ? ` · ${pctTxt(p.resumen.pctRepartido)} · ${intTxt(p.resumen.pasadasRepartidas)} pasada(s)` : ""}`,
+    nota: "Kg que llegan de pasadas que mezclaron lotes, repartidos por el reparto canónico (capacidad/box/manual): las clases se reparten en la misma proporción que los kg, así que son estimación, no medida",
+  },
   { concepto: "% exportación", valor: (p) => pctTxt(p.resumen.pctExportacion), nota: "Extra 1/2, Cat1 A/B y Verde Claro", separador: true },
   { concepto: "% no exportación", valor: (p) => pctTxt(p.resumen.pctNoExportacion), nota: "Cat 2, Cat 3 y Verde Oscuro" },
   { concepto: "% mujeres", valor: (p) => pctTxt(p.resumen.pctMujeres), nota: "Fruta desviada a repaso manual" },
@@ -228,11 +237,21 @@ export default function AprovechamientoRealParcela() {
                 </div>
               </div>
             )}
-            {data.compuestas.length > 0 && (
+            {data.compuestasRepartidas.length > 0 && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  {data.compuestasRepartidas.length} pasada(s) compuesta(s) repartida(s) ({resumenMetodosReparto(data.compuestasRepartidas)}):{" "}
+                  <b>{kgTxt(data.total.resumen.kgRepartido)}</b> de esta(s) parcela(s) son una estimación, porque las clases de una pasada mezclada no se pueden separar por lote y se reparten en la misma proporción que los kg. Es el mismo reparto que ve toda la app (vista canónica); en el resumen va en su propia fila.
+                  {" "}Pasadas: {data.compuestasRepartidas.map((c) => `«${c.nombre}» (${c.fuente}, ${kgTxt(c.kg)} aquí)`).join(", ")}.
+                </div>
+              </div>
+            )}
+            {data.compuestasEnCola.length > 0 && (
               <div className="flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <div>
-                  {data.compuestas.length} pasada(s) nombran más de un lote y sus kg NO son atribuibles a una parcela: {data.compuestas.map((c) => `«${c.nombre}» (${c.fuente})`).join(", ")}. El calibrador los ha cargado enteros al primer código; para esas parcelas esto no es "real".
+                  {data.compuestasEnCola.length} pasada(s) nombran más de un lote y siguen SIN repartir (en la cola del calibrador): sus kg NO son atribuibles a una parcela: {data.compuestasEnCola.map((c) => `«${c.nombre}» (${c.fuente})`).join(", ")}. El calibrador los ha cargado enteros al primer código; para esas parcelas esto no es "real".
                 </div>
               </div>
             )}
@@ -408,7 +427,13 @@ export default function AprovechamientoRealParcela() {
             <TabsContent value="metodo">
               <Card><CardContent className="space-y-3 p-4 text-sm">
                 <Metodo titulo="Qué se ha medido">Las {intTxt(data.total.resumen.pasadas)} pasadas de calibrador de los {intTxt(data.total.nConDato)} lotes (de {intTxt(data.total.nLotes)}) que ya han pasado por línea. La fuente es la vista canónica del calibrador: el volcado SQL del Compac Sizer, que registra TODAS las pasadas de cada lote, y como respaldo el informe Word de lote, que solo trae la última de cada día. La regla es por lote y día: si ese lote-día está en el volcado, manda el volcado.</Metodo>
-                <Metodo titulo="Por qué esto SÍ es real">Se comprueba pasada a pasada que ninguna nombra más de un lote ({data.compuestas.length} compuestas encontradas): cada kg que clasificó la máquina se atribuye directamente, sin prorrateo, sin conciliación y sin aplicar mezclas de otros lotes. Si aparece una pasada compuesta, se avisa arriba.</Metodo>
+                <Metodo titulo="Por qué esto SÍ es real (y dónde deja de serlo)">Se comprueba pasada a pasada si alguna nombra más de un lote ({data.compuestas.length} compuestas encontradas). Las de un solo lote se atribuyen directamente, sin prorrateo, sin conciliación y sin aplicar mezclas de otros lotes.{" "}
+                  {data.compuestasRepartidas.length > 0
+                    ? `${data.compuestasRepartidas.length} compuesta(s) ya vienen repartidas por la vista canónica (${resumenMetodosReparto(data.compuestasRepartidas)}): sus ${kgTxt(data.total.resumen.kgRepartido)} son una estimación proporcional —la misma en toda la app— y se dicen aparte en el resumen (aviso ámbar). `
+                    : ""}
+                  {data.compuestasEnCola.length > 0
+                    ? `${data.compuestasEnCola.length} compuesta(s) siguen en cola sin repartir: sus kg están enteros en el primer código y para esas parcelas esto no es "real" (aviso rojo).`
+                    : "Ninguna compuesta sigue sin repartir."}</Metodo>
                 <Metodo titulo="La base de los porcentajes">Los kg que pesó el CALIBRADOR ({kgTxt(data.total.resumen.kgSizer)} en las parcelas elegidas), no los de la báscula de entrada. Las dos básculas no coinciden (el calibrador pesa un +7,80 % de más en los 904 lotes de la campaña con volcado): como el desfase es sistemático y las pasadas son de un solo lote, es tara/calibración, no fruta de otro sitio. Calcular sobre la entrada daría cifras que suman más del 100 %.</Metodo>
                 <Metodo titulo="Cobertura">{kgTxt(data.total.kgEntradaConDato)} analizados de {kgTxt(data.total.kgEntradaTotal)} entrados ({pctTxt(data.total.cobertura)}). Los lotes que faltan no se estiman ni se rellenan: cada uno tiene su motivo en «Cobertura».</Metodo>
                 <Metodo titulo="Hasta qué día llega">Volcado SQL hasta {diaTxt(data.frescura.ultimaPasadaSizer)} (sincronizado {diaTxt(data.frescura.ultimaSincronizacion)}), Word de lote hasta {diaTxt(data.frescura.ultimoInformeDocx)}, partes diarios hasta {diaTxt(data.frescura.ultimoParte)}. {data.frescura.volcadoAtrasado ? `El volcado va por detrás: lo procesado después entra por el Word (${kgTxt(data.total.resumen.kgRespaldo)}). Lo que no tenga ninguna de las dos fuentes sale en «Cobertura» como pendiente de volcado, con sus kg del parte, y nunca como "en cámara".` : "Las fuentes están al mismo día."}</Metodo>

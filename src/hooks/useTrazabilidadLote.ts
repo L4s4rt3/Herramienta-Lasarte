@@ -4,7 +4,12 @@
  *   1. ENTRADA (entradas_bascula): finca, parcela, agricultor, camión, kg.
  *   2. PROCESADO (lotes_dia + fecha del parte): cuándo y cuánto pasó por el
  *      calibrador, con T/h.
- *   3. CLASIFICACIÓN (lote_clasificacion): calibre × clase × grupo de destino.
+ *   3. CLASIFICACIÓN (vista canónica clasificacion_lote): calibre × clase ×
+ *      grupo de destino. NOTA 04-09-2026: la clave es `lote_codigo_base` (el
+ *      lote que RECIBE los kg tras el reparto canónico de las pasadas
+ *      compuestas); `lote_codigo` es el nombre crudo de la pasada y solo se
+ *      enseña — casar por su primer código sumaría a este lote lo que el
+ *      reparto le dio a los otros.
  *   4. CALIDAD (calidad_lotes): notas del responsable de calidad.
  *   5. EXPEDICIÓN (palets_dia.lote_codigo): en qué palets acabó el lote y a
  *      qué cliente(s) fueron. Columna nueva (migración
@@ -527,17 +532,22 @@ export function useTrazabilidadLote(loteInput: string | null) {
         }))
         .sort((a, b) => (a.fecha ?? "").localeCompare(b.fecha ?? "") || (a.hora_inicio ?? "").localeCompare(b.hora_inicio ?? ""));
 
-      // Clasificación agregada (calibre × clase × grupo) del Informe LOTE.
+      // Clasificación agregada (calibre × clase × grupo) de la vista canónica.
       // Filtro estricto en cliente: el ilike de la query es solo un pre-filtro
       // laxo en servidor; hay lote_codigo compuestos reales tipo
       // "26042411+PREC 26063001+…" donde el ilike matchearía por casualidad un
-      // código que aparece en mitad del texto. Solo cuenta si el código es el
-      // lote_codigo_base o el primer grupo de 8 dígitos (mismo criterio
-      // estricto que src/lib/mermaLote.ts).
+      // código que aparece en mitad del texto.
+      // Desde el 04-09-2026 la vista REPARTE las pasadas compuestas: cada fila
+      // lleva en lote_codigo_base el lote que RECIBE sus kg (ya multiplicados
+      // por su fracción) y en lote_codigo el nombre crudo de la pasada
+      // ("26013107+26012608"). Por eso la clave es SOLO lote_codigo_base: casar
+      // también por el primer grupo de 8 dígitos del nombre le sumaría a este
+      // lote la parte que el reparto le dio a los otros. El primer grupo de 8
+      // solo se mira si la fila no trae base (la vista la deriva del mismo
+      // nombre, así que no debería pasar).
       const clasifFilas = (clasifRes.data ?? []).filter((row) => {
-        const base = (row as { lote_codigo_base?: string | null }).lote_codigo_base;
-        const cod = (row as { lote_codigo?: string | null }).lote_codigo;
-        return base === codigo || normalizarLoteCodigo(cod) === codigo;
+        const base = row.lote_codigo_base;
+        return base ? base === codigo : normalizarLoteCodigo(row.lote_codigo) === codigo;
       });
       const gruposMap = new Map<string, number>();
       const clasesMap = new Map<string, { grupo: string; kg: number }>();

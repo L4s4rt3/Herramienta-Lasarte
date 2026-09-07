@@ -55,9 +55,19 @@ import {
 
 // ─── Entradas ────────────────────────────────────────────────────────────────
 
-/** Fila de lote_clasificacion (Informe LOTE) con lo que necesita el cálculo. */
+/** Fila de la vista canónica clasificacion_lote (antes, del Informe LOTE) con lo que necesita el cálculo. */
 export interface FilaClasifProducto {
+  /** Nombre de la pasada tal cual lo tecleó el operario ("26013107+26012608" existe): se enseña, NO es la clave. */
   lote_codigo: string | null;
+  /**
+   * El lote que RECIBE los kg de la fila (lote_codigo_base de la vista). Desde
+   * el 04-09-2026 la vista reparte las pasadas compuestas entre los lotes que
+   * nombran, así que la fruta se busca por ESTE código y no por el primero del
+   * nombre: si no, la parte que el reparto le dio al segundo lote se pagaría al
+   * precio del primero. Opcional para las fuentes que no lo traen: entonces
+   * vale el primer grupo de 8 dígitos de `lote_codigo`, como siempre.
+   */
+  lote_codigo_base?: string | null;
   producto: string | null;
   clase: string | null;
   peso_kg: number | null;
@@ -306,7 +316,8 @@ export function computeCmvProductoDia(
     //     se pagó: no falta ningún dato, pero el margen del día sale inflado.
     //   - Con código y sin importe → la entrada de báscula está sin liquidar.
     //     Aquí sí falta el dato y el CMV sale más bajo del real.
-    const loteBase = normalizarLoteCodigo(f.lote_codigo ?? "");
+    // La clave es el lote que RECIBE los kg (ver FilaClasifProducto.lote_codigo_base).
+    const loteBase = normalizarLoteCodigo(f.lote_codigo_base ?? f.lote_codigo ?? "");
     const eurKg = loteBase ? (frutaPorLote.get(loteBase)?.eurKg ?? null) : null;
     if (eurKg != null) {
       acc.frutaEur += kg * eurKg;

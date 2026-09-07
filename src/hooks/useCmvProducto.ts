@@ -13,6 +13,12 @@
  * cobran los días CON producción, por el mismo motivo.
  *
  * El cálculo vive en la lib pura src/lib/cmvProducto.ts.
+ *
+ * NOTA 04-09-2026: la clave de lote para la fruta es `lote_codigo_base` (el
+ * lote que RECIBE los kg), no el primer código de `lote_codigo`: la vista
+ * canónica reparte las pasadas compuestas y `lote_codigo` pasó a ser el nombre
+ * crudo de la pasada ("26013107+26012608"); con él, el trozo repartido al
+ * segundo lote se habría pagado al precio del primero.
  */
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -312,7 +318,7 @@ export function useDatosRangoProducto(desde: string | null, hasta: string | null
       const filasRaw = await fetchAllRows<FilaClasifProducto & { fecha: string | null }>((from, to) =>
         supabase
           .from("clasificacion_lote")
-          .select("lote_codigo, producto, clase, peso_kg, fecha")
+          .select("lote_codigo, lote_codigo_base, producto, clase, peso_kg, fecha")
           .gte("fecha", desde!)
           .lte("fecha", hasta!)
           .order("id")
@@ -320,8 +326,10 @@ export function useDatosRangoProducto(desde: string | null, hasta: string | null
       );
 
       const diasConProduccion = [...new Set(filasRaw.map((f) => f.fecha).filter((d): d is string => !!d))].sort();
+      // Por el lote que RECIBE los kg (lote_codigo_base), no por el primer
+      // código del nombre de la pasada — ver la nota de cabecera (04-09-2026).
       const clavesLote = [...new Set(
-        filasRaw.map((f) => normalizarLoteCodigo(f.lote_codigo)).filter((c): c is string => !!c),
+        filasRaw.map((f) => normalizarLoteCodigo(f.lote_codigo_base ?? f.lote_codigo)).filter((c): c is string => !!c),
       )];
 
       const [entradasRes, presentesRes, trabajadoresRes] = await Promise.all([
@@ -382,8 +390,8 @@ export function useDatosRangoProducto(desde: string | null, hasta: string | null
       }
 
       return {
-        filas: filasRaw.map(({ lote_codigo, producto, clase, peso_kg }) => ({
-          lote_codigo, producto, clase, peso_kg,
+        filas: filasRaw.map(({ lote_codigo, lote_codigo_base, producto, clase, peso_kg }) => ({
+          lote_codigo, lote_codigo_base, producto, clase, peso_kg,
         })),
         frutaPorLote,
         lotesSinEntrada: clavesLote.filter((c) => !acumulado.has(c)),

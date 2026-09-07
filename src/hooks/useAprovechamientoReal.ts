@@ -16,6 +16,13 @@
 //   RPC dice hasta qué día llega cada fuente.
 // - Las pasadas del parte diario (lotes_dia + partes_diarios): la señal de
 //   "esto ya pasó por línea" que llega antes que el volcado del Sizer.
+//
+// NOTA 04-09-2026: la vista canónica reparte las pasadas compuestas
+// ("26013107+26012608") entre los lotes que nombran (calibrador_pasada_reparto),
+// así que cada fila llega con el lote que RECIBE los kg, su fracción (posición
+// 12) y el método (13). Aquí lo repartido se cuenta aparte — para esta pregunta
+// es una estimación proporcional, no una medida por lote — y las compuestas se
+// separan en repartidas (ámbar) y en cola (rojo, no atribuibles).
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthProvider";
@@ -34,6 +41,7 @@ import {
   pasadasCompuestas,
   pasadasDelPartePorLote,
   resumenReal,
+  separarCompuestas,
   type AcumuladoReal,
   type EntradaReal,
   type FilaCalibreReal,
@@ -105,11 +113,20 @@ export function arbolFincas(entradas: EntradaBasculaRow[]): OpcionFinca[] {
 // ─── La RPC del detalle ─────────────────────────────────────────────────────
 
 /**
- * Filas POSICIONALES (contrato con la migración 20260903110937):
- * 0 lote8, 1 fecha, 2 batch_id, 3 fuente, 4 lote_codigo, 5 producto, 6 clase,
- * 7 letra, 8 destino, 9 tamano, 10 kg, 11 piezas.
+ * Filas POSICIONALES (contrato con la migración 20260903110937, ampliado el
+ * 04-09-2026 con el reparto canónico):
+ * 0 lote8 (el lote que RECIBE los kg), 1 fecha, 2 batch_id, 3 fuente,
+ * 4 lote_codigo (nombre CRUDO de la pasada, "26013107+26012608"), 5 producto,
+ * 6 clase, 7 letra, 8 destino, 9 tamano, 10 kg (ya multiplicados por la
+ * fracción), 11 piezas, 12 fraccion_reparto (1 si la pasada no se repartió),
+ * 13 reparto_metodo (null si no).
+ * 12 y 13 son opcionales en el tipo para que una base sin el SQL del reparto
+ * siga funcionando: sin ellas, fracción 1 y sin método (nada repartido).
  */
-type FilaDetallePosicional = [string, string | null, number | null, string | null, string | null, string | null, string | null, string | null, string | null, string | null, number | string | null, number | string | null];
+type FilaDetallePosicional = [
+  string, string | null, number | null, string | null, string | null, string | null, string | null, string | null, string | null, string | null, number | string | null, number | string | null,
+  (number | string | null)?, (string | null)?,
+];
 
 interface RespuestaDetalle {
   refrescado_en: string | null;
@@ -121,7 +138,10 @@ interface RespuestaDetalle {
 }
 
 function aFilaDetalle(f: FilaDetallePosicional): FilaDetalleReal {
-  return { lote8: f[0], fecha: f[1], batchId: f[2], fuente: f[3], nombrePasada: f[4], producto: f[5], clase: f[6], destino: f[8], tamano: f[9], kg: f[10] };
+  return {
+    lote8: f[0], fecha: f[1], batchId: f[2], fuente: f[3], nombrePasada: f[4], producto: f[5], clase: f[6], destino: f[8], tamano: f[9], kg: f[10],
+    fraccion: f[12] ?? 1, metodoReparto: f[13] ?? null,
+  };
 }
 
 // ─── Resultado ──────────────────────────────────────────────────────────────
@@ -150,7 +170,12 @@ export interface AprovechamientoReal {
   /** Todas las parcelas elegidas juntas. */
   total: ParcelaReal;
   lotes: LoteReal[];
+  /** Todas las pasadas que nombran más de un lote; abajo, separadas por lo que significan. */
   compuestas: PasadaCompuesta[];
+  /** Ya repartidas por la vista canónica: sus kg aquí son una estimación proporcional (aviso ámbar). */
+  compuestasRepartidas: PasadaCompuesta[];
+  /** Siguen en cola sin repartir: sus kg están enteros en el primer código, no son atribuibles (aviso rojo). */
+  compuestasEnCola: PasadaCompuesta[];
   frescura: FrescuraFuentes;
   refrescadoEn: string | null;
   pendientesVolcado: LoteReal[];
@@ -264,12 +289,16 @@ export function useAprovechamientoReal({ finca, parcelas }: AprovechamientoRealO
 
     const parcelasOrdenadas = [...new Set(entradasReal.map((e) => e.parcela ?? SIN_PARCELA))]
       .sort((a, b) => etiquetaParcela(a || null).localeCompare(etiquetaParcela(b || null), "es", { numeric: true }));
+    const compuestas = pasadasCompuestas(filas);
+    const { repartidas, enCola } = separarCompuestas(compuestas);
     return {
       parcelas: parcelasOrdenadas.map((p) =>
         parcelaReal(p, porParcela.get(p) ?? acumuladoRealVacio(), entradasReal.filter((e) => (e.parcela ?? SIN_PARCELA) === p), porLote)),
       total: parcelaReal("__total__", todo, entradasReal, porLote),
       lotes,
-      compuestas: pasadasCompuestas(filas),
+      compuestas,
+      compuestasRepartidas: repartidas,
+      compuestasEnCola: enCola,
       frescura,
       refrescadoEn: detalleQuery.data.refrescado_en,
       pendientesVolcado: lotes.filter((l) => l.estado === "pendiente_volcado"),

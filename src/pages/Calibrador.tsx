@@ -8,11 +8,14 @@
 // pantalla: el informe del calibrador llegaba en un Word por correo y solo
 // cubría la última pasada de cada lote.
 //
-// De dónde salen los números: del volcado SQL del Sizer (864 lotes de la
-// campaña, 1.309 pasadas). La agregación la hace la RPC
+// De dónde salen los números: de la vista canónica clasificacion_lote (el
+// volcado SQL del Sizer — 864 lotes de la campaña, 1.309 pasadas — con el Word
+// y el Excel de respaldo). La agregación la hace la RPC
 // calibrador_aprovechamiento_productor — ver useCalibradorAprovechamiento.ts
-// para las dos reglas que importan (solo pasadas completas, y productor por
-// código de lote y no por nombre).
+// para las tres reglas que importan (frescura por lote-día, productor por
+// código de lote y no por nombre, y el reparto canónico de las pasadas
+// compuestas, que desde el 04-09-2026 es el MISMO en toda la app: ya no se
+// reparte aquí en el navegador).
 //
 // Ordenado por kilos descendente: primero los productores que mueven volumen,
 // que son los que cambian la campaña. El % de exportación se colorea para que
@@ -64,14 +67,14 @@ function BarraDestino({ fila }: { fila: AprovechamientoProductor }) {
 export default function Calibrador() {
   const {
     productores, sinAtribuir, desgloseSinRepartir, noProductores,
-    pasadasRepartidas, colaDesglose, kgProvisional, isLoading, error,
+    reparto, cola, repartoError, kgProvisional, isLoading, error,
   } = useCalibradorAprovechamiento();
 
   // La cola, agrupada por el porqué: es lo accionable. Un listado de 111 nombres
   // sueltos no se lee; "77 esperan que se escriban los box" sí.
   const motivosCola = useMemo(() => {
     const mapa = new Map<string, { n: number; kg: number }>();
-    for (const c of colaDesglose) {
+    for (const c of cola) {
       // "3 linea(s) sin box" y "1 linea(s) sin box" son el mismo problema.
       const clave = c.motivo.replace(/^\d+ /, "");
       const a = mapa.get(clave) ?? { n: 0, kg: 0 };
@@ -81,7 +84,8 @@ export default function Calibrador() {
     }
     return [...mapa.entries()].map(([motivo, a]) => ({ motivo, ...a }))
       .sort((x, y) => y.kg - x.kg);
-  }, [colaDesglose]);
+  }, [cola]);
+  const kgCola = useMemo(() => cola.reduce((s, c) => s + c.kg_total, 0), [cola]);
 
   const totales = useMemo(() => {
     const suma = (f: (p: AprovechamientoProductor) => number) =>
@@ -216,7 +220,8 @@ export default function Calibrador() {
             </CardContent>
           </Card>
 
-          {sinAtribuir || desgloseSinRepartir || noProductores.length > 0 || kgProvisional > 0 ? (
+          {sinAtribuir || desgloseSinRepartir || noProductores.length > 0 || kgProvisional > 0
+            || (reparto && reparto.pasadas > 0) || cola.length > 0 || repartoError ? (
             <Card className="glass-accented border-amber-500/30">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Hasta dónde llega esta atribución</CardTitle>
@@ -256,18 +261,37 @@ export default function Calibrador() {
                     ({formatNumber((desgloseSinRepartir.kg / totales.kgClasificados) * 100, 1)}%) en{" "}
                     {desgloseSinRepartir.pasadas} pasadas donde el operario escribió que se echó algo más
                     («26051904 +7 BOX DE RECICLAJE»), y {desgloseSinRepartir.pasadas_varios_lotes} nombran
-                    dos lotes distintos.{" "}
-                    {pasadasRepartidas > 0
-                      ? <>De esas, <strong>{pasadasRepartidas} ya se reparten solas</strong> por los box que escribió el operario.</>
-                      : null}
+                    dos lotes distintos.
+                  </p>
+                ) : null}
+                {reparto && reparto.pasadas > 0 ? (
+                  <p>
+                    <strong className="text-foreground">{reparto.pasadas} pasadas compuestas están repartidas</strong> entre
+                    los lotes que nombran:{" "}
+                    <span className="font-semibold tabular-nums text-foreground">{formatKg(reparto.kgMovidos)}</span>{" "}
+                    cambiaron de lote respecto a lo que el Sizer había cargado al primer código
+                    {reparto.porMetodo.length > 0
+                      ? <> ({reparto.porMetodo.map((m) => `${m.pasadas} ${m.etiqueta}: ${formatKg(m.kgMovidos)}`).join(" · ")})</>
+                      : null}.
+                    Es el <strong>mismo reparto en toda la app</strong>: lo calcula el servidor, se guarda en{" "}
+                    <span className="font-mono text-xs">calibrador_pasada_reparto</span> y la vista canónica{" "}
+                    <span className="font-mono text-xs">clasificacion_lote</span> lo aplica fila a fila, así que esta
+                    tabla, la trazabilidad de cada lote, las mermas y el aprovechamiento por parcela dan el mismo número.
+                  </p>
+                ) : null}
+                {repartoError ? (
+                  <p>
+                    No se pudo leer el detalle del reparto canónico ({repartoError}). Las cifras de arriba ya lo
+                    llevan aplicado (vienen de la vista); solo falta decir cuántas pasadas y cuántos kilos.
                   </p>
                 ) : null}
 
                 {motivosCola.length > 0 ? (
                   <div className="space-y-1 pt-1">
                     <p className="text-foreground">
-                      Quedan {colaDesglose.length} pasadas esperando que alguien diga algo. No se reparten
-                      solas a propósito: hacerlo sería inventarse el dato.
+                      Quedan {cola.length} pasadas ({formatKg(kgCola)}) esperando que alguien diga algo. No se
+                      reparten solas a propósito: hacerlo sería inventarse el dato. Mientras tanto sus kilos
+                      siguen enteros en el primer código, aquí y en toda la app.
                     </p>
                     <ul className="space-y-0.5">
                       {motivosCola.map((m) => (
@@ -289,7 +313,9 @@ export default function Calibrador() {
             <p>
               Son los kilos que la máquina clasificó, incluidas todas las pasadas de cada lote — no los kilos
               vendidos. El productor se resuelve por el código de lote contra las entradas de báscula, nunca por
-              el nombre. El color del porcentaje compara cada productor con la media de la campaña.
+              el nombre. Las pasadas que mezclan lotes se reparten con el mismo reparto canónico que ve toda la
+              app (por los box escritos, por capacidad pendiente o a mano). El color del porcentaje compara cada
+              productor con la media de la campaña.
             </p>
           </div>
         </>

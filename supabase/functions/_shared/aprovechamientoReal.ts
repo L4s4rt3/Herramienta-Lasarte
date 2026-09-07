@@ -16,6 +16,18 @@
  * NINGUNA pasada de los lotes analizados nombra dos códigos — se comprueba
  * (pasadasCompuestas) y se enseña, no se supone.
  *
+ * ─── El reparto canónico de las pasadas compuestas (04-09-2026) ──────────────
+ * Desde hoy la vista canónica REPARTE las pasadas que nombran varios lotes
+ * (calibrador_pasada_reparto: fracción por lote, por box escritos, por
+ * capacidad pendiente o a mano) y cada fila llega con el lote que RECIBE los kg
+ * (lote8) y su `fraccion`. Ese reparto es el mismo en toda la app, pero para
+ * ESTA pregunta es una ESTIMACIÓN: las clases de una pasada mezclada no se
+ * pueden separar por lote, así que se reparten en la misma proporción que los
+ * kg. Por eso aquí se cuentan aparte (kgRepartido, pasadasRepartidas) y las
+ * compuestas se separan en dos: las REPARTIDAS (fracción < 1, aviso ámbar) y las
+ * que siguen EN COLA sin repartir (fracción 1 con nombre compuesto: sus kg están
+ * enteros en el primer código y para esas parcelas esto NO es real, aviso rojo).
+ *
  * ─── La base de los porcentajes, y por qué NO es la entrada de báscula ───────
  * El calibrador pesa sistemáticamente MÁS que la báscula (+7,80 % en los 904
  * lotes de la campaña con volcado). No es fruta de otro sitio: es desfase de
@@ -71,6 +83,7 @@ export const lote8De = (v: string | null | undefined): string | null => normaliz
  * como lo tecleó el operario ("26081302-12 BOX + 26081202-9 BOX" existe).
  */
 export interface FilaDetalleReal {
+  /** El lote que RECIBE los kg (lote_codigo_base de la vista): si la pasada se repartió, el que le toca a esta fracción. */
   lote8: string;
   fecha: string | null;
   /** batch_id del Sizer (>0 volcado SQL, <0 Word), null en el Excel manual. */
@@ -82,8 +95,37 @@ export interface FilaDetalleReal {
   clase: string | null;
   destino: string | null;
   tamano: string | null;
+  /** Kg de la fila, YA multiplicados por `fraccion` en la vista: aquí no se vuelve a multiplicar. */
   kg: number | string | null;
+  /**
+   * Fracción de la pasada que le toca a `lote8` (reparto canónico de las
+   * pasadas compuestas, 04-09-2026). 1 — o ausente, en fuentes anteriores al
+   * reparto — si la pasada no se repartió: todos sus kg son de este lote.
+   */
+  fraccion?: number | string | null;
+  /** Cómo se repartió: "manual" | "box" | "capacidad"; null si no se repartió. */
+  metodoReparto?: string | null;
 }
+
+/**
+ * Una fila viene de una pasada REPARTIDA cuando su fracción es menor que 1. El
+ * margen absorbe el redondeo del numeric de la base: 0,999999 es "entera".
+ */
+export function esFilaRepartida(f: Pick<FilaDetalleReal, "fraccion">): boolean {
+  if (f.fraccion == null) return false;
+  const x = Number(f.fraccion);
+  return Number.isFinite(x) && x < 1 - 1e-6;
+}
+
+/** Nombre en castellano de cada método de reparto, para pantallas e informes. */
+export const LABEL_METODO_REPARTO: Record<string, string> = {
+  manual: "a mano",
+  box: "por los box que escribió el operario",
+  capacidad: "por la capacidad pendiente de cada lote",
+};
+
+export const etiquetaMetodoReparto = (metodo: string | null | undefined): string =>
+  (metodo && LABEL_METODO_REPARTO[metodo]) || `por «${metodo ?? "?"}»`;
 
 export interface ClaseAcumulada {
   kg: number;
@@ -109,6 +151,15 @@ export interface AcumuladoReal {
   mdnaSinFormato: number;
   mdnaTotal: number;
   kgApta: number;
+  /**
+   * De los kgSizer, los que llegan de pasadas COMPUESTAS repartidas por la vista
+   * canónica (fracción < 1). Son una ESTIMACIÓN proporcional — las clases de una
+   * pasada mezclada no se separan por lote — y se dicen aparte, nunca se
+   * esconden en el total.
+   */
+  kgRepartido: number;
+  /** Pasadas compuestas repartidas que tocan a esta clave (una vez cada una). */
+  pasadasRepartidas: number;
 }
 
 export function acumuladoRealVacio(): AcumuladoReal {
@@ -116,6 +167,7 @@ export function acumuladoRealVacio(): AcumuladoReal {
     kgSizer: 0, kgDocx: 0, kgParte: 0, pasadas: 0, pasadasDocx: 0, pasadasParte: 0,
     porDestino: new Map(), porClase: new Map(), porCalibreApta: new Map(),
     mdna: { MA3KGC: 0, MA4KGC: 0, MA5KGC: 0, MA12KGC: 0 }, mdnaSinFormato: 0, mdnaTotal: 0, kgApta: 0,
+    kgRepartido: 0, pasadasRepartidas: 0,
   };
 }
 
@@ -135,6 +187,9 @@ export function acumularDetalleReal<K extends string>(
 ): Map<K, AcumuladoReal> {
   const out = new Map<K, AcumuladoReal>();
   const pasadasVistas = new Map<K, Set<string>>();
+  // Las repartidas se cuentan aparte: una pasada compuesta tiene filas con
+  // fracción < 1 y hay que contarla una sola vez por clave, igual que las demás.
+  const repartidasVistas = new Map<K, Set<string>>();
   const metodoPorProducto = new Map<string, MetodoMdna | "SIN_FORMATO" | null>();
   for (const f of filas) {
     const k = claveDe(f);
@@ -144,9 +199,11 @@ export function acumularDetalleReal<K extends string>(
       acc = acumuladoRealVacio();
       out.set(k, acc);
       pasadasVistas.set(k, new Set());
+      repartidasVistas.set(k, new Set());
     }
     const esDocx = f.fuente === "docx";
     const esParte = f.fuente === "parte";
+    const repartida = esFilaRepartida(f);
     const vistas = pasadasVistas.get(k)!;
     const cp = clavePasada(f);
     if (!vistas.has(cp)) {
@@ -155,8 +212,16 @@ export function acumularDetalleReal<K extends string>(
       if (esDocx) acc.pasadasDocx += 1;
       if (esParte) acc.pasadasParte += 1;
     }
+    if (repartida) {
+      const rv = repartidasVistas.get(k)!;
+      if (!rv.has(cp)) {
+        rv.add(cp);
+        acc.pasadasRepartidas += 1;
+      }
+    }
 
     const kg = num(f.kg);
+    if (repartida) acc.kgRepartido += kg;
     const clase = claseCanonica(f.clase) || "(SIN CLASE)";
     const destino = destinoNormalizado(f.destino, f.clase);
     const apta = esClaseAptaMdna(f.clase);
@@ -193,27 +258,67 @@ export function acumularDetalleReal<K extends string>(
 
 export interface PasadaCompuesta {
   clave: string;
+  /** El primer lote analizado que recibe kg de la pasada (todos, en `lotes8`). */
   lote8: string;
+  /** Lotes ANALIZADOS que reciben kg de esta pasada: varios si está repartida y las parcelas elegidas tienen más de uno. */
+  lotes8: string[];
   nombre: string;
   fuente: string;
+  /** Kg de la pasada que caen en las filas analizadas (los de las parcelas elegidas, no la pasada entera). */
+  kg: number;
+  /** true si la vista canónica ya la repartió entre los lotes que nombra (alguna fila con fracción < 1). */
+  repartida: boolean;
+  /** "manual" | "box" | "capacidad" cuando está repartida; null si sigue en cola. */
+  metodo: string | null;
 }
 
 /**
- * Las pasadas que nombran MÁS DE UN lote: si hay alguna, sus kg no son
- * atribuibles y el análisis deja de poder llamarse "real" para esos lotes.
- * El nombre lo escribe el operario en todas las fuentes, así que se miran igual.
+ * Las pasadas que nombran MÁS DE UN lote, una vez cada una. El nombre lo escribe
+ * el operario en todas las fuentes, así que se miran igual. Desde el 04-09-2026
+ * se distinguen dos casos, porque significan cosas distintas para esta pregunta:
+ *   - REPARTIDAS (fracción < 1): la vista canónica ya les dio a cada lote su
+ *     parte; los kg que caen aquí son una estimación proporcional (aviso ámbar).
+ *   - EN COLA (fracción 1 con nombre compuesto): siguen enteras en el primer
+ *     código; sus kg no son atribuibles y para esos lotes esto no es "real"
+ *     (aviso rojo).
  */
 export function pasadasCompuestas(filas: Iterable<FilaDetalleReal>): PasadaCompuesta[] {
   const vistas = new Map<string, PasadaCompuesta>();
   for (const f of filas) {
-    const clave = clavePasada(f);
-    if (vistas.has(clave)) continue;
     const nombre = String(f.nombrePasada ?? "");
-    if ((nombre.match(/\d{8}/g) ?? []).length > 1) {
-      vistas.set(clave, { clave, lote8: f.lote8, nombre, fuente: f.fuente ?? "?" });
+    if ((nombre.match(/\d{8}/g) ?? []).length < 2) continue;
+    const clave = clavePasada(f);
+    let c = vistas.get(clave);
+    if (!c) {
+      c = { clave, lote8: f.lote8, lotes8: [], nombre, fuente: f.fuente ?? "?", kg: 0, repartida: false, metodo: null };
+      vistas.set(clave, c);
+    }
+    c.kg += num(f.kg);
+    if (!c.lotes8.includes(f.lote8)) c.lotes8.push(f.lote8);
+    if (esFilaRepartida(f)) {
+      c.repartida = true;
+      c.metodo = c.metodo ?? f.metodoReparto ?? null;
     }
   }
   return [...vistas.values()];
+}
+
+/** Las compuestas en sus dos grupos, para que pantalla e informe avisen distinto de cada uno. */
+export function separarCompuestas(compuestas: PasadaCompuesta[]): { repartidas: PasadaCompuesta[]; enCola: PasadaCompuesta[] } {
+  return {
+    repartidas: compuestas.filter((c) => c.repartida),
+    enCola: compuestas.filter((c) => !c.repartida),
+  };
+}
+
+/** "2 por la capacidad pendiente de cada lote · 1 por los box que escribió el operario", de más a menos pasadas. */
+export function resumenMetodosReparto(repartidas: PasadaCompuesta[]): string {
+  const cuenta = new Map<string, number>();
+  for (const c of repartidas) cuenta.set(c.metodo ?? "?", (cuenta.get(c.metodo ?? "?") ?? 0) + 1);
+  return [...cuenta.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([metodo, n]) => `${n} ${etiquetaMetodoReparto(metodo)}`)
+    .join(" · ");
 }
 
 // ─── Frescura de las fuentes ─────────────────────────────────────────────────
@@ -310,6 +415,8 @@ export interface FilaCoberturaReal {
   kgSizer: number | null;
   /** De los kgSizer, los que vienen del Word o del Excel manual (respaldo). */
   kgRespaldo: number | null;
+  /** De los kgSizer, los que llegan de pasadas compuestas repartidas (estimación proporcional); null si no hay. */
+  kgRepartido: number | null;
   /** Kg que el parte diario registra para el lote cuando no hay ninguna fuente de desglose. */
   kgEnParte: number | null;
   ultimaEnParte: string | null;
@@ -339,12 +446,17 @@ export function coberturaReal(
       ? soloRespaldo ? "respaldo" : mixto ? "mixto" : "sql"
       : procesadoSinVolcado ? "pendiente_volcado" : "sin_dato";
 
+    // Lo repartido se dice en el mismo motivo: quien lea "con dato real" tiene
+    // que ver ahí mismo que una parte es estimación proporcional.
+    const notaReparto = acc && acc.kgRepartido > 0
+      ? ` · ${fmtKg(acc.kgRepartido)} kg de ${acc.pasadasRepartidas} pasada(s) compuesta(s) repartida(s): estimación proporcional, no medida por lote`
+      : "";
     const motivo = acc
-      ? soloRespaldo
+      ? (soloRespaldo
         ? `Con dato del INFORME WORD de lote (el volcado SQL no cubre este lote todavía). El Word trae solo la última pasada de cada día: hay ${acc.pasadasDocx + acc.pasadasParte} informe(s) y el parte registra ${fmtKg(kgEnParte)} kg`
         : mixto
           ? `Mezcla de volcado SQL y Word de lote: ${fmtKg(acc.kgSizer - kgRespaldo)} kg del volcado y ${fmtKg(kgRespaldo)} kg del Word (días que el volcado aún no trae)`
-          : "Con dato real del calibrador (volcado SQL, todas las pasadas)"
+          : "Con dato real del calibrador (volcado SQL, todas las pasadas)") + notaReparto
       : procesadoSinVolcado
         ? `PROCESADO el ${ultimaEnParte} según el parte diario (${fmtKg(kgEnParte)} kg), pero el volcado del calibrador todavía no lo trae${frescura.ultimaPasadaSizer ? ` (volcado parado en el ${frescura.ultimaPasadaSizer})` : ""}: no hay desglose de clases que analizar`
         : e.camaraConfirmadaNombre
@@ -365,6 +477,7 @@ export function coberturaReal(
       pasadas: acc?.pasadas ?? enParte.length,
       kgSizer: acc?.kgSizer ?? null,
       kgRespaldo: acc && kgRespaldo > 0 ? kgRespaldo : null,
+      kgRepartido: acc && acc.kgRepartido > 0 ? acc.kgRepartido : null,
       kgEnParte: procesadoSinVolcado ? kgEnParte : null,
       ultimaEnParte,
       desfase: acc && e.kgEntrada > 0 ? (acc.kgSizer / e.kgEntrada - 1) * 100 : null,
@@ -408,6 +521,10 @@ export interface ResumenReal {
   pctNoApta: number | null;
   /** Σ destinos − kgSizer: debe ser 0. */
   cuadreDestinos: number;
+  /** Kg (y % de lo pesado) que llegan de pasadas compuestas repartidas: estimación proporcional, dicha aparte. */
+  kgRepartido: number;
+  pctRepartido: number | null;
+  pasadasRepartidas: number;
 }
 
 export function resumenReal(a: AcumuladoReal): ResumenReal {
@@ -420,6 +537,9 @@ export function resumenReal(a: AcumuladoReal): ResumenReal {
     pasadas: a.pasadas,
     pasadasRespaldo: a.pasadasDocx + a.pasadasParte,
     kgRespaldo: a.kgDocx + a.kgParte,
+    kgRepartido: a.kgRepartido,
+    pctRepartido: pctDe(a.kgRepartido, a.kgSizer),
+    pasadasRepartidas: a.pasadasRepartidas,
     kgExportacion: dest("EXPORTACION"),
     kgNoExportacion: dest("NO EXPORTACION"),
     kgMujeres: dest("MUJERES"),

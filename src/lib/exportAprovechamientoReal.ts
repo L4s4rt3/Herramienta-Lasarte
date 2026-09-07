@@ -21,7 +21,7 @@ import {
   type HojaTablaOptions,
   type LasarteExportMeta,
 } from "./exportKit";
-import { etiquetaParcela, LABEL_ESTADO_DATO } from "./aprovechamientoReal";
+import { etiquetaParcela, LABEL_ESTADO_DATO, resumenMetodosReparto } from "./aprovechamientoReal";
 import { LABEL_MDNA, METODOS_MDNA } from "./mdnaMix";
 
 export interface OpcionesExportAprovechamiento {
@@ -85,9 +85,14 @@ function definicionResumen(data: AprovechamientoReal): FilaResumenDef[] {
       ? `⚠ EL VOLCADO SQL DEL CALIBRADOR VA POR DETRÁS DE LOS PARTES (${f.ultimaPasadaSizer} frente a ${f.ultimoParte}). Lo procesado después del ${f.ultimaPasadaSizer} entra en este informe con el INFORME WORD de lote (${n0(kgDocxTotal)} kg en total), que trae solo la última pasada de cada día. ${pendientes.length > 0 ? `Quedan ${pendientes.length} lote(s) sin ninguna de las dos fuentes: ${pendientes.map((c) => c.lote8).join(", ")} (${n0(pendientes.reduce((s, c) => s + (c.kgEnParte ?? 0), 0))} kg según el parte). Ver hoja «Cobertura».` : "Ningún lote de estas parcelas se queda sin desglose. Ver la columna «De ellos, del Word» en «Cobertura»."}`
       : "Volcado del calibrador y partes diarios al mismo día: el informe está completo hasta esa fecha."),
     fila("Kg que vienen del Word en vez del volcado SQL", (p) => p.resumen.kgRespaldo, "kg", "Dato de respaldo: el Word solo trae la última pasada de cada día, el volcado las trae todas"),
+    // Lo repartido va junto al respaldo, ANTES de los porcentajes: quien lea el
+    // % de Mercadona tiene que saber primero qué parte de la base es estimación.
+    fila("Kg de pasadas compuestas repartidas (ESTIMACIÓN)", (p) => p.resumen.kgRepartido, "kg", "Kg que llegan de pasadas que mezclaron lotes, repartidos por el reparto canónico de la vista (capacidad/box/manual): las clases se reparten en la misma proporción que los kg, así que son estimación, no medida"),
+    fila("% de lo pesado que es estimación por reparto", (p) => p.resumen.pctRepartido, "pct", "0 % = todo medido pasada a pasada"),
+    fila("Pasadas compuestas repartidas", (p) => p.resumen.pasadasRepartidas, "int", "Las que siguen SIN repartir (en cola) van en «Metodología»: para esos lotes esto no es real"),
     fila("Lotes de la parcela", (p) => p.nLotes, "int", "Todos los lotes entrados por báscula"),
     fila("Lotes con dato real del calibrador", (p) => p.nConDato, "int", "Los demás no han pasado por línea: ver hoja «Cobertura»"),
-    fila("Pasadas analizadas", (p) => p.resumen.pasadas, "int", "Todas de un solo lote: cada kg es directamente atribuible"),
+    fila("Pasadas analizadas", (p) => p.resumen.pasadas, "int", "Una pasada = un código en el calibrador; las compuestas repartidas se cuentan también en la fila de arriba"),
     fila("Kg entrada por báscula (todos los lotes)", (p) => p.kgEntradaTotal, "kg", "Referencia, NO la base de los porcentajes"),
     fila("Kg entrada de los lotes analizados", (p) => p.kgEntradaConDato, "kg", "La parte de la parcela que ya ha pasado por línea"),
     fila("Cobertura del informe", (p) => p.cobertura, "pct", "Sobre kg de entrada"),
@@ -133,7 +138,7 @@ function hojaResumen(data: AprovechamientoReal): HojaTablaOptions {
   });
   return {
     nombreHoja: "Resumen",
-    titulo: `Aprovechamiento REAL de ${etiquetas(data)} · medido por el calibrador, sin estimar`,
+    titulo: `Aprovechamiento REAL de ${etiquetas(data)} · medido por el calibrador${data.total.resumen.kgRepartido > 0 ? " (lo repartido de pasadas compuestas, dicho aparte)" : ", sin estimar"}`,
     autofilter: false,
     columnas,
     filas,
@@ -148,9 +153,11 @@ function filasMetodologia(data: AprovechamientoReal, finca: string): Record<stri
   const kgDocxTotal = t.resumen.kgRespaldo;
   const desfaseTotal = desfaseParcela(t);
   const compuestas = data.compuestas;
+  const repartidas = data.compuestasRepartidas;
+  const enCola = data.compuestasEnCola;
   const metodo: Array<[string, string]> = [
     ["Qué se ha medido", `Las ${t.resumen.pasadas} pasadas de calibrador de los ${t.nConDato} lotes (de ${t.nLotes}) de ${finca} · ${etiquetas(data)} que ya han pasado por línea. La fuente es la vista canónica del calibrador: el volcado SQL del Compac Sizer, que registra TODAS las pasadas de cada lote, y como respaldo el informe Word de lote, que solo trae la última de cada día (225 lotes de la campaña pasan más de una vez).`],
-    ["Por qué esto SÍ es real", `Se ha comprobado pasada a pasada que ninguna nombra más de un lote (${compuestas.length} compuestas encontradas): no hay códigos que mezclen fruta de dos parcelas. Por eso cada kg que clasificó la máquina se atribuye directamente, sin prorrateo, sin conciliación y sin aplicar mezclas de otros lotes.${compuestas.length > 0 ? ` ¡AVISO! ${compuestas.map((c) => `«${c.nombre}» (${c.fuente})`).join(", ")}: el calibrador cargó esos kg enteros al primer código, así que para esas parcelas esto no es "real".` : ""}`],
+    ["Por qué esto SÍ es real (y dónde deja de serlo)", `Se ha comprobado pasada a pasada si alguna nombra más de un lote (${compuestas.length} compuestas encontradas). Las de un solo lote se atribuyen directamente, sin prorrateo, sin conciliación y sin aplicar mezclas de otros lotes.${repartidas.length > 0 ? ` ${repartidas.length} compuesta(s) ya vienen REPARTIDAS por la vista canónica (${resumenMetodosReparto(repartidas)}) — ${repartidas.map((c) => `«${c.nombre}» (${c.fuente}, ${n0(c.kg)} kg en estas parcelas)`).join(", ")} —: sus ${n0(t.resumen.kgRepartido)} kg (${(t.resumen.pctRepartido ?? 0).toFixed(1)} % de lo pesado) son una ESTIMACIÓN proporcional, porque las clases de una pasada mezclada no se pueden separar por lote y se reparten en la misma proporción que los kg. Es el mismo reparto que aplica toda la app; en «Resumen» va en su propia fila y en «Detalle lotes»/«Cobertura» en la columna «De ellos, repartidos».` : ""}${enCola.length > 0 ? ` ¡AVISO! ${enCola.length} compuesta(s) siguen EN COLA sin repartir: ${enCola.map((c) => `«${c.nombre}» (${c.fuente})`).join(", ")}. El calibrador cargó esos kg enteros al primer código, así que para esas parcelas esto no es "real".` : " Ninguna compuesta sigue sin repartir."}`],
     ["La base de los porcentajes", `Los kg que pesó el CALIBRADOR (${n0(t.resumen.kgSizer)} kg en las parcelas elegidas), no los de la báscula de entrada. Las dos básculas no coinciden: el calibrador pesa un +7,80 % de más en los 904 lotes de la campaña con volcado${desfaseTotal != null ? ` (aquí ${desfaseTotal >= 0 ? "+" : ""}${desfaseTotal.toFixed(2)} %)` : ""}. Como el desfase es sistemático y las pasadas son de un solo lote, no es fruta de otro sitio: es tara/calibración. Calcular los porcentajes sobre la entrada daría cifras que suman más del 100 %.`],
     ["Cobertura", `${n0(t.kgEntradaConDato)} kg analizados de ${n0(t.kgEntradaTotal)} kg entrados (${(t.cobertura ?? 0).toFixed(1)} %). Los lotes que faltan no se estiman ni se rellenan: cada uno tiene su motivo en la hoja «Cobertura».`],
     ["Hasta qué día llega el informe", `El volcado SQL del calibrador llega al ${f.ultimaPasadaSizer ?? "—"} (última sincronización: ${f.ultimaSincronizacion ?? "—"}), los informes Word de lote al ${f.ultimoInformeDocx ?? "—"} y los partes diarios al ${f.ultimoParte ?? "—"}. ${f.volcadoAtrasado ? `EL VOLCADO SQL VA POR DETRÁS, así que lo procesado después del ${f.ultimaPasadaSizer} entra por el Word (${n0(kgDocxTotal)} kg). Lo que no tenga ninguna de las dos fuentes sale en «Cobertura» como «pendiente volcado» — con sus kg reales del parte — y NUNCA como «en cámara».` : "Las fuentes están al mismo día."}`],
@@ -231,6 +238,7 @@ export function hojasAprovechamientoReal(data: AprovechamientoReal, finca: strin
         { header: "Pasadas", key: "pasadas", tipo: "numero", numFmt: FMT_INT, width: 9 },
         kgCol("Kg báscula", "kgEntrada", 14),
         kgCol("Kg calibrador", "kgSizer", 15),
+        kgCol("De ellos, repartidos (estimación)", "kgRepartido", 24),
         pctCol("Desfase", "desfase", 10),
         pctCol("% exportación", "pctExport", 13),
         pctCol("% no exportación", "pctNoExport", 14),
@@ -251,7 +259,7 @@ export function hojasAprovechamientoReal(data: AprovechamientoReal, finca: strin
         if (!r) return [];
         return [{
           parcela: etiquetaParcela(l.parcela), lote: l.lote8, fecha: l.fecha, pasadas: l.pasadas,
-          kgEntrada: l.kgEntrada, kgSizer: r.kgSizer, desfase: l.desfase,
+          kgEntrada: l.kgEntrada, kgSizer: r.kgSizer, kgRepartido: l.kgRepartido, desfase: l.desfase,
           pctExport: r.pctExportacion, pctNoExport: r.pctNoExportacion, pctMujeres: r.pctMujeres, pctNoComercial: r.pctNoComercial,
           kgPodrido: r.kgPodrido, pctPodrido: r.pctPodrido,
           mdna3: r.mdna.MA3KGC, mdna4: r.mdna.MA4KGC, mdna5: r.mdna.MA5KGC, mdna12: r.mdna.MA12KGC,
@@ -271,13 +279,14 @@ export function hojasAprovechamientoReal(data: AprovechamientoReal, finca: strin
         { header: "Pasadas", key: "pasadas", tipo: "numero", numFmt: FMT_INT, width: 9 },
         kgCol("Kg calibrador", "kgSizer", 15),
         kgCol("De ellos, del Word", "kgDocx", 18),
+        kgCol("De ellos, repartidos (estimación)", "kgRepartido", 24),
         kgCol("Kg según el parte (sin volcar)", "kgEnParte", 20),
         pctCol("Desfase", "desfase", 10),
         { header: "Motivo", key: "motivo", width: 88 },
       ],
       filas: data.lotes.map((l) => ({
         parcela: etiquetaParcela(l.parcela), lote: l.lote8, fecha: l.fecha, kgEntrada: l.kgEntrada, conDato: LABEL_ESTADO_DATO[l.estado], pasadas: l.pasadas,
-        kgSizer: l.kgSizer, kgDocx: l.kgRespaldo, kgEnParte: l.kgEnParte, desfase: l.desfase, motivo: l.motivo,
+        kgSizer: l.kgSizer, kgDocx: l.kgRespaldo, kgRepartido: l.kgRepartido, kgEnParte: l.kgEnParte, desfase: l.desfase, motivo: l.motivo,
       })),
     },
     {

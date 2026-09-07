@@ -17,6 +17,12 @@
  * Un único hook "bulk" (`useMermaLotes`) sirve tanto a la tabla "Mermas y
  * coste" (EntradasBascula.tsx) como a la ficha de un lote (TrazabilidadLote,
  * vía `useMermaLote(lote)`, que filtra el resultado en memoria).
+ *
+ * NOTA 04-09-2026: el camino de respaldo que lee clasificacion_lote directamente
+ * casa por `lote_codigo_base` (el lote que RECIBE los kg), no por `lote_codigo`:
+ * la vista canónica reparte las pasadas compuestas y `lote_codigo` es ahora el
+ * nombre crudo de la pasada; con él, el podrido repartido al segundo lote se le
+ * habría cargado al primero.
  */
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -117,11 +123,13 @@ export function useMermaLotes() {
           "useMermaLotes: lote_clasificacion_podrido_agg aún no existe (migración 20260717120000 pendiente de aplicar); usando el fetch completo de clasificacion_lote.",
           err,
         );
-        const rows = await fetchAllRows<{ lote_codigo: string | null; clase: string | null; peso_kg: number }>(
-          (from, to) => supabase.from("clasificacion_lote").select("lote_codigo, clase, peso_kg").order("id").range(from, to),
+        // lote_codigo_base = el lote que RECIBE los kg tras el reparto canónico
+        // (04-09-2026); computeMermaLotes lo normaliza igual que cualquier código.
+        const rows = await fetchAllRows<{ lote_codigo_base: string | null; clase: string | null; peso_kg: number }>(
+          (from, to) => supabase.from("clasificacion_lote").select("lote_codigo_base, clase, peso_kg").order("id").range(from, to),
         );
         return rows.map((c) => ({
-          lote_codigo: c.lote_codigo ?? null,
+          lote_codigo: c.lote_codigo_base ?? null,
           clase: c.clase ?? null,
           peso_kg: toNum(c.peso_kg),
         }));
