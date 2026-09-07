@@ -1,7 +1,15 @@
 // src/pages/EconomicoFacturacion.tsx
 // Sección "Económico → Facturación": factura de Mercadona (base IVA de
-// mercadona_semanas / mercadona_semana_metodos) por semana y por método. Ya
-// NO es la única fuente de € de venta: las ventas de categoría segunda
+// mercadona_semanas / mercadona_semana_metodos) por semana y por método.
+//
+// LA ÚNICA CASA DE LOS EUROS DE MERCADONA desde el 04-09-2026: Comercial →
+// Mercadona leía las mismas filas y enseñaba los mismos números (y los veía el
+// rol "ventas", que no entra aquí); ahora allí solo hay kilos y esta página es
+// la que contesta "cuánto se facturó". La base sin IVA ya no se importa a mano
+// del Excel semanal: la sincroniza cada día la tarea del ERP desde las facturas
+// (scripts/mercadona-facturacion-erp.mjs), validada al céntimo contra las
+// semanas 30 y 31; el Excel sigue aportando planificación, kilos, palets y cajas.
+// Ya NO es la única fuente de € de venta: las ventas de categoría segunda
 // (clientes fijos LN211/LN314/LN210/LN560/L1020/L1511/LN551, ver
 // ventasMensualImport.ts) se importan aparte con granularidad MENSUAL, no
 // semanal, así que se muestran en una tarjeta informativa propia en vez de
@@ -279,7 +287,7 @@ export default function EconomicoFacturacion() {
           <div>
             <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Económico</p>
             <h1 className="page-title">Facturación</h1>
-            <p className="page-subtitle">Facturación de Mercadona por semana y por método.</p>
+            <p className="page-subtitle">Lo facturado a Mercadona por semana y formato, tomado cada día de las facturas del ERP. Los kilos y la planificación, en <Link to="/comercial/mercadona" className="underline underline-offset-2">Comercial → Mercadona</Link>.</p>
           </div>
         </header>
         <EconomicoSubnav />
@@ -390,7 +398,7 @@ export default function EconomicoFacturacion() {
               <h2 className="text-lg font-semibold">Sin facturación importada</h2>
               <p className="mt-1 max-w-md text-sm text-muted-foreground">
                 {verTodo
-                  ? "Ninguna semana importada trae todavía base IVA. Importa una semana con el formato semanal real desde Mercadona → Importar para que aparezca aquí."
+                  ? "Ninguna semana tiene base IVA todavía. La trae cada día la tarea del ERP desde las facturas de Mercadona; si no aparece, o Mercadona no ha facturado o el rastro de la tarea (sistema_ejecuciones) dice qué semana está bloqueada y por qué."
                   : "Ninguna semana con base IVA solapa este periodo. Prueba otro periodo o pulsa \"Todo el histórico\"."}
               </p>
             </div>

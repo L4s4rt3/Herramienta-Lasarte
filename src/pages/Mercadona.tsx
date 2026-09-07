@@ -2,13 +2,22 @@
 // Seccion "Mercadona": concentra la informacion relevante del cliente principal —
 // ventas semanales planificadas vs vendidas (Excel del dueño) + aprovechamiento
 // MDNA sobre produccion (useMercadona) + cruce con productores/formatos top.
+//
+// SIN EUROS DESDE EL 04-09-2026. Esta pagina y Economico → Facturacion leian las
+// mismas filas (mercadona_semanas/_metodos) y enseñaban los mismos numeros: dos
+// sitios para una cifra, y encima aqui los veia el rol "ventas", que no entra
+// en Economico. Cada pagina contesta una pregunta: aqui KILOS (planificado,
+// vendido, cumplimiento, palets, aprovechamiento); los euros —base sin IVA por
+// formato, abonos, €/kg— viven SOLO en Economico → Facturacion, que desde hoy
+// los toma de las facturas del ERP. El admin tiene el enlace en el resumen.
 import { useEffect, useMemo, useState } from "react";
 import {
   Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  AlertTriangle, Boxes, Euro, PackageCheck, ShoppingCart, TrendingUp, Upload,
+  AlertTriangle, Boxes, PackageCheck, ShoppingCart, TrendingUp, Upload,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,7 +42,7 @@ import { useAuth } from "@/contexts/AuthProvider";
 
 type TopTab = "resumen" | "analisis" | "expediciones" | "lotes" | "prevision" | "importar" | "exportar";
 
-export default function Mercadona({ conFacturacion = true }: { conFacturacion?: boolean }) {
+export default function Mercadona() {
   const { role } = useAuth();
   const isAdmin = role === "admin";
   const ventas = useMercadonaVentas();
@@ -79,7 +88,7 @@ export default function Mercadona({ conFacturacion = true }: { conFacturacion?: 
           <div>
             <p className="panel-kicker flex items-center gap-1.5"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-seccion-texto" aria-hidden="true" />Comercial</p>
             <h1 className="page-title">Mercadona</h1>
-            <p className="page-subtitle">Aprovechamiento, ventas semanales y planificación del cliente principal.</p>
+            <p className="page-subtitle">Kilos, planificación y aprovechamiento del cliente principal. Los euros, en Económico → Facturación.</p>
           </div>
         </header>
         <Card className="glass-accented">
@@ -146,7 +155,7 @@ export default function Mercadona({ conFacturacion = true }: { conFacturacion?: 
                 canNext={activeIndex < semanas.length - 1 && activeIndex !== -1}
               />
 
-              {activeSemana ? <ResumenSemana semana={activeSemana} mercadona={mercadona} conFacturacion={conFacturacion} /> : null}
+              {activeSemana ? <ResumenSemana semana={activeSemana} mercadona={mercadona} enlaceFacturacion={isAdmin} /> : null}
 
               <EvolucionSemanal semanas={semanas} />
             </>
@@ -280,11 +289,12 @@ function cumplimientoAccent(pct: number): "success" | "warning" | "destructive" 
 }
 
 function ResumenSemana({
-  semana, mercadona, conFacturacion,
+  semana, mercadona, enlaceFacturacion,
 }: {
   semana: MercadonaSemanaConMetodos;
   mercadona: ReturnType<typeof useMercadona>;
-  conFacturacion: boolean;
+  /** Solo admin entra en Economico: a los demas ni se les enseña el camino. */
+  enlaceFacturacion: boolean;
 }) {
   const aprovechamiento = useMercadonaAprovechamiento(semana.anio, semana.semana);
   const vendido = semana.vendido_kg ?? 0;
@@ -294,18 +304,13 @@ function ResumenSemana({
   const totalPalets = semana.metodos.reduce((s, m) => s + (m.palets ?? 0), 0);
   const totalCajas = semana.metodos.reduce((s, m) => s + (m.cajas ?? 0), 0);
 
-  // KPI "Facturación (base IVA)": solo si el formato semanal real trajo base_iva
-  // y estamos en el espacio Comercial (conFacturacion). En Producción no debe
-  // verse ningún dato de dinero. Métodos + ajustes/abonos (estos últimos casi
-  // siempre negativos).
-  const tieneBaseIva = conFacturacion && (semana.metodos.some((m) => m.base_iva != null) || semana.ajustes_base_iva != null);
-  const facturacionMetodos = semana.metodos.reduce((s, m) => s + (m.base_iva ?? 0), 0);
-  const facturacionTotal = facturacionMetodos + (semana.ajustes_base_iva ?? 0);
-  const eurosPorKg = vendido > 0 ? facturacionTotal / vendido : 0;
+  // Aqui no hay euros (ver cabecera del fichero): la base sin IVA de la semana
+  // esta en Economico → Facturacion. Solo se dice donde, y solo a quien entra.
+  const tieneFacturacion = semana.metodos.some((m) => m.base_iva != null) || semana.ajustes_base_iva != null;
 
   return (
     <div className="space-y-4">
-      <section className={cn("grid grid-cols-2 gap-3", tieneBaseIva ? "xl:grid-cols-5" : "xl:grid-cols-4")}>
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <KPICard
           className="glass-accented"
           label="Vendido"
@@ -337,17 +342,14 @@ function ResumenSemana({
           hint="Totales de los métodos"
           icon={Boxes}
         />
-        {tieneBaseIva ? (
-          <KPICard
-            className="glass-accented"
-            label="Facturación (base IVA)"
-            value={`${formatNumber(facturacionTotal, 2)} €`}
-            hint={`${formatNumber(eurosPorKg, 3)} €/kg medio`}
-            icon={Euro}
-            labelInfo="Suma de la base IVA de los métodos más los ajustes/abonos de la semana (estos últimos habitualmente negativos)."
-          />
-        ) : null}
       </section>
+      {enlaceFacturacion ? (
+        <p className="text-xs text-muted-foreground">
+          Los euros de esta semana (base sin IVA por formato, abonos y €/kg){tieneFacturacion ? "" : " aún no están facturados y"} viven en{" "}
+          <Link to="/economico/facturacion" className="font-semibold underline underline-offset-2">Económico → Facturación</Link>
+          , que los toma cada día de las facturas del ERP.
+        </p>
+      ) : null}
 
       <section className="grid gap-4 xl:grid-cols-2">
         <Card className="glass-accented overflow-hidden">
@@ -440,59 +442,31 @@ function ResumenSemana({
                   <th className="text-left">Método</th>
                   <th className="text-left">Descripción</th>
                   <th className="text-right">Kilos</th>
-                  {tieneBaseIva ? (
-                    <>
-                      <th className="text-right">Líneas</th>
-                      <th className="text-right">Base IVA</th>
-                    </>
-                  ) : (
-                    <>
-                      <th className="text-right">%</th>
-                      <th className="text-right">Palets</th>
-                      <th className="text-right">Cajas</th>
-                      <th className="text-right">Comparativa</th>
-                    </>
-                  )}
+                  <th className="text-right">%</th>
+                  <th className="text-right">Palets</th>
+                  <th className="text-right">Cajas</th>
+                  <th className="text-right">Comparativa</th>
                 </tr>
               </thead>
               <tbody>
                 {semana.metodos.length === 0 ? (
-                  <tr><td colSpan={tieneBaseIva ? 5 : 7} className="py-6 text-center text-sm text-muted-foreground">Sin métodos registrados.</td></tr>
+                  <tr><td colSpan={7} className="py-6 text-center text-sm text-muted-foreground">Sin métodos registrados.</td></tr>
                 ) : semana.metodos.map((m, i) => (
                   <tr key={m.id} className={i % 2 === 1 ? "bg-[var(--glass-bg)]/40" : undefined}>
                     <td className="px-3 py-1.5 font-semibold">{m.metodo}</td>
                     <td className="px-3 py-1.5 text-muted-foreground">{m.descripcion ?? "—"}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums font-medium">{formatKg(m.kilos ?? 0)}</td>
-                    {tieneBaseIva ? (
-                      <>
-                        <td className="px-3 py-1.5 text-right tabular-nums">{m.lineas != null ? formatNumber(m.lineas) : "—"}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">{m.base_iva != null ? `${formatNumber(m.base_iva, 2)} €` : "—"}</td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="px-3 py-1.5 text-right tabular-nums">{m.pct != null ? `${formatNumber(m.pct, 0)}%` : "—"}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(m.palets ?? 0)}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(m.cajas ?? 0)}</td>
-                        <td className={cn(
-                          "px-3 py-1.5 text-right tabular-nums",
-                          m.comparativa_anterior_pct != null && m.comparativa_anterior_pct >= 0 ? "text-success" : "text-destructive",
-                        )}>
-                          {m.comparativa_anterior_pct != null ? `${m.comparativa_anterior_pct >= 0 ? "+" : ""}${formatNumber(m.comparativa_anterior_pct, 0)}%` : "—"}
-                        </td>
-                      </>
-                    )}
-                  </tr>
-                ))}
-                {tieneBaseIva && semana.ajustes_base_iva != null ? (
-                  <tr className="border-t border-[var(--glass-border)] font-medium">
-                    <td className="px-3 py-1.5" colSpan={2}>Ajustes/abonos</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">—</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{semana.ajustes_lineas != null ? formatNumber(semana.ajustes_lineas) : "—"}</td>
-                    <td className={cn("px-3 py-1.5 text-right tabular-nums", semana.ajustes_base_iva < 0 ? "text-destructive" : "text-success")}>
-                      {formatNumber(semana.ajustes_base_iva, 2)} €
+                    <td className="px-3 py-1.5 text-right tabular-nums">{m.pct != null ? `${formatNumber(m.pct, 0)}%` : "—"}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(m.palets ?? 0)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(m.cajas ?? 0)}</td>
+                    <td className={cn(
+                      "px-3 py-1.5 text-right tabular-nums",
+                      m.comparativa_anterior_pct != null && m.comparativa_anterior_pct >= 0 ? "text-success" : "text-destructive",
+                    )}>
+                      {m.comparativa_anterior_pct != null ? `${m.comparativa_anterior_pct >= 0 ? "+" : ""}${formatNumber(m.comparativa_anterior_pct, 0)}%` : "—"}
                     </td>
                   </tr>
-                ) : null}
+                ))}
               </tbody>
             </table>
           </div>

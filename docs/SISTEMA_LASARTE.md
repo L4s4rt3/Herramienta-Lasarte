@@ -59,7 +59,7 @@ Leyenda: ✅ en producción y estable · 🟡 funciona pero con riesgos o cabos 
 | Coste por producto (CMV) | 🟡 | 978 fichas con coste propio. El Informe PRODUCTO ya se genera y sube solo (14-08) y desde el 17-08 lleva el **empaque habitual relleno** (RPC `empaques_habituales`): los kg/bulto se deducen sin carga manual. Queda: catálogo del Sizer para productos NUEVOS (bloqueado por credenciales `SIZER_*`) y los costes/precios de ficha, que son del dueño. |
 | Venta en consignación | ✅ | Entendida y documentada: albarán sin factura ≠ albarán olvidado. |
 | Gastos varios (facturas no-fruta, ~3 M€) | 🔴 | Aplazado: duda del precio por millar de Ecoenvases sin confirmar y riesgo de doble conteo con consumos. |
-| Ventas vs. facturas Mercadona | 🔴 | Son idénticas; decisión de unificar pendiente. |
+| Ventas vs. facturas Mercadona | ✅ | **DECIDIDO 04-09**: eran las mismas filas (`mercadona_semanas`) en dos páginas. Cada una contesta una pregunta: Comercial → Mercadona solo KILOS (planificado, vendido, cumplimiento, palets, aprovechamiento; lo ve el rol ventas) y Económico → Facturación es la única casa de los EUROS (base sin IVA por formato, abonos, €/kg; solo admin), que desde el 04-09 llegan solos de las facturas del ERP. El admin tiene enlace cruzado en ambas. |
 
 ### 2.4 RR. HH.
 
@@ -312,7 +312,7 @@ dice el mismo día.*
 
 - Importador del Informe PRODUCTO (CMV automático).
 - Retomar gastos varios (confirmando antes el precio Ecoenvases).
-- Decidir ventas vs. facturas Mercadona (unificar).
+- ~~Decidir ventas vs. facturas Mercadona (unificar).~~ Hecho 04-09: kilos en Comercial, euros en Económico.
 - Cuenta de resultados de campaña dentro de la herramienta: de "informes que hace Luis" a "página que consulta dirección".
 
 ### Fase 5 — Medición y mejora continua
@@ -372,6 +372,6 @@ La medición de uso de la herramienta (qué páginas se abren) entra en la Fase 
 - [ ] Catálogo de productos del Sizer (empaque de productos NUEVOS): bloqueado por las credenciales `SIZER_*` del visor.
 - [ ] Modo económico (ocultar € por rol).
 - [ ] Gastos varios (bloqueado por la duda Ecoenvases).
-- [ ] Decisión ventas/facturas Mercadona.
+- [x] Decisión ventas/facturas Mercadona (04-09: kilos en Comercial → Mercadona, euros solo en Económico → Facturación).
 - [x] Respuesta de Compac a la incidencia del auto-envío — CERRADA: el auto-envío funciona por Gmail desde el 18-08 y es la vía única desde el 26-08 (destino directo al buzón que lee la Herramienta).
 - [ ] Store global de tiempo (aplazado en la reforma de conectividad).
