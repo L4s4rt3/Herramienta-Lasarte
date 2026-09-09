@@ -386,6 +386,22 @@ export function añadirHojaTabla(ctx: ExcelWorkbookCtx, opts: HojaTablaOptions):
 }
 
 /** Genera los bytes del libro (.xlsx) y dispara la descarga en el navegador. */
+/**
+ * Excel enseña la coma decimal COLGANDO cuando el formato lleva decimales
+ * opcionales: con "#,##0.##" un 96.000 se ve "96.000," (detectado por el dueño
+ * en el Excel de compras, 09-09-2026). Esta pasada por columna lo corrige por
+ * celda: a los enteros les deja "#,##0" (sin coma) y a los que tienen
+ * decimales de verdad, el formato con decimales. Llamar DESPUÉS de
+ * añadirHojaTabla, con la `key` de la columna afectada.
+ */
+export function corregirComaColgante(ws: Worksheet, key: string, conDecimales = "#,##0.##"): void {
+  ws.getColumn(key).eachCell((cell) => {
+    if (typeof cell.value === "number") {
+      cell.numFmt = Number.isInteger(cell.value) ? "#,##0" : conDecimales;
+    }
+  });
+}
+
 export async function descargarLibro(ctx: ExcelWorkbookCtx, filename: string): Promise<void> {
   const buffer = await ctx.workbook.xlsx.writeBuffer();
   downloadBytes(new Uint8Array(buffer), filename);

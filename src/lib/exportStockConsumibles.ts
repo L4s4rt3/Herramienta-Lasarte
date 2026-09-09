@@ -5,6 +5,7 @@
 // Excel↔PDF de pdfKit.ts).
 import {
   añadirHojaTabla,
+  corregirComaColgante,
   crearLibroLasarte,
   FMT_EUR,
   type ColumnaTabla,
@@ -113,12 +114,14 @@ export async function generarListaStockExcel(
     generadoEn,
   });
 
-  añadirHojaTabla(ctx, {
+  const hoja = añadirHojaTabla(ctx, {
     nombreHoja: "Stock",
     columnas: columnasStock({ conValor: opts.conValor, conPrecio: opts.conValor }),
     filas: filasStock(items),
     totales: opts.conValor ? totalesStock(items) : undefined,
   });
+  // Sin coma colgante en los stocks enteros ("4.918," → "4.918").
+  corregirComaColgante(hoja, "stock", FMT_STOCK);
 
   const buffer = await ctx.workbook.xlsx.writeBuffer();
   const filename = nombreFicheroStock("xlsx", generadoEn);
