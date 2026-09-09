@@ -80,6 +80,9 @@ $tareas = @(
   # Despierta el equipo: a las 22:45 puede estar en reposo moderno.
   @{ nombre = "Lasarte - Ensayo restauracion";  vbs = "restaurar-copia.vbs";    despierta = $true;  crear = @("/SC", "MONTHLY", "/M", "JAN,APR,JUL,OCT", "/D", "2", "/ST", "22:45") }
   @{ nombre = "Lasarte - Asistencia del reloj";  vbs = "tarea-asistencia-reloj.vbs"; despierta = $true;  crear = @("/SC", "WEEKLY", "/D", "MON", "/ST", "09:30") }
+  # Precios de consumibles desde el ERP: despues del sync diario (07:40) y
+  # antes de la asistencia (09:30). Necesita la red de la oficina.
+  @{ nombre = "Lasarte - Precios consumibles";   vbs = "tarea-precios-consumibles.vbs"; despierta = $true;  crear = @("/SC", "WEEKLY", "/D", "MON", "/ST", "08:45") }
 )
 
 # Las tareas nacieron con schtasks a mano; las que llevan `crear` se dan de alta

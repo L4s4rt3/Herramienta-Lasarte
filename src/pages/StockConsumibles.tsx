@@ -620,6 +620,10 @@ function EditarDialog(props: {
     stock: number;
     nota: string | null;
     precio_unitario?: number | null;
+    precio_fuente?: string | null;
+    precio_actualizado_at?: string | null;
+    erp_codigo?: number | null;
+    erp_factor?: number;
     activo?: boolean;
   }) => Promise<void>;
   onCartel: (item: StockConsumible) => void;
@@ -629,6 +633,8 @@ function EditarDialog(props: {
   const [ajusteTexto, setAjusteTexto] = useState("");
   const [notaTexto, setNotaTexto] = useState("");
   const [precioTexto, setPrecioTexto] = useState("");
+  const [erpCodigoTexto, setErpCodigoTexto] = useState("");
+  const [erpFactorTexto, setErpFactorTexto] = useState("1");
   const [verHistorial, setVerHistorial] = useState(false);
   const { data: historial } = useStockHistorial(verHistorial && item ? item.id : null);
 
@@ -638,6 +644,8 @@ function EditarDialog(props: {
     setAjusteTexto("");
     setNotaTexto(item.nota ?? "");
     setPrecioTexto(item.precio_unitario === null ? "" : String(item.precio_unitario));
+    setErpCodigoTexto(item.erp_codigo === null ? "" : String(item.erp_codigo));
+    setErpFactorTexto(String(item.erp_factor ?? 1));
     setVerHistorial(false);
   }, [item]);
 
@@ -689,6 +697,26 @@ function EditarDialog(props: {
         return;
       }
       cambios.precio_unitario = precio;
+      // Si el admin toca el precio a mano, la fuente pasa a "manual" (el lunes
+      // el sync del ERP volverá a poner la suya si el artículo está enlazado).
+      const precioActual = item.precio_unitario === null ? null : Number(item.precio_unitario);
+      if (precio !== precioActual) {
+        cambios.precio_fuente = "manual";
+        cambios.precio_actualizado_at = new Date().toISOString();
+      }
+      const codigoTexto = erpCodigoTexto.trim();
+      const codigo = codigoTexto === "" ? null : Number(codigoTexto);
+      if (codigo !== null && (!Number.isInteger(codigo) || codigo <= 0)) {
+        toast({ title: "Código ERP no válido", description: "Es el código numérico del artículo en GSTOCK.", variant: "destructive" });
+        return;
+      }
+      const factor = erpFactorTexto.trim() === "" ? 1 : Number(erpFactorTexto.replace(",", "."));
+      if (!Number.isFinite(factor) || factor <= 0) {
+        toast({ title: "Factor ERP no válido", description: "1 = precio por unidad; 0,001 = el ERP lo tiene por millar.", variant: "destructive" });
+        return;
+      }
+      cambios.erp_codigo = codigo;
+      cambios.erp_factor = factor;
     }
     await props.onGuardar(cambios);
   };
@@ -780,20 +808,63 @@ function EditarDialog(props: {
               />
             </div>
             {esAdmin && (
-              <div className="space-y-1.5">
-                <Label htmlFor="precio" className="text-sm">
-                  Precio (€/{item.unidad}) — solo admin
-                </Label>
-                <Input
-                  id="precio"
-                  value={precioTexto}
-                  onChange={(evento) => setPrecioTexto(evento.target.value)}
-                  inputMode="decimal"
-                  autoComplete="off"
-                  placeholder="Sin precio"
-                  className="h-11 rounded-xl text-base tabular-nums"
-                />
-              </div>
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="precio" className="text-sm">
+                    Precio (€/{item.unidad}) — solo admin
+                  </Label>
+                  <Input
+                    id="precio"
+                    value={precioTexto}
+                    onChange={(evento) => setPrecioTexto(evento.target.value)}
+                    inputMode="decimal"
+                    autoComplete="off"
+                    placeholder="Sin precio"
+                    className="h-11 rounded-xl text-base tabular-nums"
+                  />
+                  {item.precio_fuente && (
+                    <p className="text-xs text-muted-foreground">
+                      Fuente: {item.precio_fuente}
+                      {item.precio_actualizado_at ? ` · ${fechaCorta(item.precio_actualizado_at)}` : ""}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="erp-codigo" className="text-sm">
+                        Código ERP (GSTOCK)
+                      </Label>
+                      <Input
+                        id="erp-codigo"
+                        value={erpCodigoTexto}
+                        onChange={(evento) => setErpCodigoTexto(evento.target.value)}
+                        inputMode="numeric"
+                        autoComplete="off"
+                        placeholder="Sin enlazar"
+                        className="h-11 rounded-xl text-base tabular-nums"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="erp-factor" className="text-sm">
+                        Factor ERP
+                      </Label>
+                      <Input
+                        id="erp-factor"
+                        value={erpFactorTexto}
+                        onChange={(evento) => setErpFactorTexto(evento.target.value)}
+                        inputMode="decimal"
+                        autoComplete="off"
+                        className="h-11 rounded-xl text-base tabular-nums"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Con código ERP, el precio se actualiza solo cada lunes desde la última factura de compra.
+                    Factor 1 = precio por unidad; 0,001 = el ERP lo tiene por millar.
+                  </p>
+                </div>
+              </>
             )}
 
             <button

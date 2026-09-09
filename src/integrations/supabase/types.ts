@@ -3576,10 +3576,14 @@ export type Database = {
           almacen: string
           creado_por: string | null
           created_at: string
+          erp_codigo: number | null
+          erp_factor: number
           familia: string
           id: string
           nombre: string
           nota: string | null
+          precio_actualizado_at: string | null
+          precio_fuente: string | null
           precio_unitario: number | null
           stock: number
           unidad: string
@@ -3590,10 +3594,14 @@ export type Database = {
           almacen?: string
           creado_por?: string | null
           created_at?: string
+          erp_codigo?: number | null
+          erp_factor?: number
           familia?: string
           id?: string
           nombre: string
           nota?: string | null
+          precio_actualizado_at?: string | null
+          precio_fuente?: string | null
           precio_unitario?: number | null
           stock?: number
           unidad?: string
@@ -3604,10 +3612,14 @@ export type Database = {
           almacen?: string
           creado_por?: string | null
           created_at?: string
+          erp_codigo?: number | null
+          erp_factor?: number
           familia?: string
           id?: string
           nombre?: string
           nota?: string | null
+          precio_actualizado_at?: string | null
+          precio_fuente?: string | null
           precio_unitario?: number | null
           stock?: number
           unidad?: string

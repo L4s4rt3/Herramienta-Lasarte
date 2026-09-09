@@ -308,6 +308,21 @@ const TRABAJOS: DefTrabajo[] = [
     ),
   },
   {
+    id: "precios-consumibles",
+    nombre: "Precios de consumibles desde el ERP (portátil de oficina)",
+    queHace: "Cada lunes a las 08:45 lee el último precio de compra de cada artículo enlazado (gdata001.articulo_compras, " +
+      "solo lectura) y lo lleva a stock_consumibles con su fuente (factura, proveedor, fecha). Un precio fuera de " +
+      "[1/3×, 3×] del vigente no se aplica: queda como nota CONFIRMAR en /consumibles.",
+    evaluar: periodico(
+      "cada lunes por la mañana",
+      7 * 24 * 60 + 6 * 60,
+      8 * 24 * 60,
+      "Necesita la red de la oficina (el ERP no se ve desde fuera). Relanzable a mano: " +
+      "node scripts/sincronizar-precios-consumibles-erp.mjs --aplicar (idempotente; sin --aplicar solo simula). " +
+      "El log local está en outputs/log-precios-consumibles.txt.",
+    ),
+  },
+  {
     id: "vigilante",
     nombre: "Vigilante (corre en Supabase)",
     queHace: "Comprueba cada día a las 13:45, desde fuera del portátil, que todo lo de arriba ha corrido; si no, avisa por correo.",
