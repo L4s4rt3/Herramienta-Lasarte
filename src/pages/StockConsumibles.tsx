@@ -625,6 +625,7 @@ function EditarDialog(props: {
 }) {
   const { item, esAdmin } = props;
   const [stockTexto, setStockTexto] = useState("");
+  const [ajusteTexto, setAjusteTexto] = useState("");
   const [notaTexto, setNotaTexto] = useState("");
   const [precioTexto, setPrecioTexto] = useState("");
   const [verHistorial, setVerHistorial] = useState(false);
@@ -633,10 +634,41 @@ function EditarDialog(props: {
   useEffect(() => {
     if (!item) return;
     setStockTexto(String(item.stock));
+    setAjusteTexto("");
     setNotaTexto(item.nota ?? "");
     setPrecioTexto(item.precio_unitario === null ? "" : String(item.precio_unitario));
     setVerHistorial(false);
   }, [item]);
+
+  // La tercera vía de apuntar (petición del 09-09): además de teclear el número
+  // completo, sumar o restar una cantidad ("han llegado 500", "se bajaron 200").
+  // El ajuste toca la casilla del recuento, NO guarda: el resultado se ve antes
+  // de darle a Guardar, y se pueden encadenar varios ajustes.
+  const aplicarAjuste = (signo: 1 | -1) => {
+    if (!item) return;
+    const cantidad = Number(ajusteTexto.replace(",", "."));
+    if (!Number.isFinite(cantidad) || cantidad <= 0) {
+      toast({ title: "Cantidad no válida", description: "Escribe cuánto sumar o restar.", variant: "destructive" });
+      return;
+    }
+    const base = Number(stockTexto.replace(",", "."));
+    const desde = Number.isFinite(base) ? base : item.stock;
+    const nuevo = Math.round((desde + signo * cantidad) * 1000) / 1000;
+    if (nuevo < 0) {
+      toast({
+        title: "Se queda en 0",
+        description: `Restar ${ajusteTexto} dejaba el stock en negativo (había ${formatStock(desde)}).`,
+      });
+      setStockTexto("0");
+    } else {
+      setStockTexto(String(nuevo));
+    }
+    setAjusteTexto("");
+  };
+
+  // Diferencia entre lo tecleado/ajustado y lo guardado, para verla antes de dar a Guardar.
+  const stockPropuesto = Number(stockTexto.replace(",", "."));
+  const diferencia = item && Number.isFinite(stockPropuesto) ? Math.round((stockPropuesto - item.stock) * 1000) / 1000 : 0;
 
   const guardar = async () => {
     if (!item) return;
@@ -674,9 +706,22 @@ function EditarDialog(props: {
             </DialogHeader>
 
             <div className="space-y-1.5">
-              <Label htmlFor="stock-nuevo" className="text-sm">
-                Recuento actual ({item.unidad})
-              </Label>
+              <div className="flex items-baseline justify-between">
+                <Label htmlFor="stock-nuevo" className="text-sm">
+                  Recuento actual ({item.unidad})
+                </Label>
+                {diferencia !== 0 && (
+                  <span
+                    className={cn(
+                      "text-sm font-semibold tabular-nums",
+                      diferencia > 0 ? "text-success" : "text-destructive",
+                    )}
+                  >
+                    {diferencia > 0 ? "+" : "−"}
+                    {formatStock(Math.abs(diferencia))} al guardar
+                  </span>
+                )}
+              </div>
               <Input
                 id="stock-nuevo"
                 value={stockTexto}
@@ -690,6 +735,36 @@ function EditarDialog(props: {
                 }}
                 className="h-14 rounded-xl text-center text-2xl font-bold tabular-nums"
               />
+              {/* Sumar/restar sobre el recuento: la vía cómoda cuando llega o
+                  sale mercancía y nadie quiere hacer la cuenta de cabeza. */}
+              <div className="flex gap-2 pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => aplicarAjuste(-1)}
+                  className="h-12 w-16 shrink-0 rounded-xl text-2xl font-bold"
+                  aria-label="Restar cantidad"
+                >
+                  −
+                </Button>
+                <Input
+                  value={ajusteTexto}
+                  onChange={(evento) => setAjusteTexto(evento.target.value)}
+                  inputMode="decimal"
+                  autoComplete="off"
+                  placeholder="Cantidad a sumar o restar"
+                  className="h-12 flex-1 rounded-xl text-center text-lg tabular-nums"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => aplicarAjuste(1)}
+                  className="h-12 w-16 shrink-0 rounded-xl text-2xl font-bold"
+                  aria-label="Sumar cantidad"
+                >
+                  +
+                </Button>
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="nota" className="text-sm">
