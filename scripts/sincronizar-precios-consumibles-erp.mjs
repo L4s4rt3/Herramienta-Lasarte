@@ -87,7 +87,8 @@ async function main() {
       [codigos],
     );
     [evidencias] = await erp.query(
-      `SELECT l.articulo, l.fecha_entrada, cab.albaran_prov, cab.num_fra_prov, p.nombre AS proveedor
+      `SELECT l.articulo, l.fecha_entrada, cab.albaran_prov, cab.num_fra_prov,
+              COALESCE(NULLIF(p.razon_social, ''), p.nombre_comercial) AS proveedor
          FROM ${EMPRESA}.ent_prov_lineas l
          JOIN (SELECT articulo, MAX(clave_registro) AS ult
                  FROM ${EMPRESA}.ent_prov_lineas
