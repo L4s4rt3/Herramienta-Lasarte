@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Boxes,
   Check,
+  FileSpreadsheet,
   History,
   ListChecks,
   Loader2,
@@ -48,6 +49,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -71,6 +78,7 @@ import {
   type StockConsumible,
 } from "@/lib/stockConsumibles";
 import { generarCartelesPdf, generarListaStockPdf } from "@/lib/stockConsumiblesPdf";
+import { generarListaStockExcel } from "@/lib/exportStockConsumibles";
 import { cn } from "@/lib/utils";
 
 /** Clases del diálogo en móvil: pegado arriba (el teclado sale por abajo y no
@@ -173,11 +181,14 @@ export default function StockConsumibles() {
     setGuardadosRecuento((n) => n + 1);
   };
 
-  const imprimirLista = async () => {
+  const exportarLista = async (formato: "pdf" | "excel") => {
     setGenerando(true);
     try {
-      const nombre = await generarListaStockPdf(filtrados, { conValor: esAdmin });
-      if (nombre) toast({ title: "Lista generada", description: nombre });
+      const nombre =
+        formato === "pdf"
+          ? await generarListaStockPdf(filtrados, { conValor: esAdmin })
+          : await generarListaStockExcel(filtrados, { conValor: esAdmin });
+      if (nombre) toast({ title: formato === "pdf" ? "Lista PDF generada" : "Excel generado", description: nombre });
     } catch (error) {
       toast({
         title: "No se pudo generar el PDF",
@@ -241,15 +252,28 @@ export default function StockConsumibles() {
           <Tags className="mr-1.5 h-4 w-4" />
           Carteles
         </Button>
-        <Button
-          variant="outline"
-          onClick={() => void imprimirLista()}
-          disabled={generando || filtrados.length === 0}
-          className="h-12 rounded-2xl text-sm font-semibold"
-        >
-          {generando ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Printer className="mr-1.5 h-4 w-4" />}
-          Lista PDF
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              disabled={generando || filtrados.length === 0}
+              className="h-12 rounded-2xl text-sm font-semibold"
+            >
+              {generando ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Printer className="mr-1.5 h-4 w-4" />}
+              Lista
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={() => void exportarLista("pdf")}>
+              <Printer className="mr-2 h-4 w-4" />
+              Imprimir en PDF
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => void exportarLista("excel")}>
+              <FileSpreadsheet className="mr-2 h-4 w-4" />
+              Exportar a Excel
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button variant="outline" onClick={() => setNuevoAbierto(true)} className="h-12 rounded-2xl text-sm font-semibold">
           <Plus className="mr-1.5 h-4 w-4" />
           Añadir

@@ -2,10 +2,11 @@
 // papel) y los CARTELES por artículo (un A4 apaisado por consumible, con el
 // nombre y el stock a tamaño gigante, para pegarlo físicamente en la estantería).
 // Usa las piezas formales de pdfKit (cabecera con logo + nº de documento, pie
-// legal, tabla dirigida por ColumnaTabla) para que salga con la misma marca que
-// el resto de informes de la herramienta.
+// legal, tabla dirigida por ColumnaTabla) y COMPARTE columnas, filas y entrega
+// con el Excel (exportStockConsumibles.ts): misma definición → mismas cabeceras
+// y formatos en las dos salidas.
 import { jsPDF } from "jspdf";
-import { generarExportId, type ColumnaTabla } from "./exportKit";
+import { generarExportId } from "./exportKit";
 import {
   cabeceraDocumento,
   finalizarPaginacionFormal,
@@ -15,35 +16,16 @@ import {
   safeText,
 } from "./pdfKit";
 import { PDF_THEME } from "./exportTheme";
-import { esPendiente, formatEuros, formatStock, valorItem, type StockConsumible } from "./stockConsumibles";
+import {
+  columnasStock,
+  entregarArchivo,
+  filasStock,
+  nombreFicheroStock,
+  totalesStock,
+} from "./exportStockConsumibles";
+import { esPendiente, formatStock, type StockConsumible } from "./stockConsumibles";
 
 const PDF_MIME = "application/pdf";
-
-/** Mismo criterio que entregarDocx (useCalidadImport): en iPhone/Android la
- * hoja de compartir nativa (imprimir por AirPrint, Mail, WhatsApp); en
- * escritorio, descarga clásica. La descarga de blobs en una PWA instalada en
- * iOS falla en silencio, por eso el share es el camino fiable en móvil. */
-async function entregarPdf(blob: Blob, filename: string): Promise<"compartido" | "descargado" | "cancelado"> {
-  const esMovil = typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-  const file = new File([blob], filename, { type: PDF_MIME });
-  if (esMovil && typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: filename });
-      return "compartido";
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") return "cancelado";
-    }
-  }
-  const url = URL.createObjectURL(new Blob([blob], { type: PDF_MIME }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  return "descargado";
-}
 
 function fechaArchivo(fecha: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -83,32 +65,12 @@ export async function generarListaStockPdf(
     36,
   );
 
-  const columnas: ColumnaTabla[] = [
-    { header: "Artículo", key: "nombre" },
-    { header: "Familia", key: "familia" },
-    { header: "Stock", key: "stock", align: "right" },
-    { header: "Ud.", key: "unidad", align: "center" },
-    ...(opts.conValor ? ([{ header: "Valor", key: "valor", align: "right" }] as ColumnaTabla[]) : []),
-    { header: "Notas", key: "nota" },
-  ];
-  const filas = items.map((item) => {
-    const valor = valorItem(item);
-    return {
-      nombre: item.nombre + (item.almacen === "exterior" ? " — ALMACÉN EXTERIOR" : ""),
-      familia: item.familia,
-      stock: formatStock(item.stock),
-      unidad: item.unidad,
-      ...(opts.conValor ? { valor: valor === null ? "" : formatEuros(valor) } : {}),
-      nota: item.nota ?? "",
-    };
-  });
-  const totalValor = items.reduce((suma, item) => suma + (valorItem(item) ?? 0), 0);
-  const totales = opts.conValor ? { nombre: "TOTAL", valor: formatEuros(totalValor) } : undefined;
-
+  // El PDF va sin la columna de precio unitario (el A4 vertical no da para
+  // más); el Excel sí la lleva. El resto de columnas, idénticas por definición.
   pdfTablaDesdeColumnas(doc, {
-    columnas,
-    filas,
-    totales,
+    columnas: columnasStock({ conValor: opts.conValor, conPrecio: false }),
+    filas: filasStock(items),
+    totales: opts.conValor ? totalesStock(items) : undefined,
     startY: 40,
     didDrawPage: (data) => {
       if (data.pageNumber > 1) chrome();
@@ -116,8 +78,8 @@ export async function generarListaStockPdf(
   });
 
   finalizarPaginacionFormal(doc);
-  const filename = `stock-consumibles-${fechaArchivo(generadoEn)}.pdf`;
-  const via = await entregarPdf(doc.output("blob"), filename);
+  const filename = nombreFicheroStock("pdf", generadoEn);
+  const via = await entregarArchivo(doc.output("blob"), filename, PDF_MIME);
   return via === "cancelado" ? null : filename;
 }
 
@@ -177,6 +139,6 @@ export async function generarCartelesPdf(items: StockConsumible[]): Promise<stri
     items.length === 1
       ? `cartel-${items[0].nombre.toLowerCase().replace(/[^a-z0-9]+/gi, "-").slice(0, 40)}-${fechaArchivo(generadoEn)}.pdf`
       : `carteles-stock-${items.length}-${fechaArchivo(generadoEn)}.pdf`;
-  const via = await entregarPdf(doc.output("blob"), filename);
+  const via = await entregarArchivo(doc.output("blob"), filename, PDF_MIME);
   return via === "cancelado" ? null : filename;
 }

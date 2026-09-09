@@ -81,27 +81,34 @@ type FmtFormatter = (n: number) => string;
 // exigen un Nº FIJO de decimales ("1.234,50 kg" siempre con 2). Se replica
 // aquí el mismo fallback de agrupación manual sobre un Intl.NumberFormat con
 // decimales fijos.
-const esFormattersPorDigitos = new Map<number, Intl.NumberFormat>();
-function esNumberFormatter(digits: number): Intl.NumberFormat {
-  let f = esFormattersPorDigitos.get(digits);
+const esFormattersPorRango = new Map<string, Intl.NumberFormat>();
+function esNumberFormatter(minDigits: number, maxDigits: number): Intl.NumberFormat {
+  const clave = `${minDigits}-${maxDigits}`;
+  let f = esFormattersPorRango.get(clave);
   if (!f) {
-    f = new Intl.NumberFormat("es-ES", { minimumFractionDigits: digits, maximumFractionDigits: digits });
-    esFormattersPorDigitos.set(digits, f);
+    f = new Intl.NumberFormat("es-ES", { minimumFractionDigits: minDigits, maximumFractionDigits: maxDigits });
+    esFormattersPorRango.set(clave, f);
   }
   return f;
 }
 function groupThousands(intPart: string): string {
   return intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
-/** Número es-ES con N decimales fijos y separador de miles garantizado (mismo fallback ICU que excelPreview.ts). */
-function formatNumeroEsFijo(value: number, digits: number): string {
-  const formatted = esNumberFormatter(digits).format(value);
+/** Número es-ES con decimales entre min y max (semántica Excel: "0" = fijo,
+ * "#" = solo si hace falta) y separador de miles garantizado (mismo fallback
+ * ICU que excelPreview.ts). */
+function formatNumeroEsRango(value: number, minDigits: number, maxDigits: number): string {
+  const formatted = esNumberFormatter(minDigits, maxDigits).format(value);
   const needsManualGrouping = Math.abs(value) >= 1000 && !formatted.includes(".");
   if (!needsManualGrouping) return formatted;
   const [intPart, decPart] = formatted.split(",");
   const sign = intPart.startsWith("-") ? "-" : "";
   const grouped = `${sign}${groupThousands(sign ? intPart.slice(1) : intPart)}`;
   return decPart ? `${grouped},${decPart}` : grouped;
+}
+/** Número es-ES con N decimales fijos. */
+function formatNumeroEsFijo(value: number, digits: number): string {
+  return formatNumeroEsRango(value, digits, digits);
 }
 
 /**
@@ -130,8 +137,12 @@ const FMT_FORMATTERS: Record<string, FmtFormatter> = {
  */
 function formatNumFmtGenerico(n: number, numFmt: string): string {
   const sufijo = numFmt.match(/"([^"]*)"\s*$/)?.[1]?.trim() ?? "";
-  const decimales = numFmt.match(/\.([0#]+)/)?.[1]?.length ?? 0;
-  const base = formatNumeroEsFijo(n, decimales);
+  // Semántica de numFmt de Excel: en los decimales, "0" es dígito FIJO y "#"
+  // dígito opcional — "#,##0.##" enseña 10,5 y 1.500 (no "1.500,00"). Antes
+  // ambos contaban como fijos y un patrón con "#" forzaba ceros de relleno.
+  const patronDecimales = numFmt.match(/\.([0#]+)/)?.[1] ?? "";
+  const minimos = (patronDecimales.match(/0/g) ?? []).length;
+  const base = formatNumeroEsRango(n, minimos, patronDecimales.length);
   return sufijo ? `${base} ${sufijo}` : base;
 }
 

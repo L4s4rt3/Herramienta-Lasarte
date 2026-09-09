@@ -68,6 +68,15 @@ describe("formatCeldaPdf — mismo numFmt es-ES que aplicaría Excel", () => {
   it("respeta un numFmt 'suelto' no cubierto por las constantes FMT_* (p.ej. '0.0')", () => {
     expect(formatCeldaPdf(3.456, col({ numFmt: "0.0" }))).toBe("3,5");
   });
+  it("con '#' los decimales son OPCIONALES, como en Excel ('#,##0.##' del stock de consumibles)", () => {
+    expect(formatCeldaPdf(1500, col({ numFmt: "#,##0.##" }))).toBe("1.500");
+    expect(formatCeldaPdf(10.5, col({ numFmt: "#,##0.##" }))).toBe("10,5");
+    expect(formatCeldaPdf(1234567, col({ numFmt: "#,##0.##" }))).toBe("1.234.567");
+  });
+  it("mezcla '0#' = mínimo fijo y máximo opcional ('0.0#')", () => {
+    expect(formatCeldaPdf(3, col({ numFmt: "0.0#" }))).toBe("3,0");
+    expect(formatCeldaPdf(3.456, col({ numFmt: "0.0#" }))).toBe("3,46");
+  });
   it("usa el tipo de columna cuando no hay numFmt explícito (tipo 'numero' -> FMT_INT)", () => {
     expect(formatCeldaPdf(1500, col({ tipo: "numero" }))).toBe("1.500");
   });
