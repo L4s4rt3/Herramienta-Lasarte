@@ -59,6 +59,15 @@ export function esPendiente(item: Pick<StockConsumible, "nota">): boolean {
   return nota.includes("PENDIENTE") || nota.includes("CONFIRMAR") || nota.startsWith("Sin contar");
 }
 
+/** Quién hizo un cambio del historial, corto para el móvil: la parte local del
+ * correo ("jesus@lasartesat.es" → "jesus"). Cambios anteriores a que se
+ * guardara el correo (o de un usuario borrado) salen como "—". */
+export function autorHistorial(cambio: Pick<StockConsumibleHistorial, "cambiado_por_email">): string {
+  const email = cambio.cambiado_por_email ?? "";
+  if (email.trim() === "") return "—";
+  return email.split("@")[0];
+}
+
 /** Búsqueda sin tildes ni mayúsculas ("carton" encuentra "Cartón"). */
 export function normalizarTexto(s: string): string {
   return s

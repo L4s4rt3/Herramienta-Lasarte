@@ -3618,6 +3618,7 @@ export type Database = {
       stock_consumibles_historial: {
         Row: {
           cambiado_por: string | null
+          cambiado_por_email: string | null
           consumible_id: string
           created_at: string
           id: string
@@ -3626,6 +3627,7 @@ export type Database = {
         }
         Insert: {
           cambiado_por?: string | null
+          cambiado_por_email?: string | null
           consumible_id: string
           created_at?: string
           id?: string
@@ -3634,6 +3636,7 @@ export type Database = {
         }
         Update: {
           cambiado_por?: string | null
+          cambiado_por_email?: string | null
           consumible_id?: string
           created_at?: string
           id?: string

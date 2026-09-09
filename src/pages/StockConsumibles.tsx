@@ -69,6 +69,7 @@ import {
   useStockHistorial,
 } from "@/hooks/useStockConsumibles";
 import {
+  autorHistorial,
   esPendiente,
   formatEuros,
   formatStock,
@@ -807,9 +808,11 @@ function EditarDialog(props: {
               <div className="space-y-1 rounded-xl border p-3 text-sm">
                 {(historial ?? []).length === 0 && <p className="text-muted-foreground">Sin cambios registrados aún.</p>}
                 {(historial ?? []).map((cambio) => (
-                  <p key={cambio.id} className="flex justify-between gap-2 tabular-nums">
-                    <span className="text-muted-foreground">{fechaCorta(cambio.created_at)}</span>
-                    <span>
+                  <p key={cambio.id} className="flex items-baseline justify-between gap-2">
+                    <span className="min-w-0 truncate text-muted-foreground">
+                      {fechaCorta(cambio.created_at)} · {autorHistorial(cambio)}
+                    </span>
+                    <span className="shrink-0 tabular-nums">
                       {cambio.stock_anterior === null ? "—" : formatStock(Number(cambio.stock_anterior))} →{" "}
                       <strong>{formatStock(Number(cambio.stock_nuevo))}</strong>
                     </span>
