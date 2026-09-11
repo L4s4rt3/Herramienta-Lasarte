@@ -18,6 +18,16 @@
  * artículos del ERP sumados: caja de alquiler + fianza/depósito (EPS 3,86 €,
  * IFCO 3,50 €) o caja + tapa (Otello). precio = principal + extra.
  *
+ * IMPUESTO DEL PLÁSTICO. Daumar (bandas, mallas, asas, cubres, alveolos PET)
+ * factura el impuesto sobre el plástico no reutilizable (0,45 €/kg) como LÍNEA
+ * APARTE del albarán (artículo "IMPUESTO SOBRE EL PLASTICO…", familia IMPP), así
+ * que precio_ult_compra va sin él. Jesús lo suma al precio (comprobado el 11-09
+ * con sus facturas FA288816/FA289881/FA290712: sus cifras son exactamente
+ * (importe + impuesto) / unidades). Aquí se hace igual: se busca el albarán más
+ * reciente del artículo que lleve línea de impuesto y se aplica su recargo
+ * (impuesto / importe de los productos del albarán; si el albarán trae varios
+ * productos se reparte por importe y se dice). Sin línea de impuesto, sin recargo.
+ *
  * SIN precio_ult_compra (artículos antiguos, el ERP lo tiene a 0): se toma la
  * ÚLTIMA LÍNEA de compra real. Como el ERP escribe el precio de línea por
  * unidad o por millar según le dé, se prueban las cuatro lecturas posibles
@@ -95,7 +105,7 @@ async function main() {
   //    albarán/factura y fecha) — evidencia para precio_fuente y respaldo
   //    cuando precio_ult_compra está a 0.
   const erp = await conectarErp();
-  let articulos, evidencias;
+  let articulos, evidencias, lineasAlbaranes;
   try {
     [articulos] = await erp.query(
       `SELECT g.codigo, ac.precio_ult_compra, ac.fecha_ult_compra, g.denominacion
@@ -118,11 +128,70 @@ async function main() {
          LEFT JOIN ${EMPRESA}.terceros_proveedores p ON p.num_proveedor = l.num_proveedor`,
       [codigos],
     );
+    // Impuesto del plástico: todas las líneas de los albaranes recientes en los
+    // que aparece algún artículo enlazado (con familia y nombre, para saber qué
+    // es plástico y qué es impuesto). El reparto se decide abajo, en JS.
+    [lineasAlbaranes] = await erp.query(
+      `SELECT l.serie_entrada, l.num_entrada, l.fecha_entrada, l.clave_registro, l.articulo, l.importe,
+              g.Familia AS familia, g.denominacion
+         FROM ${EMPRESA}.ent_prov_lineas l
+         LEFT JOIN ${EMPRESA}.articulo_general g ON g.codigo = l.articulo
+        WHERE (l.serie_entrada, l.num_entrada) IN (
+                SELECT DISTINCT serie_entrada, num_entrada FROM ${EMPRESA}.ent_prov_lineas
+                 WHERE articulo IN (?) AND precio_neto > 0
+                   AND fecha_entrada >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH))`,
+      [codigos],
+    );
   } finally {
     await erp.end();
   }
   const articuloPorCodigo = new Map(articulos.map((a) => [Number(a.codigo), a]));
   const evidenciaPorCodigo = new Map(evidencias.map((e) => [Number(e.articulo), e]));
+  // Recargo del impuesto del plástico por artículo. Se recorre del albarán más
+  // reciente al más antiguo (el ERP tiene albaranes duplicados SIN la línea de
+  // impuesto — la banda neutra blanca del 31-07 — y un albarán sin impuesto no
+  // es una exención). Albarán de UN producto: el impuesto es suyo, sea lo que
+  // sea. Albarán de varios: solo lo pagan los de plástico (bandas, mallas,
+  // alveolos, cubres, plástico, stikers de polipropileno) y se reparte entre
+  // ellos por importe — las cajas de cartón, grapas o cintas del mismo albarán
+  // no llevan nada (comprobado con los kg de las líneas de impuesto).
+  const esImpuesto = (l) => l.familia === "IMPP" || /IMPUESTO/.test(l.denominacion ?? "");
+  const esServicio = (l) => l.familia === "SERV" || /TRANSPORTE|SERVICIO|PORTES/.test(l.denominacion ?? "");
+  const esPlastico = (l) =>
+    ["BANDA", "MALLA", "ALV", "CUB", "PLA"].includes(l.familia) ||
+    (l.familia === "ETIQ" && /STIKER|POLIPROP|PE/.test(l.denominacion ?? ""));
+  const porAlbaran = new Map();
+  for (const l of lineasAlbaranes) {
+    const clave = `${l.serie_entrada}|${l.num_entrada}`;
+    if (!porAlbaran.has(clave)) porAlbaran.set(clave, []);
+    porAlbaran.get(clave).push(l);
+  }
+  const recargoPorCodigo = new Map();
+  for (const codigo of codigos) {
+    const propias = lineasAlbaranes
+      .filter((l) => Number(l.articulo) === codigo && Number(l.importe) > 0)
+      .sort((a, b) => Number(b.clave_registro) - Number(a.clave_registro));
+    for (const propia of propias) {
+      const lineas = porAlbaran.get(`${propia.serie_entrada}|${propia.num_entrada}`) ?? [];
+      const impuesto = lineas.filter(esImpuesto).reduce((s, l) => s + Number(l.importe), 0);
+      if (impuesto <= 0) continue;
+      const productos = lineas.filter((l) => !esImpuesto(l) && !esServicio(l));
+      const distintos = new Set(productos.map((l) => Number(l.articulo)));
+      const alb = `alb. ${propia.serie_entrada}${propia.num_entrada} ${fechaCorta(propia.fecha_entrada)}`;
+      let base;
+      let texto;
+      if (distintos.size === 1) {
+        base = productos.reduce((s, l) => s + Number(l.importe), 0);
+        texto = `impuesto plástico (${alb})`;
+      } else {
+        if (!esPlastico(propia)) break; // producto sin plástico en un albarán mixto: el impuesto es de otros
+        base = productos.filter(esPlastico).reduce((s, l) => s + Number(l.importe), 0);
+        texto = `impuesto plástico repartido por importe entre ${distintos.size} productos (${alb})`;
+      }
+      if (base > 0) recargoPorCodigo.set(codigo, { ratio: impuesto / base, texto: `+${(impuesto / base * 100).toFixed(1)}% ${texto}` });
+      break;
+    }
+  }
 
   /**
    * Precio por unidad nuestra de un artículo del ERP y su fuente.
@@ -139,17 +208,20 @@ async function main() {
       (evidencia?.proveedor ? ` · ${evidencia.proveedor}` : "") +
       (evidencia?.num_fra_prov ? ` · fra. ${evidencia.num_fra_prov}` : evidencia?.albaran_prov ? ` · alb. ${evidencia.albaran_prov}` : "") +
       ` · ${fechaCorta(evidencia?.fecha_entrada ?? art.fecha_ult_compra)}`;
+    const recargo = recargoPorCodigo.get(codigo);
+    const conImpuesto = (v) => redondear(v * (1 + (recargo?.ratio ?? 0)));
+    const fuenteFinal = recargo ? `${fuente} · ${recargo.texto}` : fuente;
     const ultCompra = Number(art.precio_ult_compra);
-    if (Number.isFinite(ultCompra) && ultCompra > 0) return { precio: redondear(ultCompra * factor), fuente };
+    if (Number.isFinite(ultCompra) && ultCompra > 0) return { precio: conImpuesto(ultCompra * factor), fuente: fuenteFinal };
     if (evidencia && Number(evidencia.precio_neto) > 0) {
       const pn = Number(evidencia.precio_neto);
       const imp = Number(evidencia.importe);
       const qty = Number(evidencia.cantidad);
       const candidatos = [...new Set(
-        [pn, pn / 1000, ...(qty > 0 && imp > 0 ? [imp / qty, imp / qty / 1000] : [])].map((v) => redondear(v * factor)).filter((v) => v > 0),
+        [pn, pn / 1000, ...(qty > 0 && imp > 0 ? [imp / qty, imp / qty / 1000] : [])].map((v) => conImpuesto(v * factor)).filter((v) => v > 0),
       )];
-      if (referencia > 0) return { precio: masCercano(candidatos, referencia), fuente: `${fuente} (última línea)` };
-      return { candidatos, fuente: `${fuente}: sin precio vigente para elegir entre ${candidatos.join(" / ")} €/${unidad}` };
+      if (referencia > 0) return { precio: masCercano(candidatos, referencia), fuente: `${fuenteFinal} (última línea)` };
+      return { candidatos, fuente: `${fuenteFinal}: sin precio vigente para elegir entre ${candidatos.join(" / ")} €/${unidad}` };
     }
     return { error: `ERP ${codigo} «${art.denominacion}» sin precio ni líneas de compra` };
   }
