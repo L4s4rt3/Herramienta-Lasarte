@@ -12,7 +12,11 @@
  * el factor 0.001 existe porque el ERP tiene artículos con el precio POR MILLAR
  * metido como unitario (banda EDEKA a "28,66 €/ud"). Enlace inicial curado a
  * mano el 09-09 validando por precio contra el inventario del 01-09; segunda
- * tanda el 11-09 desde las líneas de compra reales (820 artículos no-fruta).
+ * y tercera tanda el 11-09 desde las líneas de compra y el catálogo completo.
+ *
+ * SEGUNDO COMPONENTE (erp_codigo_extra). Hay consumibles cuyo coste son DOS
+ * artículos del ERP sumados: caja de alquiler + fianza/depósito (EPS 3,86 €,
+ * IFCO 3,50 €) o caja + tapa (Otello). precio = principal + extra.
  *
  * SIN precio_ult_compra (artículos antiguos, el ERP lo tiene a 0): se toma la
  * ÚLTIMA LÍNEA de compra real. Como el ERP escribe el precio de línea por
@@ -75,7 +79,7 @@ async function main() {
   // 1. Consumibles enlazados (el resto ni se mira: sus precios son manuales).
   const { data: consumibles, error } = await supabase
     .from("stock_consumibles")
-    .select("id, nombre, almacen, unidad, precio_unitario, nota, erp_codigo, erp_factor")
+    .select("id, nombre, almacen, unidad, precio_unitario, precio_fuente, nota, erp_codigo, erp_factor, erp_codigo_extra, erp_factor_extra")
     .eq("activo", true)
     .not("erp_codigo", "is", null);
   if (error) throw new Error(`Supabase: ${error.message}`);
@@ -84,7 +88,7 @@ async function main() {
     await anotarEjecucion({ trabajo: TRABAJO, inicio, estado: "aviso", detalle: "0 consumibles enlazados" });
     return;
   }
-  const codigos = [...new Set(consumibles.map((c) => Number(c.erp_codigo)))];
+  const codigos = [...new Set(consumibles.flatMap((c) => [Number(c.erp_codigo), c.erp_codigo_extra === null ? null : Number(c.erp_codigo_extra)]).filter((x) => x !== null))];
 
   // 2. Por artículo: su precio de última compra (si el ERP lo mantiene) y la
   //    última línea de entrada real (precio, cantidad, importe, proveedor,
@@ -120,6 +124,36 @@ async function main() {
   const articuloPorCodigo = new Map(articulos.map((a) => [Number(a.codigo), a]));
   const evidenciaPorCodigo = new Map(evidencias.map((e) => [Number(e.articulo), e]));
 
+  /**
+   * Precio por unidad nuestra de un artículo del ERP y su fuente.
+   *  - {precio, fuente}      → resuelto (precio_ult_compra × factor, o última línea elegida por cercanía).
+   *  - {candidatos, fuente}  → última línea sin referencia para elegir la lectura.
+   *  - {error}               → sin alta o sin precio ni líneas.
+   */
+  function leerPrecio(codigo, factor, referencia, unidad) {
+    const art = articuloPorCodigo.get(codigo);
+    if (!art) return { error: `código ${codigo} no existe en el ERP` };
+    const evidencia = evidenciaPorCodigo.get(codigo);
+    const fuente =
+      `ERP ${codigo} «${art.denominacion}»` +
+      (evidencia?.proveedor ? ` · ${evidencia.proveedor}` : "") +
+      (evidencia?.num_fra_prov ? ` · fra. ${evidencia.num_fra_prov}` : evidencia?.albaran_prov ? ` · alb. ${evidencia.albaran_prov}` : "") +
+      ` · ${fechaCorta(evidencia?.fecha_entrada ?? art.fecha_ult_compra)}`;
+    const ultCompra = Number(art.precio_ult_compra);
+    if (Number.isFinite(ultCompra) && ultCompra > 0) return { precio: redondear(ultCompra * factor), fuente };
+    if (evidencia && Number(evidencia.precio_neto) > 0) {
+      const pn = Number(evidencia.precio_neto);
+      const imp = Number(evidencia.importe);
+      const qty = Number(evidencia.cantidad);
+      const candidatos = [...new Set(
+        [pn, pn / 1000, ...(qty > 0 && imp > 0 ? [imp / qty, imp / qty / 1000] : [])].map((v) => redondear(v * factor)).filter((v) => v > 0),
+      )];
+      if (referencia > 0) return { precio: masCercano(candidatos, referencia), fuente: `${fuente} (última línea)` };
+      return { candidatos, fuente: `${fuente}: sin precio vigente para elegir entre ${candidatos.join(" / ")} €/${unidad}` };
+    }
+    return { error: `ERP ${codigo} «${art.denominacion}» sin precio ni líneas de compra` };
+  }
+
   // 3. Consumible a consumible: aplicar, sospechar o dejar en paz.
   const aplicados = [];
   const sospechosos = [];
@@ -138,50 +172,40 @@ async function main() {
   };
 
   for (const c of consumibles) {
-    const codigo = Number(c.erp_codigo);
-    const art = articuloPorCodigo.get(codigo);
-    if (!art) {
-      sinArticulo.push(`${c.nombre} (${c.almacen}) → código ${c.erp_codigo} no existe en el ERP`);
+    const actual = c.precio_unitario === null ? null : Number(c.precio_unitario);
+    const principal = leerPrecio(Number(c.erp_codigo), Number(c.erp_factor || 1), actual ?? 0, c.unidad);
+    if (principal.error) {
+      sinArticulo.push(`${c.nombre} (${c.almacen}) → ${principal.error}`);
       continue;
     }
-    const factor = Number(c.erp_factor || 1);
-    const actual = c.precio_unitario === null ? null : Number(c.precio_unitario);
-    const evidencia = evidenciaPorCodigo.get(codigo);
-    const fuenteBase =
-      `ERP ${c.erp_codigo} «${art.denominacion}»` +
-      (evidencia?.proveedor ? ` · ${evidencia.proveedor}` : "") +
-      (evidencia?.num_fra_prov ? ` · fra. ${evidencia.num_fra_prov}` : evidencia?.albaran_prov ? ` · alb. ${evidencia.albaran_prov}` : "") +
-      ` · ${fechaCorta(evidencia?.fecha_entrada ?? art.fecha_ult_compra)}`;
+    if (principal.candidatos) {
+      await marcarSospechoso(c, `CONFIRMAR precio ERP: ${principal.fuente}.`);
+      continue;
+    }
 
-    let nuevo = null;
-    let fuente = fuenteBase;
-    const ultCompra = Number(art.precio_ult_compra);
-    if (Number.isFinite(ultCompra) && ultCompra > 0) {
-      nuevo = redondear(ultCompra * factor);
-    } else if (evidencia && Number(evidencia.precio_neto) > 0) {
-      const pn = Number(evidencia.precio_neto);
-      const imp = Number(evidencia.importe);
-      const qty = Number(evidencia.cantidad);
-      const candidatos = [pn, pn / 1000, ...(qty > 0 && imp > 0 ? [imp / qty, imp / qty / 1000] : [])]
-        .map((v) => redondear(v * factor))
-        .filter((v) => v > 0);
-      if (actual !== null && actual > 0) {
-        nuevo = masCercano(candidatos, actual);
-        fuente = `${fuenteBase} (última línea)`;
-      } else {
-        await marcarSospechoso(
-          c,
-          `CONFIRMAR precio ERP: sin precio vigente para elegir entre ${[...new Set(candidatos)].join(" / ")} €/${c.unidad} — ${fuenteBase}.`,
-        );
+    let nuevo = principal.precio;
+    let fuente = principal.fuente;
+    if (c.erp_codigo_extra !== null) {
+      // El extra (fianza, depósito, tapa) se elige contra lo que le falta al principal para llegar al vigente.
+      const referenciaExtra = actual !== null && actual > principal.precio ? actual - principal.precio : 0;
+      const extra = leerPrecio(Number(c.erp_codigo_extra), Number(c.erp_factor_extra || 1), referenciaExtra, c.unidad);
+      if (extra.error || extra.candidatos) {
+        await marcarSospechoso(c, `CONFIRMAR precio ERP: el componente extra no se puede leer — ${extra.error ?? extra.fuente}.`);
         continue;
       }
-    } else {
-      sinArticulo.push(`${c.nombre} (${c.almacen}) → ERP ${c.erp_codigo} sin precio ni líneas de compra`);
-      continue;
+      nuevo = redondear(principal.precio + extra.precio);
+      fuente = `${principal.fuente} + ${extra.fuente}`;
     }
 
     if (actual !== null && Math.abs(nuevo - actual) < 1e-9) {
+      // Mismo precio: aun así se deja escrito de dónde sale (y la factura más
+      // reciente que lo confirma), que "cada cifra con su de dónde" vale
+      // también para las que no cambian.
       sinCambio.push(c.nombre);
+      if (APLICAR && (c.precio_fuente ?? "") !== fuente) {
+        const { error: e } = await supabase.from("stock_consumibles").update({ precio_fuente: fuente }).eq("id", c.id);
+        if (e) throw new Error(`fuente de ${c.nombre}: ${e.message}`);
+      }
       continue;
     }
 
@@ -210,7 +234,7 @@ async function main() {
   }
   if (sospechosos.length) {
     console.log(`\nFUERA DE BANDA o sin referencia, sin aplicar — marcados CONFIRMAR en la app (${sospechosos.length}):`);
-    for (const s of sospechosos) console.log(`  ${s.aviso}`);
+    for (const s of sospechosos) console.log(`  ${s.c.nombre}: ${s.aviso}`);
   }
   if (sinArticulo.length) {
     console.log(`\nEnlazados pero sin precio en el ERP (${sinArticulo.length}):`);
@@ -228,7 +252,8 @@ async function main() {
     datos: {
       aplicar: APLICAR,
       actualizados: aplicados.map((a) => ({ nombre: a.c.nombre, almacen: a.c.almacen, de: a.actual, a: a.nuevo })),
-      sospechosos: sospechosos.map((s) => s.aviso),
+      sospechosos: sospechosos.map((s) => `${s.c.nombre}: ${s.aviso}`),
+      sinPrecioErp: sinArticulo,
     },
   });
 }

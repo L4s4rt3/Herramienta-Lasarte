@@ -624,6 +624,7 @@ function EditarDialog(props: {
     precio_actualizado_at?: string | null;
     erp_codigo?: number | null;
     erp_factor?: number;
+    erp_codigo_extra?: number | null;
     activo?: boolean;
   }) => Promise<void>;
   onCartel: (item: StockConsumible) => void;
@@ -635,6 +636,7 @@ function EditarDialog(props: {
   const [precioTexto, setPrecioTexto] = useState("");
   const [erpCodigoTexto, setErpCodigoTexto] = useState("");
   const [erpFactorTexto, setErpFactorTexto] = useState("1");
+  const [erpExtraTexto, setErpExtraTexto] = useState("");
   const [verHistorial, setVerHistorial] = useState(false);
   const { data: historial } = useStockHistorial(verHistorial && item ? item.id : null);
 
@@ -646,6 +648,7 @@ function EditarDialog(props: {
     setPrecioTexto(item.precio_unitario === null ? "" : String(item.precio_unitario));
     setErpCodigoTexto(item.erp_codigo === null ? "" : String(item.erp_codigo));
     setErpFactorTexto(String(item.erp_factor ?? 1));
+    setErpExtraTexto(item.erp_codigo_extra === null ? "" : String(item.erp_codigo_extra));
     setVerHistorial(false);
   }, [item]);
 
@@ -717,6 +720,13 @@ function EditarDialog(props: {
       }
       cambios.erp_codigo = codigo;
       cambios.erp_factor = factor;
+      const extraTexto = erpExtraTexto.trim();
+      const extra = extraTexto === "" ? null : Number(extraTexto);
+      if (extra !== null && (!Number.isInteger(extra) || extra <= 0)) {
+        toast({ title: "Código ERP extra no válido", description: "Es el artículo que se SUMA (fianza, depósito, tapa).", variant: "destructive" });
+        return;
+      }
+      cambios.erp_codigo_extra = extra;
     }
     await props.onGuardar(cambios);
   };
@@ -859,9 +869,24 @@ function EditarDialog(props: {
                       />
                     </div>
                   </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="erp-extra" className="text-sm">
+                      Código ERP que se SUMA (fianza, depósito, tapa)
+                    </Label>
+                    <Input
+                      id="erp-extra"
+                      value={erpExtraTexto}
+                      onChange={(evento) => setErpExtraTexto(evento.target.value)}
+                      inputMode="numeric"
+                      autoComplete="off"
+                      placeholder="Solo si el coste son dos artículos"
+                      className="h-11 rounded-xl text-base tabular-nums"
+                    />
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     Con código ERP, el precio se actualiza solo cada lunes desde la última factura de compra.
-                    Factor 1 = precio por unidad; 0,001 = el ERP lo tiene por millar.
+                    Factor 1 = precio por unidad; 0,001 = el ERP lo tiene por millar. El código extra sirve para
+                    cajas de alquiler (caja + fianza/depósito) o caja + tapa.
                   </p>
                 </div>
               </>

@@ -3577,7 +3577,9 @@ export type Database = {
           creado_por: string | null
           created_at: string
           erp_codigo: number | null
+          erp_codigo_extra: number | null
           erp_factor: number
+          erp_factor_extra: number
           familia: string
           id: string
           nombre: string
@@ -3595,7 +3597,9 @@ export type Database = {
           creado_por?: string | null
           created_at?: string
           erp_codigo?: number | null
+          erp_codigo_extra?: number | null
           erp_factor?: number
+          erp_factor_extra?: number
           familia?: string
           id?: string
           nombre: string
@@ -3613,7 +3617,9 @@ export type Database = {
           creado_por?: string | null
           created_at?: string
           erp_codigo?: number | null
+          erp_codigo_extra?: number | null
           erp_factor?: number
+          erp_factor_extra?: number
           familia?: string
           id?: string
           nombre?: string
