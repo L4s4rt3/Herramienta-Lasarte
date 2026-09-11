@@ -402,5 +402,92 @@ comprobar("un VALIDADO con estimaciones dentro SI es incidencia",
   validadoCon.hayProblema === true && /VALIDADO con estimaciones/.test(validadoCon.cuerpo));
 comprobar("sin estimaciones no aparece la seccion", !/ESTIMADO SEGUN/.test(normal.cuerpo));
 
+// ── La revision del parte (11-09-2026) ──────────────────────────────────────
+// Encargo del dueño: el correo tiene que decir si el parte esta en orden y, si
+// no, que se cree que ha pasado. Lo que se protege aqui es que el veredicto no
+// mienta y que el detalle NO se duplique en la caja roja de arriba.
+const revBien = {
+  ayer: {
+    fecha: "2026-08-10", veredicto: "en-orden", reparaciones: [], diagnostico: [],
+    comprobaciones: [
+      { clave: "parte", titulo: "El parte del día existe", estado: "ok", detalle: 'en estado "Analizado"' },
+      { clave: "gstock", titulo: "GSTOCK del día", estado: "ok", detalle: "72.709 kg" },
+      { clave: "papel", titulo: "Los cinco datos del papel", estado: "n/a", detalle: "día sin actividad" },
+    ],
+  },
+  ventana: [{ fecha: "2026-08-10", veredicto: "en-orden", reparos: 0, resumen: "" }],
+};
+const conRevisionOk = componerAviso({ ...BASE, revision: revBien });
+comprobar("revision: el correo dice el veredicto", /REVISION DEL PARTE/.test(conRevisionOk.cuerpo));
+comprobar("revision: en orden no cuenta las que no aplican",
+  /Veredicto\.+ en orden \(2 comprobaciones\)/.test(conRevisionOk.cuerpo));
+comprobar("revision: un parte en orden NO es una incidencia", conRevisionOk.hayProblema === false);
+comprobar("revision: en orden se dice QUE se ha comprobado, no solo que si",
+  /Estan los informes de lote y el GSTOCK/.test(conRevisionOk.cuerpo));
+
+const revMal = {
+  ayer: {
+    fecha: "2026-08-10", veredicto: "con-reparos",
+    reparaciones: ["Se rehizo el parte del 2026-08-10: informes subido, análisis analizado."],
+    diagnostico: ["El papel del día todavía no se ha tecleado."],
+    comprobaciones: [
+      { clave: "parte", titulo: "El parte del día existe", estado: "ok", detalle: 'en estado "Borrador"' },
+      { clave: "gstock", titulo: "GSTOCK del día", estado: "ok", detalle: "72.709 kg" },
+      { clave: "papel", titulo: "Los cinco datos del papel", estado: "reparo", detalle: "nadie los ha metido todavía", fallo: "el papel sin teclear" },
+    ],
+  },
+  ventana: [
+    { fecha: "2026-08-10", veredicto: "con-reparos", reparos: 1, resumen: "los cinco datos del papel" },
+    { fecha: "2026-08-07", veredicto: "con-reparos", reparos: 1, resumen: "falta 1 informe de lote (26090502)" },
+  ],
+};
+const conRevisionMal = componerAviso({ ...BASE, revision: revMal });
+comprobar("revision: con reparos sube a REVISAR (y el asunto lleva [REVISAR])",
+  conRevisionMal.hayProblema === true);
+comprobar("revision: la caja roja lleva UNA linea, no el detalle entero",
+  conRevisionMal.modelo.avisos.filter((a) => /no esta del todo en orden/.test(a)).length === 1);
+comprobar("revision: y esa linea manda a la seccion de abajo",
+  /En REVISION DEL PARTE, mas abajo/.test(conRevisionMal.cuerpo));
+comprobar("revision: se dice cuantas comprobaciones pasan y cuantas no",
+  /Veredicto\.+ CON REPAROS \(2 de 3 bien\)/.test(conRevisionMal.cuerpo));
+comprobar("revision: se nombra lo que falla, con su detalle",
+  /- Los cinco datos del papel: nadie los ha metido todavía/.test(conRevisionMal.cuerpo));
+comprobar("revision: lo que se arreglo solo se cuenta",
+  /Se ha arreglado solo:/.test(conRevisionMal.cuerpo) && /Se rehizo el parte/.test(conRevisionMal.cuerpo));
+comprobar("revision: y la valoracion de que ha pasado",
+  /Que se cree que ha pasado:/.test(conRevisionMal.cuerpo)
+  && /El papel del día todavía no se ha tecleado/.test(conRevisionMal.cuerpo));
+comprobar("revision: los dias anteriores torcidos salen en una linea",
+  /Dias anteriores que siguen sin cuadrar:/.test(conRevisionMal.cuerpo)
+  && /2026-08-07: falta 1 informe de lote \(26090502\)/.test(conRevisionMal.cuerpo));
+// El resumen de una linea dice QUE FALLA, no como se llama la comprobacion:
+// "el papel sin teclear", no "los cinco datos del papel" (que suena a que
+// estan).
+comprobar("revision: la linea de REVISAR nombra el fallo, no la comprobacion",
+  /no esta del todo en orden: el papel sin teclear\./.test(conRevisionMal.cuerpo));
+comprobar("revision: el propio dia de ayer no se repite como 'dia anterior'",
+  !/- 2026-08-10: /.test(conRevisionMal.cuerpo));
+
+// Con revision, el aviso suelto de "sin informe DOCX" desaparece: lo dice ella
+// y sin los falsos positivos del precalibrado y la fruta de camara.
+const revYFaltan = componerAviso({ ...BASE, revision: revBien,
+  informesCalibrador: { n: 2, lotes: ["a"], lotesConfeccion: 3, faltan: ["26052207"] } });
+comprobar("revision: no se reclama el informe dos veces en el mismo correo",
+  !/Sin informe DOCX del calibrador/.test(revYFaltan.cuerpo));
+comprobar("pero sin revision el aviso de siempre sigue ahi",
+  /Sin informe DOCX del calibrador/.test(faltanAlgunos.cuerpo));
+
+const sinParte = componerAviso({ ...BASE, revision: { ayer: {
+  fecha: "2026-08-10", veredicto: "sin-parte", reparaciones: [], diagnostico: ["Hubo trabajo ese día pero no hay parte."],
+  comprobaciones: [{ clave: "parte", titulo: "El parte del día existe", estado: "reparo", detalle: "no hay parte para ese día" }],
+}, ventana: [] } });
+comprobar("revision: un dia con trabajo y sin parte es incidencia",
+  sinParte.hayProblema === true && /NO hay parte de ese dia/.test(sinParte.cuerpo));
+comprobar("sin revision el correo sale como siempre", !/REVISION DEL PARTE/.test(normal.cuerpo));
+// El HTML se pinta del modelo: si la seccion no llega alli, el correo que se
+// lee de verdad (HTML) no la tiene aunque el texto plano si.
+comprobar("revision: la seccion llega al HTML",
+  /REVISION DEL PARTE/.test(renderAvisoHtml(conRevisionMal.modelo)));
+
 console.log(fallos === 0 ? "\nTodo correcto." : `\n${fallos} comprobacion(es) fallidas.`);
 process.exit(fallos === 0 ? 0 : 1);

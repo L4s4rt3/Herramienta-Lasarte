@@ -22,7 +22,7 @@ import { datosCalibradorDelDia, traerTodo } from "./crear-parte-diario.mjs";
 import { analizarPartesPendientes } from "./analizar-partes-pendientes.mjs";
 import { generarYSubirInformes } from "./generar-informes-parte.mjs";
 import { codigoBaseLote, pasadasDocxFrescas } from "./lib-lotes.mjs";
-import { cuadrar } from "./rehacer-parte.mjs";
+import { informesDelDia, revisarVentana } from "./lib-revision-parte.mjs";
 import { estimarPartesPendientes } from "./estimar-manuales-parte.mjs";
 import { detectarCierre, inventarioSinAlta, diaLocal } from "./lib-cierre-alta.mjs";
 import { parsearInformeCalibrador, validarBloques } from "./lib-informe-calibrador.mjs";
@@ -445,22 +445,47 @@ export async function ejecutarMitadNube(supabase, { ayer, hoy, erp, url, key, en
     incidencias.push(`ERROR: no se pudieron estimar los manuales pendientes: ${e.message}`);
   }
 
-  // EL CUADRE, TODAS LAS MAÑANAS. Un parte puede quedarse con el detalle
-  // descuadrado sin que nada falle: los informes se suben, el analisis termina
-  // bien, y aun asi calibres_dia suma otra cosa que kg_produccion_calibrador.
-  // Paso el 17-08-2026 con las mujeres contadas dos veces, y solo se vio porque
-  // alguien se puso a mirarlo. Comprobarlo aqui es lo que convierte "se subio"
-  // en "esta bien", y sale en el correo con el dia y los kilos.
-  for (const f of ventanaDias(ayer, VENTANA_RECUPERACION)) {
-    try {
-      const { data: p } = await supabase.from("partes_diarios")
-        .select("id, date, kg_produccion_calibrador, kg_palets_brutos").eq("date", f).maybeSingle();
-      if (!p) continue;
-      const c = await cuadrar(supabase, p);
-      for (const d of c.desvios) incidencias.push(`ERROR: el parte del ${f} no cuadra. ${d}.`);
-    } catch (e) {
-      incidencias.push(`ERROR: no se pudo cuadrar el parte del ${f}: ${e.message}`);
+  // LA REVISION, TODAS LAS MAÑANAS Y ANTES DEL CORREO. Hasta el 11-09-2026
+  // aqui solo se CUADRABA el parte contra su detalle y el desvio se soltaba en
+  // "Errores de esta noche": si no cuadraba, el correo lo decia en una linea
+  // suelta y ya. Ahora se revisa entero (informes, GSTOCK, analisis, cuadre,
+  // pasadas repetidas, palets imposibles, los cinco del papel), se INTENTA
+  // ARREGLAR lo arreglable —rehacer el parte vuelve a montar los informes y lo
+  // reanaliza— y lo que no se pueda se explica con una valoracion de lo que ha
+  // podido pasar. Encargo del dueño; ver lib-revision-parte.mjs.
+  //
+  // Va DESPUES de estimar y ANTES de recoger los datos del correo, que es el
+  // unico sitio donde el parte ya tiene todo lo que iba a tener hoy.
+  let revision = null;
+  const informesAyer = await informesDelDia(supabase, ayer).catch(() => null);
+  try {
+    const dias = await revisarVentana(supabase, ventanaDias(ayer, VENTANA_RECUPERACION), {
+      hoy: comoFecha(hoy), aplicar: true, url, key,
+    });
+    const deAyer = dias.find((d) => d.fecha === ayer) ?? null;
+    revision = {
+      ayer: deAyer,
+      ventana: dias.map((d) => ({
+        fecha: d.fecha,
+        veredicto: d.veredicto,
+        reparos: (d.comprobaciones ?? []).filter((c) => c.estado === "reparo").length,
+        // El resumen usa el nombre del FALLO ("falta 1 informe de lote"), no el
+        // de la comprobacion ("informes de lote completos"), que en una linea
+        // suelta se lee justo al reves de lo que pasa.
+        resumen: d.veredicto === "error"
+          ? `no se pudo revisar (${d.motivo})`
+          : (d.comprobaciones ?? []).filter((c) => c.estado === "reparo")
+            .map((c) => c.fallo ?? c.titulo.toLowerCase()).join("; "),
+      })),
+    };
+    // Lo que la revision arreglo o no pudo arreglar en dias que no son ayer
+    // tambien deja rastro: el correo de ayer es el unico que se lee.
+    for (const d of dias) {
+      if (d.veredicto === "error") incidencias.push(`ERROR: no se pudo revisar el parte del ${d.fecha}: ${d.motivo}`);
+      for (const x of d.reparaciones ?? []) if (/^No se pudo|^OJO/.test(x)) incidencias.push(`ERROR: ${x}`);
     }
+  } catch (e) {
+    incidencias.push(`ERROR: no se pudo revisar los partes: ${e.message}`);
   }
 
   // 2. Entradas y palets de ayer.
@@ -576,28 +601,16 @@ export async function ejecutarMitadNube(supabase, { ayer, hoy, erp, url, key, en
   }
 
   // 4. Trazabilidad y correcciones.
-  const lotesDia = [...new Set(palFilas.map((p) => p.lote_confeccion).filter(Boolean))];
-  const cobertura = { lotes: lotesDia.length, conOrigen: 0 };
-  let origenesDia = [];
-  if (lotesDia.length) {
-    const { data } = await supabase.from("erp_confeccion_origen")
-      .select("lote_confeccion, lote_entrada").in("lote_confeccion", lotesDia);
-    origenesDia = data ?? [];
-    cobertura.conOrigen = new Set(origenesDia.map((r) => r.lote_confeccion)).size;
-  }
-
-  const yymmdd = ayer.slice(2, 4) + ayer.slice(5, 7) + ayer.slice(8, 10);
-  const confAyer = new Set(lotesDia.filter((l) => /^\d{8}$/.test(l) && l.slice(2) === yymmdd));
-  // El lote del informe viene tal cual lo teclea planta ("26051903 24 BOX"):
-  // se reduce al codigo base para que case con los lotes de entrada esperados,
-  // o cada informe llegado contaria igualmente como "sin informe".
-  const { data: infData } = await supabase.from("calibrador_informe").select("lote").eq("fecha", ayer);
-  const lotesInformes = [...new Set((infData ?? []).map((r) => codigoBaseLote(r.lote)))].sort();
-  const esperados = [...new Set(origenesDia.filter((o) => confAyer.has(o.lote_confeccion)).map((o) => o.lote_entrada))];
-  const informesCalibrador = {
-    n: lotesInformes.length, lotes: lotesInformes, lotesConfeccion: confAyer.size,
-    faltan: esperados.filter((l) => !lotesInformes.includes(l)).sort(),
-  };
+  //
+  // La cobertura de trazabilidad y los informes que faltan salen del MISMO
+  // calculo que usa la revision (informesDelDia): antes vivian aqui copiados y
+  // podian contar cosas distintas en el mismo correo. Si la lectura fallo, se
+  // degrada a "no se sabe" en vez de inventar un cero.
+  const cobertura = informesAyer?.cobertura ?? { lotes: 0, conOrigen: 0 };
+  const informesCalibrador = informesAyer
+    ? { n: informesAyer.n, lotes: informesAyer.lotes, lotesConfeccion: informesAyer.lotesConfeccion,
+      faltan: informesAyer.faltan }
+    : null;
 
   // Discrepancias ERP <-> app pendientes: desde el 02-09 viven en la tabla
   // erp_correcciones (las escribe el sincronizador de las 07:10), no en el CSV
@@ -622,6 +635,7 @@ export async function ejecutarMitadNube(supabase, { ayer, hoy, erp, url, key, en
     buzon: buzonDelDia(ayer),
     analizados: analizados.filter((a) => a.accion === "analizado"),
     estimados,
+    revision,
     alta: await cierreEInventario(supabase, ayer),
     contexto: await contextoSemana(supabase, ayer),
     receptor: await receptorVivo(),

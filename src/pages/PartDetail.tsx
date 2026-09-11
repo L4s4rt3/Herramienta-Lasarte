@@ -51,6 +51,7 @@ import PartDetailCalidad from "@/components/PartDetailCalidad";
 import PartDetailManual from "@/components/PartDetailManual";
 import PartDetailLotes from "@/components/PartDetailLotes";
 import PartDetailDestino from "@/components/PartDetailDestino";
+import PartDetailRevision, { type ParteRevision } from "@/components/PartDetailRevision";
 import PartDetailZonas from "@/components/PartDetailZonas";
 
 interface Parte {
@@ -84,6 +85,8 @@ interface Parte {
   kg_inventario_anterior_sin_alta: number;
   notas_generales: string | null;
   notas_inventario: string | null;
+  /** Lo que la revisión automática de la mañana comprobó, arregló y diagnosticó antes de mandar el correo (scripts/lib-revision-parte.mjs). No es una firma: "Validado" sigue siendo el único candado humano. */
+  revision?: ParteRevision | null;
 }
 
 // Mismo nombre que usa Asistencia para esta zona (internamente es "Envasadoras").
@@ -1044,6 +1047,11 @@ export default function PartDetail() {
           },
         ]}
       />
+
+      {/* ─── La revisión automática ─────────────────────────────────────
+          Va ANTES de los KPI a propósito: lo primero que hace falta saber es
+          si los números de debajo son de fiar. */}
+      <PartDetailRevision revision={parte.revision} />
 
       {/* ─── KPIs del día ───────────────────────────────────────────────── */}
       <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">

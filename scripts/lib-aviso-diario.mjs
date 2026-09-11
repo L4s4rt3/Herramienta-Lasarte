@@ -197,6 +197,12 @@ export function componerAviso({
   parte = null, productores = null,
   frescura = null, buzon = null, analizados = null, alta = null, contexto = null,
   estimados = null,
+  /**
+   * La revisión del parte hecha ANTES de componer esto (lib-revision-parte.mjs):
+   * `{ ayer, ventana }`. Si no viene, el correo sale como antes de existir —
+   * así la red de seguridad de GitHub y los tests viejos siguen funcionando.
+   */
+  revision = null,
 }) {
   const secciones = [];
   const avisos = [];
@@ -434,6 +440,74 @@ export function componerAviso({
     secciones.push(p);
   }
 
+  // ── La revisión del parte ───────────────────────────────────────────────
+  // Encargo del dueño (11-09-2026): "que los partes se cuadren antes de enviar
+  // los correos; se investiga y se cuadra con la información que se tenga, y si
+  // no es posible, que el correo lo avise, diga una valoración y qué se cree
+  // que ha podido pasar". Esto es esa respuesta.
+  //
+  // POR EXCEPCIÓN, como el vigía: lo que pasa se resume en una línea y solo se
+  // detalla lo que no. Nadie necesita leer ocho líneas verdes cada mañana; lo
+  // que hace falta saber a las siete es si el día está bien y, si no, por qué.
+  // Las comprobaciones y el diagnóstico los decide lib-revision-parte.mjs: aquí
+  // solo se escriben.
+  if (revision?.ayer) {
+    const r = revision.ayer;
+    const total = r.comprobaciones.filter((c) => c.estado !== "n/a").length;
+    const fallan = r.comprobaciones.filter((c) => c.estado === "reparo");
+    const rev = nuevaSeccion("revision", "REVISION DEL PARTE");
+    rev.par("Veredicto", r.veredicto === "en-orden"
+      ? `en orden (${total} comprobaciones)`
+      : `CON REPAROS (${total - fallan.length} de ${total} bien)`);
+
+    if (r.veredicto === "en-orden") {
+      rev.texto("  Estan los informes de lote y el GSTOCK, el parte esta analizado y cuadra");
+      rev.texto("  con su detalle, no hay pasadas repetidas ni palets imposibles, y los cinco");
+      rev.texto("  datos del papel estan puestos.");
+    } else {
+      rev.texto("  No cuadra:");
+      for (const c of fallan) rev.texto(`    - ${c.titulo}: ${c.detalle}`);
+    }
+
+    // Lo que la propia tarea ha arreglado antes de mandar el correo. Decirlo
+    // importa: si no, el dia siguiente nadie sabe por que el parte cambio.
+    if (r.reparaciones?.length) {
+      rev.texto("  Se ha arreglado solo:");
+      for (const x of r.reparaciones) rev.texto(`    - ${x}`);
+    }
+
+    // LA VALORACIÓN. Es la mitad del encargo: un reparo a secas deja el trabajo
+    // de interpretarlo a quien lo lee. El descuadre sale aqui aunque el dia
+    // este en orden — es el numero que todo el mundo mira.
+    if (r.diagnostico?.length) {
+      rev.texto("  Que se cree que ha pasado:");
+      for (const x of r.diagnostico) rev.texto(`    - ${x}`);
+    }
+
+    // Los otros dias de la ventana, en una linea cada uno: un parte viejo que
+    // se quedo torcido no tiene otro momento en el que salir.
+    const otros = (revision.ventana ?? []).filter((d) => d.fecha !== r.fecha && d.reparos > 0);
+    if (otros.length) {
+      rev.texto("  Dias anteriores que siguen sin cuadrar:");
+      for (const d of otros) rev.texto(`    - ${d.fecha}: ${d.resumen}`);
+    }
+    secciones.push(rev);
+
+    // Al REVISAR de arriba solo sube UNA linea, y solo la de ayer: el detalle
+    // ya esta en su seccion y repetirlo entero convierte la caja roja en un
+    // muro que no se lee.
+    if (r.veredicto === "con-reparos") {
+      // Se nombra el FALLO, no la comprobacion: "falta 1 informe de lote" dice
+      // algo; "informes de lote completos" en una linea de REVISAR se lee como
+      // si estuviera bien.
+      avisos.push(`El parte del ${fecha} no esta del todo en orden:`
+        + ` ${fallan.map((c) => c.fallo ?? c.titulo.toLowerCase()).join("; ")}.`
+        + " En REVISION DEL PARTE, mas abajo, esta el detalle y que se cree que ha pasado.");
+    } else if (r.veredicto === "sin-parte") {
+      avisos.push(`Hubo trabajo el ${fecha} y NO hay parte de ese dia.`);
+    }
+  }
+
   // ── Manuales estimados según histórico ──────────────────────────────────
   // Encargo del 17-08 ("si no hay información de la que yo pongo manual, se
   // estima"): lo estimado se cuenta AQUÍ con su método y su valor — nunca en
@@ -566,7 +640,12 @@ export function componerAviso({
       avisos.push(`Ayer se confeccionaron ${informesCalibrador.lotesConfeccion} lotes y no llego ningun` +
         ' informe DOCX del calibrador. Se recuperan con el boton "Reporte por email" del visor,' +
         " o con el export SQL, que es la via buena.");
-    } else if (informesCalibrador.faltan.length > 0) {
+    } else if (informesCalibrador.faltan.length > 0 && !revision) {
+      // Con revisión esto lo dice ella, y mejor: perdona el precalibrado y la
+      // fruta de cámara (que no llevan informe propio) y lee los informes con
+      // DOS lotes dentro. Este aviso reclamó durante meses el informe de un
+      // lote de 2023 que nunca iba a existir. Se queda solo para quien componga
+      // el correo sin revisión — hoy, ningún camino de produccion.
       avisos.push(`Sin informe DOCX del calibrador: ${informesCalibrador.faltan.join(", ")}.`);
     }
   }
