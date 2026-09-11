@@ -611,7 +611,7 @@ export function componerAviso({
   if (sinSubir?.length) {
     const n = sinSubir.length;
     avisos.push(`${n} informe(s) del calibrador llegaron (correo o receptor) pero NO estan en la` +
-      " Herramienta. El fichero esta a salvo en outputs/ y la tarea de las 07:10 los reintenta sola" +
+      " Herramienta. El fichero esta a salvo en outputs/ y la tarea de la mañana los reintenta sola" +
       " cada mañana; si sigue aqui, el motivo dice por que (un informe que no cuadra consigo mismo" +
       " no se sube nunca: hay que mirarlo):");
     for (const p of sinSubir.slice(0, 6)) {
@@ -703,9 +703,15 @@ export function componerAviso({
     avisos.length
       ? ["REVISAR", ...avisos.map((a) => (a.startsWith("  ") ? `   ${a.trimStart()}` : `  - ${a}`))].join("\n")
       : "Sin incidencias.",
+    // La hora del pie es la de VERDAD, y con la ventana entera. Hasta el
+    // 11-09-2026 seguia diciendo 07:10 aunque la tarea se movio a las 07:40 el
+    // 03-09, y no mencionaba ni los reintentos ni la red de seguridad de la
+    // nube: un correo que llega a las 13:20 con un pie que dice "07:10" hace
+    // dudar de si es el de hoy.
     ["--",
-      "Aviso automatico de las 07:10. Si algun dia NO lo recibes, es que la tarea",
-      "no se ejecuto: portatil apagado, suspendido o sin red.",
+      "Aviso automatico de las 07:40. Si no sale, se reintenta cada 20 minutos",
+      "hasta las 12:40, y a las 13:15 lo manda la nube con lo que haya en la base.",
+      "Si algun dia NO lo recibes, es que no corrio ninguno de los dos.",
     ].join("\n"),
   ].join("\n\n");
 

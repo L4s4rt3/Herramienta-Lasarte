@@ -119,6 +119,65 @@ export function emparejarRepetidas(delDia) {
   return parejas;
 }
 
+/**
+ * Lo mismo, pero de UN parte y sin tocar el disco: es lo que corre cada mañana
+ * dentro de la revisión del parte (lib-revision-parte.mjs) desde el 11-09-2026.
+ *
+ * Encargo del dueño ese día: "lo que quiero es que cada día arregles y cuadres
+ * los partes". Hasta entonces esto era un limpiador de una sola vez que había
+ * que acordarse de lanzar, y mientras tanto la pasada repetida seguía contando
+ * doble en procesado, stock y merma.
+ *
+ * MISMAS TRES REGLAS, ninguna relajada por ser automático:
+ *   · solo se borra la fila del VOLCADO, y solo si su gemela del parte tiene
+ *     todo lo que ella tiene (`loQueSePerderia` vacío);
+ *   · nada se borra si cuelga algo de ello;
+ *   · lo que se llevaría algo por delante NO se toca: sale en `paraRevisar`
+ *     para que lo mire una persona.
+ *
+ * La copia de seguridad la guarda quien llama: aquí se devuelven las filas
+ * ENTERAS que se han borrado, y la revisión las mete en `partes_diarios.revision`
+ * — en la base, no en un CSV del portátil, porque esto también corre desde la
+ * nube (GitHub Actions), donde el disco desaparece al terminar.
+ */
+export async function limpiarRepetidasDeParte(supabase, partId, { aplicar = false } = {}) {
+  const { data, error } = await supabase.from("lotes_dia")
+    .select(COLUMNAS.join(", ")).eq("part_id", partId).order("id");
+  if (error) throw new Error(`lotes_dia: ${error.message}`);
+
+  const parejas = emparejarRepetidas(data ?? []);
+  if (!parejas.length) return { quitadas: [], paraRevisar: [], kg: 0 };
+
+  const ids = parejas.map((p) => p.fila.id);
+  const colgando = new Set();
+  for (const tabla of ["clasificacion_lote", "pasada_anotaciones"]) {
+    const { data: refs, error: e } = await supabase.from(tabla).select("lote_dia_id").in("lote_dia_id", ids);
+    // Si no se puede comprobar, NO se borra: preferimos un kilo contado dos
+    // veces a una fila con datos colgando que desaparece en silencio.
+    if (e) throw new Error(`no se pudo comprobar que no cuelga nada de ${tabla}: ${e.message}`);
+    for (const r of refs ?? []) colgando.add(r.lote_dia_id);
+  }
+
+  const quitar = [];
+  const paraRevisar = [];
+  for (const p of parejas) {
+    const perderia = loQueSePerderia(p.fila, p.gemela);
+    if (colgando.has(p.fila.id)) perderia.push("(hay datos colgando de esta fila)");
+    (perderia.length ? paraRevisar : quitar).push({ ...p, perderia });
+  }
+
+  const kg = quitar.reduce((s, r) => s + num(r.fila.kg_peso_total), 0);
+  if (aplicar && quitar.length) {
+    const { error: e } = await supabase.from("lotes_dia").delete().in("id", quitar.map((r) => r.fila.id));
+    if (e) throw new Error(`al borrar las repetidas: ${e.message}`);
+  }
+  return {
+    quitadas: quitar.map((r) => ({ base: r.base, gemela_id: r.gemela.id, fila: r.fila })),
+    paraRevisar: paraRevisar.map((r) => ({ base: r.base, kg: num(r.fila.kg_peso_total), perderia: r.perderia })),
+    kg,
+  };
+}
+
 async function main() {
   const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;

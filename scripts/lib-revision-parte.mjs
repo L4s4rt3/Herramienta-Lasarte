@@ -37,6 +37,7 @@
  *   node scripts/revisar-partes.mjs --dias=7 --aplicar
  */
 import { cuadrar, rehacerParte } from "./rehacer-parte.mjs";
+import { limpiarRepetidasDeParte } from "./quitar-pasadas-repetidas.mjs";
 import { CINCO_DEL_PAPEL } from "./lib-estimar-manuales.mjs";
 import { codigoBaseLote } from "./lib-lotes.mjs";
 
@@ -328,10 +329,16 @@ export function diagnosticar(h, comprobaciones) {
   }
 
   if (falla("repetidas")) {
+    // Si sigue aquí después de la pasada de limpieza de esta mañana, es que la
+    // fila del volcado lleva algo que la del parte no tiene — el único caso que
+    // la limpieza automática no toca. Decir "ejecuta el limpiador" sería mentir:
+    // ya se ejecutó y decidió no borrarla.
     d.push("La misma pasada está dos veces en el detalle: una la metió el parte y otra el volcado del calibrador,"
       + " con el código escrito de forma distinta. La app suma las dos, así que son kilos de más en procesado,"
-      + " stock y merma. Se limpia con: node scripts/quitar-pasadas-repetidas.mjs --aplicar"
-      + " (guarda copia en CSV antes de borrar y no toca la fila que lleve datos propios).");
+      + " stock y merma. La limpieza automática de cada mañana quita las que no se llevan nada por delante;"
+      + " si esta sigue aquí es porque la fila del volcado tiene algo que la del parte no (notas, kilos de"
+      + " industria) o porque cuelgan datos de ella, y eso lo tiene que decidir una persona. Arriba, en"
+      + " «se ha arreglado solo», está qué se perdería.");
   }
 
   if (falla("palets-creibles")) {
@@ -515,48 +522,103 @@ export async function reunirHechos(supabase, fecha, { hoy = null, informes = nul
 // ─── La revisión entera ──────────────────────────────────────────────────────
 
 /**
- * Revisa un día: comprueba, INTENTA CUADRAR lo que se pueda, vuelve a comprobar
- * y deja la marca en el parte.
+ * Revisa un día: comprueba, ARREGLA Y CUADRA lo que se pueda, vuelve a
+ * comprobar y deja la marca en el parte.
  *
- * QUÉ REPARA SOLA, Y POR QUÉ SOLO ESO. Rehacer el parte (volver a montar los
- * informes y reanalizarlo) es la única reparación que arregla de verdad las dos
- * cosas que se atascan solas: un parte sin analizar y un detalle que no cuadra
- * con su cabecera. Es idempotente, respeta los cinco del papel (rehacerParte
- * avisa si se pisa alguno) y JAMÁS toca un parte Validado.
+ * "Lo que quiero es que cada día arregles y cuadres los partes" (dueño,
+ * 11-09-2026). Se arregla en este orden, porque el primero cambia los números
+ * que mira el segundo:
  *
- * Lo que NO se repara sola, a propósito:
- *   · las pasadas repetidas — borrar filas sin que nadie mire es justo lo que
- *     el script de limpieza evita (hay casos donde la fila del volcado lleva
- *     notas que la del parte no tiene). Se diagnostica y se da el comando.
- *   · los informes que faltan — no están, no hay nada que reparar aquí; la
- *     tarea ya reintenta los que llegaron y no subieron.
+ *   1. PASADAS REPETIDAS. La misma pasada metida por el parte y por el volcado
+ *      del calibrador. La app suma toda fila de `lotes_dia` sin mirar de dónde
+ *      viene, así que mientras esté ahí son kilos de más en procesado, stock y
+ *      merma. Se quita SOLO la fila del volcado y SOLO si su gemela del parte
+ *      tiene todo lo que ella tiene y no cuelga nada de ella; la fila entera se
+ *      guarda en la marca de revisión antes de borrarla, para poder devolverla.
+ *      Lo que se llevaría algo por delante no se toca y sale en el correo.
+ *   2. REHACER EL PARTE. Vuelve a montar los informes y lo reanaliza: arregla
+ *      un parte sin analizar y un detalle que no cuadra con su cabecera.
+ *
+ * NINGUNA DE LAS DOS TOCA UN PARTE VALIDADO. Eso lo firmó una persona; si un
+ * Validado no cuadra, se dice y se deja.
+ *
+ * Lo que sigue sin repararse sola, porque no hay nada que reparar:
+ *   · los informes que faltan — no han llegado; la tarea ya reintenta los que
+ *     sí llegaron y no llegaron a subirse.
  *   · el papel — lo estima estimar-manuales-parte.mjs con sus días de gracia.
+ *   · los palets de más de 10 t — son del ERP, y decidir cuál sobra no es
+ *     automatizable sin mirar el lote.
  */
 export async function revisarParte(supabase, fecha, { hoy = null, aplicar = false, url = null, key = null, informes = null } = {}) {
   let hechos = await reunirHechos(supabase, fecha, { hoy, informes });
   let comprobaciones = comprobarParte(hechos);
   const reparaciones = [];
+  /** Las filas borradas, enteras: es la copia de seguridad de lo que se quitó. */
+  let repetidasQuitadas = [];
+  const falla = (clave) => comprobaciones.find((c) => c.clave === clave)?.estado === "reparo";
 
-  const necesitaRehacer = comprobaciones.some((c) => (c.clave === "detalle" || c.clave === "analisis") && c.estado === "reparo");
-  const puedeRehacer = aplicar && url && key && hechos.parte && hechos.parte.estado !== "Validado";
-  if (necesitaRehacer && puedeRehacer) {
-    try {
-      const r = await rehacerParte(supabase, fecha, { url, key, aplicar: true });
-      if (r.accion === "rehecho") {
-        reparaciones.push(`Se rehizo el parte del ${fecha}: informes ${r.informes}, análisis ${r.analisis}.`);
-        for (const p of r.pisados) reparaciones.push(`OJO: al rehacerlo cambió un dato del papel — ${p}.`);
-        // Se vuelve a mirar con los datos nuevos: la marca tiene que reflejar
-        // cómo quedó el parte, no cómo estaba antes de arreglarlo.
-        hechos = await reunirHechos(supabase, fecha, { hoy, informes });
-        comprobaciones = comprobarParte(hechos);
-      } else if (r.accion === "intocable") {
-        reparaciones.push(`No se rehizo el parte del ${fecha}: ${r.motivo}.`);
-      }
-    } catch (e) {
-      reparaciones.push(`No se pudo rehacer el parte del ${fecha}: ${e.message}`);
-    }
-  } else if (necesitaRehacer && aplicar && hechos.parte?.estado === "Validado") {
+  const sePuedeTocar = aplicar && hechos.parte && hechos.parte.estado !== "Validado";
+  const hayQueArreglar = () => falla("repetidas") || falla("detalle") || falla("analisis");
+
+  if (aplicar && hechos.parte?.estado === "Validado" && hayQueArreglar()) {
     reparaciones.push(`El parte del ${fecha} está Validado: no se toca aunque no cuadre (lo firmó una persona).`);
+  }
+
+  if (sePuedeTocar) {
+    // Cada arreglo cambia lo que ve el siguiente, así que entre uno y otro se
+    // vuelve a leer el parte — pero solo si de verdad se tocó algo.
+    let pendienteDeRelectura = false;
+    const releer = async () => {
+      if (!pendienteDeRelectura) return;
+      hechos = await reunirHechos(supabase, fecha, { hoy, informes });
+      comprobaciones = comprobarParte(hechos);
+      pendienteDeRelectura = false;
+    };
+
+    // 1. Quitar las pasadas contadas dos veces.
+    if (falla("repetidas")) {
+      try {
+        const r = await limpiarRepetidasDeParte(supabase, hechos.parte.id, { aplicar: true });
+        if (r.quitadas.length) {
+          repetidasQuitadas = r.quitadas;
+          pendienteDeRelectura = true;
+          reparaciones.push(`Se quitaron ${r.quitadas.length} pasada(s) contadas dos veces`
+            + ` (${[...new Set(r.quitadas.map((q) => q.base))].join(", ")}), ${kg(r.kg)} que ya no se cuentan de más.`
+            + " Las filas quedan guardadas enteras en esta misma marca por si hubiera que devolverlas.");
+        }
+        for (const p of r.paraRevisar) {
+          reparaciones.push(`OJO: la pasada repetida del lote ${p.base} (${kg(p.kg)}) NO se ha quitado porque`
+            + ` la del volcado tiene algo que la del parte no: ${p.perderia.join(", ")}. Hay que mirarla a mano.`);
+        }
+      } catch (e) {
+        reparaciones.push(`No se pudieron quitar las pasadas repetidas del ${fecha}: ${e.message}`);
+      }
+      await releer();
+    }
+
+    // 2. Rehacer el parte si sigue sin cuadrar o sin analizar. Va DESPUÉS de
+    //    limpiar: quitar una repetida cambia lo que suma el detalle, y rehacer
+    //    antes habría cuadrado contra unos kilos que estaban de más.
+    if ((falla("detalle") || falla("analisis")) && url && key) {
+      try {
+        const r = await rehacerParte(supabase, fecha, { url, key, aplicar: true });
+        if (r.accion === "rehecho") {
+          pendienteDeRelectura = true;
+          reparaciones.push(`Se rehizo el parte del ${fecha}: informes ${r.informes}, análisis ${r.analisis}.`);
+          for (const p of r.pisados) reparaciones.push(`OJO: al rehacerlo cambió un dato del papel — ${p}.`);
+        } else if (r.accion === "intocable") {
+          reparaciones.push(`No se rehizo el parte del ${fecha}: ${r.motivo}.`);
+        }
+      } catch (e) {
+        reparaciones.push(`No se pudo rehacer el parte del ${fecha}: ${e.message}`);
+      }
+    } else if ((falla("detalle") || falla("analisis")) && !(url && key)) {
+      reparaciones.push(`No se pudo rehacer el parte del ${fecha}: hace falta la clave de servicio de Supabase.`);
+    }
+
+    // Se vuelve a mirar con los datos nuevos: la marca tiene que decir cómo
+    // quedó el parte, no cómo estaba antes de arreglarlo.
+    await releer();
   }
 
   const veredicto = veredictoDe(comprobaciones);
@@ -568,6 +630,14 @@ export async function revisarParte(supabase, fecha, { hoy = null, aplicar = fals
     reparaciones,
     diagnostico,
     dsj: hechos.dsj ? { kg: Math.round(hechos.dsj.kg), pct: Math.round(hechos.dsj.pct * 10) / 10 } : null,
+    // La copia de las filas borradas vive AQUÍ, en la base, y no en un CSV del
+    // portátil: esto también corre desde la nube, donde el disco desaparece al
+    // terminar. Se conserva la de la última limpieza que borró algo.
+    ...(repetidasQuitadas.length
+      ? { repetidas_quitadas: repetidasQuitadas }
+      : (hechos.parte?.revision?.repetidas_quitadas
+        ? { repetidas_quitadas: hechos.parte.revision.repetidas_quitadas }
+        : {})),
   };
 
   // La marca va al parte aunque tenga reparos: "revisado y no cuadra" es

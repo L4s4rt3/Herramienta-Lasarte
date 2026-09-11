@@ -125,8 +125,14 @@ const repetidas = revisar({ ...HECHOS_OK, cuadre: { ...HECHOS_OK.cuadre,
   lotesRepetidas: [{ lote: "26091001", kg: 2000 }, { lote: "26091002", kg: 2000 }], lotesKgRepetido: 4000 } });
 comprobar("las pasadas repetidas son su propio reparo", de(repetidas, "repetidas").estado === "reparo");
 comprobar("y NO ensucian el cuadre del detalle", de(repetidas, "detalle").estado === "ok");
-comprobar("el diagnostico da el limpiador y dice que guarda copia",
-  /quitar-pasadas-repetidas\.mjs --aplicar/.test(texto(repetidas)) && /copia en CSV/.test(texto(repetidas)));
+// Desde el 11-09 la limpieza corre SOLA cada mañana, asi que el diagnostico no
+// puede decir "ejecuta el limpiador": ya se ejecuto y decidio no borrar esta.
+// Decir lo contrario mandaria a una persona a repetir algo que ya paso.
+comprobar("el diagnostico no manda ejecutar el limpiador a mano",
+  !/quitar-pasadas-repetidas\.mjs/.test(texto(repetidas)));
+comprobar("dice que la limpieza automatica ya paso y por que esta sobrevivio",
+  /limpieza automática de cada mañana/.test(texto(repetidas))
+  && /tiene algo que la del parte no/.test(texto(repetidas)));
 
 // ── Palets imposibles ───────────────────────────────────────────────────────
 const sospechosos = revisar({ ...HECHOS_OK, paletsSospechosos: [{ palet: "P-9001", kg: 24000 }] });

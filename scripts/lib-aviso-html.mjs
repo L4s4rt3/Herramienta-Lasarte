@@ -148,8 +148,10 @@ export function renderAvisoHtml(modelo, { appUrl = "https://controlproduccion.ve
   ${titular}
   ${secciones}
   <p style="margin:22px 0 0;padding-top:12px;border-top:1px solid #e5e7eb;font-size:11px;color:${GRIS};line-height:1.5;">
-    Aviso autom&aacute;tico de las 07:10. Si un d&iacute;a NO llega, la tarea no corri&oacute; (port&aacute;til apagado,
-    dormido o sin red) y el vigilante avisar&aacute; hacia las 13:45. El estado de todos los trabajos
+    Aviso autom&aacute;tico de las 07:40, con reintentos cada 20 minutos hasta las 12:40; si el
+    port&aacute;til no arranca (apagado, dormido o sin red), a las 13:15 lo manda la nube con lo que
+    haya en la base. Si un d&iacute;a NO llega, no corri&oacute; ninguno de los dos y el vigilante
+    avisar&aacute; hacia las 13:45. El estado de todos los trabajos
     autom&aacute;ticos est&aacute; en <a href="${esc(appUrl)}/datos/fuentes" style="color:${AZUL};">Datos &rarr; Estado de las fuentes</a>.
   </p>
 </td></tr>

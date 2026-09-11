@@ -478,10 +478,13 @@ export async function ejecutarMitadNube(supabase, { ayer, hoy, erp, url, key, en
             .map((c) => c.fallo ?? c.titulo.toLowerCase()).join("; "),
       })),
     };
-    // Lo que la revision arreglo o no pudo arreglar en dias que no son ayer
-    // tambien deja rastro: el correo de ayer es el unico que se lee.
+    // Lo que la revision NO pudo arreglar en dias que no son ayer tambien deja
+    // rastro: el correo de ayer es el unico que se lee, y un parte de hace una
+    // semana que se quedo torcido no tiene otro momento en el que salir.
+    // Lo de AYER no se repite aqui: ya va entero en su seccion.
     for (const d of dias) {
       if (d.veredicto === "error") incidencias.push(`ERROR: no se pudo revisar el parte del ${d.fecha}: ${d.motivo}`);
+      if (d.fecha === ayer) continue;
       for (const x of d.reparaciones ?? []) if (/^No se pudo|^OJO/.test(x)) incidencias.push(`ERROR: ${x}`);
     }
   } catch (e) {

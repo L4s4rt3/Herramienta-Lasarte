@@ -44,6 +44,32 @@ jobs:
           VITE_SUPABASE_URL: https://ci.invalid.supabase.co
           VITE_SUPABASE_ANON_KEY: ci-sin-clave
 
+      # Los tests de los scripts de la tarea diaria (scripts/probar-*.mjs) NO
+      # son de vitest: son ficheros que se ejecutan y salen con 1 si algo falla.
+      # Hasta el 11-09-2026 solo corrían cuando alguien se acordaba — que es
+      # justo lo que este workflow vino a arreglar para el resto del repo. Y son
+      # los que protegen el correo diario y la revisión del parte, o sea las dos
+      # cosas que nadie mira hasta que un día salen mal.
+      #
+      # Se ejecutan TODOS menos los que no pueden correr aquí, y la lista de
+      # excluidos es explícita a propósito: así un test nuevo entra solo, y
+      # quien añada uno que necesite la base o el disco del portátil tiene que
+      # decirlo aquí en vez de que se quede fuera en silencio.
+      - name: tests de los scripts (probar-*.mjs)
+        run: |
+          # probar-palets-gstock: habla con Supabase con la clave de servicio.
+          # probar-informe-calibrador: lee los .docx de verdad de outputs/calibrador,
+          #   que solo existen en el portátil de la oficina.
+          EXCLUIDOS="probar-palets-gstock.mjs probar-informe-calibrador.mjs"
+          fallos=""
+          for f in scripts/probar-*.mjs; do
+            n=$(basename "$f")
+            case " $EXCLUIDOS " in *" $n "*) echo "-- $n (excluido a proposito, ver comentario)"; continue;; esac
+            echo "== $n"
+            node "$f" || fallos="$fallos $n"
+          done
+          if [ -n "$fallos" ]; then echo "::error::Tests de scripts fallidos:$fallos"; exit 1; fi
+
   edge:
     # Las edge functions son Deno: TypeScript aparte del de la app. `deno check`
     # las compila sin desplegar. En el portátil de la oficina no hay Deno (y
