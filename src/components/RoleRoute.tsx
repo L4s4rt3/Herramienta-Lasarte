@@ -10,6 +10,8 @@ import type { Role } from "@/contexts/AuthProvider";
 
 export const VENTAS_HOME = "/comercial";
 export const RRHH_HOME = "/rrhh";
+/** Rol "campo" (16-09-2026): el espacio del responsable de campo, el eje parcela. */
+export const CAMPO_HOME = "/campo/parcelas";
 
 export const VENTAS_ALLOWED_PATHS = [
   VENTAS_HOME,
@@ -49,6 +51,8 @@ export function homeForRole(role: Role): string {
       return VENTAS_HOME;
     case "rrhh":
       return RRHH_HOME;
+    case "campo":
+      return CAMPO_HOME;
     default:
       // operario / rol básico: el panel de producción.
       return "/produccion";
@@ -99,6 +103,14 @@ export default function RoleRoute() {
     || location.pathname.startsWith("/rrhh/mercadona");
   if (role === "rrhh" && !esRutaRrhh && !esMercadona && location.pathname !== "/mapa") {
     return <Navigate to={RRHH_HOME} replace />;
+  }
+
+  // El rol "campo" (16-09-2026) vive SOLO en su espacio, igual que ventas y
+  // rrhh: /campo/* y el mapa de la herramienta. Lo demás lo devuelve a su home.
+  // No se le abren páginas "de paso": las entradas de báscula llevan precio de
+  // compra y comisión, y el análisis por productor es de admin.
+  if (role === "campo" && !location.pathname.startsWith("/campo") && location.pathname !== "/mapa") {
+    return <Navigate to={CAMPO_HOME} replace />;
   }
 
   // Consumos, limpieza de box e importar histórico: solo admin. Prefijo con

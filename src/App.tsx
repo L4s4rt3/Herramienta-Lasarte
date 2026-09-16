@@ -50,6 +50,8 @@ const LimpiezaBox = lazy(pageLoaders.limpiezaBox);
 const StockConsumibles = lazy(pageLoaders.stockConsumibles);
 const SafCamiones = lazy(pageLoaders.safCamiones);
 const ComunicacionesCampo = lazy(pageLoaders.comunicacionesCampo);
+const CampoParcelas = lazy(pageLoaders.campoParcelas);
+const CampoPrevision = lazy(pageLoaders.campoPrevision);
 const ExcelViewerPage = lazy(() => import("@/pages/ExcelViewerPage"));
 
 // ─── Rediseño 13-08-2026: páginas que alojan varias vistas en pestañas ──────
@@ -133,6 +135,13 @@ const App = () => (
                           y admin — el gate real es la RPC can_access_comunicaciones_campo
                           dentro de la propia página/hook (patrón Categoría segunda). */}
                       <Route path="/campo/comunicaciones" element={<ComunicacionesCampo />} />
+                      {/* Campo → Parcelas (16-09-2026): el eje PARCELA, la
+                          sección del responsable de campo (rol "campo"). Admin
+                          también entra; el resto de roles rebota en RoleRoute. */}
+                      <Route path="/campo/parcelas" element={<CampoParcelas />} />
+                      {/* Previsión de campaña: kilos por semana de lo que va a
+                          entrar, con el calendario de Aerobotics donde lo hay. */}
+                      <Route path="/campo/prevision" element={<CampoPrevision />} />
                       <Route path="/analisis/diario" element={<AnalisisDiario />} />
                       <Route path="/ventas/categoria-segunda" element={<ComercialVentasCategoria />} />
                       <Route path="/direccion" element={<DireccionDashboard />} />

@@ -110,11 +110,24 @@ const ROUTE_META: Record<string, { label: string; subtitle: string; parent?: str
     parent: "/rrhh",
     parentLabel: "RRHH",
   },
+  // Parcelas es la home de la sección Campo: sin parent, como los demás
+  // paneles de sección (/produccion, /rrhh, /comercial).
+  "/campo/parcelas": {
+    label: "Parcelas",
+    subtitle: "Cada parcela con lo que entregó y lo que dio en el calibrador",
+  },
+  "/campo/prevision": {
+    label: "Previsión de campaña",
+    subtitle: "Cuántos kilos entran y en qué semana, parcela a parcela",
+    parent: "/campo/parcelas",
+    parentLabel: "Campo",
+  },
   "/campo/comunicaciones": {
     label: "Comunicaciones de campaña",
     subtitle: "Comunicados a agricultores y proveedores para la campaña que entra (exclusivo de Jesús)",
-    parent: "/produccion",
-    parentLabel: "Planta",
+    // Desde el 16-09-2026 Campo es sección propia (antes colgaba de Planta).
+    parent: "/campo/parcelas",
+    parentLabel: "Campo",
   },
   "/ventas/categoria-segunda": {
     label: "Ventas por categoría",

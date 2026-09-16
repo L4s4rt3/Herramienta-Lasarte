@@ -1,0 +1,28 @@
+-- =============================================================================
+-- Rol "campo" (16-09-2026): el espacio del responsable de campo.
+--
+-- POR QUÉ. Hasta ahora la herramienta tenía cuatro roles: admin (lo ve todo),
+-- ventas (Juanvi, su espacio comercial), rrhh (datos de personal) y operario
+-- (el día a día de la nave). Quien lleva el CAMPO no encajaba en ninguno: no
+-- necesita el parte del día ni los consumibles, y las entradas de báscula —que
+-- sí le interesan— llevan precio de compra, recolección y comisión.
+--
+-- QUÉ VE. Solo la sección Campo (/campo/*): el catálogo de parcelas con lo que
+-- entregó cada una y lo que dio en el calibrador, en kilos y porcentajes, sin
+-- euros. El muro por ruta está en src/components/RoleRoute.tsx y el filtro de
+-- menú en src/lib/workspaces.ts + AppLayout/CommandPalette/MapaHerramienta.
+--
+-- ALTA DE LA PERSONA (a mano, no lo hace esta migración):
+--   1. Crear el usuario en Supabase → Authentication → Users.
+--   2. El trigger handle_new_user le pone 'operario'. Darle además 'campo':
+--        INSERT INTO public.user_roles (user_id, role)
+--        SELECT id, 'campo' FROM auth.users WHERE email = '<su correo>'
+--        ON CONFLICT DO NOTHING;
+--      El frontend prioriza 'campo' sobre 'operario' (ROLE_PRIORITY en
+--      src/contexts/AuthProvider.tsx), así que con las dos filas manda campo.
+--
+-- Idempotente: ADD VALUE IF NOT EXISTS. No toca ninguna fila existente ni
+-- ninguna política: es un valor nuevo del enum, nada más.
+-- =============================================================================
+
+ALTER TYPE public.app_role ADD VALUE IF NOT EXISTS 'campo';

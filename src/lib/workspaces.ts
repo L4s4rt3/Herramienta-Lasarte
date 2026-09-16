@@ -39,6 +39,8 @@ import {
   Sprout,
   Tags,
   Ship,
+  Trees,
+  TrendingUp,
   Truck,
   Upload,
   UserRound,
@@ -51,6 +53,7 @@ import {
 export type WorkspaceId =
   | "direccion"
   | "planta"
+  | "campo"
   | "analisis"
   | "comercial"
   | "economico"
@@ -122,6 +125,23 @@ export const WORKSPACES: Workspace[] = [
     allowedFor: (role) => role === "admin" || role === "operario",
   },
   {
+    // ── CAMPO (16-09-2026): lo que pasa ANTES de la báscula ──
+    // Hasta ahora "Campo" era un grupo dentro de Planta con una sola página
+    // (las comunicaciones de campaña de Jesús). Al entrar el eje PARCELA pasa a
+    // ser sección propia, que es la de quien lleva el campo. Las URLs no
+    // cambian: /campo/comunicaciones sigue donde estaba.
+    //
+    // El rol "operario" sigue permitido aquí para que Jesús no pierda sus
+    // comunicaciones al mudarse el grupo de sección: una sección sin ítems
+    // visibles no se pinta, y a un operario que no sea él no le queda ninguno.
+    id: "campo",
+    label: "Campo",
+    icon: Trees,
+    home: "/campo/parcelas",
+    matches: (p) => p.startsWith("/campo"),
+    allowedFor: (role) => role === "admin" || role === "campo" || role === "operario",
+  },
+  {
     id: "datos",
     label: "Datos",
     icon: Database,
@@ -145,12 +165,25 @@ export const WORKSPACES: Workspace[] = [
 export const WORKSPACE_DISPLAY_ORDER: WorkspaceId[] = [
   "direccion",
   "planta",
+  "campo",
   "analisis",
   "comercial",
   "economico",
   "rrhh",
   "datos",
 ];
+
+/**
+ * Las páginas de la sección Campo que son del responsable de campo: las ven el
+ * rol "campo" y el admin, y nadie más. Fuente única — la miran el filtro de la
+ * sidebar (AppLayout), la paleta de comandos y el mapa de la herramienta.
+ * "/campo/comunicaciones" NO está aquí: esa es de Jesús y tiene su propia RPC.
+ */
+export const PAGINAS_DE_CAMPO = ["/campo/parcelas", "/campo/prevision"] as const;
+
+export function esPaginaDeCampo(ruta: string): boolean {
+  return (PAGINAS_DE_CAMPO as readonly string[]).includes(ruta);
+}
 
 export function workspaceDeRuta(path: string): WorkspaceId {
   return (WORKSPACES.find((w) => w.matches(path)) ?? WORKSPACES[WORKSPACES.length - 1]).id;
@@ -201,12 +234,18 @@ export const NAV_GROUPS: Array<{ label: string; workspace: WorkspaceId; items: N
     ],
   },
   {
+    // ── CAMPO ──
+    // Parcelas (16-09-2026): el catálogo de parcelas y lo que dio cada una. La
+    // ven admin y el rol "campo"; el filtro por ítem está en AppLayout,
+    // CommandPalette y MapaHerramienta, como el de las dos líneas de abajo.
+    //
     // Comunicaciones de campaña: exclusiva de Jesús (jesus@lasartesat.es) y
-    // admin. Solo se pinta si la RPC can_access_comunicaciones_campo da true
-    // (lo filtran AppLayout, CommandPalette y MapaHerramienta).
+    // admin. Solo se pinta si la RPC can_access_comunicaciones_campo da true.
     label: "Campo",
-    workspace: "planta",
+    workspace: "campo",
     items: [
+      { to: "/campo/parcelas", label: "Parcelas", icon: Sprout },
+      { to: "/campo/prevision", label: "Previsión de campaña", icon: TrendingUp },
       { to: "/campo/comunicaciones", label: "Comunicaciones de campaña", icon: Send },
     ],
   },

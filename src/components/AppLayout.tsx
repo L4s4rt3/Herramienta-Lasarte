@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { ChevronDown, LogOut, Map } from "lucide-react";
 import { useAuth } from "@/contexts/AuthProvider";
 import {
+  esPaginaDeCampo,
   NAV_GROUPS,
   WORKSPACES,
   WORKSPACE_DISPLAY_ORDER,
@@ -195,6 +196,7 @@ function AppLayoutContent() {
                     if (item.adminOnly) return role === "admin";
                     if (item.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
                     if (item.to === "/campo/comunicaciones") return comunicacionesCampoAccess.hasAccess;
+                    if (esPaginaDeCampo(item.to)) return role === "admin" || role === "campo";
                     return true;
                   });
                 if (items.length === 0) return null;
@@ -274,6 +276,7 @@ function AppLayoutContent() {
                   if (item.adminOnly) return role === "admin";
                   if (item.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
                   if (item.to === "/campo/comunicaciones") return comunicacionesCampoAccess.hasAccess;
+                  if (esPaginaDeCampo(item.to)) return role === "admin" || role === "campo";
                   return true;
                 });
                 // Un grupo sin items visibles (p.ej. "Comercial" sin acceso) no pinta ni su etiqueta.

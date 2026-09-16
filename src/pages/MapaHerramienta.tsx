@@ -11,7 +11,7 @@ import { useAuth } from "@/contexts/AuthProvider";
 import { useVentasCategoriaAccess } from "@/hooks/useVentasCategoria";
 import { useComunicacionesCampoAccess } from "@/hooks/useComunicacionesCampo";
 import { preloadRoute } from "@/lib/routePreload";
-import { NAV_GROUPS, WORKSPACES, WORKSPACE_DISPLAY_ORDER } from "@/lib/workspaces";
+import { esPaginaDeCampo, NAV_GROUPS, WORKSPACES, WORKSPACE_DISPLAY_ORDER } from "@/lib/workspaces";
 
 export default function MapaHerramienta() {
   const { role } = useAuth();
@@ -30,6 +30,7 @@ export default function MapaHerramienta() {
           if (item.adminOnly) return role === "admin";
           if (item.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
           if (item.to === "/campo/comunicaciones") return comunicacionesCampoAccess.hasAccess;
+          if (esPaginaDeCampo(item.to)) return role === "admin" || role === "campo";
           return true;
         }),
     }))

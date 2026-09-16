@@ -3,7 +3,7 @@ import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
-export type Role = "admin" | "operario" | "ventas" | "rrhh" | null;
+export type Role = "admin" | "operario" | "ventas" | "rrhh" | "campo" | null;
 
 interface AuthContextValue {
   user: User | null;
@@ -47,7 +47,11 @@ const initialState: AuthState = { session: null, user: null, role: null, loading
 // reasigna de "operario" a "ventas"). Ante varias filas, prioriza el rol de
 // mayor privilegio/alcance: admin > ventas > operario. Sin filas, se asume
 // "operario" (comportamiento histórico para altas nuevas sin rol explícito).
-const ROLE_PRIORITY: Array<Exclude<Role, null>> = ["admin", "rrhh", "ventas", "operario"];
+//
+// "campo" va delante de "operario" a propósito: el alta de un usuario nuevo le
+// pone "operario" por trigger, así que quien tenga las dos filas es alguien a
+// quien se le ha dado campo DESPUÉS, y ese es el rol que manda.
+const ROLE_PRIORITY: Array<Exclude<Role, null>> = ["admin", "rrhh", "ventas", "campo", "operario"];
 
 function resolveRole(rows: Array<{ role: string }> | null | undefined): Role {
   const roles = new Set((rows ?? []).map((r) => r.role));

@@ -35,11 +35,13 @@ import {
   Boxes,
   History,
   Send,
+  TrendingUp,
 } from "lucide-react";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useAuth } from "@/contexts/AuthProvider";
 import { useVentasCategoriaAccess } from "@/hooks/useVentasCategoria";
 import { useComunicacionesCampoAccess } from "@/hooks/useComunicacionesCampo";
+import { esPaginaDeCampo, PAGINAS_DE_CAMPO } from "@/lib/workspaces";
 
 /**
  * Los permisos comparan la RUTA, no el enlace entero.
@@ -64,8 +66,14 @@ const VENTAS_ALLOWED = new Set([
   "/mapa",
 ]);
 
+// Lo único que la paleta ofrece al rol "campo": su espacio es /campo/* (ver
+// RoleRoute.tsx) y las comunicaciones de campaña son de Jesús, no suyas.
+const CAMPO_ALLOWED = new Set<string>([...PAGINAS_DE_CAMPO, "/mapa"]);
+
 const PAGES = [
   { to: "/mapa", label: "Mapa de la herramienta", icon: LayoutDashboard, keywords: "mapa secciones paginas indice directorio orientacion donde esta" },
+  { to: "/campo/parcelas", label: "Parcelas", icon: Sprout, keywords: "campo parcelas finca agricultor variedad hectareas arboles aerobotics entregas" },
+  { to: "/campo/prevision", label: "Previsión de campaña", icon: TrendingUp, keywords: "campo prevision campana kilos semana cosecha recoleccion ventana calendario planificar aerobotics" },
   { to: "/produccion", label: "Panel de planta", icon: LayoutDashboard, keywords: "panel inicio dashboard produccion" },
   { to: "/entradas", label: "Entradas y stock", icon: Truck, keywords: "entradas bascula camion stock camara lote finca" },
   { to: "/trazabilidad", label: "Análisis por lote", icon: Waypoints, keywords: "trazabilidad lote finca origen destino cadena seguimiento" },
@@ -168,15 +176,22 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const isVentas = role === "ventas";
   // El rol rrhh vive solo en su espacio (igual que ventas en el suyo).
   const isRrhh = role === "rrhh";
+  // Y el rol campo en el suyo (16-09-2026).
+  const isCampo = role === "campo";
   const visiblePages = PAGES.filter((page) => {
     // El mapa de la herramienta es de todos los roles.
     if (page.to === "/mapa") return true;
     // El rol "ventas" solo debe ver sus 6 secciones comerciales en la paleta.
     if (isVentas) return VENTAS_ALLOWED.has(rutaDe(page.to));
     if (isRrhh) return RRHH_Y_ADMIN_ONLY.has(rutaDe(page.to));
+    // El rol "campo" solo tiene su sección (y el mapa, que ya retornó arriba).
+    if (isCampo) return CAMPO_ALLOWED.has(rutaDe(page.to));
     if (page.to === "/ventas/categoria-segunda") return ventasCategoriaAccess.hasAccess;
     // Comunicaciones de campaña: exclusiva de Jesús y admin (RPC de acceso).
     if (page.to === "/campo/comunicaciones") return comunicacionesCampoAccess.hasAccess;
+    // Parcelas: de campo y de admin. Un operario no la ve en la paleta, igual
+    // que no la ve en la barra lateral.
+    if (esPaginaDeCampo(rutaDe(page.to))) return role === "admin";
     // Categoria primera, Edeka y CMR son solo para admin y ventas.
     if (VENTAS_Y_ADMIN_ONLY.has(rutaDe(page.to))) return role === "admin";
     // El caso rrhh ya retorno arriba; aqui solo puede quedar admin/operario.

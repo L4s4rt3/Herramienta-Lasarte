@@ -35,7 +35,7 @@ import {
 // se le asigna la suya, porque el tour es UNO POR SECCIÓN y un paso mal
 // asignado sale en el tour equivocado.
 export type TourWorkspaceId =
-  | "direccion" | "planta" | "analisis" | "comercial" | "economico" | "rrhh" | "datos";
+  | "direccion" | "planta" | "campo" | "analisis" | "comercial" | "economico" | "rrhh" | "datos";
 
 export interface TourStep {
   /** Identificador estable del paso (independiente de la ruta, por si se repite). */
@@ -173,9 +173,19 @@ export const TOUR_STEPS: TourStep[] = [
     description:
       "Carga el histórico de producción de la campaña a partir del export del calibrador, para tener también los datos de antes de que arrancara la herramienta. Solo administración; normalmente es una carga que se hace una vez.",
   },
+  // ─── Campo (sección propia desde el 16-09-2026) ──────────────────────────
+  {
+    id: "campo-parcelas",
+    workspace: "campo",
+    to: "/campo/parcelas",
+    icon: Sprout,
+    title: "Parcelas",
+    description:
+      "Una fila por parcela con lo que ha entregado: quién la lleva, qué variedad tiene, cuántos kilos han entrado y desde cuándo. Al abrir una parcela sale lo que dio en el calibrador (exportación, industria, podrido y lo que fue a Mercadona), siempre sobre los kilos que pesó la máquina. Lo del árbol —hectáreas, marras, vigor y previsión de calibre— todavía no entra, y la página lo dice en vez de enseñar ceros.",
+  },
   {
     id: "campo-comunicaciones",
-    workspace: "planta",
+    workspace: "campo",
     to: "/campo/comunicaciones",
     icon: Send,
     title: "Comunicaciones de campaña",
