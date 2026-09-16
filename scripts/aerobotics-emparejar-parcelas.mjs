@@ -269,9 +269,14 @@ export function leerInformesCalibre(ficheros, xlsx) {
         variedad: String(f[1] ?? "").trim(),
         finca: String(f[2] ?? "").trim(),
         bloque: String(f[3] ?? "").trim(),
+        // OJO CON EL CERO (16-09-2026): el Excel de Aerobotics no deja la celda
+        // vacía cuando esa semana no se midió — escribe 0. Un diámetro de 0 mm
+        // no existe, así que un 0 es "no hay medida" y NO entra: si entra, la
+        // última medida de la finca pasa a ser 0 mm y se lleva por delante la
+        // previsión y el informe (187 de 232 filas de la primera carga eran 0).
         medidas: semanas
           .map((semana, i) => ({ semana, mm: f[4 + i] == null ? null : Number(f[4 + i]) }))
-          .filter((m) => m.semana && m.mm != null && Number.isFinite(m.mm)),
+          .filter((m) => m.semana && m.mm != null && Number.isFinite(m.mm) && m.mm > 0),
       };
       const k = `${normalizar(fila.finca)}|${normalizar(fila.bloque)}`;
       const previo = porBloque.get(k);

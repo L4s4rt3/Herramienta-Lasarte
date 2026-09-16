@@ -340,7 +340,11 @@ export interface CalibreDeParcela {
  */
 export function calibreDeParcela(fichas: CampoParcelaRow[], medidas: MedidaCalibre[]): CalibreDeParcela {
   const ids = new Set(fichas.map((f) => f.id));
-  const mias = medidas.filter((m) => m.parcela_id && ids.has(m.parcela_id));
+  // Un 0 no es una medida de 0 mm: es una semana sin medir. El Excel de
+  // Aerobotics escribe 0 en las celdas vacías y, si se cuela, la última medida
+  // de la finca pasa a ser 0 mm (16-09-2026: 187 de 232 filas de la primera
+  // carga venían así). El cargador ya no las mete; esto es el cinturón.
+  const mias = medidas.filter((m) => m.parcela_id && ids.has(m.parcela_id) && m.mm > 0);
   if (mias.length === 0) {
     return { puntos: [], bloques: [], ultimaMedida: null, ultimaPrevision: null, aciertos: [] };
   }
