@@ -7,6 +7,11 @@ import {
   revisarCoherenciaFoto,
   type ParLoteFoto,
 } from "../_shared/fotoLotesCoherencia.ts";
+import {
+  recolocarLineasBox,
+  type LineaBoxGuardada,
+  type LoteDiaMin,
+} from "../_shared/lineasBoxReenlace.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -509,6 +514,30 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
       }
     }
 
+    // ── Desgloses manuales por box: guardarlos ANTES de borrar lotes_dia ──
+    // pasada_box_lineas cuelga de lotes_dia.id con ON DELETE CASCADE. Al
+    // limpiar y reinsertar los lotes del parte se perdían (14-09-2026: el
+    // reparto manual del 11-09 desapareció y el automático volvió a cargar la
+    // pasada entera al primer lote). Se guardan aquí y se recolocan más abajo.
+    let lotesDiaPrevios: LoteDiaMin[] = [];
+    let lineasBoxPrevias: LineaBoxGuardada[] = [];
+    if (hasIaData) {
+      const { data: previosIa } = await admin
+        .from("lotes_dia")
+        .select("id, lote_codigo, kg_peso_total")
+        .eq("part_id", part_id)
+        .eq("source", "ia");
+      lotesDiaPrevios = (previosIa ?? []) as LoteDiaMin[];
+      if (lotesDiaPrevios.length > 0) {
+        const { data: lineas, error: errLineas } = await admin
+          .from("pasada_box_lineas")
+          .select("user_id, lote_dia_id, posicion, tipo, lote_codigo, prec_fecha, box, box_tamano, nota")
+          .in("lote_dia_id", lotesDiaPrevios.map((l) => l.id));
+        if (errLineas) throw new Error("pasada_box_lineas (guardar): " + errLineas.message);
+        lineasBoxPrevias = (lineas ?? []) as LineaBoxGuardada[];
+      }
+    }
+
     // ── Limpiar tablas de detalle previas (solo si hay datos IA nuevos) ───
     if (hasIaData) {
       await Promise.all([
@@ -569,7 +598,29 @@ JSON: ${'{"kg_mujeres_l":0,"kg_podrido_calibrador":0,"calibres_detalle":[],"prod
           kg_precalibrado_z2:    manual?.kg_precalibrado_z2 ?? null,
         };
       });
-      await admin.from("lotes_dia").insert(rows);
+      const { data: insertados, error: errInsert } = await admin
+        .from("lotes_dia")
+        .insert(rows)
+        .select("id, lote_codigo, kg_peso_total");
+      if (errInsert) throw new Error("lotes_dia (insertar): " + errInsert.message);
+
+      // ── Recolocar los desgloses manuales por box sobre los lotes nuevos ──
+      if (lineasBoxPrevias.length > 0) {
+        const r = recolocarLineasBox(lineasBoxPrevias, lotesDiaPrevios, (insertados ?? []) as LoteDiaMin[]);
+        if (r.filas.length > 0) {
+          const { error: errBox } = await admin.from("pasada_box_lineas").insert(r.filas);
+          if (errBox) throw new Error("pasada_box_lineas (recolocar): " + errBox.message);
+        }
+        console.log("[BOX] desgloses manuales recolocados: " + r.emparejados + " lote(s), " + r.filas.length + " linea(s); sin destino: " + r.sinDestino.length);
+        for (const s of r.sinDestino) {
+          avisos.push(
+            "El desglose manual por box de la pasada \"" + (s.lote_codigo ?? "?") + "\" (" + s.lineas + " línea(s)) no ha encontrado su pasada tras el reanálisis y se ha perdido: volver a teclearlo en el parte.",
+          );
+        }
+      }
+    } else if (lineasBoxPrevias.length > 0) {
+      console.log("[BOX] el reanálisis no trae lotes: se pierden " + lineasBoxPrevias.length + " línea(s) de desglose manual");
+      avisos.push("El reanálisis no trae lotes del día y había " + lineasBoxPrevias.length + " línea(s) de desglose manual por box: se han perdido, volver a teclearlas.");
     }
 
     // ── palets_dia (detallado) ────────────────────────────────────────────

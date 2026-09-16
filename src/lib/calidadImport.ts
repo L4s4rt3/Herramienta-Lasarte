@@ -54,6 +54,12 @@ export interface CalidadImportControl {
   peso_medio_cajas: string;
   sticker: string;
   papel: string;
+  /** Cómo llegan las cajas: CORRECTO / DAÑADO / lo que escriba calidad. */
+  packaging_cajas: string;
+  /** Cómo llegan los palets. */
+  packaging_palets: string;
+  /** Qué tienen y por qué ("cajas inferiores aplastadas, pierden estructura"). */
+  packaging_detalle: string;
   // 3. Defectos no evolutivos
   muestreo_no_evolutivos: string;
   defectos_leves: DefectoImport[];
@@ -121,6 +127,9 @@ export const DEFECTOS_EVOLUTIVOS_SUGERIDOS = [
 ] as const;
 
 export const CLASIFICACIONES_SUGERIDAS = ["CAT 1", "CAT 2"] as const;
+
+/** Cómo puede venir el embalaje. La lista es abierta: siempre se puede escribir. */
+export const ESTADOS_EMBALAJE = ["CORRECTO", "DAÑADO"] as const;
 
 // ─── Conversión fila BD ↔ modelo ─────────────────────────────────────────────
 
@@ -195,26 +204,6 @@ export function indiceMadurez(muestra: Pick<MuestraInterna, "brix" | "acidez">):
   return redondear1(brix / acidez);
 }
 
-// ─── Textos combinados para el informe ───────────────────────────────────────
-// Con varias muestras el informe imprime los valores unidos por "/", igual que
-// hacía la evaluadora a mano ("948/1264", "42/40.3").
-
-export function unirValores(valores: string[]): string {
-  const conContenido = valores.map((v) => v.trim()).filter((v) => v !== "");
-  return conContenido.join("/");
-}
-
-export function tiposDefectosTexto(defectos: DefectoImport[]): string {
-  return defectos.map((d) => d.tipo.trim()).filter((t) => t !== "").join(" / ");
-}
-
-export function pctsDefectosTexto(defectos: DefectoImport[]): string {
-  return defectos
-    .filter((d) => d.tipo.trim() !== "")
-    .map((d) => d.pct.trim() || "-")
-    .join(" / ");
-}
-
 // ─── Nombre de archivo de una foto descargada ────────────────────────────────
 // El original del iPhone puede llamarse "IMG_1234.HEIC" pero lo guardado es el
 // JPEG comprimido: el nombre de descarga conserva la base y corrige la
@@ -258,7 +247,7 @@ export function estadoSecciones(control: CalidadImportControl, numFotos: number)
   const hayTexto = (...campos: string[]) => campos.some((c) => c.trim() !== "");
   return [
     { numero: 1, titulo: "Información del producto", completa: hayTexto(control.referencia, control.nuestra_ref, control.proveedor, control.tipo_producto, control.origen, control.calibre) },
-    { numero: 2, titulo: "Información general", completa: hayTexto(control.etiquetado, control.clasificacion, control.temperatura, control.paletizacion, control.peso_medio_cajas) },
+    { numero: 2, titulo: "Información general", completa: hayTexto(control.etiquetado, control.clasificacion, control.temperatura, control.paletizacion, control.peso_medio_cajas, control.packaging_cajas, control.packaging_palets) },
     { numero: 3, titulo: "Defectos no evolutivos", completa: hayTexto(control.muestreo_no_evolutivos, control.obs_no_evolutivos) || control.defectos_leves.length > 0 || control.defectos_graves.length > 0 },
     { numero: 4, titulo: "Defectos evolutivos", completa: hayTexto(control.muestreo_evolutivos, control.obs_evolutivos) || control.defectos_evolutivos.length > 0 },
     { numero: 5, titulo: "Calidad interna", completa: hayTexto(control.obs_calidad_interna) || control.muestras_internas.some((m) => hayTexto(m.peso_fruta, m.peso_zumo, m.brix, m.acidez)) },

@@ -185,7 +185,15 @@ export interface OpcionesRentabilidad {
 
 export const HORAS_JORNADA_DEFECTO = 7;
 export const SUMINISTROS_DIA_DEFECTO_EUR = 600;
-export const COSTE_HORA_MEDIO_DEFECTO = 8.34;
+/**
+ * €/h para quien no tiene coste cargado en su ficha. Desde el 16-09-2026 es
+ * 9,00 CON Seguridad Social incluida: el coste medio de personal que Beatriz
+ * (administración) acordó con Vadim. Ese mismo día la migración
+ * trabajadores_coste_hora_9_con_ss puso 9,00 en todas las fichas, así que este
+ * default solo salta para nombres que aún no tengan ficha. Antes valía 8,34
+ * (media de los brutos cargados en mayo-2026).
+ */
+export const COSTE_HORA_MEDIO_DEFECTO = 9;
 
 export interface LoteRentabilidad {
   loteCodigo: string;

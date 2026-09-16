@@ -85,6 +85,23 @@ describe("registrosDeFilas", () => {
     expect(registrosDeFilas([])).toBeNull();
   });
 
+  it("lee también la hoja semanal de RRHH (Productor | Actividad | Fecha | HI/HF | HN | HE): horas = HN + HE", () => {
+    const cabecera = ["Productor", "Actividad", "Fecha", "HI", "HF", "HI", "HF", "HI", "HF", "HN", "€/HN", "Imp. HN", "HE", "€/HE", "Imp. HE", "Anticipos", "Total"];
+    const filas = [
+      cabecera,
+      ["AGUILAR PRIEGO LAURA", "ENVASADORAS", "07/09/2026", "05:59", "12:57", null, null, null, null, 6.97, 6.5, 45.31, 0, 6.5, 0, 0, 45.31],
+      ["CERRO  OJEDA SILVIA", "PRODUCCIÓN", "10/09/2026", "05:49", "13:01", null, null, null, null, 0, 0, 0, 7.19, 0, 0, 0, 0],
+      ["PRISCO DIAZ, RAQUEL", "ENCARGADO/A", "12/09/2026", "08:00", "08:56", null, null, null, null, 0, 0, 0, 0.93, 0, 0, 0, 0],
+      [null, null, null],
+    ];
+    const registros = registrosDeFilas(filas, { fichero: "semana_37.xlsx" });
+    expect(registros).toHaveLength(3);
+    expect(registros?.[0]).toMatchObject({ nombre: "AGUILAR PRIEGO LAURA", fecha: "2026-09-07", horas: 6.97, entrada: "05:59", salida: "12:57", actividad: "ENVASADORAS", tarifaHora: 6.5, importe: 45.31 });
+    expect(registros?.[1]).toMatchObject({ nombre: "CERRO OJEDA SILVIA", fecha: "2026-09-10", horas: 7.19, horasExtra: 7.19, tarifaHora: null });
+    // 56 minutos un sábado: queda por debajo del umbral de presencia, como en el otro formato
+    expect((registros?.[2].horas ?? 0) < UMBRAL_HORAS_PRESENTE).toBe(true);
+  });
+
   it("saca un registro por fila con horas, primera entrada y ÚLTIMA salida, saltando filas vacías", () => {
     const filas = [
       CABECERA,

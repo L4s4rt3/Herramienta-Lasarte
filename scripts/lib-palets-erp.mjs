@@ -62,9 +62,21 @@ export const SQL_PALETS_DIA = `
     LEFT JOIN ${EMPRESA}.articulo_general ag ON ag.codigo = p.articulo
    WHERE DATE(p.fecha_creacion) = ?`;
 
-/** Abre la conexión al ERP con las credenciales que ya guarda el propio ERP. */
-export async function conectarErp() {
-  return mysql.createConnection({
+/**
+ * Abre la conexión al ERP con las credenciales que ya guarda el propio ERP.
+ *
+ * TOPE DE TIEMPO POR CONSULTA (16-09-2026). El ERP lo comparte toda la oficina con el
+ * mismo usuario. Ese día una consulta exploratoria nuestra se quedó colgada en el
+ * servidor (el proceso cliente murió, MySQL siguió ejecutándola) y dejó sin servicio al
+ * resto de usuarios hasta que se canceló a mano. Desde entonces cada sesión fija
+ * `max_execution_time` (MySQL 5.7: solo SELECT, en milisegundos): una consulta que pase
+ * del tope la corta el propio servidor con el error 3024 y no se queda ahí. 120 s es
+ * holgado para todo lo que hacen los trabajos automáticos (la más larga, la trazabilidad
+ * de palets de toda la campaña, tarda unos 20 s); un script puede pedir más con
+ * `conectarErp({ maxSegundos: 300 })`, pero avisando antes.
+ */
+export async function conectarErp({ maxSegundos = 120 } = {}) {
+  const conexion = await mysql.createConnection({
     host: leerRegistro("Host"),
     port: Number(leerRegistro("Puerto")) || 3306,
     user: leerRegistro("Usuario"),
@@ -72,6 +84,13 @@ export async function conectarErp() {
     connectTimeout: 30000,
     dateStrings: true,
   });
+  try {
+    await conexion.query(`SET SESSION max_execution_time = ${Math.max(1, Math.round(maxSegundos * 1000))}`);
+  } catch (e) {
+    // Si el servidor no lo admitiera, la conexión sigue valiendo: el tope es una red, no un requisito.
+    console.warn(`[erp] no se pudo fijar el tope de tiempo por consulta: ${e.message}`);
+  }
+  return conexion;
 }
 
 /**

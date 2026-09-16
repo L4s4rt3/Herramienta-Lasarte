@@ -317,9 +317,9 @@ export default function EconomicoProductos() {
             <KPICard
               label="Coste de tratamiento"
               value={formatEuro(dia.tratamiento.totalEur, 0)}
-              hint={`${formatEuro(dia.tratamiento.personalEur, 0)} personal (con SS) + ${formatEuro(dia.tratamiento.suministrosEur, 0)} suministros`}
+              hint={`${formatEuro(dia.tratamiento.personalEur, 0)} personal (9 €/h con SS incluida) + ${formatEuro(dia.tratamiento.suministrosEur, 0)} suministros`}
               icon={Package}
-              labelInfo="Personal de cada día del periodo (presentes × horas × su salario bruto), más la Seguridad Social a cargo de la empresa, más los suministros de los días con producción. Se reparte entre los productos por kg ponderado por su índice de confección: una malla lleva más manos que un box de industria."
+              labelInfo="Personal de cada día del periodo (presentes × horas × su coste hora, que desde el 16-09-2026 es 9,00 €/h con la Seguridad Social ya incluida), más los suministros de los días con producción. El recargo de Seguridad Social aparte va a 0 por eso mismo. Se reparte entre los productos por kg ponderado por su índice de confección: una malla lleva más manos que un box de industria."
             />
           </div>
 
@@ -482,8 +482,8 @@ export default function EconomicoProductos() {
                   </TableRow>
                   <TableRow>
                     <TableCell>
-                      Seguridad Social
-                      <span className="ml-2 text-xs text-muted-foreground">{formatNumber(pctSS, 0)} % sobre el bruto</span>
+                      Seguridad Social aparte
+                      <span className="ml-2 text-xs text-muted-foreground">{formatNumber(pctSS, 0)} % sobre el coste hora (0 = ya incluida en los 9,00 €/h)</span>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{formatEuro(dia.tratamiento.seguridadSocialEur, 0)}</TableCell>
                   </TableRow>

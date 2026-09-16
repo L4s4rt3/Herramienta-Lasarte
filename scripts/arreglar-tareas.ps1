@@ -1,4 +1,4 @@
-# Deja las tareas programadas de Lasarte como tienen que estar.
+﻿# Deja las tareas programadas de Lasarte como tienen que estar.
 #
 # POR QUE EXISTE. Windows crea las tareas con dos ajustes que las rompen en un
 # portatil, y no se ven a menos que se mire el XML:
@@ -83,6 +83,10 @@ $tareas = @(
   # Precios de consumibles desde el ERP: despues del sync diario (07:40) y
   # antes de la asistencia (09:30). Necesita la red de la oficina.
   @{ nombre = "Lasarte - Precios consumibles";   vbs = "tarea-precios-consumibles.vbs"; despierta = $true;  crear = @("/SC", "WEEKLY", "/D", "MON", "/ST", "08:45") }
+  # Regla de Vadim 16-09-2026: de 06:00 a 15:00 el ERP intocable; cada hora se revisa que no haya consultas congeladas (las nuestras se cancelan).
+  @{ nombre = "Lasarte - Vigilar ERP";           vbs = "tarea-vigilar-erp.vbs";         despierta = $false; crear = @("/SC", "HOURLY", "/ST", "06:05", "/ET", "15:10") }
+  # Analisis completo de la empresa para Jose Maria, lunes 05:45 (antes de las 06:00 para no pisar el horario del ERP).
+  @{ nombre = "Lasarte - Analisis semanal";      vbs = "tarea-analisis-semanal.vbs";    despierta = $true;  crear = @("/SC", "WEEKLY", "/D", "MON", "/ST", "05:45") }
 )
 
 # Las tareas nacieron con schtasks a mano; las que llevan `crear` se dan de alta

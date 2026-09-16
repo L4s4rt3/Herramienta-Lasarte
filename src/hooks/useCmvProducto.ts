@@ -408,33 +408,30 @@ export function useDatosRangoProducto(desde: string | null, hasta: string | null
 // ─── El rango completo ───────────────────────────────────────────────────────
 
 /**
- * Recargo de Seguridad Social a cuenta de la empresa, como fracción del
- * salario bruto (0,35 = 35 %).
+ * Recargo de Seguridad Social a cuenta de la empresa, como fracción del coste
+ * hora (0,35 = 35 %). Desde el 16-09-2026 vale **0**.
  *
- * Hace falta porque `trabajadores.coste_hora` es el **bruto por hora**, no el
- * coste empresa: los 31 trabajadores con coste cargado van de 8,00 a 10,80
- * €/h (mediana 8,10), y un coste empresa real estaría entre 11 y 14. Sin este
- * recargo, el personal —y con él el CMV— sale corto en más de un tercio.
+ * Historia: hasta esa fecha `trabajadores.coste_hora` era el salario BRUTO por
+ * hora (8,00-10,80 en las 31 fichas con coste, mediana 8,10) y el dueño pidió
+ * (07-ago-2026) que el CMV llevara la Seguridad Social, así que aquí se sumaba
+ * un 35 %. El 16-09-2026 Beatriz (administración) acordó con Vadim usar un
+ * coste medio de personal de **9,00 €/h con la Seguridad Social ya incluida**;
+ * la migración `trabajadores_coste_hora_9_con_ss` puso ese 9,00 en todas las
+ * fichas (respaldo en `trabajadores_coste_hora_20260916`). Con el coste ya
+ * completo, sumar un 35 % encima lo contaría dos veces: por eso 0.
  *
- * Es una decisión del dueño (07-ago-2026: "incluye Seguridad Social"). El 35 %
- * es la horquilla habitual del régimen general con contingencias comunes,
- * desempleo, FOGASA y formación; es editable en la página porque el tipo real
- * depende del convenio y de las bonificaciones de cada contrato.
- *
- * OJO: `src/lib/rentabilidadDia.ts` sigue SIN Seguridad Social a propósito —
- * su metodología está validada contra los informes entregados al dueño y
- * cambiarla movería números ya dados por buenos. Por eso la constante vive
- * aquí y no allí: los dos módulos NO tienen que dar el mismo beneficio, y la
- * diferencia entre ambos es exactamente este recargo.
+ * Sigue editable en la página por si algún día el coste hora vuelve a ser
+ * bruto. Y sigue viviendo aquí y no en `rentabilidadDia.ts`: aquel módulo
+ * nunca aplicó recargo, así que ahora los dos módulos usan el mismo coste.
  */
-export const PCT_SEGURIDAD_SOCIAL_DEFECTO = 0.35;
+export const PCT_SEGURIDAD_SOCIAL_DEFECTO = 0;
 
 export interface OpcionesCmvProductoRango {
   /** Horas de jornada para el coste de personal (mismo default que Rentabilidad). */
   horasJornada: number;
   /** €/h BRUTOS de los presentes sin coste de nómina cargado. */
   costeHoraMedio: number;
-  /** Recargo de Seguridad Social sobre el bruto (fracción, no %). */
+  /** Recargo de Seguridad Social aparte sobre el coste hora (fracción, no %); 0 desde el 16-09-2026 porque el coste hora ya la incluye. */
   pctSeguridadSocial: number;
   /** Suministros + consumibles POR DÍA con producción, en €. */
   suministrosDiaEur: number;
@@ -453,7 +450,7 @@ export interface CmvProductoRangoHook {
   tratamiento: {
     /** Salario bruto: Σ presentes × su €/h × horas de jornada. */
     personalBrutoEur: number;
-    /** Recargo de Seguridad Social sobre el bruto. */
+    /** Recargo de Seguridad Social aparte sobre el coste hora (0 desde el 16-09-2026). */
     seguridadSocialEur: number;
     /** bruto + Seguridad Social: el coste empresa. */
     personalEur: number;
@@ -490,9 +487,10 @@ export function useCmvProductoRango(
 
   // Personal del RANGO: la suma de los presentes de cada día ya viene
   // acumulada, así que basta multiplicar por las horas de jornada una vez.
-  // `coste_hora` es BRUTO, así que encima va el recargo de Seguridad Social
-  // (ver PCT_SEGURIDAD_SOCIAL_DEFECTO). Se guardan las dos piezas por separado
-  // para poder enseñar el desglose en vez de un total opaco.
+  // `coste_hora` lleva desde el 16-09-2026 la Seguridad Social incluida (9,00
+  // €/h, Beatriz), así que el recargo de PCT_SEGURIDAD_SOCIAL_DEFECTO es 0. Se
+  // guardan las dos piezas por separado para poder enseñar el desglose si el
+  // usuario vuelve a poner un recargo en la página.
   const personalBrutoEur = useMemo(() => {
     if (!datos.data) return 0;
     const { sumaCosteHoraRango, presentesSinCosteRango } = datos.data;

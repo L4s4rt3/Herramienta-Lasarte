@@ -5,11 +5,8 @@ import {
   nombreDescargaFoto,
   nombreInformeCalidadImport,
   parseNumeroFlexible,
-  pctsDefectosTexto,
   pctZumo,
   rowToControl,
-  tiposDefectosTexto,
-  unirValores,
   type CalidadImportControl,
 } from "./calidadImport";
 
@@ -42,6 +39,9 @@ function controlVacio(): CalidadImportControl {
     peso_medio_cajas: "",
     sticker: "",
     papel: "",
+    packaging_cajas: "",
+    packaging_palets: "",
+    packaging_detalle: "",
     muestreo_no_evolutivos: "",
     defectos_leves: [],
     defectos_graves: [],
@@ -96,25 +96,6 @@ describe("derivados de calidad interna (valores de los informes reales)", () => 
 
   it("acepta decimales con coma (teclado español)", () => {
     expect(indiceMadurez({ brix: "12,2", acidez: "0,97" })).toBe("12.6");
-  });
-});
-
-describe("textos combinados del informe", () => {
-  it("unirValores junta con / saltando vacíos", () => {
-    expect(unirValores(["948", "1264"])).toBe("948/1264");
-    expect(unirValores(["948", "", " "])).toBe("948");
-    expect(unirValores([])).toBe("");
-  });
-
-  it("tipos y pcts en paralelo, con guion para el % vacío", () => {
-    const defectos = [
-      { tipo: "RAMEADO", pct: "4" },
-      { tipo: "CICATRIZ", pct: "1" },
-      { tipo: "", pct: "9" }, // sin tipo no cuenta
-      { tipo: "TRIP", pct: "" },
-    ];
-    expect(tiposDefectosTexto(defectos)).toBe("RAMEADO / CICATRIZ / TRIP");
-    expect(pctsDefectosTexto(defectos)).toBe("4 / 1 / -");
   });
 });
 

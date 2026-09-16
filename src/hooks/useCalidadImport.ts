@@ -122,6 +122,9 @@ export function controlNuevo(id: string, userId: string, prefill?: ControlPatch)
     peso_medio_cajas: "",
     sticker: "",
     papel: "",
+    packaging_cajas: "",
+    packaging_palets: "",
+    packaging_detalle: "",
     muestreo_no_evolutivos: "",
     defectos_leves: [],
     defectos_graves: [],
@@ -679,6 +682,10 @@ export function prefillDuplicado(control: CalidadImportControl): ControlPatch {
     tratamientos: control.tratamientos,
     sticker: control.sticker,
     papel: control.papel,
+    // El embalaje es del mismo camión: viaja al control de la otra categoría.
+    packaging_cajas: control.packaging_cajas,
+    packaging_palets: control.packaging_palets,
+    packaging_detalle: control.packaging_detalle,
     evaluador: control.evaluador,
   };
 }

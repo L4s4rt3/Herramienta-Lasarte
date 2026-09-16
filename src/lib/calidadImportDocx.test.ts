@@ -5,6 +5,7 @@ import { unzipSync, strFromU8 } from "fflate";
 import {
   fechaInformeTexto,
   generarInformeCalidadImportBlob,
+  lineaIdentificacion,
   referenciaInformeTexto,
 } from "./calidadImportDocx";
 import type { CalidadImportControl } from "./calidadImport";
@@ -39,6 +40,9 @@ const CONTROL_CAT1: CalidadImportControl = {
   peso_medio_cajas: "16.45",
   sticker: "NO",
   papel: "NO",
+  packaging_cajas: "",
+  packaging_palets: "",
+  packaging_detalle: "",
   muestreo_no_evolutivos: "(11-200)",
   defectos_leves: [
     { tipo: "RAMEADO", pct: "4" },
@@ -103,6 +107,20 @@ describe("fechaInformeTexto", () => {
   });
 });
 
+describe("lineaIdentificacion", () => {
+  it("junta lo justo para identificar una página suelta", () => {
+    expect(lineaIdentificacion(CONTROL_CAT1)).toBe(
+      "1184057 NUESTRA REF 26082701   ·   27/08/2026   ·   CAT 1   ·   HARRIE GOESTEN",
+    );
+  });
+
+  it("se salta lo que está vacío, sin dejar separadores sueltos", () => {
+    expect(lineaIdentificacion({ ...CONTROL_CAT1, clasificacion: "", proveedor: "" })).toBe(
+      "1184057 NUESTRA REF 26082701   ·   27/08/2026",
+    );
+  });
+});
+
 describe("generarInformeCalidadImportBlob", () => {
   it("el documento lleva las 7 secciones con los datos del control", async () => {
     const { texto } = await generarYExtraer(CONTROL_CAT1);
@@ -139,12 +157,16 @@ describe("generarInformeCalidadImportBlob", () => {
     expect(doc).toContain("PODRIDO");
     expect(doc).toContain("(11-200)");
 
-    // Sección 5: medidas unidas con "/" y derivados calculados
-    expect(doc).toContain("948/1264");
-    expect(doc).toContain("402/510");
-    expect(doc).toContain("42.4/40.3"); // % zumo derivado
-    expect(doc).toContain("12.6/11.2"); // índice de madurez derivado
-    expect(doc).toContain("Ref. &gt;40/42%");
+    // Sección 5: una columna por muestra, con los derivados calculados
+    expect(doc).toContain("Muestra 1");
+    expect(doc).toContain("Muestra 2");
+    expect(doc).toContain("948");
+    expect(doc).toContain("1264");
+    expect(doc).toContain("42.4"); // % zumo derivado de la muestra 1
+    expect(doc).toContain("40.3"); // ídem de la muestra 2
+    expect(doc).toContain("12.6"); // índice de madurez derivado
+    expect(doc).toContain("11.2");
+    expect(doc).toContain("&gt;40/42%"); // la referencia, en su columna
 
     // Sección 7
     expect(doc).toContain("Raquel Rubio Martín");
@@ -178,8 +200,12 @@ describe("generarInformeCalidadImportBlob", () => {
     expect(doc).toContain("ASPECTO INTERIOR GRANULADO");
     expect(doc).toContain("no aptos según nuestras especificaciones organolépticas");
     expect(doc).toContain("% Zumo de 34.5 y aspecto granuloso.");
-    // La conclusión va DESPUÉS de la tabla de Realiza.
+    // El dictamen cierra el informe bajo "Observaciones generales", igual que
+    // el "General remarks" del informe de referencia. Lo que se lee de un
+    // vistazo al abrir es la tira de veredictos.
+    expect(doc).toContain("Observaciones generales");
     expect(doc.indexOf("no aptos según")).toBeGreaterThan(doc.indexOf("Nombre del evaluador"));
+    expect(doc).toContain("De un vistazo");
   });
 
   it("sin observaciones internas ni conclusión, esas piezas no aparecen", async () => {
@@ -187,6 +213,70 @@ describe("generarInformeCalidadImportBlob", () => {
     const doc = texto("word/document.xml");
     // CAT1 solo escribió observaciones en la sección 3 (evolutivos vacía).
     expect(doc.match(/Observaciones/g)?.length).toBe(1);
+  });
+
+  it("los valores fuera de nuestra referencia se marcan en rojo", async () => {
+    const { texto } = await generarYExtraer({
+      ...CONTROL_CAT1,
+      // 9.1 de Brix está por debajo del mínimo de la referencia 10/16.
+      muestras_internas: [{ peso_fruta: "985", peso_zumo: "450", brix: "9.1", acidez: "0.85" }],
+    });
+    const doc = texto("word/document.xml");
+    // El color rojo de la casa aparece junto al valor que se sale.
+    expect(doc).toContain("B42318");
+  });
+
+  it("el estado del embalaje sale en Información general con su detalle", async () => {
+    const { texto } = await generarYExtraer({
+      ...CONTROL_CAT1,
+      packaging_cajas: "DAÑADO",
+      packaging_palets: "CORRECTO",
+      packaging_detalle: "Las cajas de abajo vienen aplastadas y pierden estructura.",
+    });
+    const doc = texto("word/document.xml");
+    expect(doc).toContain("Estado de las cajas");
+    expect(doc).toContain("DAÑADO");
+    expect(doc).toContain("Estado de los palets");
+    expect(doc).toContain("Detalle del embalaje");
+    expect(doc).toContain("Las cajas de abajo vienen aplastadas y pierden estructura.");
+  });
+
+  it("sin anotar el embalaje, esas filas no aparecen", async () => {
+    const { texto } = await generarYExtraer(CONTROL_CAT1);
+    const doc = texto("word/document.xml");
+    expect(doc).not.toContain("Estado de las cajas");
+    expect(doc).not.toContain("Detalle del embalaje");
+  });
+
+  it("el pie numera las páginas y lleva la razón social", async () => {
+    const { zip, texto } = await generarYExtraer(CONTROL_CAT1);
+    const footerEntry = Object.keys(zip).find((n) => /word\/footer\d*\.xml$/.test(n));
+    expect(footerEntry).toBeDefined();
+    const pie = texto(footerEntry!);
+    expect(pie).toContain("Lasarte Cítricos S.L.");
+    expect(pie).toContain("B14800304");
+    expect(pie).toContain("PAGE");
+    expect(pie).toContain("NUMPAGES");
+  });
+
+  it("la cabecera identifica el control en todas las páginas", async () => {
+    const { zip, texto } = await generarYExtraer(CONTROL_CAT1);
+    const headerEntry = Object.keys(zip).find((n) => /word\/header\d*\.xml$/.test(n));
+    const cabecera = texto(headerEntry!);
+    // Los datos van en bloques de "Etiqueta: Valor", como el informe de
+    // referencia: la referencia del proveedor y la nuestra van por separado.
+    expect(cabecera).toContain("1184057");
+    expect(cabecera).toContain("26082701");
+    expect(cabecera).toContain("HARRIE GOESTEN");
+    expect(cabecera).toContain("27/08/2026");
+  });
+
+  it("cada foto va rotulada con su número", async () => {
+    const { texto } = await generarYExtraer(CONTROL_CAT1, [FOTO_FALSA, FOTO_FALSA, FOTO_FALSA]);
+    const doc = texto("word/document.xml");
+    expect(doc).toContain("Foto 1");
+    expect(doc).toContain("Foto 3");
+    expect(doc).not.toContain("Foto 4");
   });
 
   it("la fecha de descarga del camión sale en la sección de producto", async () => {

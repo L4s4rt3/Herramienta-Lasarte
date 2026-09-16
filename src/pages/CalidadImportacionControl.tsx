@@ -54,6 +54,7 @@ import {
   CLASIFICACIONES_SUGERIDAS,
   DEFECTOS_EVOLUTIVOS_SUGERIDOS,
   DEFECTOS_NO_EVOLUTIVOS_SUGERIDOS,
+  ESTADOS_EMBALAJE,
   estadoSecciones,
   indiceMadurez,
   pctZumo,
@@ -509,6 +510,37 @@ export default function CalidadImportacionControl() {
             <div className="grid grid-cols-2 gap-3">
               <OpcionesRapidas etiqueta="Sticker" valor={control.sticker} opciones={["SI", "NO"]} onCambio={(v) => cambiar({ sticker: v })} />
               <OpcionesRapidas etiqueta="Papel" valor={control.papel} opciones={["SI", "NO"]} onCambio={(v) => cambiar({ papel: v })} />
+            </div>
+
+            {/* Estado del embalaje: cómo vienen cajas y palets, y qué les pasa.
+                Antes esto acababa metido dentro de la conclusión por no tener
+                sitio propio (control 26091102: "las cajas inferiores
+                aplastadas, perdiendo la estructura"). */}
+            <div className="space-y-3 rounded-xl border border-primary/15 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estado del embalaje</p>
+              <OpcionesRapidas
+                etiqueta="Cajas"
+                valor={control.packaging_cajas}
+                opciones={ESTADOS_EMBALAJE}
+                onCambio={(v) => cambiar({ packaging_cajas: v })}
+                conTextoLibre
+              />
+              <OpcionesRapidas
+                etiqueta="Palets"
+                valor={control.packaging_palets}
+                opciones={ESTADOS_EMBALAJE}
+                onCambio={(v) => cambiar({ packaging_palets: v })}
+                conTextoLibre
+              />
+              <div className="space-y-1">
+                <Label className="text-xs font-medium text-muted-foreground">Qué tienen y por qué</Label>
+                <Textarea
+                  value={control.packaging_detalle}
+                  onChange={(evento) => cambiar({ packaging_detalle: evento.target.value })}
+                  placeholder="Las cajas de abajo vienen aplastadas y pierden estructura, presionan la fruta..."
+                  className="min-h-[80px] rounded-xl text-base"
+                />
+              </div>
             </div>
           </div>
         </SeccionAcordeon>

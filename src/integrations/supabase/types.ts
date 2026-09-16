@@ -557,6 +557,9 @@ export type Database = {
           obs_no_evolutivos: string
           origen: string
           paletizacion: string
+          packaging_cajas: string
+          packaging_detalle: string
+          packaging_palets: string
           papel: string
           peso_medio_cajas: string
           proveedor: string
@@ -599,6 +602,9 @@ export type Database = {
           obs_no_evolutivos?: string
           origen?: string
           paletizacion?: string
+          packaging_cajas?: string
+          packaging_detalle?: string
+          packaging_palets?: string
           papel?: string
           peso_medio_cajas?: string
           proveedor?: string
@@ -641,6 +647,9 @@ export type Database = {
           obs_no_evolutivos?: string
           origen?: string
           paletizacion?: string
+          packaging_cajas?: string
+          packaging_detalle?: string
+          packaging_palets?: string
           papel?: string
           peso_medio_cajas?: string
           proveedor?: string
