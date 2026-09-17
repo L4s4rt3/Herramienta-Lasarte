@@ -11,9 +11,19 @@ export interface DiaSemanaData {
   motivo_ausencia: string | null;
 }
 
-export interface SemanaDataRaw {
-  weekStart: string;
-  weekEnd: string;
+/**
+ * Los datos crudos de asistencia de un PERIODO. Nació siendo una semana
+ * (se llamaba `SemanaDataRaw`) y desde el 17-09-2026 `days` puede ser cualquier rango:
+ * una semana, un mes, una campaña o un rango a mano. Ninguna de las funciones
+ * de este módulo supone 7 días — todas recorren `days` tal cual venga —, así
+ * que pasar de semana a periodo no cambió ni un cálculo.
+ *
+ * `partes` puede llegar VACÍO: la vista de pantalla es solo asistencia (así lo
+ * pidió el dueño) y la producción se carga aparte, solo al exportar.
+ */
+export interface PeriodoAsistenciaRaw {
+  desde: string;
+  hasta: string;
   days: string[];
   trabajadores: TrabajadorRow[];
   asistencia: Record<string, DiaSemanaData[]>;
@@ -88,15 +98,15 @@ const RENDIMIENTO_GROUP_LABELS: Record<string, string> = {
   Graneleras: "Graneleras",
 };
 
-function buildDailyAsistencia(semana: SemanaDataRaw, date: string): Record<string, boolean> {
+function buildDailyAsistencia(periodo: PeriodoAsistenciaRaw, date: string): Record<string, boolean> {
   const asistencia: Record<string, boolean> = {};
-  for (const [trabajadorId, registros] of Object.entries(semana.asistencia)) {
+  for (const [trabajadorId, registros] of Object.entries(periodo.asistencia)) {
     const diaData = registros.find((r) => r.date === date);
     if (diaData) {
       asistencia[trabajadorId] = diaData.presente === true;
     }
   }
-  for (const baja of semana.bajasLaborales) {
+  for (const baja of periodo.bajasLaborales) {
     if (shouldApplyBajaLaboralToDate(baja, date)) {
       if (asistencia[baja.trabajador_id] !== true) {
         asistencia[baja.trabajador_id] = false;
@@ -156,16 +166,16 @@ export function shiftWeek(dateStr: string, delta: number): string {
 }
 
 export function buildFaltasSemanales(
-  semana: SemanaDataRaw,
+  periodo: PeriodoAsistenciaRaw,
   incluirSabado = false,
 ): FaltasSemanalesRow[] {
-  const diasLaborables = getDiasLaborables(semana.days, incluirSabado);
+  const diasLaborables = getDiasLaborables(periodo.days, incluirSabado);
   const BAJA_LABORAL_MOTIVO = "baja_laboral";
   const trabajadorDias: Record<string, FaltasSemanalesRow> = {};
 
-  for (const t of semana.trabajadores.filter((t) => t.activo)) {
+  for (const t of periodo.trabajadores.filter((t) => t.activo)) {
     const days: Record<string, "presente" | "ausente" | "baja" | "sinRegistrar"> = {};
-    for (const date of semana.days) {
+    for (const date of periodo.days) {
       days[date] = "sinRegistrar";
     }
     trabajadorDias[t.id] = {
@@ -180,15 +190,15 @@ export function buildFaltasSemanales(
     };
   }
 
-  for (const [trabajadorId, registros] of Object.entries(semana.asistencia)) {
+  for (const [trabajadorId, registros] of Object.entries(periodo.asistencia)) {
     const row = trabajadorDias[trabajadorId];
     if (!row) continue;
     for (const r of registros) {
       if (r.presente === true) {
-        const tieneBaja = tieneBajaActiva(semana.bajasLaborales, trabajadorId, r.date);
+        const tieneBaja = tieneBajaActiva(periodo.bajasLaborales, trabajadorId, r.date);
         row.days[r.date] = tieneBaja ? "baja" : "presente";
       } else if (r.presente === false) {
-        const esBaja = r.motivo_ausencia === BAJA_LABORAL_MOTIVO || tieneBajaActiva(semana.bajasLaborales, trabajadorId, r.date);
+        const esBaja = r.motivo_ausencia === BAJA_LABORAL_MOTIVO || tieneBajaActiva(periodo.bajasLaborales, trabajadorId, r.date);
         row.days[r.date] = esBaja ? "baja" : "ausente";
       }
     }
@@ -196,7 +206,7 @@ export function buildFaltasSemanales(
 
   for (const row of Object.values(trabajadorDias)) {
     for (const date of diasLaborables) {
-      if (row.days[date] === "sinRegistrar" && tieneBajaActiva(semana.bajasLaborales, row.trabajadorId, date)) {
+      if (row.days[date] === "sinRegistrar" && tieneBajaActiva(periodo.bajasLaborales, row.trabajadorId, date)) {
         row.days[date] = "baja";
       }
     }
@@ -218,22 +228,22 @@ export function buildFaltasSemanales(
   });
 }
 
-export function calcularKgPersonaSemanal(semana: SemanaDataRaw, incluirSabado = false): {
+export function calcularKgPersonaSemanal(periodo: PeriodoAsistenciaRaw, incluirSabado = false): {
   totalKg: number;
   mediaPersonasComputables: number;
   mediaPersonasTotales: number;
   kgPersona: number;
   diasConDatos: number;
 } {
-  const diasLaborables = getDiasLaborables(semana.days, incluirSabado);
+  const diasLaborables = getDiasLaborables(periodo.days, incluirSabado);
   let totalKg = 0;
   let totalPersonasComputables = 0;
   let totalPersonasPresentes = 0;
   let diasConDatos = 0;
 
   for (const date of diasLaborables) {
-    const dailyAsistencia = buildDailyAsistencia(semana, date);
-    const parte = semana.partes[date];
+    const dailyAsistencia = buildDailyAsistencia(periodo, date);
+    const parte = periodo.partes[date];
     const kg = parte ? produccionRealParte(parte) || Number(parte.kg_produccion_calibrador) || 0 : 0;
     const tieneProduccion = kg > 0;
     if (tieneProduccion) {
@@ -241,7 +251,7 @@ export function calcularKgPersonaSemanal(semana: SemanaDataRaw, incluirSabado = 
       diasConDatos++;
     }
 
-    for (const t of semana.trabajadores) {
+    for (const t of periodo.trabajadores) {
       if (!t.activo) continue;
       if (dailyAsistencia[t.id] === true) {
         totalPersonasPresentes++;
@@ -260,8 +270,8 @@ export function calcularKgPersonaSemanal(semana: SemanaDataRaw, incluirSabado = 
   return { totalKg, mediaPersonasComputables: mediaPersonas, mediaPersonasTotales: mediaTotales, kgPersona, diasConDatos };
 }
 
-export function calcularRendimientoGrupoSemanal(semana: SemanaDataRaw, incluirSabado = false): RendimientoGrupoSemanal[] {
-  const diasLaborables = getDiasLaborables(semana.days, incluirSabado);
+export function calcularRendimientoGrupoSemanal(periodo: PeriodoAsistenciaRaw, incluirSabado = false): RendimientoGrupoSemanal[] {
+  const diasLaborables = getDiasLaborables(periodo.days, incluirSabado);
   const gruposKg: Record<string, number> = {};
   const gruposPersonas: Record<string, number> = {};
   const gruposDaily: Record<string, DiaGrupoData[]> = {};
@@ -280,14 +290,14 @@ export function calcularRendimientoGrupoSemanal(semana: SemanaDataRaw, incluirSa
   };
 
   for (const date of diasLaborables) {
-    const dailyAsistencia = buildDailyAsistencia(semana, date);
+    const dailyAsistencia = buildDailyAsistencia(periodo, date);
     const dailyGrupos = calcularRendimientoGrupos({
-      parte: (semana.partes[date] ?? null) as Record<string, unknown> | null | undefined,
-      trabajadores: semana.trabajadores,
+      parte: (periodo.partes[date] ?? null) as Record<string, unknown> | null | undefined,
+      trabajadores: periodo.trabajadores,
       asistencia: dailyAsistencia,
     });
 
-    const trabajadoresActivos = semana.trabajadores.filter((t) => t.activo);
+    const trabajadoresActivos = periodo.trabajadores.filter((t) => t.activo);
     const dailyZonas = calcularRendimientoZonasAlmacen({
       trabajadores: trabajadoresActivos,
       asistencia: dailyAsistencia,
@@ -332,12 +342,12 @@ export function calcularRendimientoGrupoSemanal(semana: SemanaDataRaw, incluirSa
   });
 }
 
-export function calcularKgSeccionSemanal(semana: SemanaDataRaw, incluirSabado = false): { zona: string; kg: number; computa: boolean }[] {
-  const diasLaborables = getDiasLaborables(semana.days, incluirSabado);
+export function calcularKgSeccionSemanal(periodo: PeriodoAsistenciaRaw, incluirSabado = false): { zona: string; kg: number; computa: boolean }[] {
+  const diasLaborables = getDiasLaborables(periodo.days, incluirSabado);
   const zonaKg: Record<string, { kg: number; computa: boolean }> = {};
 
   for (const date of diasLaborables) {
-    const parte = semana.partes[date];
+    const parte = periodo.partes[date];
     if (!parte) continue;
     const productoDia = parte.producto_dia ?? [];
     for (const item of productoDia) {
@@ -362,12 +372,12 @@ export function calcularKgSeccionSemanal(semana: SemanaDataRaw, incluirSabado = 
     .sort((a, b) => b.kg - a.kg);
 }
 
-export function productosClasificadosSemanales(semana: SemanaDataRaw, incluirSabado = false): ProductoClasificadoSemanal[] {
-  const diasLaborables = getDiasLaborables(semana.days, incluirSabado);
+export function productosClasificadosSemanales(periodo: PeriodoAsistenciaRaw, incluirSabado = false): ProductoClasificadoSemanal[] {
+  const diasLaborables = getDiasLaborables(periodo.days, incluirSabado);
   const productMap = new Map<string, ProductoClasificadoSemanal>();
 
   for (const date of diasLaborables) {
-    const parte = semana.partes[date];
+    const parte = periodo.partes[date];
     if (!parte) continue;
     const productoDia = parte.producto_dia ?? [];
     for (const item of productoDia) {

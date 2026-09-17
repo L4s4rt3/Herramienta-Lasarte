@@ -20,7 +20,7 @@ import { SelectorPeriodo } from "@/components/SelectorPeriodo";
 import {
   Plus, Upload, UserCheck, UserX,
   Users, Calendar as CalendarIcon, CalendarDays, Search, Eraser,
-  PackageCheck, FileText, Download, ChevronDown, X,
+  PackageCheck, FileText, Download, ChevronDown, X, CalendarRange,
   ShieldOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -62,10 +62,13 @@ import { useTrabajadoresAlias } from "@/hooks/useTrabajadoresAlias";
 import { useLimpiezaJornadaFueraLinea } from "@/hooks/useLimpiezaJornadaFueraLinea";
 import {
   BAJA_LABORAL_MOTIVO,
+  cargarAsistenciaPeriodo,
+  cargarProduccionPeriodo,
   cargarSemanasAsistenciaExportables,
+  useAsistenciaCobertura,
   useAsistenciaDia,
   useAsistenciaEficiencia,
-  useAsistenciaSemana,
+  useAsistenciaPeriodo,
   useAsistenciaTrabajadores,
   useParteDelDia,
   useUpsertAsistenciaRegistros,
@@ -82,9 +85,8 @@ import {
   normalizeAsistenciaExportZona,
 } from "@/lib/asistenciaExport";
 import {
-  type SemanaDataRaw,
-  getWeekDates,
-  getWeekLabel,
+  type PeriodoAsistenciaRaw,
+  getDiasLaborables,
   buildFaltasSemanales as buildFaltasSemanalesFnc,
   calcularKgPersonaSemanal,
   calcularRendimientoGrupoSemanal,
@@ -92,6 +94,24 @@ import {
   productosClasificadosSemanales,
   INCLUIR_SABADO_STORAGE_KEY,
 } from "@/lib/asistenciaSemanal";
+import {
+  coberturaDelPeriodo,
+  contarDias,
+  contarMarcasPorDia,
+  enumerarDias,
+  formatFechaLarga,
+  mesesDeCobertura,
+  resumirTrabajadoresPeriodo,
+  totalesPeriodo,
+  type CoberturaAsistencia,
+} from "@/lib/asistenciaPeriodo";
+import {
+  formatPeriodoLabel,
+  hoyPeriodo,
+  periodoDeFecha,
+  rangoPersonalizado,
+  type PeriodoValue,
+} from "@/lib/selectorPeriodo";
 
 type WorkerFilter = "todos" | "presentes" | "ausentes" | "bajaLaboral" | "sinRegistro" | "conKg" | "fueraKg";
 
@@ -196,14 +216,45 @@ const KG_SECCION_SEMANA_COLUMNAS: ColumnaTabla[] = [
   { header: "Computa", key: "Computa", width: 12, align: "center" },
 ];
 
-const FALTAS_SEMANA_COLUMNAS: ColumnaTabla[] = [
+
+// ─── Columnas nuevas del informe por periodo (17-09-2026) ──────────────────
+// La hoja de cobertura es la que contesta en papel "¿de qué días tengo
+// información?": un renglón por día natural, diga lo que diga (con datos, sin
+// volcar, o no laborable).
+const COBERTURA_DIA_COLUMNAS: ColumnaTabla[] = [
+  { header: "Fecha", key: "Fecha", width: 13, align: "center" },
+  { header: "Día", key: "Dia", width: 8, align: "center" },
+  { header: "Laborable", key: "Laborable", width: 11, align: "center" },
+  { header: "Registros", key: "Registros", numFmt: FMT_INT, align: "right", width: 11 },
+  { header: "Presentes", key: "Presentes", numFmt: FMT_INT, align: "right", width: 11 },
+  { header: "Ausentes", key: "Ausentes", numFmt: FMT_INT, align: "right", width: 11 },
+  { header: "Kg producidos", key: "Kg", numFmt: FMT_KG, align: "right", width: 16 },
+  { header: "Estado", key: "Estado", width: 20 },
+];
+
+const ASISTENCIA_TRABAJADOR_PERIODO_COLUMNAS: ColumnaTabla[] = [
   { header: "Trabajador", key: "Trabajador", width: 26 },
   { header: "Puesto/Zona", key: "Zona", width: 18 },
+  { header: "Presentes", key: "Presentes", numFmt: FMT_INT, align: "right", width: 11 },
   { header: "Faltas", key: "Faltas", numFmt: FMT_INT, align: "right", width: 10 },
-  { header: "Bajas laborales", key: "Bajas laborales", width: 14, align: "center" },
   { header: "Días de baja", key: "Días de baja", numFmt: FMT_INT, align: "right", width: 12 },
-  { header: "Presentes", key: "Presentes", numFmt: FMT_INT, align: "right", width: 10 },
+  { header: "Sin marcar", key: "Sin marcar", numFmt: FMT_INT, align: "right", width: 12 },
+  { header: "% asistencia", key: "% asistencia", numFmt: FMT_PCT, align: "right", width: 13 },
 ];
+
+const DETALLE_DIA_PERIODO_COLUMNAS: ColumnaTabla[] = [
+  { header: "Fecha", key: "Fecha", width: 13, align: "center" },
+  { header: "Trabajador", key: "Trabajador", width: 26 },
+  { header: "Puesto/Zona", key: "Zona", width: 18 },
+  { header: "Estado", key: "Estado", width: 16 },
+];
+
+const ESTADO_DIA_ETIQUETA: Record<string, string> = {
+  presente: "Presente",
+  ausente: "Ausente",
+  baja: "Baja laboral",
+  sinRegistrar: "Sin marcar",
+};
 
 const PRODUCTOS_CLASIFICADOS_SEMANA_COLUMNAS: ColumnaTabla[] = [
   { header: "Producto", key: "Producto", width: 28 },
@@ -221,13 +272,7 @@ function inicialesTrabajador(nombre: string) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-// ─── Vista semanal: solo asistencia/ausencias ──────────────────────────────
-// El dueño pidió que la vista en formato semanal se centre exclusivamente en
-// asistencia (presentes/ausentes/bajas/sin marcar): sin kg/persona, rendimiento
-// por zona, kg por sección ni productos clasificados (eso queda solo en el
-// informe semanal Excel, que sigue igual). buildFaltasSemanalesFnc no toca
-// producción: solo asistencia_detalle + bajas laborales.
-const WEEKLY_DAY_ABBR = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "dom"];
+const DIA_ABBR = ["dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
 
 function weeklyEstadoClass(status: string) {
   if (status === "presente") return "bg-success text-success-foreground";
@@ -236,30 +281,162 @@ function weeklyEstadoClass(status: string) {
   return "bg-warning text-warning-foreground";
 }
 
-function AsistenciaSemanalAttendanceView({
-  semana,
+// ─── Cobertura: desde cuándo hasta cuándo hay información ─────────────────
+// La pregunta que antes obligaba a ir pasando semana a semana hacia atrás.
+// Tres cosas de un vistazo: el tramo completo con datos, cómo va el periodo
+// que estás mirando, y un mapa de meses desde el que saltar a cualquiera.
+function CoberturaAsistenciaPanel({
+  cobertura,
+  dias,
+  incluirSabado,
+  onIrAMes,
+  onVerTodo,
+}: {
+  cobertura: CoberturaAsistencia | null;
+  dias: string[];
+  incluirSabado: boolean;
+  /** Saltar al mes completo que empieza en esa fecha (chips del mapa de meses). */
+  onIrAMes: (primerDiaDelMes: string) => void;
+  onVerTodo: (desde: string, hasta: string) => void;
+}) {
+  const delPeriodo = useMemo(
+    () => (cobertura ? coberturaDelPeriodo(cobertura, dias, incluirSabado) : null),
+    [cobertura, dias, incluirSabado],
+  );
+  const meses = useMemo(
+    () => (cobertura ? mesesDeCobertura(cobertura, incluirSabado) : []),
+    [cobertura, incluirSabado],
+  );
+
+  if (!cobertura) {
+    return <Skeleton className="h-20" />;
+  }
+
+  if (!cobertura.primera || !cobertura.ultima) {
+    return (
+      <div className="rounded-xl glass-accented p-4 text-sm text-muted-foreground">
+        Todavía no hay ningún día de asistencia registrado.
+      </div>
+    );
+  }
+
+  const faltan = delPeriodo?.sinDatos ?? [];
+  const faltanMuestra = faltan.slice(0, 6);
+
+  return (
+    <div className="rounded-xl glass-accented p-4 space-y-3">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+        <CalendarRange className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <span className="text-muted-foreground">Hay asistencia registrada del</span>
+        <span className="font-semibold tabular-nums">{formatFechaLarga(cobertura.primera)}</span>
+        <span className="text-muted-foreground">al</span>
+        <span className="font-semibold tabular-nums">{formatFechaLarga(cobertura.ultima)}</span>
+        <span className="text-muted-foreground">
+          · {formatoEntero(cobertura.diasConRegistros)} días volcados, {formatoEntero(cobertura.diasConPresencia)} con gente trabajando
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 glass glass-hover text-xs"
+          onClick={() => onVerTodo(cobertura.primera!, cobertura.ultima!)}
+        >
+          Ver todo
+        </Button>
+      </div>
+
+      {delPeriodo && delPeriodo.laborables === 0 ? (
+        <div className="text-sm text-muted-foreground">
+          En el periodo que estás viendo no hay ningún día laborable del que pudiera haber datos:
+          o cae antes de que arrancara el registro, o todavía no ha pasado.
+        </div>
+      ) : delPeriodo ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+          <span className="text-muted-foreground">En el periodo que estás viendo:</span>
+          <span className="font-semibold tabular-nums">
+            {formatoEntero(delPeriodo.conRegistros)} de {formatoEntero(delPeriodo.laborables)}
+          </span>
+          <span className="text-muted-foreground">
+            días laborables con datos volcados
+            {/* Se dice EN QUÉ TRAMO se cuenta cuando no es el periodo entero:
+                antes del arranque del registro no falta nada (no había
+                sistema) y después de hoy tampoco (no ha pasado). */}
+            {delPeriodo.recortada && delPeriodo.ventanaDesde && delPeriodo.ventanaHasta
+              ? ` (contando del ${formatFechaLarga(delPeriodo.ventanaDesde)} al ${formatFechaLarga(delPeriodo.ventanaHasta)})`
+              : ""}
+          </span>
+          {faltan.length > 0 && (
+            <span className="text-warning">
+              · falta{faltan.length === 1 ? "" : "n"} por volcar {faltanMuestra.map(formatFechaLarga).join(", ")}
+              {faltan.length > faltanMuestra.length ? ` y ${faltan.length - faltanMuestra.length} más` : ""}
+            </span>
+          )}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        {meses.map((mes) => {
+          const completo = mes.diasConRegistros >= mes.laborables;
+          const vacio = mes.diasConRegistros === 0;
+          return (
+            <Button
+              key={mes.mes}
+              variant="ghost"
+              size="sm"
+              onClick={() => onIrAMes(mes.primerDia)}
+              className={cn(
+                "h-7 rounded-lg border px-2.5 text-xs tabular-nums",
+                vacio
+                  ? "border-[var(--glass-border)] text-muted-foreground/60"
+                  : completo
+                    ? "border-success/30 bg-success/10 text-success hover:bg-success/20"
+                    : "border-warning/30 bg-warning/10 text-warning hover:bg-warning/20",
+              )}
+              title={`${mes.diasConRegistros} de ${mes.laborables} días laborables con datos`}
+            >
+              {mes.label} · {mes.diasConRegistros}/{mes.laborables}
+            </Button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Vista de periodo: solo asistencia/ausencias ───────────────────────────
+// El dueño pidió que esta vista se centre exclusivamente en asistencia
+// (presentes/ausentes/bajas/sin marcar): sin kg/persona, rendimiento por
+// zona, kg por sección ni productos clasificados (eso queda solo en el
+// informe Excel, que sigue llevándolo todo). buildFaltasSemanalesFnc no toca
+// producción: solo asistencia_detalle + bajas laborales.
+//
+// Desde el 17-09-2026 el periodo ya no es forzosamente una semana, así que la
+// rejilla de un cuadradito por día solo se pinta cuando CABE (hasta 31 días,
+// o sea hasta un mes). Para un trimestre o una campaña se enseña el resumen
+// por trabajador con su porcentaje de asistencia: 250 columnas no las lee
+// nadie, y el detalle día a día está en el Excel.
+const DIAS_MAX_REJILLA = 31;
+
+function AsistenciaPeriodoView({
+  periodo,
   loading,
-  weekStart,
+  dias,
   incluirSabado,
   onToggleSabado,
 }: {
-  semana: SemanaDataRaw | null;
+  periodo: PeriodoAsistenciaRaw | null;
   loading: boolean;
-  weekStart: string;
+  dias: string[];
   incluirSabado: boolean;
   onToggleSabado: () => void;
 }) {
-  const dates = useMemo(() => getWeekDates(weekStart), [weekStart]);
-
   const faltas = useMemo(() => {
-    if (!semana) return [];
-    return buildFaltasSemanalesFnc(semana, incluirSabado);
-  }, [semana, incluirSabado]);
+    if (!periodo) return [];
+    return resumirTrabajadoresPeriodo(buildFaltasSemanalesFnc(periodo, incluirSabado));
+  }, [periodo, incluirSabado]);
 
-  const totalFaltasSemana = faltas.reduce((s, r) => s + r.totalFaltas, 0);
-  const totalBajasSemana = faltas.filter((r) => r.totalBajas > 0).length;
-  const totalPresentesSemana = faltas.reduce((s, r) => s + r.totalPresentes, 0);
-  const totalSinRegistrarSemana = faltas.reduce((s, r) => s + r.totalSinRegistrar, 0);
+  const totales = useMemo(() => totalesPeriodo(faltas), [faltas]);
+  const conRejilla = dias.length <= DIAS_MAX_REJILLA;
+  const diasLaborables = useMemo(() => getDiasLaborables(dias, incluirSabado), [dias, incluirSabado]);
 
   if (loading) {
     return (
@@ -273,14 +450,14 @@ function AsistenciaSemanalAttendanceView({
   return (
     <div className="space-y-6">
       <div>
-        <p className="panel-kicker mb-2">KPIs de la semana</p>
+        <p className="panel-kicker mb-2">KPIs del periodo</p>
         <div className="grid grid-cols-2 gap-2 rounded-xl border border-[var(--glass-border-accent)] bg-[var(--glass-bg-strong)] p-2 shadow-[var(--glass-shadow)] sm:grid-cols-4">
           <div className="flex items-center gap-2.5 rounded-lg px-3 py-2.5">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-success/25 bg-success/10 text-success">
               <UserCheck className="h-4 w-4" />
             </div>
             <div className="min-w-0">
-              <p className="text-lg font-semibold leading-none tabular-nums text-success">{formatoEntero(totalPresentesSemana)}</p>
+              <p className="text-lg font-semibold leading-none tabular-nums text-success">{formatoEntero(totales.presentes)}</p>
               <p className="mt-0.5 truncate text-[11px] text-muted-foreground">presentes-día</p>
             </div>
           </div>
@@ -289,7 +466,7 @@ function AsistenciaSemanalAttendanceView({
               <UserX className="h-4 w-4" />
             </div>
             <div className="min-w-0">
-              <p className="text-lg font-semibold leading-none tabular-nums">{formatoEntero(totalFaltasSemana)}</p>
+              <p className="text-lg font-semibold leading-none tabular-nums">{formatoEntero(totales.faltas)}</p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">ausencias</p>
             </div>
           </div>
@@ -298,7 +475,7 @@ function AsistenciaSemanalAttendanceView({
               <ShieldOff className="h-4 w-4" />
             </div>
             <div className="min-w-0">
-              <p className="text-lg font-semibold leading-none tabular-nums">{formatoEntero(totalBajasSemana)}</p>
+              <p className="text-lg font-semibold leading-none tabular-nums">{formatoEntero(totales.conBaja)}</p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">con baja laboral</p>
             </div>
           </div>
@@ -307,7 +484,7 @@ function AsistenciaSemanalAttendanceView({
               <Users className="h-4 w-4" />
             </div>
             <div className="min-w-0">
-              <p className="text-lg font-semibold leading-none tabular-nums">{formatoEntero(totalSinRegistrarSemana)}</p>
+              <p className="text-lg font-semibold leading-none tabular-nums">{formatoEntero(totales.sinRegistrar)}</p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">sin marcar</p>
             </div>
           </div>
@@ -318,8 +495,11 @@ function AsistenciaSemanalAttendanceView({
         <CardHeader className="border-b border-[var(--glass-border)] pb-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
             <div>
-              <CardTitle className="text-lg">Faltas semanales</CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">{incluirSabado ? "Lun a Sab" : "Lun a Vie"} &middot; Domingo no laborable</p>
+              <CardTitle className="text-lg">Asistencia por trabajador</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {formatoEntero(diasLaborables.length)} días laborables ({incluirSabado ? "Lun a Sáb" : "Lun a Vie"}) &middot; Domingo no laborable
+                {conRejilla ? "" : " · periodo largo: el día a día está en el Excel"}
+              </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/50">
@@ -331,12 +511,14 @@ function AsistenciaSemanalAttendanceView({
                 />
                 Incluir sábado
               </label>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-success" /> Presente</span>
-                <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-destructive" /> Ausente</span>
-                <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-info" /> Baja</span>
-                <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-warning" /> Sin reg.</span>
-              </div>
+              {conRejilla && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-success" /> Presente</span>
+                  <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-destructive" /> Ausente</span>
+                  <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-info" /> Baja</span>
+                  <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-warning" /> Sin reg.</span>
+                </div>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -347,14 +529,15 @@ function AsistenciaSemanalAttendanceView({
                 <tr className="border-b border-[var(--glass-border)] bg-[var(--glass-bg-strong)]">
                   <th className="sticky left-0 z-20 bg-[var(--glass-bg-solid)] px-3 py-3 text-left text-xs font-bold uppercase text-muted-foreground">Trabajador</th>
                   <th className="px-3 py-3 text-left text-xs font-bold uppercase text-muted-foreground">Zona</th>
-                  {dates.map((date, i) => {
-                    const esDomingo = new Date(date + "T12:00:00").getDay() === 0;
-                    const esSabado = new Date(date + "T12:00:00").getDay() === 6;
+                  {conRejilla && dias.map((date) => {
+                    const d = new Date(date + "T12:00:00");
+                    const esDomingo = d.getDay() === 0;
+                    const esSabado = d.getDay() === 6;
                     const noLaborable = esDomingo || (esSabado && !incluirSabado);
                     return (
                       <th key={date} className={cn("text-center px-2 py-3 text-xs font-bold uppercase", noLaborable ? "text-muted-foreground/40" : "text-muted-foreground")}>
-                        <div>{WEEKLY_DAY_ABBR[i]}</div>
-                        <div className="text-[10px] font-normal">{new Date(date + "T12:00:00").getDate()}</div>
+                        <div>{DIA_ABBR[d.getDay()]}</div>
+                        <div className="text-[10px] font-normal">{d.getDate()}</div>
                         {noLaborable && <div className="text-[8px] font-normal mt-0.5">festivo</div>}
                       </th>
                     );
@@ -362,13 +545,15 @@ function AsistenciaSemanalAttendanceView({
                   <th className="text-center px-2 py-3 text-xs font-bold uppercase text-muted-foreground">Faltas</th>
                   <th className="text-center px-2 py-3 text-xs font-bold uppercase text-muted-foreground">Bajas</th>
                   <th className="text-center px-2 py-3 text-xs font-bold uppercase text-muted-foreground">Pres.</th>
+                  <th className="text-center px-2 py-3 text-xs font-bold uppercase text-muted-foreground">Sin marcar</th>
+                  <th className="text-center px-2 py-3 text-xs font-bold uppercase text-muted-foreground">% asist.</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--glass-border)]">
                 {faltas.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                      Sin datos de asistencia para esta semana.
+                    <td colSpan={conRejilla ? dias.length + 6 : 6} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      Sin datos de asistencia en este periodo.
                     </td>
                   </tr>
                 ) : (
@@ -378,7 +563,7 @@ function AsistenciaSemanalAttendanceView({
                       <tr key={row.trabajadorId} className={cn("hover:bg-[var(--color-surface-hover)]", zebraClass)}>
                         <td className="sticky left-0 z-10 bg-[var(--glass-bg-solid)] px-3 py-2 text-sm font-semibold">{row.nombre}</td>
                         <td className="px-3 py-2 text-xs text-muted-foreground">{row.zona ?? "—"}</td>
-                        {dates.map((date) => {
+                        {conRejilla && dias.map((date) => {
                           const status = row.days[date] ?? "sinRegistrar";
                           return (
                             <td key={date} className="px-2 py-2 text-center">
@@ -391,6 +576,10 @@ function AsistenciaSemanalAttendanceView({
                         <td className="px-2 py-2 text-center text-sm font-semibold text-destructive">{row.totalFaltas || "—"}</td>
                         <td className="px-2 py-2 text-center text-sm font-semibold text-info">{row.totalBajas || "—"}</td>
                         <td className="px-2 py-2 text-center text-sm font-semibold text-success">{row.totalPresentes || "—"}</td>
+                        <td className="px-2 py-2 text-center text-sm text-warning">{row.totalSinRegistrar || "—"}</td>
+                        <td className="px-2 py-2 text-center text-sm font-semibold tabular-nums">
+                          {row.diasComputados > 0 ? `${Math.round(row.pctAsistencia)} %` : "—"}
+                        </td>
                       </tr>
                     );
                   })
@@ -458,9 +647,14 @@ export default function Asistencia() {
   const [selectedGroup, setSelectedGroup] = useState("todos");
   const { parteDelDia } = useParteDelDia(selectedDate);
   const [exportingAsistencia, setExportingAsistencia] = useState<"excel" | "pdf" | "lista" | "parte" | null>(null);
-  const [viewMode, setViewMode] = useState<"daily" | "weekly">("daily");
-  const [weekStart, setWeekStart] = useState(() => getWeekDates(today())[0]);
-  const { semanaData, isFetching: loadingSemana } = useAsistenciaSemana(weekStart, viewMode === "weekly");
+  const [viewMode, setViewMode] = useState<"daily" | "periodo">("daily");
+  // El periodo arranca en la semana de hoy (lo de siempre), pero ya puede ser
+  // un mes, una campaña o un rango a mano: el selector manda y todo lo demás
+  // (carga, tabla y Excel) se calcula de `periodo.desde`/`periodo.hasta`.
+  const [periodo, setPeriodo] = useState<PeriodoValue>(() => hoyPeriodo("semana"));
+  const diasPeriodo = useMemo(() => enumerarDias(periodo.desde, periodo.hasta), [periodo.desde, periodo.hasta]);
+  const { periodoData, isFetching: loadingPeriodo } = useAsistenciaPeriodo(periodo.desde, periodo.hasta, viewMode === "periodo");
+  const { cobertura } = useAsistenciaCobertura();
   const [incluirSabado, setIncluirSabado] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(INCLUIR_SABADO_STORAGE_KEY) === "true";
@@ -647,23 +841,57 @@ export default function Asistencia() {
     }
   }
 
-  async function exportarSemanaExcel() {
-    if (!semanaData) {
-      toast({ title: "Sin datos", description: "No hay datos semanales para exportar.", variant: "destructive" });
-      return;
-    }
+  /**
+   * El informe de un periodo cualquiera (la semana que estás viendo, un mes,
+   * una campaña entera o un rango a mano). Antes solo sabía exportar la
+   * semana cargada en pantalla; ahora recarga el rango que se le pide, así
+   * que "toda la campaña" sale igual de bien sin tener que ir semana a semana.
+   *
+   * Los datos se piden de nuevo a propósito (no se reaprovecha lo que hay en
+   * pantalla): la vista de pantalla es solo asistencia y no trae la
+   * producción, que este Excel sí lleva.
+   */
+  async function exportarInformePeriodo(desde: string, hasta: string, etiqueta: string, nombreFichero: string) {
     setExportingAsistencia("excel");
     try {
-      const faltas = buildFaltasSemanalesFnc(semanaData, incluirSabado);
-      const kgP = calcularKgPersonaSemanal(semanaData, incluirSabado);
-      const grupos = calcularRendimientoGrupoSemanal(semanaData, incluirSabado);
-      const secciones = calcularKgSeccionSemanal(semanaData, incluirSabado);
-      const productos = productosClasificadosSemanales(semanaData, incluirSabado);
-      const weekLabel = getWeekLabel(semanaData.days);
+      // El futuro no se exporta: "Campaña entera" del 1 de septiembre llega
+      // hasta el 31 de agosto siguiente, y sacar 250 días de "sin marcar" que
+      // aún no han pasado no es un informe, es ruido. Se corta en hoy y se
+      // dice en la hoja Resumen.
+      const hoy = today();
+      const hastaReal = hasta < hoy ? hasta : hoy;
+      const recortadoAHoy = hastaReal !== hasta;
+      const dias = enumerarDias(desde, hastaReal);
+      if (dias.length === 0) {
+        toast({
+          title: "Nada que exportar",
+          description: "Ese periodo no tiene ningún día pasado: empieza más adelante de hoy.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const [datos, partes] = await Promise.all([
+        cargarAsistenciaPeriodo(desde, hastaReal),
+        cargarProduccionPeriodo(desde, hastaReal),
+      ]);
+      const periodoConProduccion: PeriodoAsistenciaRaw = { ...datos, partes };
+
+      const faltas = buildFaltasSemanalesFnc(periodoConProduccion, incluirSabado);
+      const resumenTrabajadores = resumirTrabajadoresPeriodo(faltas);
+      const totales = totalesPeriodo(faltas);
+      const kgP = calcularKgPersonaSemanal(periodoConProduccion, incluirSabado);
+      const grupos = calcularRendimientoGrupoSemanal(periodoConProduccion, incluirSabado);
+      const secciones = calcularKgSeccionSemanal(periodoConProduccion, incluirSabado);
+      const productos = productosClasificadosSemanales(periodoConProduccion, incluirSabado);
+      const laborables = getDiasLaborables(dias, incluirSabado);
+      const laborablesSet = new Set(laborables);
+      const marcasPorDia = contarMarcasPorDia(periodoConProduccion.asistencia);
+      const laborablesSinDatos = laborables.filter((dia) => !marcasPorDia.has(dia));
 
       const ctx = crearLibroLasarte({
-        titulo: `Informe semanal ${weekLabel}`,
-        periodo: weekLabel,
+        titulo: `Informe de asistencia · ${etiqueta}`,
+        periodo: `${desde} a ${hastaReal}`,
         clasificacion: "RRHH",
       });
 
@@ -671,18 +899,79 @@ export default function Asistencia() {
         nombreHoja: "Resumen",
         columnas: RESUMEN_ASISTENCIA_COLUMNAS,
         filas: [
-          { Campo: "Semana", Valor: weekLabel },
+          { Campo: "Periodo", Valor: etiqueta },
+          { Campo: "Desde", Valor: desde },
+          { Campo: "Hasta", Valor: hastaReal },
+          ...(recortadoAHoy ? [{ Campo: "Nota", Valor: `El periodo llega al ${hasta}; se corta hoy porque el resto no ha pasado` }] : []),
           { Campo: "Días laborables", Valor: incluirSabado ? "Lun a Sáb" : "Lun a Vie" },
-          { Campo: "Días con datos", Valor: kgP.diasConDatos },
+          { Campo: "Días laborables del periodo", Valor: laborables.length },
+          { Campo: "Días laborables sin datos volcados", Valor: laborablesSinDatos.length },
+          { Campo: "Días con producción", Valor: kgP.diasConDatos },
           { Campo: "Kg totales", Valor: Math.round(kgP.totalKg) },
           { Campo: "Media personas/dia total", Valor: +kgP.mediaPersonasTotales.toFixed(1) },
           { Campo: "Media personas/dia computables", Valor: +kgP.mediaPersonasComputables.toFixed(1) },
-          { Campo: "Kg/persona semanal", Valor: Math.round(kgP.kgPersona) },
-          { Campo: "Total ausencias", Valor: faltas.reduce((s: number, r: { totalFaltas: number }) => s + r.totalFaltas, 0) },
-          { Campo: "Bajas laborales distintas", Valor: faltas.filter((r: { totalBajas: number }) => r.totalBajas > 0).length },
+          { Campo: "Kg/persona del periodo", Valor: Math.round(kgP.kgPersona) },
+          { Campo: "Presentes-día", Valor: totales.presentes },
+          { Campo: "Total ausencias", Valor: totales.faltas },
+          { Campo: "Días de baja laboral", Valor: totales.bajas },
+          { Campo: "Trabajadores con baja laboral", Valor: totales.conBaja },
+          { Campo: "Marcas sin registrar", Valor: totales.sinRegistrar },
         ],
         freeze: false,
         autofilter: false,
+      });
+
+      // Hoja de cobertura: día a día, qué hay volcado y qué no. Es la que
+      // contesta en papel "¿de qué días tengo información?".
+      añadirHojaTabla(ctx, {
+        nombreHoja: "Cobertura por dia",
+        columnas: COBERTURA_DIA_COLUMNAS,
+        filas: dias.map((dia) => {
+          const d = new Date(dia + "T12:00:00");
+          const esLaborable = laborablesSet.has(dia);
+          const marcas = marcasPorDia.get(dia);
+          const parte = periodoConProduccion.partes[dia];
+          const kg = parte ? produccionRealParte(parte) || Number(parte.kg_produccion_calibrador) || 0 : 0;
+          return {
+            Fecha: dia,
+            Dia: DIA_ABBR[d.getDay()],
+            Laborable: esLaborable ? "Sí" : "No",
+            Registros: marcas?.registros ?? 0,
+            Presentes: marcas?.presentes ?? 0,
+            Ausentes: (marcas?.registros ?? 0) - (marcas?.presentes ?? 0),
+            Kg: Math.round(kg),
+            Estado: marcas ? "Con datos" : esLaborable ? "Sin datos volcados" : "No laborable",
+          };
+        }),
+      });
+
+      añadirHojaTabla(ctx, {
+        nombreHoja: "Asistencia por trabajador",
+        columnas: ASISTENCIA_TRABAJADOR_PERIODO_COLUMNAS,
+        filas: resumenTrabajadores.map((r) => ({
+          Trabajador: r.nombre,
+          Zona: normalizeAsistenciaExportZona(r.zona),
+          Presentes: r.totalPresentes,
+          Faltas: r.totalFaltas,
+          "Días de baja": r.totalBajas,
+          "Sin marcar": r.totalSinRegistrar,
+          "% asistencia": r.diasComputados > 0 ? +r.pctAsistencia.toFixed(2) : "",
+        })),
+      });
+
+      // Detalle crudo trabajador × día laborable: lo que RRHH necesita para
+      // cuadrar nóminas o revisar una campaña entera fuera de la herramienta.
+      añadirHojaTabla(ctx, {
+        nombreHoja: "Detalle por dia",
+        columnas: DETALLE_DIA_PERIODO_COLUMNAS,
+        filas: resumenTrabajadores.flatMap((r) =>
+          laborables.map((dia) => ({
+            Fecha: dia,
+            Trabajador: r.nombre,
+            Zona: normalizeAsistenciaExportZona(r.zona),
+            Estado: ESTADO_DIA_ETIQUETA[r.days[dia] ?? "sinRegistrar"],
+          })),
+        ),
       });
 
       añadirHojaTabla(ctx, {
@@ -709,19 +998,6 @@ export default function Asistencia() {
       });
 
       añadirHojaTabla(ctx, {
-        nombreHoja: "Faltas semanales",
-        columnas: FALTAS_SEMANA_COLUMNAS,
-        filas: faltas.map((r: { nombre: string; zona: string | null; totalFaltas: number; totalBajas: number; totalPresentes: number; totalSinRegistrar: number }) => ({
-          Trabajador: r.nombre,
-          Zona: normalizeAsistenciaExportZona(r.zona),
-          Faltas: r.totalFaltas,
-          "Bajas laborales": r.totalBajas > 0 ? "Sí" : "No",
-          "Días de baja": r.totalBajas,
-          Presentes: r.totalPresentes,
-        })),
-      });
-
-      añadirHojaTabla(ctx, {
         nombreHoja: "Productos clasificados",
         columnas: PRODUCTOS_CLASIFICADOS_SEMANA_COLUMNAS,
         filas: productos.map((p: { producto: string; empaque: string; kg: number; zona: string; computa: boolean }) => ({
@@ -733,13 +1009,40 @@ export default function Asistencia() {
         })),
       });
 
-      await descargarLibro(ctx, `informe_semanal_${weekStart}.xlsx`);
-      toast({ title: "Informe semanal descargado", description: weekLabel });
+      await descargarLibro(ctx, nombreFichero);
+      toast({
+        title: "Informe descargado",
+        description: recortadoAHoy ? `${etiqueta} (hasta hoy, ${hastaReal})` : etiqueta,
+      });
     } catch (err) {
       toast({ title: "Error al exportar", description: errorMessage(err), variant: "destructive" });
     } finally {
       setExportingAsistencia(null);
     }
+  }
+
+  /** El periodo que hay elegido en el selector, tal cual. */
+  function exportarPeriodoExcel() {
+    return exportarInformePeriodo(
+      periodo.desde,
+      periodo.hasta,
+      formatPeriodoLabel(periodo),
+      `asistencia_${periodo.desde}_${periodo.hasta}.xlsx`,
+    );
+  }
+
+  /**
+   * La campaña cítricola (1 sep – 31 ago) que contiene el periodo elegido,
+   * entera, sin tener que cambiar antes el selector.
+   */
+  function exportarCampanaExcel() {
+    const campana = periodoDeFecha("campana", periodo.desde);
+    return exportarInformePeriodo(
+      campana.desde,
+      campana.hasta,
+      campana.label,
+      `asistencia_campana_${campana.desde}_${campana.hasta}.xlsx`,
+    );
   }
 
   useEffect(() => {
@@ -1172,7 +1475,9 @@ export default function Asistencia() {
             {viewMode === "daily" ? (
               <span className="capitalize">{fechaDisplay}</span>
             ) : (
-              <span className="font-semibold">{getWeekLabel(getWeekDates(weekStart))}</span>
+              <span className="font-semibold">
+                {formatPeriodoLabel(periodo)} · {formatoEntero(contarDias(periodo.desde, periodo.hasta))} días
+              </span>
             )}
           </p>
           <Link
@@ -1192,12 +1497,12 @@ export default function Asistencia() {
             <CalendarDays className="h-3.5 w-3.5 mr-1" /> Día
           </Button>
           <Button
-            variant={viewMode === "weekly" ? "default" : "ghost"}
+            variant={viewMode === "periodo" ? "default" : "ghost"}
             size="sm"
-            onClick={() => setViewMode("weekly")}
-            className={cn("h-8 rounded-lg px-3 text-xs", viewMode !== "weekly" && "text-muted-foreground")}
+            onClick={() => setViewMode("periodo")}
+            className={cn("h-8 rounded-lg px-3 text-xs", viewMode !== "periodo" && "text-muted-foreground")}
           >
-            <CalendarDays className="h-3.5 w-3.5 mr-1" /> Semana
+            <CalendarRange className="h-3.5 w-3.5 mr-1" /> Periodo
           </Button>
         </div>
       </header>
@@ -1311,10 +1616,14 @@ export default function Asistencia() {
               onChange={(next) => setSelectedDate(next.desde)}
             />
           ) : (
+            // Semana / Mes / Campaña / Rango: el mismo selector de toda la
+            // herramienta, ahora con todas sus granularidades — antes esta
+            // página solo dejaba pasar de semana en semana.
             <SelectorPeriodo
               bare
-              value={{ modo: "semana", desde: weekStart, hasta: getWeekDates(weekStart)[6] }}
-              onChange={(next) => setWeekStart(next.desde)}
+              modos={["semana", "mes", "campana", "rango"]}
+              value={periodo}
+              onChange={setPeriodo}
             />
           )}
         </div>
@@ -1365,10 +1674,16 @@ export default function Asistencia() {
                   </DropdownMenuItem>
                 </>
               ) : (
-                <DropdownMenuItem disabled={exportingAsistencia !== null || !semanaData} onSelect={() => void exportarSemanaExcel()}>
-                  <FileText className="mr-2 h-4 w-4" />
-                  Informe semanal Excel
-                </DropdownMenuItem>
+                <>
+                  <DropdownMenuItem disabled={exportingAsistencia !== null} onSelect={() => void exportarPeriodoExcel()}>
+                    <FileText className="mr-2 h-4 w-4" />
+                    Periodo elegido Excel
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={exportingAsistencia !== null} onSelect={() => void exportarCampanaExcel()}>
+                    <CalendarRange className="mr-2 h-4 w-4" />
+                    Campaña entera Excel
+                  </DropdownMenuItem>
+                </>
               )}
               <DropdownMenuItem disabled={exportingAsistencia !== null} onSelect={() => exportarAsistencia("excel")}>
                 <FileText className="mr-2 h-4 w-4" />
@@ -1383,14 +1698,23 @@ export default function Asistencia() {
         </div>
       </div>
 
-      {viewMode === "weekly" ? (
-        <AsistenciaSemanalAttendanceView
-          semana={semanaData}
-          loading={loadingSemana}
-          weekStart={weekStart}
-          incluirSabado={incluirSabado}
-          onToggleSabado={toggleIncluirSabado}
-        />
+      {viewMode === "periodo" ? (
+        <div className="space-y-6">
+          <CoberturaAsistenciaPanel
+            cobertura={cobertura}
+            dias={diasPeriodo}
+            incluirSabado={incluirSabado}
+            onIrAMes={(primerDiaDelMes) => setPeriodo(periodoDeFecha("mes", primerDiaDelMes))}
+            onVerTodo={(desde, hasta) => setPeriodo(rangoPersonalizado(desde, hasta))}
+          />
+          <AsistenciaPeriodoView
+            periodo={periodoData}
+            loading={loadingPeriodo}
+            dias={diasPeriodo}
+            incluirSabado={incluirSabado}
+            onToggleSabado={toggleIncluirSabado}
+          />
+        </div>
       ) : (
       <div className="space-y-6">
       <div>

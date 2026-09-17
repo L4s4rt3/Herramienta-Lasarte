@@ -4080,6 +4080,15 @@ export type Database = {
       }
     }
     Views: {
+      asistencia_cobertura_dia: {
+        Row: {
+          ausentes: number | null
+          fecha: string | null
+          presentes: number | null
+          registros: number | null
+        }
+        Relationships: []
+      }
       clasificacion_lote: {
         Row: {
           archivo_id: string | null

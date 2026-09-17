@@ -1,8 +1,9 @@
 /**
  * useAsistencia — cargas y mutaciones de la página de Asistencia (RRHH):
  * plantilla de trabajadores, asistencia/bajas laborales del día seleccionado,
- * parte diario de producción (para kg/persona), datos semanales de asistencia
- * y el histórico de eficiencia kg/persona.
+ * parte diario de producción (para kg/persona), la asistencia de un PERIODO
+ * cualquiera (semana, mes, campaña o rango a mano), qué días tienen datos
+ * volcados y el histórico de eficiencia kg/persona.
  *
  * Dataset COMPARTIDO entre usuarios (UNIQUE(date, trabajador_id) en
  * asistencia_detalle, editado en vivo desde varias sesiones a la vez): las
@@ -37,7 +38,15 @@ import {
   buildSemanasAsistenciaComparativa,
   type SemanaComparativaData,
 } from "@/lib/asistenciaComparativa";
-import { getWeekDates, type SemanaDataRaw } from "@/lib/asistenciaSemanal";
+import type { PeriodoAsistenciaRaw } from "@/lib/asistenciaSemanal";
+import {
+  enumerarDias,
+  resumirCobertura,
+  trocear,
+  type CoberturaAsistencia,
+  type DiaCoberturaRow,
+} from "@/lib/asistenciaPeriodo";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import type { AsistenciaBajaLaboralRow, TrabajadorRow } from "@/lib/types";
 
 export const BAJA_LABORAL_MOTIVO = "baja_laboral";
@@ -95,8 +104,21 @@ export function asistenciaDiaKey(date: string) {
 export function asistenciaParteDiaKey(date: string) {
   return ["asistencia", "parte-dia", date] as const;
 }
-export function asistenciaSemanaKey(weekStart: string) {
-  return ["asistencia", "semana", weekStart] as const;
+export function asistenciaPeriodoKey(desde: string, hasta: string) {
+  return ["asistencia", "periodo", desde, hasta] as const;
+}
+export const ASISTENCIA_COBERTURA_KEY = ["asistencia", "cobertura"] as const;
+
+/**
+ * Todo lo que se calcula A PARTIR de asistencia_detalle y por tanto queda
+ * desfasado en cuanto alguien pasa lista o importa un volcado: la vista de
+ * periodo (cualquier rango) y el mapa de qué días tienen datos. Se llama
+ * desde cada escritura, para que no haga falta recargar la página para que
+ * un día recién marcado aparezca en el mes o en la cobertura.
+ */
+function invalidarAsistenciaDerivada(queryClient: ReturnType<typeof useQueryClient>) {
+  void queryClient.invalidateQueries({ queryKey: ["asistencia", "periodo"] });
+  void queryClient.invalidateQueries({ queryKey: ASISTENCIA_COBERTURA_KEY });
 }
 
 /** Toast estándar al asentarse un error de carga (no mientras sigue reintentando). */
@@ -277,6 +299,7 @@ export function useAsistenciaDia(date: string) {
     },
     onSuccess: async (_result, input) => {
       if (input.presente) await cerrarBajaLaboralAbierta(input.trabajadorId, date);
+      invalidarAsistenciaDerivada(queryClient);
     },
   });
 
@@ -298,6 +321,7 @@ export function useAsistenciaDia(date: string) {
       void queryClient.invalidateQueries({ queryKey });
     },
     onSuccess: () => {
+      invalidarAsistenciaDerivada(queryClient);
       toast({ title: "Asistencia del día limpiada" });
     },
   });
@@ -326,6 +350,7 @@ export function useAsistenciaDia(date: string) {
       for (const trabajador of activos) {
         await cerrarBajaLaboralAbierta(trabajador.id, date);
       }
+      invalidarAsistenciaDerivada(queryClient);
       toast({ title: "Todos marcados como presentes" });
     },
     onError: (err) => {
@@ -361,6 +386,7 @@ export function useUpsertAsistenciaRegistros() {
       await Promise.all(
         Array.from(fechas).map((fecha) => queryClient.invalidateQueries({ queryKey: asistenciaDiaKey(fecha) })),
       );
+      invalidarAsistenciaDerivada(queryClient);
     },
   });
 }
@@ -393,73 +419,174 @@ export function useParteDelDia(date: string) {
   return { parteDelDia: query.data ?? null, query };
 }
 
-// ─── Semana ─────────────────────────────────────────────────────────────────
+// ─── Periodo (semana, mes, campaña o rango a mano) ──────────────────────────
+//
+// Hasta el 17-09-2026 esto solo sabía cargar UNA semana (`.in("date", dates)`
+// con las 7 fechas, y un SELECT de producto_dia por cada parte). Para un mes o
+// una campaña las dos cosas se rompen:
+//   · el `.in` de 365 fechas no cabe en la URL de PostgREST, y las ~15.000
+//     filas de asistencia_detalle de una campaña pasan del tope de 1.000 filas
+//     que el servidor recorta EN SILENCIO (ver src/lib/fetchAllRows.ts);
+//   · el SELECT por parte serían 250 idas y venidas.
+// Ahora se filtra por rango (gte/lte) con fetchAllRows, y la producción se
+// carga aparte y solo al exportar (ver cargarProduccionPeriodo).
 
-const ASISTENCIA_SEMANA_ERROR_GENERICO = "Error al cargar datos semanales";
-const ASISTENCIA_SEMANA_ERROR_INESPERADO = "Error inesperado al cargar datos semanales";
+const ASISTENCIA_PERIODO_ERROR_GENERICO = "Error al cargar la asistencia del periodo";
+const ASISTENCIA_PERIODO_ERROR_INESPERADO = "Error inesperado al cargar la asistencia del periodo";
 
-async function fetchAsistenciaSemana(weekStart: string): Promise<SemanaDataRaw> {
-  const dates = getWeekDates(weekStart);
-  const weekEnd = dates[dates.length - 1];
+/** Ids por tanda en los `.in(...)`: 80 UUID son ~3 KB de URL, muy por debajo del límite. */
+const IDS_POR_TANDA = 80;
+
+interface AsistenciaPeriodoFila {
+  trabajador_id: string;
+  date: string;
+  presente: boolean;
+  motivo_ausencia: string | null;
+}
+
+/**
+ * La asistencia del periodo, SIN producción: la vista de pantalla es solo
+ * asistencia (presentes / ausentes / bajas / sin marcar), así lo pidió el
+ * dueño. Traer los partes y sus productos aquí cargaría de más cada vez que
+ * se cambia de mes para nada.
+ */
+export async function cargarAsistenciaPeriodo(desde: string, hasta: string): Promise<PeriodoAsistenciaRaw> {
+  const dates = enumerarDias(desde, hasta);
 
   try {
-    const [asistenciaRes, bajasRes, trabajadoresRes, partesRes] = await Promise.all([
-      supabase.from("asistencia_detalle").select("trabajador_id, date, presente, motivo_ausencia").in("date", dates),
-      supabase.from("asistencia_bajas_laborales").select("*").lte("fecha_inicio", weekEnd).or(`fecha_fin.is.null,fecha_fin.gte.${dates[0]}`),
+    const [asistenciaFilas, bajasRes, trabajadoresRes] = await Promise.all([
+      // Orden estable (date + trabajador_id, que son la clave única de la
+      // tabla) porque fetchAllRows pagina: sin él una fila podría repetirse o
+      // saltarse entre páginas.
+      fetchAllRows<AsistenciaPeriodoFila>((from, to) =>
+        supabase
+          .from("asistencia_detalle")
+          .select("trabajador_id, date, presente, motivo_ausencia")
+          .gte("date", desde)
+          .lte("date", hasta)
+          .order("date", { ascending: true })
+          .order("trabajador_id", { ascending: true })
+          .range(from, to),
+      ),
+      supabase.from("asistencia_bajas_laborales").select("*").lte("fecha_inicio", hasta).or(`fecha_fin.is.null,fecha_fin.gte.${desde}`),
       supabase.from("trabajadores").select("*").order("nombre", { ascending: true }),
-      supabase
-        .from("partes_diarios")
-        .select("id, date, resumen_ia, kg_produccion_calibrador, kg_industria_manual, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
-        .in("date", dates),
     ]);
 
-    if (asistenciaRes.error || bajasRes.error || trabajadoresRes.error || partesRes.error) {
-      throw new Error(ASISTENCIA_SEMANA_ERROR_GENERICO);
+    if (bajasRes.error || trabajadoresRes.error) {
+      throw new Error(ASISTENCIA_PERIODO_ERROR_GENERICO);
     }
 
-    const partesMap: Record<string, SemanaDataRaw["partes"][string]> = {};
-    for (const parte of partesRes.data ?? []) {
-      const { data: productoDia } = await supabase
-        .from("producto_dia")
-        .select("linea, producto, formato_caja, kg, n_cajas, grupo_destino")
-        .eq("part_id", parte.id);
-      partesMap[parte.date] = { ...parte, producto_dia: productoDia ?? [] };
-    }
-
-    const asistenciaMap: SemanaDataRaw["asistencia"] = {};
-    for (const r of asistenciaRes.data ?? []) {
+    const asistenciaMap: PeriodoAsistenciaRaw["asistencia"] = {};
+    for (const r of asistenciaFilas) {
       if (!asistenciaMap[r.trabajador_id]) asistenciaMap[r.trabajador_id] = [];
       asistenciaMap[r.trabajador_id].push({ date: r.date, presente: r.presente, motivo_ausencia: r.motivo_ausencia });
     }
 
     return {
-      weekStart,
-      weekEnd,
+      desde,
+      hasta,
       days: dates,
       trabajadores: aplicarZonasOperativasTrabajadores(trabajadoresRes.data ?? []),
       asistencia: asistenciaMap,
       bajasLaborales: bajasRes.data ?? [],
-      partes: partesMap,
+      partes: {},
     };
   } catch (err) {
-    if (err instanceof Error && err.message === ASISTENCIA_SEMANA_ERROR_GENERICO) throw err;
-    throw new Error(ASISTENCIA_SEMANA_ERROR_INESPERADO);
+    if (err instanceof Error && err.message === ASISTENCIA_PERIODO_ERROR_GENERICO) throw err;
+    throw new Error(ASISTENCIA_PERIODO_ERROR_INESPERADO);
   }
 }
 
-/** Datos semanales de asistencia/producción. `habilitada` reproduce el `viewMode === "weekly"` del código legado. */
-export function useAsistenciaSemana(weekStart: string, habilitada: boolean) {
+/** Asistencia de un rango de fechas. `habilitada` evita cargar cuando la vista activa es la del día. */
+export function useAsistenciaPeriodo(desde: string, hasta: string, habilitada: boolean) {
   const { user } = useAuth();
   const query = useQuery({
-    queryKey: asistenciaSemanaKey(weekStart),
-    queryFn: () => fetchAsistenciaSemana(weekStart),
-    enabled: habilitada && Boolean(user),
+    queryKey: asistenciaPeriodoKey(desde, hasta),
+    queryFn: () => cargarAsistenciaPeriodo(desde, hasta),
+    enabled: habilitada && Boolean(user) && Boolean(desde) && Boolean(hasta),
     ...SIN_CACHE,
   });
 
   useToastOnQueryError(query.error, query.isFetching);
 
-  return { semanaData: query.data ?? null, isFetching: query.isFetching };
+  return { periodoData: query.data ?? null, isFetching: query.isFetching };
+}
+
+/**
+ * Los partes de producción del periodo con su producto_dia, indexados por
+ * fecha. Se llama BAJO DEMANDA desde el botón de exportar (el informe Excel sí
+ * lleva kg/persona, rendimiento por zona, kg por sección y productos), no en
+ * cada cambio de periodo de la pantalla.
+ */
+export async function cargarProduccionPeriodo(desde: string, hasta: string): Promise<PeriodoAsistenciaRaw["partes"]> {
+  const partes = await fetchAllRows<{ id: string; date: string } & Record<string, unknown>>((from, to) =>
+    supabase
+      .from("partes_diarios")
+      .select("id, date, resumen_ia, kg_produccion_calibrador, kg_industria_manual, kg_mujeres_calibrador, kg_reciclado_malla_z1, kg_reciclado_malla_z2")
+      .gte("date", desde)
+      .lte("date", hasta)
+      .order("date", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
+
+  const partesMap: PeriodoAsistenciaRaw["partes"] = {};
+  const productosPorParte = new Map<string, ProductoConfeccionDia[]>();
+
+  // producto_dia no tiene fecha: se pide por part_id, en tandas para que la
+  // lista de ids no reviente la URL (una campaña son ~250 partes).
+  for (const tanda of trocear(partes.map((p) => p.id), IDS_POR_TANDA)) {
+    const filas = await fetchAllRows<{ part_id: string } & ProductoConfeccionDia>((from, to) =>
+      supabase
+        .from("producto_dia")
+        .select("part_id, linea, producto, formato_caja, kg, n_cajas, grupo_destino")
+        .in("part_id", tanda)
+        .order("id", { ascending: true })
+        .range(from, to),
+    );
+    for (const fila of filas) {
+      const lista = productosPorParte.get(fila.part_id) ?? [];
+      lista.push(fila);
+      productosPorParte.set(fila.part_id, lista);
+    }
+  }
+
+  for (const parte of partes) {
+    partesMap[parte.date] = { ...parte, producto_dia: productosPorParte.get(parte.id) ?? [] };
+  }
+  return partesMap;
+}
+
+// ─── Cobertura: desde cuándo hasta cuándo hay asistencia ───────────────────
+
+/**
+ * Un renglón por día CON registros (vista `asistencia_cobertura_dia`). Con
+ * esto la página puede decir "hay datos del 18 may al 13 sep" y señalar los
+ * días laborables que faltan por volcar, sin que nadie tenga que ir pasando
+ * semana a semana. Son ~100 filas hoy y ~300 por campaña; aun así se pagina,
+ * que es la regla para cualquier SELECT sin tope por diseño.
+ */
+export function useAsistenciaCobertura() {
+  const { user } = useAuth();
+  const query = useQuery({
+    queryKey: ASISTENCIA_COBERTURA_KEY,
+    queryFn: async (): Promise<CoberturaAsistencia> => {
+      const filas = await fetchAllRows<DiaCoberturaRow>((from, to) =>
+        supabase
+          .from("asistencia_cobertura_dia")
+          .select("fecha, registros, presentes, ausentes")
+          .order("fecha", { ascending: true })
+          .range(from, to),
+      );
+      return resumirCobertura(filas);
+    },
+    enabled: Boolean(user),
+    ...SIN_CACHE,
+  });
+
+  useToastOnQueryError(query.error, query.isFetching, "Error al leer qué días tienen asistencia");
+
+  return { cobertura: query.data ?? null, isFetching: query.isFetching };
 }
 
 // ─── Eficiencia histórica (60 días, aún sin panel de visualización) ───────
