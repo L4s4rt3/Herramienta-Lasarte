@@ -24,7 +24,7 @@
 // misma razón: un apartado vacío es peor que no tenerlo.
 import {
   AlignmentType, BorderStyle, Document, Footer, Header, ImageRun, PageNumber, Packer,
-  Paragraph, Table, TableCell, TableRow, TextRun, VerticalAlign, WidthType,
+  Paragraph, Table, TableCell, TableLayoutType, TableRow, TextRun, VerticalAlign, WidthType,
 } from "docx";
 import type { InformeCampo } from "@/lib/campoInforme";
 import { etiquetaSemana, formatFechaLarga } from "@/lib/campoInforme";
@@ -137,13 +137,24 @@ function rejillaDatos(datos: Array<[string, string]>): Table {
     const der = datos[i + 1] ?? ["", ""];
     filas.push(new TableRow({ children: [celdaDato(izq[0], izq[1], mitad), celdaDato(der[0], der[1], mitad)] }));
   }
-  return new Table({ width: { size: ANCHO, type: WidthType.DXA }, borders: BORDES_LIMPIOS, rows: filas });
+  return new Table({
+    width: { size: ANCHO, type: WidthType.DXA },
+    // Sin columnWidths el visor de Word del móvil colapsa las columnas y el
+    // texto sale en vertical, una letra por línea. Word de escritorio las
+    // calcula solo y por eso no se veía en el ordenador.
+    columnWidths: [mitad, mitad],
+    layout: TableLayoutType.FIXED,
+    borders: BORDES_LIMPIOS,
+    rows: filas,
+  });
 }
 
 /** Recuadro de criterio: fondo gris y filete azul a la izquierda. */
 function recuadro(etiqueta: string, texto: string): Table {
   return new Table({
     width: { size: ANCHO, type: WidthType.DXA },
+    columnWidths: [ANCHO],
+    layout: TableLayoutType.FIXED,
     borders: BORDES_LIMPIOS,
     rows: [
       new TableRow({
@@ -216,7 +227,13 @@ function tabla(cabeceras: string[], filas: string[][], opts: OpcionesTabla = {})
     })),
   }));
 
-  return new Table({ width: { size: ANCHO, type: WidthType.DXA }, borders: BORDES_LIMPIOS, rows: [filaCabecera, ...cuerpo] });
+  return new Table({
+    width: { size: ANCHO, type: WidthType.DXA },
+    columnWidths: anchos,
+    layout: TableLayoutType.FIXED,
+    borders: BORDES_LIMPIOS,
+    rows: [filaCabecera, ...cuerpo],
+  });
 }
 
 /** Ficha fotográfica de un punto: código, milímetros, semana, coordenadas y foto. */
@@ -477,7 +494,13 @@ export function construirInformeCampoDocx(informe: InformeCampo, opts: OpcionesI
         mitad,
       ));
       if (celdas.length === 1) celdas.push(new TableCell({ width: { size: mitad, type: WidthType.DXA }, borders: BORDES_LIMPIOS, children: [parrafo("")] }));
-      hijos.push(new Table({ width: { size: ANCHO, type: WidthType.DXA }, borders: BORDES_LIMPIOS, rows: [new TableRow({ children: celdas })] }));
+      hijos.push(new Table({
+        width: { size: ANCHO, type: WidthType.DXA },
+        columnWidths: [mitad, mitad],
+        layout: TableLayoutType.FIXED,
+        borders: BORDES_LIMPIOS,
+        rows: [new TableRow({ children: celdas })],
+      }));
     }
     hijos.push(pieFigura("Fichas fotográficas de los puntos de muestreo."));
   }
