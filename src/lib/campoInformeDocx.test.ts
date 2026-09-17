@@ -102,6 +102,21 @@ describe("el .docx del informe de campo", () => {
     expect(tablas).toEqual(tablas.map((_, i) => i + 1));
   });
 
+  it("sin visita, el informe NO dice 'Visita presencial' en el subtítulo", async () => {
+    const conVisita = await xmlDelInforme();
+    expect(conVisita).toContain("Visita presencial, muestreo y seguimiento de calibre");
+
+    const sinVisita = armarInformeCampo({
+      ...entrada,
+      informe: { ...entrada.informe, fecha_visita: null, personal: null },
+    });
+    const zip = await JSZip.loadAsync(await Packer.toBuffer(construirInformeCampoDocx(sinVisita)));
+    const xml = await zip.file("word/document.xml")!.async("string");
+    expect(xml).toContain("Muestreo y seguimiento de calibre");
+    expect(xml).not.toContain("Visita presencial");
+    expect(xml).toContain("Seguimiento sin visita");
+  });
+
   it("un punto sin coordenadas sale con raya, no con 'undefined'", async () => {
     const xml = await xmlDelInforme();
     expect(xml).not.toContain("undefined");

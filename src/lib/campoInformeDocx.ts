@@ -279,7 +279,12 @@ export function construirInformeCampoDocx(informe: InformeCampo, opts: OpcionesI
   }
   hijos.push(new Paragraph({ spacing: { after: 40 }, children: [run("INFORME TECNICO DE CAMPO", { size: SZ_MICRO + 2, color: AZUL_ETIQUETA, bold: true })] }));
   hijos.push(new Paragraph({ spacing: { after: 60 }, children: [run(`Finca ${informe.ficha.finca}`, { size: SZ_TITULO, color: AZUL_TITULO, bold: true })] }));
-  hijos.push(parrafo("Visita presencial, muestreo y seguimiento de calibre", { size: SZ_PEQUENO, color: GRIS_SUAVE, after: 240 }));
+  // El subtítulo dice la verdad: sin fecha de visita no hubo visita presencial,
+  // y un informe no puede empezar diciendo que sí (Sonsailla, 17-09-2026).
+  hijos.push(parrafo(
+    informe.fechaVisita ? "Visita presencial, muestreo y seguimiento de calibre" : "Muestreo y seguimiento de calibre",
+    { size: SZ_PEQUENO, color: GRIS_SUAVE, after: 240 },
+  ));
 
   const nPuntos = informe.puntos.puntos.length;
   const muestreo = nPuntos > 0
