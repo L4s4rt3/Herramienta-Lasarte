@@ -407,7 +407,7 @@ export function armarInformeCampo(e: EntradaInformeCampo): InformeCampo {
     : null;
 
   const faltan: string[] = [];
-  if (puntos.puntos.length === 0) faltan.push("No hay puntos de muestreo: el informe saldrá sin la tabla de puntos ni el mapa.");
+  if (puntos.puntos.length === 0) faltan.push("No hay puntos de muestreo: el informe sale sin la tabla de puntos ni fichas fotográficas (el mapa de la parcela sí se puede dibujar).");
   if (calibre.puntos.length === 0) faltan.push("Aerobotics no tiene medidas de calibre casadas con esta finca: falta la evolución y la previsión.");
   if (!e.imagenes.some((i) => i.tipo === "estructura")) faltan.push("Falta la captura de la estructura de tamaño de Aeroview (Figura 1).");
   if (!e.imagenes.some((i) => i.tipo === "mapa")) {
