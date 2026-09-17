@@ -26,6 +26,9 @@ import {
   type CalidadImportFoto,
 } from "@/lib/calidadImport";
 import { generarInformeCalidadImportBlob, type ImagenInforme } from "@/lib/calidadImportDocx";
+// Entregar el archivo y medir imágenes vive en su propia lib desde el 16-09-2026:
+// lo comparten este informe y el informe técnico de campo.
+import { blobAImagenInforme, cargarLogoInforme, DOCX_MIME, entregarArchivo } from "@/lib/entregarArchivo";
 import {
   cachearControl,
   cachearLista,
@@ -49,8 +52,6 @@ import {
 import type { Json, TablesInsert } from "@/integrations/supabase/types";
 
 const BUCKET = "partes-archivos";
-const LOGO_PATH = "/branding/lasarte-logo-horizontal.jpg";
-const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 export const calidadImportListaKey = ["calidad-import-controles"] as const;
 export const calidadImportControlKey = (id: string) => ["calidad-import-control", id] as const;
@@ -842,13 +843,6 @@ async function comprimirFoto(file: File): Promise<{ blob: Blob; extension: strin
 
 // ─── Informe Word ────────────────────────────────────────────────────────────
 
-async function blobAImagenInforme(blob: Blob, tipo: "jpg" | "png"): Promise<ImagenInforme> {
-  const bitmap = await createImageBitmap(blob);
-  const { width, height } = bitmap;
-  bitmap.close();
-  return { data: await blob.arrayBuffer(), width, height, tipo };
-}
-
 async function descargarDeStorage(path: string): Promise<Blob | null> {
   try {
     const { data, error } = await conTimeout(supabase.storage.from(BUCKET).download(path), 15000, "el almacén de fotos");
@@ -857,37 +851,6 @@ async function descargarDeStorage(path: string): Promise<Blob | null> {
   } catch {
     return null;
   }
-}
-
-/** En iPhone/iPad y Android la hoja de compartir nativa es el camino cómodo
- * (Mail/WhatsApp/Guardar en Archivos/Guardar imagen) Y el fiable: la descarga
- * de blobs en una PWA instalada en iOS falla en silencio. En escritorio,
- * descarga normal. Sirve tanto para el informe Word como para las fotos. */
-async function entregarArchivo(blob: Blob, filename: string, mime: string): Promise<"compartido" | "descargado" | "cancelado"> {
-  const esMovil = typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-  const file = new File([blob], filename, { type: mime });
-  if (esMovil && typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: filename });
-      return "compartido";
-    } catch (error) {
-      // Cancelar la hoja de compartir no es un fallo: no forzar la descarga.
-      if (error instanceof Error && error.name === "AbortError") return "cancelado";
-      // Cualquier otro fallo: se intenta la descarga clásica.
-    }
-  }
-  // MIME explícito siempre: con el genérico (o el de Excel) el visor del
-  // iPhone no sabía abrir el informe Word.
-  const url = URL.createObjectURL(new Blob([blob], { type: mime }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  // Revocar al momento aborta la descarga en iOS/Safari: se le da margen.
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  return "descargado";
 }
 
 /**
@@ -915,13 +878,7 @@ export async function generarYDescargarInforme(
 ): Promise<string | null> {
   // Logo corporativo (si falla o tarda, el informe sale con "LASARTE" en
   // texto; con la PWA instalada el logo está precacheado y va offline).
-  let logo: ImagenInforme | null = null;
-  try {
-    const respuesta = await conTimeout(fetch(LOGO_PATH), 5000, "el logo");
-    if (respuesta.ok) logo = await blobAImagenInforme(await respuesta.blob(), "jpg");
-  } catch {
-    logo = null;
-  }
+  const logo: ImagenInforme | null = await cargarLogoInforme();
 
   const imagenes: ImagenInforme[] = [];
   for (const foto of [...fotos].sort((a, b) => a.orden - b.orden || (a.created_at ?? "").localeCompare(b.created_at ?? ""))) {

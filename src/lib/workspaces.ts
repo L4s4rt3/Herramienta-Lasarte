@@ -179,7 +179,7 @@ export const WORKSPACE_DISPLAY_ORDER: WorkspaceId[] = [
  * sidebar (AppLayout), la paleta de comandos y el mapa de la herramienta.
  * "/campo/comunicaciones" NO está aquí: esa es de Jesús y tiene su propia RPC.
  */
-export const PAGINAS_DE_CAMPO = ["/campo/parcelas", "/campo/prevision"] as const;
+export const PAGINAS_DE_CAMPO = ["/campo/parcelas", "/campo/prevision", "/campo/informe"] as const;
 
 export function esPaginaDeCampo(ruta: string): boolean {
   return (PAGINAS_DE_CAMPO as readonly string[]).includes(ruta);
@@ -246,6 +246,7 @@ export const NAV_GROUPS: Array<{ label: string; workspace: WorkspaceId; items: N
     items: [
       { to: "/campo/parcelas", label: "Parcelas", icon: Sprout },
       { to: "/campo/prevision", label: "Previsión de campaña", icon: TrendingUp },
+      { to: "/campo/informe", label: "Informe de finca", icon: FileText },
       { to: "/campo/comunicaciones", label: "Comunicaciones de campaña", icon: Send },
     ],
   },

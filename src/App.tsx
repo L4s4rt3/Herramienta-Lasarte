@@ -52,6 +52,7 @@ const SafCamiones = lazy(pageLoaders.safCamiones);
 const ComunicacionesCampo = lazy(pageLoaders.comunicacionesCampo);
 const CampoParcelas = lazy(pageLoaders.campoParcelas);
 const CampoPrevision = lazy(pageLoaders.campoPrevision);
+const CampoInforme = lazy(pageLoaders.campoInforme);
 const ExcelViewerPage = lazy(() => import("@/pages/ExcelViewerPage"));
 
 // ─── Rediseño 13-08-2026: páginas que alojan varias vistas en pestañas ──────
@@ -142,6 +143,9 @@ const App = () => (
                       {/* Previsión de campaña: kilos por semana de lo que va a
                           entrar, con el calendario de Aerobotics donde lo hay. */}
                       <Route path="/campo/prevision" element={<CampoPrevision />} />
+                      {/* Campo → Informe de finca (16-09-2026): el informe técnico
+                          de campo del modelo Ganchal, para cualquier finca. */}
+                      <Route path="/campo/informe" element={<CampoInforme />} />
                       <Route path="/analisis/diario" element={<AnalisisDiario />} />
                       <Route path="/ventas/categoria-segunda" element={<ComercialVentasCategoria />} />
                       <Route path="/direccion" element={<DireccionDashboard />} />

@@ -33,7 +33,7 @@
 // recolección y comisión. Esta página es de campo, no de compras: no se pintan.
 import { lazy, Suspense, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ExternalLink, Search, Sprout, Trees } from "lucide-react";
+import { ArrowLeft, ExternalLink, FileText, Search, Sprout, Trees } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -154,13 +154,22 @@ export default function CampoParcelas() {
           {/* El análisis completo (clases, calibres, Mercadona, lote a lote) vive
               en Análisis → Por productor, que es de admin: el enlace solo se
               pinta a quien puede entrar, para no mandar a nadie a un muro. */}
-          {role === "admin" && (
+          <div className="flex flex-wrap gap-2">
+            {/* Desde la parcela al informe técnico de esa finca, con la finca ya
+                elegida: es el mismo camino que hace quien vuelve del campo. */}
             <Button asChild variant="outline" size="sm">
-              <Link to={`/productores?vista=aprovechamiento-real&finca=${encodeURIComponent(elegida.finca)}&parcelas=${encodeURIComponent(elegida.parcela || "~")}`}>
-                Análisis completo <ExternalLink className="ml-1 h-3.5 w-3.5" />
+              <Link to={`/campo/informe?finca=${encodeURIComponent(elegida.finca)}`}>
+                Informe de finca <FileText className="ml-1 h-3.5 w-3.5" />
               </Link>
             </Button>
-          )}
+            {role === "admin" && (
+              <Button asChild variant="outline" size="sm">
+                <Link to={`/productores?vista=aprovechamiento-real&finca=${encodeURIComponent(elegida.finca)}&parcelas=${encodeURIComponent(elegida.parcela || "~")}`}>
+                  Análisis completo <ExternalLink className="ml-1 h-3.5 w-3.5" />
+                </Link>
+              </Button>
+            )}
+          </div>
         </div>
 
         <Suspense fallback={<Skeleton className="h-64 w-full" />}>
